@@ -1,0 +1,179 @@
+TASK: Modifica controllata del modello Exercise per Football Training Board (FTB)
+
+⚠️ VINCOLI ASSOLUTI (NON VIOLABILI)
+- NON modificare UI
+- NON modificare componenti frontend
+- NON modificare pagine
+- NON modificare routing
+- NON modificare autenticazione
+- NON modificare permessi / roles
+- NON modificare altri modelli (Player, Team, Training, ecc.)
+- NON rinominare file esistenti
+- NON fare refactor globali
+- NON toccare codice fuori dal dominio Exercise
+
+Se per qualsiasi motivo una modifica richiede cambi fuori da questi limiti:
+➡️ NON eseguirla
+➡️ segnala invece il problema in output
+
+---
+
+## 📁 FILE CHE PUOI TOCCARE (SOLO QUESTI)
+
+Puoi modificare SOLO file che matchano uno di questi pattern:
+
+- /exercise/*
+- /exercises/*
+- */exercise.model.*
+- */exercise.schema.*
+- */exercise.service.*
+- */exercise.controller.*
+- */exercise.repository.*
+- eventuali DTO collegati SOLO a Exercise
+
+❌ NON uscire da questi file
+❌ NON creare dipendenze verso altri moduli
+
+---
+
+## 🎯 OBIETTIVO
+
+Pulire e rendere corretto il salvataggio della lavagna tattica negli esercizi (FTB),
+senza rompere nulla del sistema esistente.
+
+---
+
+## 🔧 MODIFICHE CONSENTITE (SOLO QUESTE)
+
+### 1) Campo unico per la lavagna
+
+- Introduci (se non esiste) il campo:
+
+  statoLavagnaJson
+
+- Tipo: JSON / stringa serializzata
+
+- Deve contenere TUTTO lo stato della lavagna:
+  - giocatori
+  - coni
+  - frecce
+  - linee
+  - testi
+  - configurazione campo
+
+---
+
+### 2) Gestione campi legacy
+
+Se esistono:
+- drawingData
+- drawingElementsJson
+
+Allora:
+
+- NON eliminarli
+- NON rimuoverli dal database
+- NON rompere compatibilità
+
+Ma:
+
+- marcarli come DEPRECATED (commento nel codice)
+- NON usarli più come fonte primaria
+- usare SOLO statoLavagnaJson per:
+  - create
+  - update
+
+---
+
+### 3) Priorità lettura (fondamentale)
+
+Implementa questa logica in lettura:
+
+1. statoLavagnaJson
+2. drawingElementsJson
+3. drawingData
+
+👉 fallback automatico senza errori
+
+---
+
+### 4) Campo anteprima
+
+Aggiungi (se non esiste):
+
+- immagineAnteprima (oppure thumbnailUrl se naming già coerente)
+
+Tipo:
+- stringa / URL / file reference
+
+⚠️ NON implementare generazione immagine
+⚠️ solo predisposizione campo
+
+---
+
+### 5) Bozza
+
+Mantieni:
+- isDraft (o equivalente)
+
+NON modificare:
+- logica globale
+- altri flussi
+
+---
+
+### 6) Persistenza
+
+Aggiorna SOLO la logica Exercise:
+
+- createExercise → salva statoLavagnaJson
+- updateExercise → aggiorna statoLavagnaJson
+- getExercise → usa fallback corretto
+
+Se esistono:
+- DTO
+- mapper
+- validator
+
+👉 aggiorna SOLO quelli relativi a Exercise
+
+---
+
+## 🚫 COSA NON FARE (IMPORTANTISSIMO)
+
+- NON cambiare naming globale del progetto
+- NON rinominare campi esistenti usati altrove
+- NON fare migrazioni distruttive
+- NON eliminare colonne DB
+- NON modificare relazioni
+- NON toccare Player, Team, Training, Club, ecc.
+- NON introdurre nuove dipendenze
+- NON fare refactor architetturali
+
+---
+
+## 📤 OUTPUT RICHIESTO
+
+Alla fine mostrami SOLO:
+
+1. File modificati (lista precisa)
+2. Campi aggiunti
+3. Campi marcati come deprecated
+4. Eventuali note su compatibilità
+5. Eventuali rischi (SE presenti)
+
+❌ NON aggiungere miglioramenti extra
+❌ NON espandere il task
+❌ NON proporre refactor non richiesti
+
+---
+
+## 🧠 REGOLA FINALE
+
+Se hai dubbi:
+➡️ NON fare modifiche
+➡️ chiedi o segnala
+
+Ambito del task:
+👉 SOLO Exercise + salvataggio lavagna FTB
+👉 NIENTE ALTRO

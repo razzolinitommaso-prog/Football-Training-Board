@@ -1,0 +1,1033 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: Football Training Board API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: clubs
+    description: Club management
+  - name: users
+    description: User management
+  - name: teams
+    description: Team management
+  - name: players
+    description: Player management
+  - name: training
+    description: Training session management
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/register:
+    post:
+      operationId: registerUser
+      tags: [auth]
+      summary: Register a new user and club
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User and club created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: loginUser
+      tags: [auth]
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logoutUser
+      tags: [auth]
+      summary: Logout user
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get current user session
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /clubs:
+    get:
+      operationId: listClubs
+      tags: [clubs]
+      summary: List all clubs (admin only)
+      responses:
+        "200":
+          description: List of clubs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Club"
+
+  /clubs/me:
+    get:
+      operationId: getMyClub
+      tags: [clubs]
+      summary: Get current user's club
+      responses:
+        "200":
+          description: Club details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Club"
+        "404":
+          description: Club not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateMyClub
+      tags: [clubs]
+      summary: Update current user's club
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateClubRequest"
+      responses:
+        "200":
+          description: Updated club
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Club"
+
+  /clubs/me/members:
+    get:
+      operationId: listClubMembers
+      tags: [clubs]
+      summary: List members of current user's club
+      responses:
+        "200":
+          description: List of club members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClubMember"
+    post:
+      operationId: inviteClubMember
+      tags: [clubs]
+      summary: Invite a member to the club
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteMemberRequest"
+      responses:
+        "201":
+          description: Member invited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClubMember"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /clubs/me/members/{userId}:
+    patch:
+      operationId: updateClubMemberRole
+      tags: [clubs]
+      summary: Update a club member's role
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemberRoleRequest"
+      responses:
+        "200":
+          description: Updated member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClubMember"
+    delete:
+      operationId: removeClubMember
+      tags: [clubs]
+      summary: Remove a member from the club
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Member removed
+
+  /teams:
+    get:
+      operationId: listTeams
+      tags: [teams]
+      summary: List all teams in the club
+      responses:
+        "200":
+          description: List of teams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Team"
+    post:
+      operationId: createTeam
+      tags: [teams]
+      summary: Create a new team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeamRequest"
+      responses:
+        "201":
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /teams/{id}:
+    get:
+      operationId: getTeam
+      tags: [teams]
+      summary: Get a team by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Team details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "404":
+          description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateTeam
+      tags: [teams]
+      summary: Update a team
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTeamRequest"
+      responses:
+        "200":
+          description: Updated team
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+    delete:
+      operationId: deleteTeam
+      tags: [teams]
+      summary: Delete a team
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Team deleted
+
+  /players:
+    get:
+      operationId: listPlayers
+      tags: [players]
+      summary: List all players in the club
+      parameters:
+        - name: teamId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of players
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Player"
+    post:
+      operationId: createPlayer
+      tags: [players]
+      summary: Create a new player
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlayerRequest"
+      responses:
+        "201":
+          description: Player created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /players/{id}:
+    get:
+      operationId: getPlayer
+      tags: [players]
+      summary: Get a player by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Player details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+        "404":
+          description: Player not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updatePlayer
+      tags: [players]
+      summary: Update a player
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePlayerRequest"
+      responses:
+        "200":
+          description: Updated player
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+    delete:
+      operationId: deletePlayer
+      tags: [players]
+      summary: Delete a player
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Player deleted
+
+  /training-sessions:
+    get:
+      operationId: listTrainingSessions
+      tags: [training]
+      summary: List all training sessions in the club
+      parameters:
+        - name: teamId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of training sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrainingSession"
+    post:
+      operationId: createTrainingSession
+      tags: [training]
+      summary: Create a new training session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTrainingSessionRequest"
+      responses:
+        "201":
+          description: Training session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingSession"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /training-sessions/{id}:
+    get:
+      operationId: getTrainingSession
+      tags: [training]
+      summary: Get a training session by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Training session details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingSession"
+        "404":
+          description: Training session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateTrainingSession
+      tags: [training]
+      summary: Update a training session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTrainingSessionRequest"
+      responses:
+        "200":
+          description: Updated training session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainingSession"
+    delete:
+      operationId: deleteTrainingSession
+      tags: [training]
+      summary: Delete a training session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Training session deleted
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [clubs]
+      summary: Get dashboard statistics for the current club
+      responses:
+        "200":
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        clubName:
+          type: string
+        clubCity:
+          type: ["string", "null"]
+        clubCountry:
+          type: ["string", "null"]
+      required:
+        - email
+        - password
+        - firstName
+        - lastName
+        - clubName
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        club:
+          $ref: "#/components/schemas/Club"
+        role:
+          type: string
+      required:
+        - user
+        - club
+        - role
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - email
+        - firstName
+        - lastName
+        - createdAt
+
+    Club:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        city:
+          type: ["string", "null"]
+        country:
+          type: ["string", "null"]
+        logoUrl:
+          type: ["string", "null"]
+        foundedYear:
+          type: ["integer", "null"]
+        description:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - createdAt
+
+    UpdateClubRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        city:
+          type: ["string", "null"]
+        country:
+          type: ["string", "null"]
+        logoUrl:
+          type: ["string", "null"]
+        foundedYear:
+          type: ["integer", "null"]
+        description:
+          type: ["string", "null"]
+
+    ClubMember:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        role:
+          type: string
+        joinedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - email
+        - firstName
+        - lastName
+        - role
+        - joinedAt
+
+    InviteMemberRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+      required:
+        - email
+        - firstName
+        - lastName
+        - password
+        - role
+
+    UpdateMemberRoleRequest:
+      type: object
+      properties:
+        role:
+          type: string
+      required:
+        - role
+
+    Team:
+      type: object
+      properties:
+        id:
+          type: integer
+        clubId:
+          type: integer
+        name:
+          type: string
+        ageGroup:
+          type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        coachId:
+          type: ["integer", "null"]
+        coachName:
+          type: ["string", "null"]
+        playerCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - clubId
+        - name
+        - playerCount
+        - createdAt
+
+    CreateTeamRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        ageGroup:
+          type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        coachId:
+          type: ["integer", "null"]
+      required:
+        - name
+
+    UpdateTeamRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        ageGroup:
+          type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        coachId:
+          type: ["integer", "null"]
+
+    Player:
+      type: object
+      properties:
+        id:
+          type: integer
+        clubId:
+          type: integer
+        teamId:
+          type: ["integer", "null"]
+        teamName:
+          type: ["string", "null"]
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dateOfBirth:
+          type: ["string", "null"]
+        nationality:
+          type: ["string", "null"]
+        position:
+          type: ["string", "null"]
+        jerseyNumber:
+          type: ["integer", "null"]
+        status:
+          type: string
+        height:
+          type: ["integer", "null"]
+        weight:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - clubId
+        - firstName
+        - lastName
+        - status
+        - createdAt
+
+    CreatePlayerRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        teamId:
+          type: ["integer", "null"]
+        dateOfBirth:
+          type: ["string", "null"]
+        nationality:
+          type: ["string", "null"]
+        position:
+          type: ["string", "null"]
+        jerseyNumber:
+          type: ["integer", "null"]
+        status:
+          type: string
+        height:
+          type: ["integer", "null"]
+        weight:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+      required:
+        - firstName
+        - lastName
+        - status
+
+    UpdatePlayerRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        teamId:
+          type: ["integer", "null"]
+        dateOfBirth:
+          type: ["string", "null"]
+        nationality:
+          type: ["string", "null"]
+        position:
+          type: ["string", "null"]
+        jerseyNumber:
+          type: ["integer", "null"]
+        status:
+          type: string
+        height:
+          type: ["integer", "null"]
+        weight:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+
+    TrainingSession:
+      type: object
+      properties:
+        id:
+          type: integer
+        clubId:
+          type: integer
+        teamId:
+          type: ["integer", "null"]
+        teamName:
+          type: ["string", "null"]
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        scheduledAt:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: ["integer", "null"]
+        location:
+          type: ["string", "null"]
+        status:
+          type: string
+        objectives:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - clubId
+        - title
+        - scheduledAt
+        - status
+        - createdAt
+
+    CreateTrainingSessionRequest:
+      type: object
+      properties:
+        teamId:
+          type: ["integer", "null"]
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        scheduledAt:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: ["integer", "null"]
+        location:
+          type: ["string", "null"]
+        status:
+          type: string
+        objectives:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+      required:
+        - title
+        - scheduledAt
+        - status
+
+    UpdateTrainingSessionRequest:
+      type: object
+      properties:
+        teamId:
+          type: ["integer", "null"]
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        scheduledAt:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: ["integer", "null"]
+        location:
+          type: ["string", "null"]
+        status:
+          type: string
+        objectives:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+
+    DashboardStats:
+      type: object
+      properties:
+        totalTeams:
+          type: integer
+        totalPlayers:
+          type: integer
+        totalMembers:
+          type: integer
+        upcomingTrainingSessions:
+          type: integer
+        recentTrainingSessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrainingSession"
+      required:
+        - totalTeams
+        - totalPlayers
+        - totalMembers
+        - upcomingTrainingSessions
+        - recentTrainingSessions

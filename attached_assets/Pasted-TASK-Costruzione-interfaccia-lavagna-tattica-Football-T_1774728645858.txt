@@ -1,0 +1,181 @@
+TASK: Costruzione interfaccia lavagna tattica (Football Training Board - FTB)
+
+⚠️ VINCOLI ASSOLUTI (NON VIOLABILI)
+- NON modificare backend
+- NON modificare database
+- NON modificare modelli dati
+- NON modificare API
+- NON modificare autenticazione
+- NON modificare permessi / ruoli
+- NON modificare altre pagine
+- NON fare refactor globali
+
+👉 Lavora SOLO sulla UI della lavagna tattica (FTB)
+
+Se una modifica richiede cambi fuori dalla UI:
+➡️ NON eseguirla
+➡️ segnalala
+
+---
+
+## 🎯 OBIETTIVO
+
+Creare una lavagna tattica semplice, veloce e professionale per allenatori di calcio.
+
+La priorità è:
+- velocità d’uso
+- chiarezza visiva
+- semplicità
+
+---
+
+## 🧱 STRUTTURA UI (OBBLIGATORIA)
+
+Costruisci questo layout:
+
+### 1) TOP BAR (orizzontale in alto)
+Contiene SOLO:
+
+- titolo esercizio (editabile)
+- pulsante "Salva"
+- pulsante "Annulla"
+- pulsante "Duplica"
+- pulsante "Esporta" (placeholder ok)
+
+⚠️ niente altri elementi
+⚠️ design pulito e minimale
+
+---
+
+### 2) LAYOUT PRINCIPALE (3 colonne)
+
+STRUTTURA:
+
+[ Toolbar sinistra ] [ Canvas centrale ] [ Pannello destro ]
+
+---
+
+### 3) CANVAS CENTRALE (PRIORITÀ MASSIMA)
+
+- Deve occupare almeno 70-80% dello spazio
+- Sfondo: campo da calcio
+- Supporta:
+  - drag & drop elementi
+  - selezione elementi
+  - spostamento fluido
+- Deve essere visivamente pulito
+
+⚠️ questo è il cuore della UI
+
+---
+
+### 4) TOOLBAR SINISTRA
+
+Verticale, con icone grandi e chiare.
+
+Elementi minimi:
+
+- giocatore rosso
+- giocatore blu
+- portiere
+- cono
+- pallone
+- freccia
+- linea
+- testo
+- porta
+
+Comportamento:
+- click → aggiunge elemento al centro
+- oppure drag → trascina sul campo
+
+⚠️ NON aggiungere altri strumenti
+⚠️ UI semplice
+
+---
+
+### 5) PANNELLO DESTRO (DETTAGLI ESERCIZIO)
+
+Contiene:
+
+- titolo
+- categoria
+- durata
+- numero giocatori
+- descrizione
+
+⚠️ deve essere:
+- compatto
+- chiudibile / collapsable
+- NON invasivo
+
+---
+
+## 🎨 STILE VISIVO
+
+- moderno e pulito
+- NO design da gestionale
+- NO eccesso di colori
+- campo ben visibile
+- elementi grandi e leggibili
+
+---
+
+## ⚙️ INTERAZIONI BASE (MVP)
+
+Implementa SOLO queste:
+
+- aggiunta elemento
+- selezione elemento
+- trascinamento
+- eliminazione
+- duplicazione (base)
+- undo (se semplice, altrimenti placeholder)
+
+⚠️ NON implementare:
+- animazioni avanzate
+- multiplayer
+- timeline
+- AI
+- funzionalità complesse
+
+---
+
+## 📱 RESPONSIVE
+
+- ottimizza per desktop e tablet
+- mobile non prioritario ora
+
+---
+
+## 🚫 COSA NON FARE
+
+- NON aggiungere nuove feature
+- NON migliorare altre pagine
+- NON toccare libreria esercizi
+- NON cambiare naming globale
+- NON fare redesign completo app
+
+---
+
+## 📤 OUTPUT RICHIESTO
+
+Mostrami:
+
+1. struttura componenti creati
+2. file UI modificati
+3. eventuali placeholder inseriti
+4. cosa NON è stato implementato (se fuori scope)
+
+❌ NON espandere il task
+❌ NON proporre miglioramenti extra
+
+---
+
+## 🧠 REGOLA FINALE
+
+Focus:
+👉 velocità + semplicità + chiarezza
+
+Se qualcosa complica la UI:
+➡️ NON farlo

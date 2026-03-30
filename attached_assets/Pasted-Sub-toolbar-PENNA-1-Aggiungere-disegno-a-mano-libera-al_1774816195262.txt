@@ -1,0 +1,43 @@
+Sub-toolbar PENNA
+1. Aggiungere disegno a mano libera al popup tipi di linea (si aggiunge ai 12 esistenti)
+2. Aggiungere pulsante spessore tratto nella sub-toolbar con popup verticale a 4 dimensioni
+3. Il popup a 12 item rimane invariato
+
+Elementi ATTREZZATURA sul campo
+4. Elementi attrezzatura trascinabili dal sidebar al campo
+5. Context menu floating 3×2: Copia | Duplica | Elimina | Colore | Ingrandisci | Riduci
+
+Elementi GIOCATORI sul campo
+6. Context menu 2×2: Modifica | Ruota | Duplica | Copia
+Pannello Modifica: foto (camera/galleria) + Numero (input editabile + slider) + Nome (testo) + Ruolo (lista predefinita)
+
+Sub-toolbar SQUADRE (icona 2 persone)
+B. Sub-toolbar mostra le squadre assegnate all'utente loggato → selezione carica i giocatori sul campo
+
+Sub-toolbar GRIGLIA/MODULI
+C. Due sezioni: moduli standard + moduli salvati dal mister con tag "moduli squadra" (creare il tag se non esiste)
+
+Menu hamburger & icone top
+D. Menu hamburger "Dettagli & Strumenti" si apre in overlay, senza comprimere il campo
+E. Pulsante Elimina nei context menu richiede conferma (toast-based)
+F. Icona cartella (top) → dropdown: Carica Lavagna | Carica Rosa | Carica Modulo
+G. Icona dischetto (top) → dropdown: Salva | Esporta sulla galleria | Esporta e condividi
+
+Nuovi punti H, I, L
+H. Aggiungere icona impostazioni (⚙) che apre un pannello con:
+
+Tema: toggle 3 posizioni — Auto | Chiaro | Scuro
+Orientamento: toggle 3 posizioni — Auto | Portrait | Landscape
+Campo:
+Tipo: 5 varianti campo selezionabili (campo intero verticale, mezzo campo, ecc.)
+Sfondo: 5 colori (verde, blu, verde chiaro, bianco, grigio)
+Giocatori (con anteprima live):
+Toggle Aa Nome (mostra nome)
+Toggle Ruolo (mostra ruolo)
+Toggle Direzione
+Slider Misura (dimensione elemento giocatore)
+Squadre: lista delle squadre con toggle visibilità per ciascuna
+I. Migliorare la risoluzione del canvas (applicare il devicePixelRatio per rendering nitido su schermi ad alta densità)
+
+L. Correggere le linee del campo — si devono unire perfettamente senza gap in tutte le dimensioni, sia desktop che mobile
+

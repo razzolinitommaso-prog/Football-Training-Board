@@ -1,0 +1,265 @@
+Extend the existing application without breaking current functionality.
+
+Do NOT remove or overwrite existing models, routes or pages.
+Only extend and improve the current system.
+
+---
+
+1. ROLE SYSTEM
+
+Add roles:
+
+* admin
+* director
+* technical_director
+* secretary
+* coach
+* fitness_coach
+
+Each user must have:
+
+* role
+* club_id
+
+Implement role-based access control in backend and frontend.
+
+---
+
+2. PERMISSIONS
+
+ADMIN:
+
+* full access to all data and settings
+
+DIRECTOR:
+
+* view teams, players, staff, reports
+* cannot edit trainings or payments
+
+TECHNICAL DIRECTOR:
+
+* manage teams and coaches
+* evaluate players
+* cannot access payments
+
+SECRETARY:
+
+* manage players
+* manage registrations
+* manage documents
+* manage payments
+* manage equipment
+* cannot access training or tactics
+
+COACH:
+
+* manage own teams only
+* create trainings
+* manage exercises
+* use tactical board
+* manage match call-ups
+* cannot access payments or registrations
+
+FITNESS COACH:
+
+* manage fitness programs
+* track player performance
+* cannot access tactics or payments
+
+---
+
+3. SEASON SYSTEM
+
+Create Season model:
+
+* id
+* name
+* club_id
+* start_date
+* end_date
+* is_active
+
+Add season_id to:
+
+* teams
+* players
+* trainings
+
+Filter all data by active season.
+
+---
+
+4. MATCHES AND CALL-UPS
+
+Create Match model:
+
+* id
+* team_id
+* opponent
+* date
+* competition
+* location
+
+Create CallUp model:
+
+* id
+* match_id
+* player_id
+* status (pending, confirmed, declined)
+
+---
+
+5. TRAINING ATTENDANCE
+
+Create TrainingAttendance model:
+
+* id
+* training_id
+* player_id
+* status (present, absent, injured)
+
+---
+
+6. EXERCISE LIBRARY
+
+Create Exercise model:
+
+* id
+* title
+* category
+* description
+* duration
+* players_required
+* equipment
+
+Allow linking exercises to training sessions.
+
+---
+
+7. TACTICS LINK
+
+Ensure tactics can be:
+
+* saved
+* linked to a team
+* attached to training sessions
+
+---
+
+8. SECRETARY AREA
+
+Add full administrative area.
+
+PLAYER EXTENSION:
+
+* tax_code
+* birth_place
+* address
+* medical_certificate_expiry
+* registration_status
+
+COACH MANAGEMENT:
+
+* assign coach to team
+
+REGISTRATION MODEL:
+
+* player_id
+* season_id
+* status
+* date
+
+PAYMENT MODEL:
+
+* player_id
+* amount
+* due_date
+* status
+* payment_date
+
+DOCUMENT MODEL:
+
+* player_id
+* type
+* expiry_date
+
+EQUIPMENT MODEL:
+
+* player_id
+* kit_assigned
+* training_kit
+* match_kit
+
+---
+
+9. FITNESS COACH AREA
+
+Create:
+
+FitnessProgram:
+
+* team_id
+* title
+* description
+* duration
+* intensity_level
+
+PlayerFitnessData:
+
+* player_id
+* date
+* endurance
+* strength
+* speed
+* notes
+
+---
+
+10. BILLING SYSTEM (ADMIN ONLY)
+
+Create Subscription model:
+
+* club_id
+* plan_name (basic, pro, elite)
+* status
+* start_date
+* end_date
+
+Create Payment (billing) model:
+
+* club_id
+* amount
+* status
+* payment_date
+
+Track usage:
+
+* number_of_teams
+* number_of_players
+
+Enforce limits based on plan.
+
+---
+
+11. ACCESS CONTROL
+
+Restrict all routes based on:
+
+* role
+* club_id
+* team_id (for coach)
+
+Hide unauthorized pages in frontend.
+
+---
+
+12. UI UPDATES
+
+* role-based sidebar
+* secretary section
+* fitness section
+* admin billing section
+
+---
+
+Ensure the application remains stable and all new features integrate with the existing structure.

@@ -1,0 +1,22 @@
+packages:
+  "recharts": "For dashboard statistics visualization"
+  "framer-motion": "For page transitions and micro-interactions"
+  "date-fns": "For formatting training session dates and player birth dates"
+  "@hookform/resolvers": "For form validation with Zod"
+  "react-hook-form": "For robust form state management"
+  "zod": "Schema validation for forms"
+
+images:
+  - path: "artifacts/football-training-board/public/images/hero-bg.png"
+    description: "Abstract dark stadium background with dramatic lighting and a subtle football pitch grid pattern, deep navy and vibrant teal accents, highly polished, cinematic."
+    aspect_ratio: "16:9"
+  - path: "artifacts/football-training-board/public/images/tactic-board.png"
+    description: "Top-down view of a modern digital football tactic board with abstract player nodes, glowing lines, dark mode aesthetic, tech-focused."
+    aspect_ratio: "16:9"
+  - path: "artifacts/football-training-board/public/images/logo-icon.png"
+    description: "Minimalist geometric logo of a football hexagon/pentagon mixed with a shield, electric teal gradient on transparent background."
+    aspect_ratio: "1:1"
+
+notes:
+  - Assumes `@workspace/api-client-react` exports all generated hooks (e.g., `useGetCurrentUser`, `useLoginUser`) and types (e.g., `Player`, `Team`).
+  - Auth is handled via httpOnly cookies by the backend API.

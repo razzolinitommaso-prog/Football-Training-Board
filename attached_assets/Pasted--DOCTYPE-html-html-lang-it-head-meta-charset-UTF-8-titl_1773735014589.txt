@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<title>Football Training Board</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: Arial;
+  background: #0b1d13;
+  color: white;
+}
+
+/* HEADER */
+header {
+  padding: 10px;
+  background: #111;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* NAV */
+nav {
+  padding: 10px;
+  background: #1a1a1a;
+}
+
+button {
+  margin: 5px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+}
+
+/* PAGES */
+.page {
+  display: none;
+}
+
+.active {
+  display: block;
+}
+
+/* BOARD */
+canvas {
+  background: #2e7d32;
+  display: block;
+  margin: auto;
+  border: 3px solid #111;
+}
+
+/* SIDEBAR */
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 60px;
+  width: 200px;
+  height: 100%;
+  background: #111;
+  padding: 10px;
+}
+
+.main {
+  margin-left: 210px;
+}
+
+input {
+  padding: 6px;
+  margin: 5px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h2>⚽ Football Training Board</h2>
+  <div>
+    <button onclick="showPage('home')">Home</button>
+    <button onclick="showPage('workspace')">Workspace</button>
+    <button onclick="showPage('board')">Tactical Board</button>
+  </div>
+</header>
+
+<!-- HOME -->
+<div id="home" class="page active">
+  <div style="padding:20px">
+    <h1>Football Training Board</h1>
+    <button onclick="showPage('workspace')">Login Club</button>
+    <button>Register Club</button>
+  </div>
+</div>
+
+<!-- WORKSPACE -->
+<div id="workspace" class="page">
+  <div style="padding:20px">
+    <h2>Club Workspace</h2>
+    <p>Club: asdgavina</p>
+
+    <button onclick="showPage('board')">Coach Area</button>
+  </div>
+</div>
+
+<!-- BOARD -->
+<div id="board" class="page">
+
+  <div class="sidebar">
+    <h3>Tools</h3>
+    <button onclick="setTool('player')">👤 Player</button>
+    <button onclick="setTool('ball')">⚽ Ball</button>
+    <button onclick="setTool('cone')">🔺 Cone</button>
+    <button onclick="setTool('draw')">✏️ Draw</button>
+
+    <h3>Presets</h3>
+    <button onclick="preset433()">4-3-3</button>
+    <button onclick="preset442()">4-4-2</button>
+
+    <h3>Save</h3>
+    <input id="tacticName" placeholder="Nome tattica" />
+    <button onclick="saveTactic()">💾 Save</button>
+    <button onclick="loadTactics()">📂 Load</button>
+
+    <div id="tacticList"></div>
+  </div>
+
+  <div class="main">
+    <canvas id="canvas" width="900" height="500"></canvas>
+  </div>
+
+</div>
+
+<script>
+function showPage(id) {
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+/* BOARD LOGIC */
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let elements = [];
+let tool = "player";
+let drawing = false;
+let path = [];
+
+function drawField() {
+  ctx.fillStyle = "#2e7d32";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = "white";
+  ctx.strokeRect(10, 10, canvas.width-20, canvas.height-20);
+
+  ctx.beginPath();
+  ctx.moveTo(canvas.width/2, 10);
+  ctx.lineTo(canvas.width/2, canvas.height-10);
+  ctx.stroke();
+}
+
+function drawElements() {
+  elements.forEach(el => {
+    if (el.type === "player") {
+      ctx.fillStyle = "blue";
+      ctx.beginPath();
+      ctx.arc(el.x, el.y, 10, 0, Math.PI*2);
+      ctx.fill();
+    }
+    if (el.type === "ball") {
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(el.x, el.y, 5, 0, Math.PI*2);
+      ctx.fill();
+    }
+    if (el.type === "cone") {
+      ctx.fillStyle = "orange";
+      ctx.fillRect(el.x-5, el.y-5, 10, 10);
+    }
+    if (el.type === "path") {
+      ctx.strokeStyle = "yellow";
+      ctx.beginPath();
+      el.points.forEach((p,i)=>{
+        if(i===0) ctx.moveTo(p.x,p.y);
+        else ctx.lineTo(p.x,p.y);
+      });
+      ctx.stroke();
+    }
+  });
+}
+
+function render() {
+  drawField();
+  drawElements();
+}
+
+canvas.addEventListener("click", e => {
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  if(tool !== "draw"){
+    elements.push({type:tool,x,y});
+    render();
+  }
+});
+
+canvas.addEventListener("mousedown", () => {
+  if(tool==="draw"){
+    drawing=true;
+    path=[];
+  }
+});
+
+canvas.addEventListener("mousemove", e => {
+  if(!drawing) return;
+  const rect = canvas.getBoundingClientRect();
+
+  path.push({
+    x:e.clientX-rect.left,
+    y:e.clientY-rect.top
+  });
+
+  render();
+
+  ctx.beginPath();
+  path.forEach((p,i)=>{
+    if(i===0) ctx.moveTo(p.x,p.y);
+    else ctx.lineTo(p.x,p.y);
+  });
+  ctx.stroke();
+});
+
+canvas.addEventListener("mouseup", ()=>{
+  if(drawing){
+    elements.push({type:"path",points:path});
+    drawing=false;
+  }
+});
+
+function setTool(t){ tool=t }
+
+/* PRESETS */
+function preset433(){
+  elements = [];
+  const positions = [
+    [100,250],[250,100],[250,250],[250,400],
+    [400,150],[400,350],[550,250],
+    [700,100],[700,250],[700,400],[800,250]
+  ];
+  positions.forEach(p=>elements.push({type:"player",x:p[0],y:p[1]}));
+  render();
+}
+
+function preset442(){
+  elements = [];
+  const positions = [
+    [100,250],[250,100],[250,250],[250,400],
+    [400,100],[400,250],[400,400],[550,250],
+    [700,150],[700,350],[800,250]
+  ];
+  positions.forEach(p=>elements.push({type:"player",x:p[0],y:p[1]}));
+  render();
+}
+
+/* SAVE MULTI */
+function saveTactic(){
+  const name = document.getElementById("tacticName").value;
+  if(!name) return alert("Inserisci nome");
+
+  let tactics = JSON.parse(localStorage.getItem("tactics") || "[]");
+  tactics.push({name, data:elements});
+  localStorage.setItem("tactics", JSON.stringify(tactics));
+
+  alert("Salvata!");
+}
+
+function loadTactics(){
+  const list = document.getElementById("tacticList");
+  list.innerHTML="";
+
+  let tactics = JSON.parse(localStorage.getItem("tactics") || "[]");
+
+  tactics.forEach((t,i)=>{
+    const btn = document.createElement("button");
+    btn.innerText = t.name;
+    btn.onclick = ()=>{
+      elements = t.data;
+      render();
+    };
+    list.appendChild(btn);
+  });
+}
+
+render();
+</script>
+
+</body>
+</html>

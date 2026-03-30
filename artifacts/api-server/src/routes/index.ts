@@ -1,0 +1,44 @@
+import { Router, type IRouter } from "express";
+import healthRouter from "./health";
+import authRouter from "./auth";
+import clubsRouter from "./clubs";
+import teamsRouter from "./teams";
+import playersRouter from "./players";
+import trainingRouter from "./training";
+import fitnessRouter from "./fitness";
+import seasonsRouter from "./seasons";
+import matchesRouter from "./matches";
+import attendanceRouter from "./attendance";
+import exercisesRouter from "./exercises";
+import secretaryRouter from "./secretary";
+import billingRouter from "./billing";
+import teamAssignmentsRouter from "./team-assignments";
+import platformRouter from "./platform";
+import parentRouter from "./parent";
+import sectionsRouter from "./sections";
+import playerSeasonStatusRouter from "./player-season-status";
+import observedPlayersRouter from "./observed-players";
+
+const router: IRouter = Router();
+
+router.use(healthRouter);
+router.use(authRouter);
+router.use(clubsRouter);
+router.use(teamsRouter);
+router.use(playersRouter);
+router.use(trainingRouter);
+router.use(fitnessRouter);
+router.use(seasonsRouter);
+router.use(matchesRouter);
+router.use(attendanceRouter);
+router.use(exercisesRouter);
+router.use(secretaryRouter);
+router.use(billingRouter);
+router.use(teamAssignmentsRouter);
+router.use(platformRouter);
+router.use(parentRouter);
+router.use(sectionsRouter);
+router.use(playerSeasonStatusRouter);
+router.use(observedPlayersRouter);
+
+export default router;

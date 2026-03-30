@@ -1,0 +1,178 @@
+Extend the existing application without deleting or modifying current data, models or functionality.
+
+IMPORTANT:
+
+* Do NOT delete any existing tables, fields or logic
+* Do NOT overwrite existing structures
+* Only extend the system
+
+---
+
+1. ROLE SYSTEM (FINAL STRUCTURE)
+
+Ensure the following roles exist:
+
+* admin
+* director
+* technical_director
+* athletic_director
+* secretary
+* coach
+* fitness_coach
+
+Each user must have:
+
+* role
+* club_id
+
+---
+
+2. ROLE PERMISSIONS AND SIDEBAR
+
+ADMIN:
+
+* full access to all sections
+* access billing
+
+DIRECTOR:
+
+* view teams, players, staff, reports
+* no editing of training or payments
+
+TECHNICAL DIRECTOR:
+
+* manage teams and coaches
+* view training programs
+* view fitness programs (read-only)
+
+ATHLETIC DIRECTOR:
+
+* manage fitness programs
+* view all players and teams
+* view training sessions (read-only)
+
+SECRETARY:
+
+* manage players
+* manage registrations
+* manage payments
+* manage documents
+* manage equipment
+* no access to training or tactical board
+
+COACH:
+
+* manage only assigned teams
+* manage players in assigned teams
+* create trainings
+* use tactical board
+* manage matches
+
+FITNESS COACH:
+
+* manage only assigned teams
+* create fitness programs
+* track player performance
+* no access to tactics or payments
+
+---
+
+3. TEAM ASSIGNMENT
+
+Ensure:
+
+* coach is assigned to one or more teams
+* fitness_coach is assigned to one or more teams
+
+Restrict data access based on assigned teams.
+
+---
+
+4. EXTEND PLAYER MODEL
+
+Add fields:
+
+* registered (boolean)
+* registration_number (matricola)
+* tax_code
+* birth_place
+* address
+* medical_certificate_expiry
+
+---
+
+5. EXTEND COACH MODEL (OR USER WITH ROLE COACH)
+
+Add fields:
+
+* registered (boolean)
+* registration_number
+* phone
+* license_type
+
+---
+
+6. EXTEND FITNESS COACH MODEL
+
+Add fields:
+
+* registered (boolean)
+* registration_number
+* specialization (strength, endurance, recovery)
+
+---
+
+7. FORM UPDATES (VERY IMPORTANT)
+
+Update all forms:
+
+PLAYER FORM must include:
+
+* first_name
+* last_name
+* registered (checkbox)
+* registration_number
+* team
+* birth_date
+* position
+
+COACH FORM must include:
+
+* first_name
+* last_name
+* registered (checkbox)
+* registration_number
+* assigned_team
+* phone
+
+FITNESS COACH FORM must include:
+
+* first_name
+* last_name
+* registered (checkbox)
+* registration_number
+* assigned_teams (multiple)
+* specialization
+
+---
+
+8. ACCESS CONTROL
+
+Ensure:
+
+* users can only access data from their club (club_id)
+* coach and fitness_coach can only access assigned teams
+* secretary cannot access training or tactics
+* athletic_director and technical_director have cross read-only visibility
+
+---
+
+9. UI UPDATE
+
+Update sidebar dynamically based on role.
+
+Hide unauthorized sections.
+
+---
+
+Ensure all new fields are optional-safe and do not break existing data.
