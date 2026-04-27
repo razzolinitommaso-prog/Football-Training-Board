@@ -4,6 +4,20 @@ import { z } from "zod/v4";
 import { clubsTable } from "./clubs";
 import { playersTable } from "./players";
 import { seasonsTable } from "./seasons";
+import { usersTable } from "./users";
+
+/** File condivisi dalla segreteria (pianificazione, calendari) — persistenza cloud per club. */
+export const clubSecretarySharedFilesTable = pgTable("club_secretary_shared_files", {
+  id: serial("id").primaryKey(),
+  clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
+  uploadedByUserId: integer("uploaded_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  originalFilename: text("original_filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  /** Contenuto file codificato in base64 (limite lato API). */
+  contentBase64: text("content_base64").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const registrationsTable = pgTable("registrations", {
   id: serial("id").primaryKey(),

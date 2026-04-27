@@ -18,6 +18,7 @@ import parentRouter from "./parent";
 import sectionsRouter from "./sections";
 import playerSeasonStatusRouter from "./player-season-status";
 import observedPlayersRouter from "./observed-players";
+import { boardsRouter } from "./boards-routers";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(parentRouter);
 router.use(sectionsRouter);
 router.use(playerSeasonStatusRouter);
 router.use(observedPlayersRouter);
+router.use("/boards", boardsRouter);
 
 export default router;

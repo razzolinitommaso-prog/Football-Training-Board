@@ -17,6 +17,7 @@ import * as z from "zod";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
+import { normalizeSessionRole } from "@/lib/session-role";
 import { exportToExcel, mapTeamsForExcel } from "@/lib/excel-export";
 import { mapExcelRowToTeam, isValidTeamRow, downloadTeamTemplate } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
@@ -65,6 +66,7 @@ interface TeamsListProps {
 export default function TeamsList({ section }: TeamsListProps = {}) {
   const { t } = useLanguage();
   const { role } = useAuth();
+  const nr = normalizeSessionRole(role);
   const { data: allTeams, isLoading } = useListTeams();
   const teams = section ? allTeams?.filter(t => t.clubSection === section) : allTeams;
   const [search, setSearch] = useState("");
@@ -78,10 +80,10 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const [createScheduleRows, setCreateScheduleRows] = useState<TrainingSlot[]>([]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canExport = role === "admin" || role === "secretary" || role === "director";
-  const isStaffRole = role === "coach" || role === "fitness_coach" || role === "technical_director" || role === "athletic_director";
-  const canEditSchedule = role === "admin" || role === "coach" || role === "technical_director" || role === "director" || role === "secretary";
-  const canEditTeam = role === "admin" || role === "director" || role === "secretary";
+  const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
+  const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
+  const canEditSchedule = nr === "admin" || nr === "coach" || nr === "director" || nr === "secretary";
+  const canEditTeam = nr === "admin" || nr === "director" || nr === "secretary";
 
   const handleExportTeams = () => {
     if (!teams?.length) return;
@@ -432,7 +434,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
         </div>
       ) : filteredTeams?.length === 0 ? (
         <div className="text-center py-20 bg-card rounded-2xl border border-dashed">
-          {isStaffRole && !search ? (
+          {isAssignedStaffRole && !search ? (
             <>
               <ShieldOff className="w-16 h-16 text-muted mx-auto mb-4" />
               <h3 className="text-xl font-semibold">Nessuna squadra assegnata</h3>
@@ -445,7 +447,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               <UsersRound className="w-16 h-16 text-muted mx-auto mb-4" />
               <h3 className="text-xl font-semibold">{t.noTeamsFound}</h3>
               <p className="text-muted-foreground mt-2 mb-6">{t.getStartedTeam}</p>
-              {!isStaffRole && <Button variant="outline" onClick={() => setIsCreateOpen(true)}>{t.createTeam}</Button>}
+              {!isAssignedStaffRole && <Button variant="outline" onClick={() => setIsCreateOpen(true)}>{t.createTeam}</Button>}
             </>
           )}
         </div>

@@ -21,11 +21,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/components/ui/dialog";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { withApi } from "@/lib/api-base";
 
 async function apiFetch(path: string, options?: RequestInit) {
-  const res = await fetch(`${BASE}/api${path}`, {
+  const res = await fetch(withApi(`/api${path}`), {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...options,
@@ -246,7 +245,7 @@ export default function PlatformAdminPage() {
   }
 
   async function handleLogout() {
-    await fetch(`${BASE}/api/auth/logout`, { method: "POST", credentials: "include" });
+    await fetch(withApi("/api/auth/logout"), { method: "POST", credentials: "include" });
     setLocation("/platform-login");
   }
 

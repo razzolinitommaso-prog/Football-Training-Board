@@ -70,7 +70,7 @@ router.post("/fitness-programs", requireAuth, async (req, res): Promise<void> =>
 });
 
 router.get("/fitness-programs/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const [program] = await db
@@ -85,7 +85,7 @@ router.get("/fitness-programs/:id", requireAuth, async (req, res): Promise<void>
 });
 
 router.patch("/fitness-programs/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const { title, teamId, description, durationWeeks, intensityLevel } = req.body;
@@ -109,7 +109,7 @@ router.patch("/fitness-programs/:id", requireAuth, async (req, res): Promise<voi
 });
 
 router.delete("/fitness-programs/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const [program] = await db
@@ -163,7 +163,7 @@ router.post("/player-fitness-data", requireAuth, async (req, res): Promise<void>
 });
 
 router.patch("/player-fitness-data/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const { date, endurance, strength, speed, notes } = req.body;
@@ -186,7 +186,7 @@ router.patch("/player-fitness-data/:id", requireAuth, async (req, res): Promise<
 });
 
 router.delete("/player-fitness-data/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const [entry] = await db

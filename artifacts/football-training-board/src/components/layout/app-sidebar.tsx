@@ -73,11 +73,20 @@ const SEZIONI = [
   { key: "prima-squadra",     label: "Prima Squadra",     icon: Star },
 ] as const;
 
-// Ruoli che hanno accesso ad almeno una sezione
-const SEZIONE_ROLES = ["admin", "presidente", "director", "secretary", "technical_director", "coach", "fitness_coach", "athletic_director"];
+// Ruoli che hanno accesso ad almeno una sezione (il direttore tecnico usa il menu “area tecnica” unificato, senza albero a 3 sezioni)
+const SEZIONE_ROLES = ["admin", "presidente", "director", "secretary", "coach", "fitness_coach", "athletic_director"];
 
-// Admin e Presidente vedono tutte le sezioni; gli altri solo la propria
-const ALL_SECTIONS_ROLES = ["admin", "presidente"];
+// Club-wide: tutte e tre le sezioni nel menu. Il DT non è incluso: vede squadre/giocatori/sessioni da percorsi globali /teams, /players, ecc.
+const ALL_SECTIONS_ROLES = ["admin", "presidente", "director"];
+
+/** Voci aggiuntive per il direttore tecnico: metodologia, coordinamento staff, lettura attività (non segreteria, non gestione fitness). */
+const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof UsersRound }[] = [
+  { label: "Squadre", url: "/teams", icon: UsersRound },
+  { label: "Giocatori", url: "/players", icon: Users },
+  { label: "Partite", url: "/matches", icon: Trophy },
+  { label: "Presenze", url: "/attendance", icon: CalendarCheck },
+  { label: "Stagioni", url: "/seasons", icon: Layers },
+];
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -96,8 +105,9 @@ export function AppSidebar() {
   const navigation: NavItem[] = [
     // Main
     { titleKey: "dashboard",       url: "/dashboard",    icon: LayoutDashboard, roles: ["admin", "presidente", "coach", "secretary", "technical_director", "fitness_coach", "director", "athletic_director"], group: "main" },
-    { titleKey: "tacticalBoard",   url: "/tactical-board", icon: Crosshair,     roles: ["coach"], group: "main" },
-    { titleKey: "exerciseLibrary", url: "/exercises",    icon: BookOpen,        roles: ["coach", "fitness_coach", "athletic_director", "director", "technical_director"], group: "main" },
+    { titleKey: "tacticalBoard",   url: "/tactical-board", icon: Crosshair,     roles: ["coach", "fitness_coach"], group: "main" },
+    { label: "Le mie sessioni",    url: "/training",     icon: CalendarDays,    roles: ["technical_director", "coach", "fitness_coach"], group: "main" },
+    { label: "Esercitazioni",      url: "/exercises",    icon: BookOpen,        roles: ["coach", "fitness_coach", "athletic_director", "director", "technical_director"], group: "main" },
     { titleKey: "clubSettings",    url: "/club",         icon: Building2,       roles: ["admin", "presidente"], group: "main" },
     { titleKey: "members",         url: "/members",      icon: ShieldCheck,     roles: ["admin", "presidente"], group: "main" },
     { label: "Notifiche Piattaforma", url: "/club/platform-notifications", icon: Bell, roles: ["admin", "presidente", "secretary"], group: "main" },
@@ -108,11 +118,11 @@ export function AppSidebar() {
     { titleKey: "equipment",       url: "/secretary/equipment",     icon: Package,       roles: ["admin", "presidente", "secretary"], group: "secretary" },
     { label: "App Genitori",          url: "/secretary/parent-app",    icon: Heart,      roles: ["admin", "presidente", "secretary"], group: "secretary" },
     { label: "Transizione Stagionale", url: "/season-transition",      icon: RefreshCw,  roles: ["admin", "presidente", "secretary"], group: "secretary" },
-    { label: "Credenziali & Accessi", url: "/club/credentials",        icon: KeyRound,   roles: ["admin", "presidente", "secretary", "director", "technical_director"], group: "secretary" },
-    // Fitness
-    { titleKey: "fitnessDashboard",  url: "/fitness-dashboard",  icon: Activity,  roles: ["fitness_coach", "athletic_director", "technical_director", "director"], group: "fitness" },
-    { titleKey: "fitnessPrograms",   url: "/fitness-programs",   icon: Dumbbell,  roles: ["fitness_coach", "athletic_director", "technical_director", "director"], group: "fitness" },
-    { titleKey: "playerPerformance", url: "/player-performance", icon: BarChart3, roles: ["admin", "presidente", "fitness_coach", "technical_director"], group: "fitness" },
+    { label: "Credenziali & Accessi", url: "/club/credentials",        icon: KeyRound,   roles: ["admin", "presidente", "secretary", "director"], group: "secretary" },
+    // Fitness (DT: solo lettura a livello funzionale se esposto altrove; non gestisce programmi fitness dalla sidebar)
+    { titleKey: "fitnessDashboard",  url: "/fitness-dashboard",  icon: Activity,  roles: ["fitness_coach", "athletic_director", "director"], group: "fitness" },
+    { titleKey: "fitnessPrograms",   url: "/fitness-programs",   icon: Dumbbell,  roles: ["fitness_coach", "athletic_director", "director"], group: "fitness" },
+    { titleKey: "playerPerformance", url: "/player-performance", icon: BarChart3, roles: ["admin", "presidente", "fitness_coach"], group: "fitness" },
     // Admin
     { titleKey: "billing",       url: "/billing",       icon: CreditCard, roles: ["admin", "presidente"], group: "admin" },
     { label: "Accesso Genitori", url: "/admin/parents", icon: Heart,      roles: ["admin", "presidente"], group: "admin" },
@@ -217,8 +227,8 @@ export function AppSidebar() {
     );
   }
 
-  const topMainItems    = mainNav.filter(i => i.url === "/dashboard" || i.url === "/tactical-board" || i.url === "/exercises");
-  const bottomMainItems = mainNav.filter(i => i.url !== "/dashboard" && i.url !== "/tactical-board" && i.url !== "/exercises");
+  const topMainItems    = mainNav.filter(i => i.url === "/dashboard" || i.url === "/tactical-board" || i.url === "/training" || i.url === "/exercises");
+  const bottomMainItems = mainNav.filter(i => i.url !== "/dashboard" && i.url !== "/tactical-board" && i.url !== "/training" && i.url !== "/exercises");
 
   return (
     <Sidebar variant="sidebar" className="border-r shadow-sm">
@@ -253,7 +263,10 @@ export function AppSidebar() {
             <SidebarMenu>
               {topMainItems.map((item) => {
                 const isActive = location.startsWith(item.url);
-                const title = item.label ?? (item.titleKey ? t[item.titleKey] as string : "");
+                const title =
+                  item.url === "/training" && role === "technical_director"
+                    ? "Sessioni allenamento"
+                    : (item.label ?? (item.titleKey ? t[item.titleKey] as string : ""));
                 return (
                   <SidebarMenuItem key={item.url}>
                     <SidebarMenuButton asChild isActive={isActive} tooltip={title} className="font-medium">
@@ -266,9 +279,25 @@ export function AppSidebar() {
                 );
               })}
 
-              {SEZIONI.map(({ key, label, icon: Icon }) => (
-                <CollapsibleSection key={key} sectionKey={key} label={label} Icon={Icon} />
-              ))}
+              {role === "technical_director" &&
+                TECHNICAL_DIRECTOR_EXTRA.map(({ label, url, icon: Icon }) => {
+                  const isActive = location.startsWith(url);
+                  return (
+                    <SidebarMenuItem key={url}>
+                      <SidebarMenuButton asChild isActive={isActive} tooltip={label} className="font-medium">
+                        <Link href={url} className="flex items-center gap-3">
+                          <Icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-sidebar-foreground/70"}`} />
+                          <span>{label}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+
+              {role !== "technical_director" &&
+                SEZIONI.map(({ key, label, icon: Icon }) => (
+                  <CollapsibleSection key={key} sectionKey={key} label={label} Icon={Icon} />
+                ))}
 
               {bottomMainItems.map((item) => {
                 const isActive = location.startsWith(item.url);

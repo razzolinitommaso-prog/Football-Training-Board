@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   format, addMonths, subMonths, startOfMonth, endOfMonth,
@@ -6,8 +6,17 @@ import {
   isBefore, isAfter,
 } from "date-fns";
 import { it } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, CalendarRange, Trophy, Dumbbell } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarRange, Trophy, Dumbbell, Filter, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import {
+  EMPTY_SCHEDULE_FILTER,
+  scheduleTimeFilterActive,
+  datePassesScheduleFilter,
+  combineLocalDayWithHHmm,
+  type ScheduleFilterOpts,
+} from "@/lib/calendar-schedule-filter";
+import { ScheduleFilterFields } from "@/components/calendar/ScheduleFilterFields";
 
 type Section = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 
@@ -56,6 +65,8 @@ interface CalendarEvent {
   opponent?: string;
   homeAway?: string;
   result?: string;
+  /** Istante locale (inizio allenamento o partita) per filtri orario. */
+  at: Date;
 }
 
 function getSchoolYear(date: Date): { start: Date; end: Date; label: string } {
@@ -80,6 +91,12 @@ export default function SectionCalendar({ section }: { section: Section }) {
   const today = useMemo(() => new Date(), []);
   const schoolYear = useMemo(() => getSchoolYear(today), [today]);
   const [currentMonth, setCurrentMonth] = useState(() => getInitialMonth(today));
+  /** Squadre (annate) da mostrare nel calendario; all’avvio tutte incluse. */
+  const [selectedTeamIds, setSelectedTeamIds] = useState<Set<number>>(() => new Set());
+  const previousValidTeamIdsRef = useRef<Set<number>>(new Set());
+  const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilterOpts>(() => ({
+    ...EMPTY_SCHEDULE_FILTER,
+  }));
 
   const goToPrev = () => setCurrentMonth(m => subMonths(m, 1));
   const goToNext = () => setCurrentMonth(m => addMonths(m, 1));
@@ -96,6 +113,31 @@ export default function SectionCalendar({ section }: { section: Section }) {
   });
 
   const sectionTeamIds = useMemo(() => new Set(allTeams.map(t => t.id)), [allTeams]);
+
+  useEffect(() => {
+    const validIds = new Set(allTeams.map((t) => t.id));
+    const oldIds = previousValidTeamIdsRef.current;
+    previousValidTeamIdsRef.current = validIds;
+
+    if (validIds.size === 0) {
+      setSelectedTeamIds(new Set());
+      return;
+    }
+
+    setSelectedTeamIds((prev) => {
+      if (prev.size === 0 && oldIds.size === 0) {
+        return validIds;
+      }
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (validIds.has(id)) next.add(id);
+      }
+      for (const id of validIds) {
+        if (!oldIds.has(id)) next.add(id);
+      }
+      return next;
+    });
+  }, [allTeams]);
 
   const teamColorMap = useMemo(() => {
     const map = new Map<number, typeof TEAM_PALETTE[0]>();
@@ -119,18 +161,22 @@ export default function SectionCalendar({ section }: { section: Section }) {
       map.get(key)!.push(evt);
     };
 
+    const visibleTeams = allTeams.filter((t) => selectedTeamIds.has(t.id));
+
     calendarDays.forEach(day => {
       const jsDay = getDay(day);
-      allTeams.forEach(team => {
+      visibleTeams.forEach(team => {
         (team.trainingSchedule ?? []).forEach(slot => {
           const slotDay = ITALIAN_DAY_MAP[slot.day];
           if (slotDay === jsDay) {
+            const at = combineLocalDayWithHHmm(day, slot.startTime ?? "00:00");
             addEvent(day, {
               type: "training",
               teamId: team.id,
               teamName: team.name,
               label: team.name,
               time: `${slot.startTime}–${slot.endTime}`,
+              at,
             });
           }
         });
@@ -139,6 +185,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
 
     allMatches.forEach(match => {
       if (!match.teamId || !sectionTeamIds.has(match.teamId)) return;
+      if (!selectedTeamIds.has(match.teamId)) return;
       if (!match.date) return;
       const matchDate = new Date(match.date);
       const team = allTeams.find(t => t.id === match.teamId);
@@ -151,11 +198,24 @@ export default function SectionCalendar({ section }: { section: Section }) {
         opponent: match.opponent,
         homeAway: match.homeAway,
         result: match.result ?? undefined,
+        at: matchDate,
       });
     });
 
     return map;
-  }, [calendarDays, allTeams, allMatches, sectionTeamIds, schoolYear]);
+  }, [calendarDays, allTeams, allMatches, sectionTeamIds, schoolYear, selectedTeamIds]);
+
+  const eventsByDayFiltered = useMemo(() => {
+    if (!scheduleTimeFilterActive(scheduleFilter)) return eventsByDay;
+    const out = new Map<string, CalendarEvent[]>();
+    eventsByDay.forEach((list, key) => {
+      out.set(
+        key,
+        list.filter((e) => datePassesScheduleFilter(e.at, scheduleFilter)),
+      );
+    });
+    return out;
+  }, [eventsByDay, scheduleFilter]);
 
   const monthLabel = format(currentMonth, "MMMM yyyy", { locale: it });
 
@@ -189,18 +249,104 @@ export default function SectionCalendar({ section }: { section: Section }) {
       </div>
 
       {allTeams.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {allTeams.map(team => {
-            const color = teamColorMap.get(team.id);
-            return (
-              <span key={team.id} className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${color?.soft}`}>
-                <span className={`w-2 h-2 rounded-full ${color?.bg}`} />
-                {team.name}
+        <div className="space-y-2">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-medium text-foreground">
+              Annate visibili
+              <span className="font-normal text-muted-foreground">
+                {" "}
+                ({selectedTeamIds.size}/{allTeams.length})
               </span>
-            );
-          })}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setSelectedTeamIds(new Set(allTeams.map((t) => t.id)))}
+              >
+                Tutte
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setSelectedTeamIds(new Set())}
+              >
+                Nessuna
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Clicca un&apos;annata per includerla o escluderla dal calendario (anche più di una).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {allTeams.map((team) => {
+              const color = teamColorMap.get(team.id);
+              const on = selectedTeamIds.has(team.id);
+              return (
+                <button
+                  key={team.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedTeamIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(team.id)) next.delete(team.id);
+                      else next.add(team.id);
+                      return next;
+                    });
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border transition-all",
+                    color?.soft,
+                    on
+                      ? "ring-2 ring-primary/60 ring-offset-2 ring-offset-background shadow-sm"
+                      : "opacity-45 hover:opacity-80",
+                  )}
+                  aria-pressed={on}
+                >
+                  <span className={cn("w-2 h-2 rounded-full shrink-0", color?.bg)} />
+                  {team.name}
+                </button>
+              );
+            })}
+          </div>
+          {selectedTeamIds.size === 0 && (
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              Nessuna annata selezionata: il calendario è vuoto. Usa «Tutte» o clicca le annate da vedere.
+            </p>
+          )}
         </div>
       )}
+
+      <div className="rounded-xl border border-border/80 bg-muted/15 p-4 space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Filter className="w-4 h-4 text-primary shrink-0" />
+              Filtro giorno e fascia oraria
+            </div>
+            <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+              Utile in segreteria per vedere solo impegni in certi slot (es. sabato mattina) e valutare
+              disponibilità di campo o sovrapposizioni tra annate.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 shrink-0"
+            disabled={!scheduleTimeFilterActive(scheduleFilter)}
+            onClick={() => setScheduleFilter({ ...EMPTY_SCHEDULE_FILTER })}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Azzera orario
+          </Button>
+        </div>
+        <ScheduleFilterFields value={scheduleFilter} onChange={setScheduleFilter} idPrefix={`sec-cal-${section}`} />
+      </div>
 
       <div className="border rounded-xl overflow-hidden shadow-sm bg-card">
         <div className="grid grid-cols-7 border-b bg-muted/30">
@@ -213,7 +359,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
         <div className="grid grid-cols-7">
           {calendarDays.map((day, idx) => {
             const key = format(day, "yyyy-MM-dd");
-            const events = eventsByDay.get(key) ?? [];
+            const events = eventsByDayFiltered.get(key) ?? [];
             const isToday = isSameDay(day, today);
             const isCurrentMonth = isSameMonth(day, currentMonth);
             const isOutOfSeason = isBefore(day, schoolYear.start) || isAfter(day, schoolYear.end);

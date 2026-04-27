@@ -13,8 +13,14 @@ import {
   DeletePlayerParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
+import { isClubWideListRole, normalizeSessionRole, resolveClubSectionFilter } from "../lib/club-scope";
+import { requireClubAndUserIds } from "../lib/session-context";
 
-const STAFF_ONLY_ROLES = ["coach", "fitness_coach", "technical_director", "athletic_director"];
+/** Il direttore tecnico elenca tutti i giocatori del club; coach/preparatori solo le proprie squadre. */
+const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
+const PLAYER_DELETE_ROLES = ["admin", "presidente", "secretary", "director"];
+const PLAYER_FULL_EDIT_ROLES = ["admin", "presidente", "secretary", "director"];
+const PLAYER_LIMITED_EDIT_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
 
 const router: IRouter = Router();
 
@@ -44,19 +50,30 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
 }
 
 router.get("/players", requireAuth, async (req, res): Promise<void> => {
+  const ids = requireClubAndUserIds(req);
+  if (!ids) {
+    res.status(400).json({ error: "Club context required" });
+    return;
+  }
+  const { clubId, userId } = ids;
   const queryParams = ListPlayersQueryParams.safeParse(req.query);
-  const section = typeof req.query.section === "string" ? req.query.section : req.session.section;
+  const role = req.session.role ?? "";
+  const section = resolveClubSectionFilter(
+    role,
+    typeof req.query.section === "string" ? req.query.section : undefined,
+    req.session.section,
+  );
 
-  let conditions = [eq(playersTable.clubId, req.session.clubId!)];
+  let conditions = [eq(playersTable.clubId, clubId)];
   if (section) conditions.push(eq(playersTable.clubSection, section));
 
-  if (STAFF_ONLY_ROLES.includes(req.session.role)) {
+  if (!isClubWideListRole(role) && PLAYER_ASSIGNMENT_FILTER_ROLES_NORM.has(normalizeSessionRole(role))) {
     const assignments = await db
       .select({ teamId: teamStaffAssignmentsTable.teamId })
       .from(teamStaffAssignmentsTable)
       .where(and(
-        eq(teamStaffAssignmentsTable.userId, req.session.userId!),
-        eq(teamStaffAssignmentsTable.clubId, req.session.clubId!),
+        eq(teamStaffAssignmentsTable.userId, userId),
+        eq(teamStaffAssignmentsTable.clubId, clubId),
       ));
 
     if (assignments.length === 0) {
@@ -99,13 +116,15 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
   }
 
   const playerData = { ...parsed.data };
-  if (playerData.registered === false) {
-    playerData.available = false;
-  }
+  const values = {
+    ...playerData,
+    clubId: req.session.clubId!,
+    ...(playerData.registered === false ? { available: false } : {}),
+  };
 
   const [player] = await db
     .insert(playersTable)
-    .values({ ...playerData, clubId: req.session.clubId! })
+    .values(values)
     .returning();
 
   const enriched = await enrichPlayer(player);
@@ -146,9 +165,61 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const updateData = { ...parsed.data };
+  const role = req.session.role ?? "";
+  const updateData = { ...parsed.data } as Record<string, unknown>;
+  const [existingPlayer] = await db
+    .select()
+    .from(playersTable)
+    .where(and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, req.session.clubId!)));
+
+  if (!existingPlayer) {
+    res.status(404).json({ error: "Player not found" });
+    return;
+  }
+
+  if (PLAYER_LIMITED_EDIT_ROLES.includes(role) && !PLAYER_FULL_EDIT_ROLES.includes(role)) {
+    // Coach/preparatori can only update notes and availability-related fields.
+    const allowed = new Set(["notes", "status", "available", "unavailabilityReason", "expectedReturn"]);
+    for (const k of Object.keys(updateData)) {
+      if (!allowed.has(k)) delete updateData[k];
+    }
+
+    // Coaches/preparators can modify only players in their assigned teams.
+    if (["coach", "fitness_coach", "athletic_director"].includes(role)) {
+      const assignments = await db
+        .select({ teamId: teamStaffAssignmentsTable.teamId })
+        .from(teamStaffAssignmentsTable)
+        .where(and(
+          eq(teamStaffAssignmentsTable.userId, req.session.userId!),
+          eq(teamStaffAssignmentsTable.clubId, req.session.clubId!),
+        ));
+      const assignedTeamIds = new Set(assignments.map((a) => a.teamId));
+      if (!existingPlayer.teamId || !assignedTeamIds.has(existingPlayer.teamId)) {
+        res.status(403).json({ error: "Non autorizzato a modificare questo giocatore" });
+        return;
+      }
+    }
+  } else if (!PLAYER_FULL_EDIT_ROLES.includes(role)) {
+    res.status(403).json({ error: "Non autorizzato a modificare questo giocatore" });
+    return;
+  }
+
   if (updateData.registered === false) {
     updateData.available = false;
+  }
+  if (updateData.status === "injured") {
+    updateData.available = false;
+    if (!updateData.unavailabilityReason) updateData.unavailabilityReason = "injury";
+  }
+  if (updateData.available === true) {
+    updateData.unavailabilityReason = null;
+    updateData.expectedReturn = null;
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    const enrichedNoop = await enrichPlayer(existingPlayer);
+    res.json(UpdatePlayerResponse.parse(enrichedNoop));
+    return;
   }
 
   const [player] = await db
@@ -170,6 +241,12 @@ router.delete("/players/:id", requireAuth, async (req, res): Promise<void> => {
   const params = DeletePlayerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const role = req.session.role ?? "";
+  if (!PLAYER_DELETE_ROLES.includes(role)) {
+    res.status(403).json({ error: "Non autorizzato a eliminare giocatori" });
     return;
   }
 

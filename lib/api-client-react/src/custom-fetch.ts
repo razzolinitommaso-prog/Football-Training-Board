@@ -97,6 +97,16 @@ function truncate(text: string, maxLength = 300): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
+function toDebugPreview(data: unknown, maxLength = 600): string {
+  if (data == null) return "null";
+  if (typeof data === "string") return truncate(data, maxLength);
+  try {
+    return truncate(JSON.stringify(data), maxLength);
+  } catch {
+    return "[unserializable]";
+  }
+}
+
 function buildErrorMessage(response: Response, data: unknown): string {
   const prefix = `HTTP ${response.status} ${response.statusText}`;
 
@@ -299,12 +309,31 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  console.log(`[api] request ${method} ${requestInfo.url}`);
+
+  const response = await fetch(input, {
+    ...init,
+    method,
+    headers,
+    // Always send session cookies (must come after ...init so callers cannot override with "omit").
+    credentials: "include",
+  });
+
+  console.log(`[api] response ${method} ${requestInfo.url} -> ${response.status}`);
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);
+    console.error(
+      `[api] error payload ${method} ${requestInfo.url}:`,
+      toDebugPreview(errorData),
+    );
     throw new ApiError(response, errorData, requestInfo);
   }
 
-  return (await parseSuccessBody(response, responseType, requestInfo)) as T;
+  const payload = (await parseSuccessBody(response, responseType, requestInfo)) as T;
+  console.log(
+    `[api] payload ${method} ${requestInfo.url}:`,
+    toDebugPreview(payload),
+  );
+  return payload;
 }

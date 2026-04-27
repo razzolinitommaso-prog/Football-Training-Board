@@ -3,14 +3,30 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "setup-local": "node ./scripts/setup-local.mjs",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "build:web": "pnpm --filter @workspace/football-training-board build",
+    "build:api": "pnpm --filter @workspace/api-server build",
+    "start:api": "pnpm --filter @workspace/api-server start",
+    "db:push": "pnpm --filter @workspace/db push",
+    "dev:api:local": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-api-local.ps1",
+    "dev:web:local": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-web-local.ps1",
+    "dev:cursor:local": "powershell -ExecutionPolicy Bypass -File ./scripts/start-cursor-stack.ps1",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "devDependencies": {
-    "typescript": "~5.9.2",
-    "prettier": "^3.8.1"
+    "@rollup/rollup-win32-x64-msvc": "^4.60.1",
+    "@tailwindcss/oxide-win32-x64-msvc": "^4.2.2",
+    "lightningcss-win32-x64-msvc": "^1.32.0",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.2"
+  },
+  "dependencies": {
+    "lucide-react": "catalog:"
   }
 }

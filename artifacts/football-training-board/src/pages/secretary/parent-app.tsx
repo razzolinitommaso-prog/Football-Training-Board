@@ -36,7 +36,33 @@ const TABS = [
 type TabKey = typeof TABS[number]["key"];
 
 function fmtDate(d: string | Date) {
-  return new Date(d).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return new Date(d).toLocaleDateString("it-IT", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function normalizeTime24(value: string): string | null {
+  const clean = value.trim();
+  const m = clean.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function combineDateAndTimeToIso(dateValue: string, timeValue: string): string | null {
+  if (!dateValue) return null;
+  const normalized = normalizeTime24(timeValue);
+  if (!normalized) return null;
+  const parsed = new Date(`${dateValue}T${normalized}:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
 }
 
 function getWeekRange(offset = 0) {
@@ -94,6 +120,7 @@ export default function SecretaryParentApp() {
   // Event form
   const [evTitle, setEvTitle] = useState("");
   const [evDate, setEvDate] = useState("");
+  const [evTime, setEvTime] = useState("");
   const [evDesc, setEvDesc] = useState("");
   const [evLocation, setEvLocation] = useState("");
 
@@ -170,11 +197,22 @@ export default function SecretaryParentApp() {
   async function handleSendEvent(e: React.FormEvent) {
     e.preventDefault();
     if (!evTitle.trim() || !evDesc.trim()) { toast({ title: "Compila titolo e descrizione", variant: "destructive" }); return; }
-    const msg = (evDate ? `📆 Data: ${new Date(evDate).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}\n` : "")
+    const evDateIso = evDate ? combineDateAndTimeToIso(evDate, evTime || "00:00") : null;
+    if (evDate && !evDateIso) {
+      toast({
+        title: "Formato orario non valido",
+        description: "Usa il formato 24h HH:mm (es. 10:00).",
+        variant: "destructive",
+      });
+      return;
+    }
+    const msg = (evDateIso
+      ? `📆 Data: ${new Date(evDateIso).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}\n`
+      : "")
       + (evLocation ? `📍 Luogo: ${evLocation}\n\n` : "")
       + evDesc;
     const ok = await sendComm({ title: evTitle, message: msg, type: "event" });
-    if (ok) { setEvTitle(""); setEvDate(""); setEvDesc(""); setEvLocation(""); }
+    if (ok) { setEvTitle(""); setEvDate(""); setEvTime(""); setEvDesc(""); setEvLocation(""); }
   }
 
   async function confirmDelete() {
@@ -367,7 +405,17 @@ export default function SecretaryParentApp() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">Data evento</Label>
-                  <Input type="datetime-local" value={evDate} onChange={e => setEvDate(e.target.value)} className="mt-1" />
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <Input type="date" value={evDate} onChange={e => setEvDate(e.target.value)} />
+                    <Input
+                      type="text"
+                      value={evTime}
+                      onChange={e => setEvTime(e.target.value)}
+                      placeholder="HH:mm"
+                      inputMode="numeric"
+                      pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
+                    />
+                  </div>
                 </div>
                 <div>
                   <Label className="text-xs">Luogo</Label>

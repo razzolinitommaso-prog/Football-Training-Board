@@ -57,7 +57,7 @@ router.post("/team-assignments", requireAuth, async (req, res): Promise<void> =>
 });
 
 router.delete("/team-assignments/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   await db
     .delete(teamStaffAssignmentsTable)
     .where(

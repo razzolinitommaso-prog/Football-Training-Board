@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
+import { withApi } from "@/lib/api-base";
 
 type SectionStats = { teams: number; players: number; members: number };
 
@@ -13,7 +14,7 @@ function useSectionStats(section: string) {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/section-stats?section=${section}`, { credentials: "include" })
+    fetch(withApi(`/api/section-stats?section=${section}`), { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));

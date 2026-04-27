@@ -3,11 +3,13 @@ import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpda
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
@@ -17,10 +19,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
+import { normalizeSessionRole } from "@/lib/session-role";
 import { Separator } from "@/components/ui/separator";
+import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
 import { mapExcelRowToPlayer, isValidPlayerRow, downloadPlayerTemplate } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
+
+/** Radix Checkbox può emettere `indeterminate`; Zod `z.boolean()` altrimenti fallisce e il submit non parte. */
+const zRegisteredCheckbox = z.preprocess((v) => {
+  if (v === "indeterminate") return false;
+  return v;
+}, z.boolean().optional());
 
 const playerSchema = z.object({
   firstName: z.string().min(2, "Required"),
@@ -30,7 +40,7 @@ const playerSchema = z.object({
   jerseyNumber: z.coerce.number().optional().nullable(),
   status: z.string().default("active"),
   dateOfBirth: z.string().optional(),
-  registered: z.boolean().optional(),
+  registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
 });
 
@@ -42,7 +52,7 @@ const editSchema = z.object({
   jerseyNumber: z.coerce.number().optional().nullable(),
   status: z.string().optional(),
   dateOfBirth: z.string().optional(),
-  registered: z.boolean().optional(),
+  registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
   nationality: z.string().optional(),
   height: z.coerce.number().optional().nullable(),
@@ -92,9 +102,54 @@ type TeamWithSeason = {
   [key: string]: unknown;
 };
 
-export default function PlayersList() {
+type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
+
+interface PlayersListProps {
+  section?: ClubSection;
+}
+
+type PlayerNoteRecipient = "secretary" | "technical_director" | "coach_staff";
+type PlayerNoteThreadItem = {
+  id: string;
+  authorRole: string;
+  authorName?: string;
+  recipient: PlayerNoteRecipient;
+  body: string;
+  createdAt: string;
+  requiresResponse?: boolean;
+  replyToId?: string;
+  repliedAt?: string;
+};
+
+const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
+
+function splitPlayerNotes(raw?: string | null): { plainNote: string; thread: PlayerNoteThreadItem[] } {
+  const full = (raw ?? "").trim();
+  if (!full) return { plainNote: "", thread: [] };
+  const idx = full.lastIndexOf(PLAYER_NOTES_MARKER);
+  if (idx < 0) return { plainNote: full, thread: [] };
+  const before = full.slice(0, idx).trim();
+  const jsonPart = full.slice(idx + PLAYER_NOTES_MARKER.length).trim();
+  try {
+    const parsed = JSON.parse(jsonPart);
+    if (!Array.isArray(parsed)) return { plainNote: before, thread: [] };
+    return { plainNote: before, thread: parsed as PlayerNoteThreadItem[] };
+  } catch {
+    return { plainNote: before, thread: [] };
+  }
+}
+
+function composePlayerNotes(plainNote: string, thread: PlayerNoteThreadItem[]): string {
+  const cleanPlain = plainNote.trim();
+  if (!thread.length) return cleanPlain;
+  const encoded = `${PLAYER_NOTES_MARKER}${JSON.stringify(thread)}`;
+  return cleanPlain ? `${cleanPlain}\n\n${encoded}` : encoded;
+}
+
+export default function PlayersList({ section }: PlayersListProps = {}) {
   const { t } = useLanguage();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
+  const nr = normalizeSessionRole(role);
   const [teamFilter, setTeamFilter] = useState<string>("all");
   const { data: players, isLoading } = useListPlayers(teamFilter !== "all" ? { teamId: parseInt(teamFilter) } : undefined);
   const { data: teams } = useListTeams();
@@ -102,19 +157,30 @@ export default function PlayersList() {
   const [positionFilter, setPositionFilter] = useState("all");
   const [availabilityFilter, setAvailabilityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [birthYearFilter, setBirthYearFilter] = useState("all");
   const [heightMin, setHeightMin] = useState("");
   const [heightMax, setHeightMax] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [formSeasonFilter, setFormSeasonFilter] = useState<string>("all");
+  const [noteDraftText, setNoteDraftText] = useState("");
+  const [noteRecipient, setNoteRecipient] = useState<PlayerNoteRecipient>("secretary");
+  const [noteRequiresResponse, setNoteRequiresResponse] = useState(false);
+  const [noteReplyToId, setNoteReplyToId] = useState<string>("");
+  const [lastDeletedPlayer, setLastDeletedPlayer] = useState<Player | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canEditAvailability = role === "admin" || role === "secretary";
-  const canExport = role === "admin" || role === "secretary" || role === "director";
-  const isStaffRole = role === "coach" || role === "fitness_coach" || role === "technical_director" || role === "athletic_director";
+  const canDeletePlayer = ["admin", "presidente", "secretary", "director"].includes(nr);
+  const isLimitedEditor = ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(nr);
+  const canEditFullPlayer = !isLimitedEditor && !!nr;
+  const canEditAvailability = nr === "admin" || nr === "secretary" || nr === "director" || isLimitedEditor;
+  const canWritePlayerNotes = isLimitedEditor || nr === "secretary" || nr === "director" || nr === "admin" || nr === "presidente";
+  const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
+  const isStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "technical_director" || nr === "athletic_director";
+  const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
 
-  const typedTeams = (teams as TeamWithSeason[] | undefined) ?? [];
+  const typedTeams = section
+    ? ((teams as TeamWithSeason[] | undefined) ?? []).filter((team) => team.clubSection === section)
+    : ((teams as TeamWithSeason[] | undefined) ?? []);
 
   const uniqueSeasons = Array.from(
     new Map(
@@ -160,7 +226,32 @@ export default function PlayersList() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["/api/players"] });
-        toast({ title: t.deletePlayer });
+        const deleted = lastDeletedPlayer;
+        toast({
+          title: t.deletePlayer,
+          action: deleted ? (
+            <ToastAction
+              altText="Annulla eliminazione"
+              onClick={() => {
+                createMutation.mutate({
+                  data: {
+                    firstName: deleted.firstName,
+                    lastName: deleted.lastName,
+                    teamId: deleted.teamId ?? null,
+                    position: deleted.position ?? undefined,
+                    jerseyNumber: deleted.jerseyNumber ?? undefined,
+                    status: deleted.status ?? "active",
+                    dateOfBirth: deleted.dateOfBirth ?? undefined,
+                    registered: deleted.registered ?? false,
+                    registrationNumber: deleted.registrationNumber ?? undefined,
+                  } as any,
+                });
+              }}
+            >
+              Annulla
+            </ToastAction>
+          ) : undefined,
+        });
       }
     }
   });
@@ -192,6 +283,11 @@ export default function PlayersList() {
 
   const openEdit = (player: Player) => {
     setEditingPlayer(player);
+    const parsedNotes = splitPlayerNotes(player.notes ?? "");
+    setNoteDraftText("");
+    setNoteReplyToId("");
+    setNoteRequiresResponse(false);
+    setNoteRecipient("secretary");
     editForm.reset({
       firstName: player.firstName,
       lastName: player.lastName,
@@ -205,7 +301,7 @@ export default function PlayersList() {
       nationality: player.nationality ?? undefined,
       height: player.height ?? undefined,
       weight: player.weight ?? undefined,
-      notes: player.notes ?? undefined,
+      notes: composePlayerNotes(parsedNotes.plainNote, parsedNotes.thread) ?? undefined,
       available: player.available ?? true,
       unavailabilityReason: player.unavailabilityReason ?? undefined,
       expectedReturn: player.expectedReturn ?? undefined,
@@ -214,30 +310,78 @@ export default function PlayersList() {
 
   const handleEditSubmit = (data: EditForm) => {
     if (!editingPlayer) return;
-    const payload: Record<string, unknown> = { ...data };
-    if (data.registered === false) {
+    const registered = data.registered === true;
+    const parsed = splitPlayerNotes(data.notes ?? "");
+    const thread = [...parsed.thread];
+    const draftText = noteDraftText.trim();
+    let repliedNote: PlayerNoteThreadItem | null = null;
+    if (draftText && canWritePlayerNotes) {
+      const nowIso = new Date().toISOString();
+      if (noteReplyToId) {
+        const idx = thread.findIndex((n) => n.id === noteReplyToId);
+        if (idx >= 0) {
+          thread[idx] = { ...thread[idx], repliedAt: nowIso };
+          repliedNote = thread[idx];
+        }
+      }
+      thread.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        authorRole: role ?? "unknown",
+        authorName: `${(user as any)?.firstName ?? ""} ${(user as any)?.lastName ?? ""}`.trim() || undefined,
+        recipient: noteRecipient,
+        body: draftText,
+        createdAt: nowIso,
+        requiresResponse: noteRequiresResponse,
+        replyToId: noteReplyToId || undefined,
+      });
+    }
+
+    const payload: Record<string, unknown> = {
+      ...data,
+      registered,
+      notes: composePlayerNotes(parsed.plainNote, thread),
+    };
+    if (!registered) payload.available = false;
+    if (payload.status === "injured") {
       payload.available = false;
+      payload.unavailabilityReason = "injury";
     }
     if (payload.available) {
       payload.unavailabilityReason = null;
       payload.expectedReturn = null;
     }
-    updateMutation.mutate({ id: editingPlayer.id, data: payload as any });
-  };
 
-  const uniqueBirthYears = Array.from(
-    new Set(
-      (players as Player[] | undefined)
-        ?.map(p => p.dateOfBirth ? new Date(p.dateOfBirth).getFullYear().toString() : null)
-        .filter(Boolean) as string[]
-    )
-  ).sort((a, b) => Number(b) - Number(a));
+    if (isLimitedEditor) {
+      const limitedPayload: Record<string, unknown> = {
+        notes: payload.notes,
+        available: payload.available,
+        unavailabilityReason: payload.unavailabilityReason,
+        expectedReturn: payload.expectedReturn,
+        status: payload.status,
+      };
+      updateMutation.mutate({ id: editingPlayer.id, data: limitedPayload as any });
+    } else {
+      updateMutation.mutate({ id: editingPlayer.id, data: payload as any });
+    }
+
+    if (repliedNote && ["secretary", "technical_director", "director", "admin", "presidente"].includes(nr)) {
+      void fetch("/api/club/notifications", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Risposta nota giocatore: ${editingPlayer.firstName} ${editingPlayer.lastName}`,
+          message: `Risposta inviata alla nota in attesa su ${editingPlayer.firstName} ${editingPlayer.lastName}.`,
+          type: "info",
+        }),
+      }).catch(() => null);
+    }
+  };
 
   const activeFilterCount = [
     positionFilter !== "all",
     availabilityFilter !== "all",
     statusFilter !== "all",
-    birthYearFilter !== "all",
     heightMin !== "",
     heightMax !== "",
   ].filter(Boolean).length;
@@ -250,10 +394,6 @@ export default function PlayersList() {
     if (availabilityFilter === "available" && p.available === false) return false;
     if (availabilityFilter === "unavailable" && p.available !== false) return false;
     if (statusFilter !== "all" && p.status !== statusFilter) return false;
-    if (birthYearFilter !== "all") {
-      const year = p.dateOfBirth ? new Date(p.dateOfBirth).getFullYear().toString() : null;
-      if (year !== birthYearFilter) return false;
-    }
     if (heightMin !== "") {
       if (!p.height || p.height < Number(heightMin)) return false;
     }
@@ -321,8 +461,9 @@ export default function PlayersList() {
               <DialogTitle>{t.addNewPlayer}</DialogTitle>
             </DialogHeader>
             <form onSubmit={form.handleSubmit((data) => {
-              const payload = { ...data } as Record<string, unknown>;
-              if (data.registered === false) payload.available = false;
+              const registered = data.registered === true;
+              const payload = { ...data, registered } as Record<string, unknown>;
+              if (!registered) payload.available = false;
               createMutation.mutate({ data: payload as any });
             })} className="space-y-4 pt-4">
               <div className="grid grid-cols-2 gap-4">
@@ -422,8 +563,8 @@ export default function PlayersList() {
                     render={({ field }) => (
                       <Checkbox
                         id="registered"
-                        checked={field.value ?? false}
-                        onCheckedChange={field.onChange}
+                        checked={field.value === true}
+                        onCheckedChange={(c) => field.onChange(c === true)}
                       />
                     )}
                   />
@@ -453,22 +594,22 @@ export default function PlayersList() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.firstName} <span className="text-destructive">*</span></Label>
-                  <Input {...editForm.register("firstName")} />
+                  <Input {...editForm.register("firstName")} disabled={!canEditFullPlayer} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t.lastName} <span className="text-destructive">*</span></Label>
-                  <Input {...editForm.register("lastName")} />
+                  <Input {...editForm.register("lastName")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.dateOfBirth}</Label>
-                  <Input type="date" {...editForm.register("dateOfBirth")} />
+                  <Input type="date" {...editForm.register("dateOfBirth")} disabled={!canEditFullPlayer} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t.nationality}</Label>
-                  <Input {...editForm.register("nationality")} />
+                  <Input {...editForm.register("nationality")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
 
@@ -479,7 +620,7 @@ export default function PlayersList() {
                     control={editForm.control}
                     name="position"
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditFullPlayer}>
                         <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="GK">{t.goalkeeper}</SelectItem>
@@ -493,7 +634,7 @@ export default function PlayersList() {
                 </div>
                 <div className="space-y-2">
                   <Label>{t.jerseyNumber}</Label>
-                  <Input type="number" {...editForm.register("jerseyNumber")} />
+                  <Input type="number" {...editForm.register("jerseyNumber")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
 
@@ -504,7 +645,7 @@ export default function PlayersList() {
                     control={editForm.control}
                     name="teamId"
                     render={({ field }) => (
-                      <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString() || ""}>
+                      <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString() || ""} disabled={!canEditFullPlayer}>
                         <SelectTrigger><SelectValue placeholder={t.noTeamAssigned} /></SelectTrigger>
                         <SelectContent>
                           {teams?.map(team => <SelectItem key={team.id} value={team.id.toString()}>{team.name}</SelectItem>)}
@@ -515,19 +656,39 @@ export default function PlayersList() {
                 </div>
                 <div className="space-y-2">
                   <Label>{t.registrationNumber}</Label>
-                  <Input {...editForm.register("registrationNumber")} />
+                  <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.height} (cm)</Label>
-                  <Input type="number" {...editForm.register("height")} />
+                  <Input type="number" {...editForm.register("height")} disabled={!canEditFullPlayer} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t.weight} (kg)</Label>
-                  <Input type="number" {...editForm.register("weight")} />
+                  <Input type="number" {...editForm.register("weight")} disabled={!canEditFullPlayer} />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t.status}</Label>
+                <Controller
+                  control={editForm.control}
+                  name="status"
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} value={field.value || "active"}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">{t.active}</SelectItem>
+                        <SelectItem value="injured">{t.injured}</SelectItem>
+                        <SelectItem value="inactive">{t.inactive}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </div>
 
               <div className="flex items-center gap-3">
@@ -537,8 +698,9 @@ export default function PlayersList() {
                   render={({ field }) => (
                     <Checkbox
                       id="edit-registered"
-                      checked={field.value ?? false}
-                      onCheckedChange={field.onChange}
+                      checked={field.value === true}
+                      onCheckedChange={(c) => field.onChange(c === true)}
+                      disabled={!canEditFullPlayer}
                     />
                   )}
                 />
@@ -547,7 +709,98 @@ export default function PlayersList() {
 
               <div className="space-y-2">
                 <Label>{t.notes}</Label>
-                <Input {...editForm.register("notes")} />
+                {(() => {
+                  const parsed = splitPlayerNotes(editForm.watch("notes") ?? "");
+                  const pendingForCurrentUser = parsed.thread.filter((n) =>
+                    !!n.requiresResponse &&
+                    !n.repliedAt &&
+                    (
+                      (n.recipient === "secretary" && nr === "secretary") ||
+                      (n.recipient === "technical_director" && nr === "technical_director") ||
+                      (n.recipient === "coach_staff" && ["coach", "fitness_coach", "athletic_director"].includes(nr))
+                    )
+                  );
+                  return (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={parsed.plainNote}
+                        onChange={(e) => editForm.setValue("notes", composePlayerNotes(e.target.value, parsed.thread))}
+                        disabled={!canWritePlayerNotes}
+                        placeholder="Nota generale sul giocatore..."
+                      />
+                      {parsed.thread.length > 0 && (
+                        <div className="space-y-1 max-h-36 overflow-auto rounded border p-2 bg-muted/20">
+                          {parsed.thread.map((n) => (
+                            <div key={n.id} className="text-xs rounded border px-2 py-1 bg-background">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium">{n.authorName || n.authorRole}</span>
+                                <span className="text-muted-foreground">{new Date(n.createdAt).toLocaleString("it-IT")}</span>
+                              </div>
+                              <div className="text-muted-foreground mt-0.5">
+                                A: {n.recipient === "secretary" ? "Segreteria" : n.recipient === "technical_director" ? "Direttore tecnico" : "Allenatori/Preparatori"}
+                              </div>
+                              <p className="mt-1">{n.body}</p>
+                              {n.requiresResponse && !n.repliedAt && (
+                                <Badge variant="outline" className="mt-1 text-[10px]">In attesa risposta</Badge>
+                              )}
+                              {n.repliedAt && (
+                                <Badge variant="secondary" className="mt-1 text-[10px]">Risposta ricevuta</Badge>
+                              )}
+                              {!!n.requiresResponse && !n.repliedAt && canWritePlayerNotes && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-[10px] mt-1"
+                                  onClick={() => setNoteReplyToId(n.id)}
+                                >
+                                  Rispondi
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {canWritePlayerNotes && (
+                        <div className="space-y-2 rounded border p-2 bg-muted/20">
+                          <Label className="text-xs">Nuova comunicazione</Label>
+                          <Textarea
+                            value={noteDraftText}
+                            onChange={(e) => setNoteDraftText(e.target.value)}
+                            placeholder="Scrivi una comunicazione sul giocatore..."
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Select value={noteRecipient} onValueChange={(v) => setNoteRecipient(v as PlayerNoteRecipient)}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="secretary">Segreteria</SelectItem>
+                                <SelectItem value="technical_director">Direttore tecnico</SelectItem>
+                                <SelectItem value="coach_staff">Allenatori/Preparatori</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <div className="flex items-center gap-2 px-2">
+                              <Checkbox checked={noteRequiresResponse} onCheckedChange={(v) => setNoteRequiresResponse(v === true)} />
+                              <Label className="text-xs">Richiesta risposta</Label>
+                            </div>
+                          </div>
+                          {noteReplyToId && (
+                            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                              <span>Risposta a nota in attesa</span>
+                              <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => setNoteReplyToId("")}>
+                                Annulla
+                              </Button>
+                            </div>
+                          )}
+                          {pendingForCurrentUser.length > 0 && (
+                            <p className="text-[11px] text-amber-700">
+                              Hai {pendingForCurrentUser.length} richieste di risposta in attesa.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <Separator />
@@ -558,7 +811,7 @@ export default function PlayersList() {
                   <AlertTriangle className="w-4 h-4 text-amber-500" />
                   <h4 className="font-semibold text-sm">{t.playerAvailability}</h4>
                   {!canEditAvailability && (
-                    <span className="text-xs text-muted-foreground ml-auto italic">(solo admin/segreteria)</span>
+                    <span className="text-xs text-muted-foreground ml-auto italic">(permessi insufficienti)</span>
                   )}
                 </div>
 
@@ -686,22 +939,6 @@ export default function PlayersList() {
             ))}
           </div>
 
-          {/* Birth year */}
-          {uniqueBirthYears.length > 0 && (
-            <div className="flex items-center gap-1 bg-card border rounded-lg px-2 py-1">
-              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Annata</span>
-              <Select value={birthYearFilter} onValueChange={setBirthYearFilter}>
-                <SelectTrigger className="h-6 border-0 shadow-none p-0 text-[11px] w-[80px] focus:ring-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tutte</SelectItem>
-                  {uniqueBirthYears.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
           {/* Height range */}
           <div className="flex items-center gap-1 bg-card border rounded-lg px-2 py-1">
             <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Altezza (cm)</span>
@@ -714,7 +951,7 @@ export default function PlayersList() {
 
           {/* Reset */}
           {activeFilterCount > 0 && (
-            <button type="button" onClick={() => { setPositionFilter("all"); setAvailabilityFilter("all"); setStatusFilter("all"); setBirthYearFilter("all"); setHeightMin(""); setHeightMax(""); }}
+            <button type="button" onClick={() => { setPositionFilter("all"); setAvailabilityFilter("all"); setStatusFilter("all"); setHeightMin(""); setHeightMax(""); }}
               className="px-2 py-1 text-[11px] text-destructive font-medium hover:underline">
               Azzera filtri ({activeFilterCount})
             </button>
@@ -752,7 +989,7 @@ export default function PlayersList() {
               ) : filteredPlayers?.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-16 text-center">
-                    {isStaffRole && !search && (players as any[])?.length === 0 ? (
+                    {isAssignedStaffRole && !search && (players as any[])?.length === 0 ? (
                       <div className="flex flex-col items-center gap-2">
                         <svg className="w-12 h-12 text-muted-foreground/30 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                         <p className="font-semibold text-foreground">Nessuna squadra assegnata</p>
@@ -834,13 +1071,22 @@ export default function PlayersList() {
                         </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canDeletePlayer}>
                               <span className="text-lg leading-none">⋯</span>
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem className="text-destructive focus:text-destructive cursor-pointer"
-                              onClick={() => { if (confirm(t.removePlayer)) deleteMutation.mutate({ id: player.id }) }}>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive cursor-pointer"
+                              disabled={!canDeletePlayer}
+                              onClick={() => {
+                                if (!canDeletePlayer) return;
+                                if (confirm(t.removePlayer)) {
+                                  setLastDeletedPlayer(player);
+                                  deleteMutation.mutate({ id: player.id });
+                                }
+                              }}
+                            >
                               <UserMinus className="w-4 h-4 mr-2" />
                               {t.deletePlayer}
                             </DropdownMenuItem>

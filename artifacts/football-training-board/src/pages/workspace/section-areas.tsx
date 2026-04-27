@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useLocation, Link } from "wouter";
 import { Shield, ArrowLeft, ChevronRight, Users, Loader2, School, GraduationCap, Star, Target, FileText, BarChart3, Dumbbell, Settings, Heart } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
+import { withApi } from "@/lib/api-base";
 
 interface ClubInfo {
   id: number;
@@ -50,7 +51,7 @@ export default function WorkspaceSectionAreasPage() {
 
   useEffect(() => {
     if (!clubNameFromUrl) return;
-    fetch(`/api/clubs/public/search?name=${encodeURIComponent(clubNameFromUrl)}`, { credentials: "include" })
+    fetch(withApi(`/api/clubs/public/search?name=${encodeURIComponent(clubNameFromUrl)}`), { credentials: "include" })
       .then((r) => r.json())
       .then((data: ClubInfo[]) => {
         if (data && data.length > 0) setClub(data[0]);
@@ -229,14 +230,16 @@ export default function WorkspaceSectionAreasPage() {
 
         {/* Role area cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {AREAS.map((area) => (
-            <div
-              key={area.key}
-              onClick={() => {
-                setLocation(`${area.href}?section=${section}`);
-              }}
-              className={`group relative rounded-2xl border ${area.border} bg-gradient-to-br ${area.gradient} p-6 cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-xl ${area.glow}`}
-            >
+        {AREAS.map((area) => (
+  <div
+    key={area.key}
+    onClick={() => {
+      localStorage.setItem("ftb-login-club", clubSlug);
+      localStorage.setItem("ftb-login-section", section);
+      setLocation(`${area.href}?section=${section}&club=${encodeURIComponent(clubSlug)}&area=${encodeURIComponent(area.key)}`);
+    }}
+    className={`group relative rounded-2xl border ${area.border} bg-gradient-to-br ${area.gradient} p-6 cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-xl ${area.glow}`}
+  >
               <div className="flex items-start gap-4">
                 <div className={`w-12 h-12 rounded-xl ${area.iconBg} flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform`}>
                   <area.icon className={`w-6 h-6 ${area.iconColor}`} />
@@ -254,7 +257,14 @@ export default function WorkspaceSectionAreasPage() {
         <div className="mt-8 text-center">
           <p className="text-sm text-gray-500">
             {t.knowCredentials}{" "}
-            <Link href="/login">
+            <Link
+              href={`/login?club=${encodeURIComponent(clubSlug)}&section=${encodeURIComponent(section)}`}
+              onClick={() => {
+                localStorage.setItem("ftb-login-club", clubSlug);
+                localStorage.setItem("ftb-login-section", section);
+                localStorage.setItem("ftb-post-login-dest", "dashboard");
+              }}
+            >
               <span className="text-gray-400 hover:text-white transition-colors cursor-pointer underline underline-offset-2">{t.signInDirectly}</span>
             </Link>
           </p>

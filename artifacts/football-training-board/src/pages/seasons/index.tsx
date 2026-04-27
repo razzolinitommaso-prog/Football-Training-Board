@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { it } from "date-fns/locale";
+import { withApi } from "@/lib/api-base";
 
 interface Season {
   id: number;
@@ -25,7 +26,8 @@ interface Season {
 }
 
 async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, {
+  const fullUrl = url.startsWith("/api/") ? withApi(url) : url;
+  const res = await fetch(fullUrl, {
     ...options,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
@@ -169,7 +171,7 @@ export default function SeasonsPage() {
   async function handleDownload(season: Season) {
     setDownloadingId(season.id);
     try {
-      const res = await fetch(`/api/seasons/${season.id}/export`, { credentials: "include" });
+      const res = await fetch(withApi(`/api/seasons/${season.id}/export`), { credentials: "include" });
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

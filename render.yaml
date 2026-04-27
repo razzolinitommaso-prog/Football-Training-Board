@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: football-training-board-api
+    plan: free
+    runtime: node
+    rootDir: .
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server build
+    preDeployCommand: pnpm --filter @workspace/db push
+    startCommand: pnpm --filter @workspace/api-server start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_ORIGIN
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: SESSION_COOKIE_SAMESITE
+        value: none
+      - key: SESSION_COOKIE_SECURE
+        value: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: football-training-board-db
+          property: connectionString
+
+databases:
+  - name: football-training-board-db
+    plan: free

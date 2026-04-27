@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
 const router: IRouter = Router();
 
 function requireAdmin(req: any, res: any, next: any) {
-  if (!["admin", "presidente"].includes(req.session.role)) { res.status(403).json({ error: "Admin only" }); return; }
+  if (!["admin", "presidente"].includes(req.session.role ?? "")) { res.status(403).json({ error: "Admin only" }); return; }
   next();
 }
 

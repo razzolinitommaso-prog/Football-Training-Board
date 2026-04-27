@@ -27,7 +27,7 @@ const ROLE_PERMISSIONS: { role: string; label: string; color: string; areas: str
     role: "technical_director",
     label: "Direttore Tecnico",
     color: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    areas: ["Dashboard", "Squadre", "Giocatori", "Allenamenti", "Partite", "Presenze", "Bacheca tattica", "Esercizi", "Stagioni"],
+    areas: ["Dashboard", "Sessioni allenamento", "Esercitazioni", "Squadre", "Giocatori", "Partite", "Presenze", "Stagioni"],
   },
   {
     role: "coach",

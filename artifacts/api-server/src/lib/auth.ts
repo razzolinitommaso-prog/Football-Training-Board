@@ -32,7 +32,7 @@ export function requireRole(...roles: string[]) {
       res.status(401).json({ error: "Not authenticated" });
       return;
     }
-    if (!roles.includes(req.session.role)) {
+    if (!roles.includes(req.session.role ?? "")) {
       res.status(403).json({ error: "Insufficient permissions" });
       return;
     }

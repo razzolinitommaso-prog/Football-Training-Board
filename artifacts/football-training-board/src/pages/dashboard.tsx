@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboardStats, useListPlayers, useListTeams } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy } from "lucide-react";
+import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, Download, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +18,53 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { withApi } from "@/lib/api-base";
+import { normalizeSessionRole } from "@/lib/session-role";
+
+type SecretaryClubFileRow = {
+  id: number;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
+/** Elenco file: in caso di errore API rete nulla in UI (lista vuota), solo log in sviluppo. */
+async function fetchSecretaryClubFilesList(): Promise<SecretaryClubFileRow[]> {
+  try {
+    const res = await fetch(withApi("/api/secretary/club-files"), { credentials: "include" });
+    const text = await res.text();
+    if (!res.ok) {
+      if (import.meta.env.DEV) {
+        console.warn("[secretary/club-files] elenco non disponibile:", res.status, text.slice(0, 160));
+      }
+      return [];
+    }
+    try {
+      return JSON.parse(text) as SecretaryClubFileRow[];
+    } catch {
+      return [];
+    }
+  } catch (e) {
+    if (import.meta.env.DEV) console.warn("[secretary/club-files]", e);
+    return [];
+  }
+}
+
+async function secretaryDownloadFile(fileId: number, filename: string) {
+  const res = await fetch(withApi(`/api/secretary/club-files/${fileId}/file`), { credentials: "include" });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `Download failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 type ClubNotification = {
   id: number;
@@ -29,6 +76,20 @@ type ClubNotification = {
   isRead: boolean;
   source?: "internal" | "platform";
 };
+
+async function fetchJsonOrThrow<T>(url: string): Promise<T> {
+  console.log(`[dashboard] request GET ${url}`);
+  const res = await fetch(withApi(url), { credentials: "include" });
+  console.log(`[dashboard] response GET ${url} -> ${res.status}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error(`[dashboard] error GET ${url}:`, errorText);
+    throw new Error(`Request failed (${res.status}) for ${url}`);
+  }
+  const payload = (await res.json()) as T;
+  console.log(`[dashboard] payload GET ${url}:`, payload);
+  return payload;
+}
 
 function typeStyle(type: string) {
   if (type === "urgent") return { bg: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800", icon: <Siren className="w-4 h-4 text-red-500" />, badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" };
@@ -45,50 +106,153 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
 }
 
 export default function Dashboard() {
-  const { data: stats, isLoading } = useGetDashboardStats();
-  const { data: allPlayers } = useListPlayers();
-  const { data: allTeams } = useListTeams();
   const { t, language } = useLanguage();
-  const { role, user } = useAuth();
+  const { role, user, club } = useAuth();
+  const nr = normalizeSessionRole(role);
+  const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
 
-  const isStaffViewer = role === "coach" || role === "technical_director" || role === "fitness_coach" || role === "athletic_director";
-  const isTrainingStaff = role === "coach" || role === "fitness_coach" || role === "athletic_director";
-
-  const { data: draftExercises = [] } = useQuery<{ id: number; title: string; trainingDay?: string | null }[]>({
-    queryKey: ["/api/exercises/drafts"],
-    queryFn: async () => {
-      const res = await fetch("/api/exercises/drafts", { credentials: "include" });
-      return res.ok ? res.json() : [];
+  const { data: stats, isLoading } = useGetDashboardStats({
+    query: {
+      queryKey: ["/api/dashboard/stats", clubIdNum, nr],
+      enabled: Boolean(user && nr),
     },
+  });
+  const { data: allPlayers } = useListPlayers({
+    query: {
+      queryKey: ["/api/players", clubIdNum, nr],
+      // La sessione API ha già clubId: non attendere club.id dal client (evita gare e liste mai caricate).
+      enabled: Boolean(user),
+    },
+  });
+  const { data: allTeams } = useListTeams({
+    query: {
+      queryKey: ["/api/teams", clubIdNum, nr],
+      enabled: Boolean(user),
+    },
+  });
+  const canQuickCreateTrainingTools =
+    nr === "coach" || nr === "fitness_coach" || nr === "technical_director";
+
+  const queryClient = useQueryClient();
+  const showSecretaryFilesCard = nr === "secretary" && clubIdNum > 0;
+  const { data: secretaryFiles = [] } = useQuery({
+    queryKey: ["/api/secretary/club-files", clubIdNum],
+    queryFn: fetchSecretaryClubFilesList,
+    enabled: showSecretaryFilesCard,
+  });
+
+  const uploadSecretaryFileMutation = useMutation({
+    mutationFn: async (payload: { fileName: string; mimeType: string; dataBase64: string }) => {
+      const res = await fetch(withApi("/api/secretary/club-files"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Upload failed (${res.status})`);
+      }
+      return res.json() as Promise<SecretaryClubFileRow>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/secretary/club-files", clubIdNum] });
+    },
+  });
+
+  const deleteSecretaryFileMutation = useMutation({
+    mutationFn: async (fileId: number) => {
+      const res = await fetch(withApi(`/api/secretary/club-files/${fileId}`), {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok && res.status !== 204) {
+        const text = await res.text();
+        throw new Error(text || `Delete failed (${res.status})`);
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/secretary/club-files", clubIdNum] });
+    },
+  });
+
+  const isStaffViewer = nr === "coach" || nr === "technical_director" || nr === "fitness_coach" || nr === "athletic_director";
+  const isTrainingStaff = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
+
+  const myUserId = Number((user as any)?.id ?? 0);
+  const { data: rawDraftExercises = [] } = useQuery<{ id: number; title: string; trainingDay?: string | null; createdByUserId?: number | null }[]>({
+    queryKey: ["/api/exercises/drafts"],
+    queryFn: () => fetchJsonOrThrow<{ id: number; title: string; trainingDay?: string | null; createdByUserId?: number | null }[]>("/api/exercises/drafts"),
     enabled: isTrainingStaff,
   });
+  const draftExercises = rawDraftExercises.filter((ex) => (ex.createdByUserId ?? null) === myUserId);
 
   const { data: seasons = [] } = useQuery<{ id: number; name: string; isActive: boolean }[]>({
     queryKey: ["/api/seasons"],
-    queryFn: async () => {
-      const res = await fetch("/api/seasons", { credentials: "include" });
-      return res.ok ? res.json() : [];
-    },
+    queryFn: () => fetchJsonOrThrow<{ id: number; name: string; isActive: boolean }[]>("/api/seasons"),
   });
+
+  const { data: boards = [] } = useQuery({
+    queryKey: ["/api/boards"],
+    queryFn: () => fetchJsonOrThrow<any[]>("/api/boards"),
+  });
+
   const activeSeason = seasons.find(s => s.isActive) ?? seasons[seasons.length - 1] ?? null;
   const [selectedSeasonId, setSelectedSeasonId] = useState<number | null>(null);
   const viewedSeason = seasons.find(s => s.id === (selectedSeasonId ?? activeSeason?.id)) ?? activeSeason;
 
   const now = new Date();
   const isTransitionWindow = now.getMonth() >= 6 && now.getMonth() <= 7;
-  const canManageSeasons = role === "admin" || role === "secretary";
+  const canManageSeasons = nr === "admin" || nr === "secretary";
 
-  const myTeams = isStaffViewer && user?.id
+  const myTeams = isStaffViewer && user?.id && nr !== "technical_director"
     ? (allTeams ?? []).filter((team: any) =>
         Array.isArray(team.assignedStaff) &&
         team.assignedStaff.some((s: any) => s.userId === user.id)
       )
     : [];
+  /** Direttore tecnico: panoramica su tutte le squadre del club (anche senza assegnazione personale). */
+  const teamsForStaffUi = nr === "technical_director" ? (allTeams ?? []) : myTeams;
+
+  const isClubWideTechnicalRole = nr === "technical_director" || nr === "director";
+
+  const { data: trainingSessionsForDash = [] } = useQuery({
+    queryKey: ["/api/training-sessions", clubIdNum, nr, "dashboard-tiles"],
+    queryFn: () =>
+      fetchJsonOrThrow<Array<{ status?: string; scheduledAt?: string }>>("/api/training-sessions"),
+    enabled: Boolean(isClubWideTechnicalRole && user),
+  });
+
+  const dashboardTeamCount = useMemo(() => {
+    const fromApi = stats?.totalTeams ?? 0;
+    const n = allTeams?.length ?? 0;
+    if (isClubWideTechnicalRole && n > fromApi) return n;
+    return fromApi;
+  }, [stats?.totalTeams, allTeams?.length, isClubWideTechnicalRole]);
+
+  const dashboardPlayerCount = useMemo(() => {
+    const fromApi = stats?.totalPlayers ?? 0;
+    const n = allPlayers?.length ?? 0;
+    if (isClubWideTechnicalRole && n > fromApi) return n;
+    return fromApi;
+  }, [stats?.totalPlayers, allPlayers?.length, isClubWideTechnicalRole]);
+
+  const dashboardUpcomingCount = useMemo(() => {
+    const fromApi = stats?.upcomingTrainingSessions ?? 0;
+    if (!isClubWideTechnicalRole || trainingSessionsForDash.length === 0) return fromApi;
+    const nowMs = Date.now();
+    const n = trainingSessionsForDash.filter(
+      (s) => s.status === "scheduled" && new Date(s.scheduledAt ?? 0).getTime() >= nowMs,
+    ).length;
+    return Math.max(fromApi, n);
+  }, [stats?.upcomingTrainingSessions, trainingSessionsForDash, isClubWideTechnicalRole]);
+
   const [alertDismissed, setAlertDismissed] = useState(false);
 
   // --- Notifications state ---
   const [notifications, setNotifications] = useState<ClubNotification[]>([]);
   const [notifLoading, setNotifLoading] = useState(true);
+  const [notifError, setNotifError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [formTitle, setFormTitle] = useState("");
   const [formMessage, setFormMessage] = useState("");
@@ -96,15 +260,24 @@ export default function Dashboard() {
   const [formSending, setFormSending] = useState(false);
   const [formError, setFormError] = useState("");
 
-  const canSend = role === "admin" || role === "secretary";
+  const canSend = nr === "admin" || nr === "secretary" || nr === "technical_director";
 
   const fetchNotifications = useCallback(async () => {
     setNotifLoading(true);
+    setNotifError("");
     try {
       const [internalRes, platformRes] = await Promise.all([
-        fetch("/api/club/notifications", { credentials: "include" }),
-        (canSend ? fetch("/api/club/platform-announcements", { credentials: "include" }) : Promise.resolve(null)),
+        fetch(withApi("/api/club/notifications"), { credentials: "include" }),
+        (canSend ? fetch(withApi("/api/club/platform-announcements"), { credentials: "include" }) : Promise.resolve(null)),
       ]);
+
+      console.log("[dashboard] response GET /api/club/notifications ->", internalRes.status);
+      if (platformRes) {
+        console.log("[dashboard] response GET /api/club/platform-announcements ->", platformRes.status);
+      }
+      if (!internalRes.ok) {
+        throw new Error(`Request failed (${internalRes.status}) for /api/club/notifications`);
+      }
 
       const internal: ClubNotification[] = internalRes.ok
         ? (await internalRes.json()).map((n: any) => ({ ...n, source: "internal" as const }))
@@ -126,7 +299,12 @@ export default function Dashboard() {
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       setNotifications(merged);
-    } catch {}
+      console.log("[dashboard] payload notifications:", merged);
+    } catch (error) {
+      console.error("[dashboard] notifications error:", error);
+      setNotifications([]);
+      setNotifError("Errore caricamento comunicazioni dal backend.");
+    }
     setNotifLoading(false);
   }, [canSend]);
 
@@ -136,7 +314,7 @@ export default function Dashboard() {
     const url = source === "platform"
       ? `/api/club/platform-announcements/${id}/read`
       : `/api/club/notifications/${id}/read`;
-    await fetch(url, { method: "PATCH", credentials: "include" });
+    await fetch(withApi(url), { method: "PATCH", credentials: "include" });
     setNotifications(prev => prev.map(n => n.id === id && n.source === source ? { ...n, isRead: true } : n));
   };
 
@@ -146,7 +324,7 @@ export default function Dashboard() {
       const url = n.source === "platform"
         ? `/api/club/platform-announcements/${n.id}/read`
         : `/api/club/notifications/${n.id}/read`;
-      await fetch(url, { method: "PATCH", credentials: "include" });
+      await fetch(withApi(url), { method: "PATCH", credentials: "include" });
     }
     setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
   };
@@ -156,7 +334,7 @@ export default function Dashboard() {
     setFormSending(true);
     setFormError("");
     try {
-      const res = await fetch("/api/club/notifications", {
+      const res = await fetch(withApi("/api/club/notifications"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -172,8 +350,8 @@ export default function Dashboard() {
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
   const showUnavailableAlert = !alertDismissed && (
-    role === "coach" || role === "technical_director" || role === "fitness_coach" ||
-    role === "admin" || role === "athletic_director"
+    nr === "coach" || nr === "technical_director" || nr === "fitness_coach" ||
+    nr === "admin" || nr === "athletic_director"
   );
 
   const unavailablePlayers = (allPlayers as any[] | undefined)?.filter(
@@ -260,6 +438,162 @@ export default function Dashboard() {
         </div>
       </div>
 
+{/* QUICK ACTIONS — Lavagna/Esercitazione solo staff tecnico; Pianifica settimana fuori card solo non-segreteria */}
+<div
+  className={cn(
+    "grid grid-cols-1 gap-3",
+    canQuickCreateTrainingTools ? "sm:grid-cols-3" : "sm:grid-cols-1 max-w-md",
+  )}
+>
+  {canQuickCreateTrainingTools && (
+    <>
+      <Link href="/tactical-board">
+        <Button className="w-full h-12 text-sm font-semibold">
+          ➕ Nuova Lavagna
+        </Button>
+      </Link>
+      <Link href="/exercises">
+        <Button variant="secondary" className="w-full h-12 text-sm font-semibold">
+          ➕ Nuova Esercitazione
+        </Button>
+      </Link>
+    </>
+  )}
+  {nr !== "secretary" && (
+    <Link href="/training">
+      <Button variant="outline" className="w-full h-12 text-sm font-semibold">
+        📅 Pianifica Settimana
+      </Button>
+    </Link>
+  )}
+</div>
+
+      {showSecretaryFilesCard && (
+        <Card className="shadow-md border-border/50 border-emerald-500/20 bg-emerald-500/[0.03]">
+          <CardHeader className="pb-2 border-b border-emerald-500/10">
+            <div className="flex items-center gap-2">
+              <FileUp className="w-5 h-5 text-emerald-600" />
+              <CardTitle className="text-base font-display">File per pianificazione e calendari</CardTitle>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Carica PDF o Excel come riferimento per il club (salvati sul server, visibili da chi accede con le stesse credenziali). Per consultare gli impegni usa il pulsante Pianifica Settimana in questa card.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-4">
+            <div className="flex flex-wrap gap-2">
+              <Link href="/training">
+                <Button type="button" variant="outline" size="sm" className="gap-2">
+                  <CalendarDays className="w-4 h-4" />
+                  Pianifica Settimana
+                </Button>
+              </Link>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={uploadSecretaryFileMutation.isPending}
+                onClick={() => {
+                  const el = document.getElementById("secretary-file-input");
+                  el?.click();
+                }}
+              >
+                <FileUp className="w-4 h-4" />
+                Carica file
+              </Button>
+              <input
+                id="secretary-file-input"
+                type="file"
+                className="hidden"
+                accept=".pdf,.xlsx,.xls,.csv,application/pdf"
+                onChange={async (e) => {
+                  const input = e.target;
+                  const file = input.files?.[0];
+                  input.value = "";
+                  if (!file || clubIdNum <= 0) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const dataBase64 = typeof reader.result === "string" ? reader.result : "";
+                    if (!dataBase64) return;
+                    uploadSecretaryFileMutation.mutate({
+                      fileName: file.name,
+                      mimeType: file.type || "application/octet-stream",
+                      dataBase64,
+                    });
+                  };
+                  reader.readAsDataURL(file);
+                }}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="gap-2"
+                disabled={secretaryFiles.length === 0 || uploadSecretaryFileMutation.isPending}
+                onClick={async () => {
+                  try {
+                    const bundle = await fetchJsonOrThrow<
+                      { id: number; name: string; mimeType: string; createdAt: string; dataUrl: string }[]
+                    >("/api/secretary/club-files/export-bundle");
+                    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `ftb-file-condivisione-club-${clubIdNum}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch {
+                    /* toast optional */
+                  }
+                }}
+              >
+                <Download className="w-4 h-4" />
+                Esporta elenco
+              </Button>
+            </div>
+            {secretaryFiles.length > 0 ? (
+              <ul className="divide-y rounded-lg border text-sm">
+                {secretaryFiles.map((f) => (
+                  <li key={f.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                    <button
+                      type="button"
+                      className="text-primary hover:underline truncate min-w-0 text-left"
+                      onClick={() => void secretaryDownloadFile(f.id, f.originalFilename)}
+                    >
+                      {f.originalFilename}
+                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                      disabled={deleteSecretaryFileMutation.isPending}
+                      onClick={() => deleteSecretaryFileMutation.mutate(f.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
+
+<div>
+  <h2 className="text-lg font-semibold mb-3">Ultime Lavagne</h2>
+
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    {boards.map((board: any) => (
+      <Link key={board.id} href="/tactical-board">
+        <div className="p-4 rounded-xl border bg-card hover:shadow-md cursor-pointer transition">
+          <p className="font-semibold text-sm">{board.title}</p>
+          <p className="text-xs text-muted-foreground">Apri lavagna</p>
+        </div>
+      </Link>
+    ))}
+  </div>
+</div>
       {/* Transition window CTA */}
       {isTransitionWindow && canManageSeasons && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 dark:bg-blue-950/30 dark:border-blue-800 flex items-start gap-3">
@@ -445,6 +779,11 @@ export default function Dashboard() {
         )}
 
         <CardContent className="p-0">
+          {notifError && (
+            <div className="p-4 text-sm text-red-600 border-b border-red-200 bg-red-50 dark:bg-red-950/30 dark:text-red-300 dark:border-red-800">
+              {notifError}
+            </div>
+          )}
           {notifLoading ? (
             <div className="p-6 space-y-2">
               {[1, 2].map(i => <Skeleton key={i} className="h-14 rounded-lg" />)}
@@ -506,14 +845,18 @@ export default function Dashboard() {
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title={t.totalTeams} value={stats?.totalTeams || 0} icon={UsersRound} link="/teams" />
-        <StatCard title={t.activePlayers} value={stats?.totalPlayers || 0} icon={Users} link="/players" />
-        <StatCard title={t.upcomingSessions} value={stats?.upcomingTrainingSessions || 0} icon={CalendarDays} link="/training" />
+        <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link="/teams" />
+        <StatCard title={t.activePlayers} value={dashboardPlayerCount} icon={Users} link="/players" />
+        <StatCard title={t.upcomingSessions} value={dashboardUpcomingCount} icon={CalendarDays} link="/training" />
         <StatCard title={t.staffMembers} value={stats?.totalMembers || 0} icon={ShieldCheck} link="/members" />
       </div>
 
-      {/* ── Calendari Partite ── */}
-      {(role === "admin" || role === "director" || role === "secretary") && (
+      {/* ── Calendari Partite (stessa vista per segreteria, DT, presidenza, DG, admin) ── */}
+      {(nr === "admin" ||
+        nr === "director" ||
+        nr === "secretary" ||
+        nr === "presidente" ||
+        nr === "technical_director") && (
         <Card className="shadow-md border-border/50">
           <CardHeader className="pb-3 border-b">
             <div className="flex items-center justify-between">
@@ -526,18 +869,40 @@ export default function Dashboard() {
           <CardContent className="p-5">
             {(() => {
               const teams = (allTeams ?? []) as any[];
-              const sectionOrder = [
-                { label: "Scuola Calcio", ids: [39, 40, 41, 42, 43, 44, 45, 46], color: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" },
-                { label: "Settore Giovanile", ids: [47, 48, 49, 50, 51], color: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300" },
-                { label: "Prima Squadra", ids: [52], color: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300" },
-              ];
+              if (teams.length === 0) {
+                return (
+                  <div className="p-8 text-center text-muted-foreground flex flex-col items-center">
+                    <Trophy className="w-10 h-10 mb-3 opacity-20" />
+                    <p className="text-sm">Nessuna squadra nel club o calendario non ancora impostato.</p>
+                  </div>
+                );
+              }
+              const sectionMeta = [
+                {
+                  key: "scuola_calcio",
+                  label: "Scuola Calcio",
+                  color: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+                },
+                {
+                  key: "settore_giovanile",
+                  label: "Settore Giovanile",
+                  color: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+                },
+                {
+                  key: "prima_squadra",
+                  label: "Prima Squadra",
+                  color: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+                },
+              ] as const;
+              const usedIds = new Set<number>();
               return (
                 <div className="space-y-5">
-                  {sectionOrder.map(section => {
-                    const sectionTeams = teams.filter((t: any) => section.ids.includes(t.id));
+                  {sectionMeta.map((section) => {
+                    const sectionTeams = teams.filter((t: any) => t.clubSection === section.key);
+                    sectionTeams.forEach((t: any) => usedIds.add(t.id));
                     if (sectionTeams.length === 0) return null;
                     return (
-                      <div key={section.label}>
+                      <div key={section.key}>
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{section.label}</p>
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                           {sectionTeams.map((team: any) => (
@@ -560,6 +925,30 @@ export default function Dashboard() {
                       </div>
                     );
                   })}
+                  {(() => {
+                    const rest = teams.filter((t: any) => !usedIds.has(t.id));
+                    if (rest.length === 0) return null;
+                    return (
+                      <div key="altre">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Altre squadre</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                          {rest.map((team: any) => (
+                            <Link key={team.id} href={`/calendari/${team.id}`}>
+                              <div className="group flex flex-col gap-1.5 p-3 rounded-xl border bg-card hover:shadow-md hover:border-primary/40 transition-all cursor-pointer">
+                                <div className="flex items-center justify-between">
+                                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0 group-hover:bg-primary/20 transition-colors">
+                                    {(team.name as string).substring(0, 2).toUpperCase()}
+                                  </div>
+                                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </div>
+                                <p className="text-xs font-semibold leading-tight line-clamp-2">{team.name}</p>
+                              </div>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -567,18 +956,20 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Calendari per coach / preparatori — solo le loro squadre */}
-      {isStaffViewer && myTeams.length > 0 && (
+      {/* Calendari per coach / preparatori (il DT usa la card "Calendari Partite" sopra, evita duplicato) */}
+      {isStaffViewer && teamsForStaffUi.length > 0 && nr !== "technical_director" && (
         <Card className="shadow-md border-border/50">
           <CardHeader className="pb-3 border-b">
             <div className="flex items-center gap-2">
               <Trophy className="w-5 h-5 text-primary" />
-              <CardTitle className="text-base font-display">I miei Calendari Partite</CardTitle>
+              <CardTitle className="text-base font-display">
+                {nr === "technical_director" ? "Calendari partite (squadre club)" : "I miei Calendari Partite"}
+              </CardTitle>
             </div>
           </CardHeader>
           <CardContent className="p-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {myTeams.map((team: any) => (
+              {teamsForStaffUi.map((team: any) => (
                 <Link key={team.id} href={`/calendari/${team.id}`}>
                   <div className="group flex items-center gap-3 p-4 rounded-xl border bg-card hover:shadow-md hover:border-primary/40 transition-all cursor-pointer">
                     <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0 group-hover:bg-primary/20 transition-colors">
@@ -603,18 +994,24 @@ export default function Dashboard() {
           <CardHeader className="pb-3 border-b">
             <div className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-primary" />
-              <CardTitle className="text-base font-display">I miei orari di allenamento</CardTitle>
+              <CardTitle className="text-base font-display">
+                {nr === "technical_director" ? "Orari di allenamento (squadre area)" : "I miei orari di allenamento"}
+              </CardTitle>
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {myTeams.length === 0 ? (
+            {teamsForStaffUi.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground flex flex-col items-center">
                 <Clock className="w-10 h-10 mb-3 opacity-20" />
-                <p className="text-sm">Nessuna squadra assegnata o orari non ancora impostati.</p>
+                <p className="text-sm">
+                  {nr === "technical_director"
+                    ? "Nessuna squadra nell'area o orari non ancora impostati."
+                    : "Nessuna squadra assegnata o orari non ancora impostati."}
+                </p>
               </div>
             ) : (
               <div className="divide-y">
-                {myTeams.map((team: any) => {
+                {teamsForStaffUi.map((team: any) => {
                   const slots: TrainingSlot[] = team.trainingSchedule ?? [];
                   return (
                     <div key={team.id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -650,6 +1047,7 @@ export default function Dashboard() {
         </Card>
       )}
 
+      {nr !== "secretary" && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 shadow-md border-border/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -725,6 +1123,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   );
 }

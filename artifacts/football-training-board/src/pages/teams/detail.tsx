@@ -13,8 +13,10 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -50,13 +52,16 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
   return reason || "—";
 }
 
+const zRegisteredField = z.preprocess((v) => (v === "indeterminate" ? false : v), z.boolean().optional());
+
 const editSchema = z.object({
   firstName: z.string().min(2, "Required"),
   lastName: z.string().min(2, "Required"),
   position: z.string().optional(),
+  status: z.string().optional(),
   jerseyNumber: z.coerce.number().optional().nullable(),
   dateOfBirth: z.string().optional(),
-  registered: z.boolean().optional(),
+  registered: zRegisteredField,
   registrationNumber: z.string().optional(),
   nationality: z.string().optional(),
   height: z.coerce.number().optional().nullable(),
@@ -90,9 +95,47 @@ type Player = {
   expectedReturn?: string | null;
 };
 
+type PlayerNoteRecipient = "secretary" | "technical_director" | "coach_staff";
+type PlayerNoteThreadItem = {
+  id: string;
+  authorRole: string;
+  authorName?: string;
+  recipient: PlayerNoteRecipient;
+  body: string;
+  createdAt: string;
+  requiresResponse?: boolean;
+  replyToId?: string;
+  repliedAt?: string;
+};
+
+const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
+
+function splitPlayerNotes(raw?: string | null): { plainNote: string; thread: PlayerNoteThreadItem[] } {
+  const full = (raw ?? "").trim();
+  if (!full) return { plainNote: "", thread: [] };
+  const idx = full.lastIndexOf(PLAYER_NOTES_MARKER);
+  if (idx < 0) return { plainNote: full, thread: [] };
+  const before = full.slice(0, idx).trim();
+  const jsonPart = full.slice(idx + PLAYER_NOTES_MARKER.length).trim();
+  try {
+    const parsed = JSON.parse(jsonPart);
+    if (!Array.isArray(parsed)) return { plainNote: before, thread: [] };
+    return { plainNote: before, thread: parsed as PlayerNoteThreadItem[] };
+  } catch {
+    return { plainNote: before, thread: [] };
+  }
+}
+
+function composePlayerNotes(plainNote: string, thread: PlayerNoteThreadItem[]): string {
+  const cleanPlain = plainNote.trim();
+  if (!thread.length) return cleanPlain;
+  const encoded = `${PLAYER_NOTES_MARKER}${JSON.stringify(thread)}`;
+  return cleanPlain ? `${cleanPlain}\n\n${encoded}` : encoded;
+}
+
 export default function TeamDetail() {
   const { t, language } = useLanguage();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const { id } = useParams<{ id: string }>();
   const teamId = Number(id);
   const { toast } = useToast();
@@ -103,9 +146,17 @@ export default function TeamDetail() {
   const { data: players, isLoading: playersLoading } = useListPlayers({ teamId });
 
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [noteDraftText, setNoteDraftText] = useState("");
+  const [noteRecipient, setNoteRecipient] = useState<PlayerNoteRecipient>("secretary");
+  const [noteRequiresResponse, setNoteRequiresResponse] = useState(false);
+  const [noteReplyToId, setNoteReplyToId] = useState<string>("");
 
-  const canEditAvailability = role === "admin" || role === "secretary";
-  const canEdit = role === "admin" || role === "coach" || role === "technical_director";
+  const canDeletePlayer = ["admin", "presidente", "secretary", "director"].includes(role ?? "");
+  const isLimitedEditor = ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(role ?? "");
+  const canEditFullPlayer = ["admin", "presidente", "secretary", "director"].includes(role ?? "");
+  const canEdit = canEditFullPlayer || isLimitedEditor;
+  const canEditAvailability = canEdit;
+  const canWritePlayerNotes = isLimitedEditor || canEditFullPlayer;
 
   const editForm = useForm<EditForm>({ resolver: zodResolver(editSchema) });
   const watchAvailable = editForm.watch("available");
@@ -139,10 +190,16 @@ export default function TeamDetail() {
 
   function openEdit(player: Player) {
     setEditingPlayer(player);
+    const parsedNotes = splitPlayerNotes(player.notes ?? "");
+    setNoteDraftText("");
+    setNoteRecipient("secretary");
+    setNoteRequiresResponse(false);
+    setNoteReplyToId("");
     editForm.reset({
       firstName: player.firstName,
       lastName: player.lastName,
       position: player.position ?? undefined,
+      status: player.status ?? "active",
       jerseyNumber: player.jerseyNumber ?? undefined,
       dateOfBirth: player.dateOfBirth ?? undefined,
       registered: player.registered ?? false,
@@ -150,7 +207,7 @@ export default function TeamDetail() {
       nationality: player.nationality ?? undefined,
       height: player.height ?? undefined,
       weight: player.weight ?? undefined,
-      notes: player.notes ?? undefined,
+      notes: composePlayerNotes(parsedNotes.plainNote, parsedNotes.thread) ?? undefined,
       available: player.available ?? true,
       unavailabilityReason: player.unavailabilityReason ?? undefined,
       expectedReturn: player.expectedReturn ?? undefined,
@@ -159,13 +216,52 @@ export default function TeamDetail() {
 
   function handleEditSubmit(data: EditForm) {
     if (!editingPlayer) return;
-    const payload: Record<string, unknown> = { ...data };
-    if (data.registered === false) {
+    const parsedNotes = splitPlayerNotes(data.notes ?? "");
+    const thread = [...parsedNotes.thread];
+    const nowIso = new Date().toISOString();
+    if (noteDraftText.trim() && canWritePlayerNotes) {
+      if (noteReplyToId) {
+        const idx = thread.findIndex((n) => n.id === noteReplyToId);
+        if (idx >= 0) thread[idx] = { ...thread[idx], repliedAt: nowIso };
+      }
+      thread.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        authorRole: role ?? "unknown",
+        authorName: `${(user as any)?.firstName ?? ""} ${(user as any)?.lastName ?? ""}`.trim() || undefined,
+        recipient: noteRecipient,
+        body: noteDraftText.trim(),
+        createdAt: nowIso,
+        requiresResponse: noteRequiresResponse,
+        replyToId: noteReplyToId || undefined,
+      });
+    }
+    const registered = data.registered === true;
+    const payload: Record<string, unknown> = {
+      ...data,
+      registered,
+      notes: composePlayerNotes(parsedNotes.plainNote, thread),
+    };
+    if (!registered) {
       payload.available = false;
+    }
+    if (payload.status === "injured") {
+      payload.available = false;
+      payload.unavailabilityReason = "injury";
     }
     if (payload.available) {
       payload.unavailabilityReason = null;
       payload.expectedReturn = null;
+    }
+    if (isLimitedEditor) {
+      const limitedPayload: Record<string, unknown> = {
+        notes: payload.notes,
+        available: payload.available,
+        unavailabilityReason: payload.unavailabilityReason,
+        expectedReturn: payload.expectedReturn,
+        status: payload.status,
+      };
+      updateMutation.mutate({ id: editingPlayer.id, data: limitedPayload as any });
+      return;
     }
     updateMutation.mutate({ id: editingPlayer.id, data: payload as any });
   }
@@ -414,8 +510,16 @@ export default function TeamDetail() {
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openEdit(player)}>
                             <Pencil className="w-3.5 h-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            onClick={() => { if (confirm(t.deletePlayer)) deleteMutation.mutate({ id: player.id }); }}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            disabled={!canDeletePlayer}
+                            onClick={() => {
+                              if (!canDeletePlayer) return;
+                              if (confirm(t.removePlayer)) deleteMutation.mutate({ id: player.id });
+                            }}
+                          >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </div>
@@ -440,18 +544,18 @@ export default function TeamDetail() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.firstName} <span className="text-destructive">*</span></Label>
-                  <Input {...editForm.register("firstName")} />
+                  <Input {...editForm.register("firstName")} disabled={!canEditFullPlayer} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t.lastName} <span className="text-destructive">*</span></Label>
-                  <Input {...editForm.register("lastName")} />
+                  <Input {...editForm.register("lastName")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.position}</Label>
                   <Controller control={editForm.control} name="position" render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditFullPlayer}>
                       <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="GK">{t.goalkeeper}</SelectItem>
@@ -464,32 +568,122 @@ export default function TeamDetail() {
                 </div>
                 <div className="space-y-2">
                   <Label>{t.jerseyNumber}</Label>
-                  <Input type="number" {...editForm.register("jerseyNumber")} />
+                  <Input type="number" {...editForm.register("jerseyNumber")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.dateOfBirth}</Label>
-                  <Input type="date" {...editForm.register("dateOfBirth")} />
+                  <Input type="date" {...editForm.register("dateOfBirth")} disabled={!canEditFullPlayer} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t.nationality}</Label>
-                  <Input {...editForm.register("nationality")} />
+                  <Input {...editForm.register("nationality")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.height} (cm)</Label>
-                  <Input type="number" {...editForm.register("height")} />
+                  <Input type="number" {...editForm.register("height")} disabled={!canEditFullPlayer} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t.weight} (kg)</Label>
-                  <Input type="number" {...editForm.register("weight")} />
+                  <Input type="number" {...editForm.register("weight")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
               <div className="space-y-2">
+                <Label>{t.status}</Label>
+                <Controller control={editForm.control} name="status" render={({ field }) => (
+                  <Select onValueChange={field.onChange} value={field.value || "active"}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">{t.active}</SelectItem>
+                      <SelectItem value="injured">{t.injured}</SelectItem>
+                      <SelectItem value="inactive">{t.inactive}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )} />
+              </div>
+              <div className="space-y-2">
                 <Label>{t.notes}</Label>
-                <Input {...editForm.register("notes")} />
+                {(() => {
+                  const parsed = splitPlayerNotes(editForm.watch("notes") ?? "");
+                  return (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={parsed.plainNote}
+                        onChange={(e) => editForm.setValue("notes", composePlayerNotes(e.target.value, parsed.thread))}
+                        disabled={!canWritePlayerNotes}
+                        placeholder="Nota generale sul giocatore..."
+                      />
+                      {parsed.thread.length > 0 && (
+                        <div className="space-y-1 max-h-36 overflow-auto rounded border p-2 bg-muted/20">
+                          {parsed.thread.map((n) => (
+                            <div key={n.id} className="text-xs rounded border px-2 py-1 bg-background">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium">{n.authorName || n.authorRole}</span>
+                                <span className="text-muted-foreground">{new Date(n.createdAt).toLocaleString("it-IT")}</span>
+                              </div>
+                              <div className="text-muted-foreground mt-0.5">
+                                A: {n.recipient === "secretary" ? "Segreteria" : n.recipient === "technical_director" ? "Direttore tecnico" : "Allenatori/Preparatori"}
+                              </div>
+                              <p className="mt-1">{n.body}</p>
+                              {n.requiresResponse && !n.repliedAt && (
+                                <span className="inline-flex mt-1 text-[10px] rounded border px-1.5 py-0.5">In attesa risposta</span>
+                              )}
+                              {n.repliedAt && (
+                                <span className="inline-flex mt-1 text-[10px] rounded border px-1.5 py-0.5 bg-muted">Risposta ricevuta</span>
+                              )}
+                              {!!n.requiresResponse && !n.repliedAt && canWritePlayerNotes && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-[10px] mt-1"
+                                  onClick={() => setNoteReplyToId(n.id)}
+                                >
+                                  Rispondi
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {canWritePlayerNotes && (
+                        <div className="space-y-2 rounded border p-2 bg-muted/20">
+                          <Label className="text-xs">Nuova comunicazione</Label>
+                          <Textarea
+                            value={noteDraftText}
+                            onChange={(e) => setNoteDraftText(e.target.value)}
+                            placeholder="Scrivi una comunicazione sul giocatore..."
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Select value={noteRecipient} onValueChange={(v) => setNoteRecipient(v as PlayerNoteRecipient)}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="secretary">Segreteria</SelectItem>
+                                <SelectItem value="technical_director">Direttore tecnico</SelectItem>
+                                <SelectItem value="coach_staff">Allenatori/Preparatori</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <div className="flex items-center gap-2 px-2">
+                              <Checkbox checked={noteRequiresResponse} onCheckedChange={(v) => setNoteRequiresResponse(v === true)} />
+                              <Label className="text-xs">Richiesta risposta</Label>
+                            </div>
+                          </div>
+                          {noteReplyToId && (
+                            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                              <span>Risposta a nota in attesa</span>
+                              <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => setNoteReplyToId("")}>
+                                Annulla
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Tesseramento */}
@@ -502,12 +696,13 @@ export default function TeamDetail() {
                   <Controller control={editForm.control} name="registered" render={({ field }) => (
                     <Switch
                       id="registered"
-                      checked={field.value ?? false}
-                      onCheckedChange={field.onChange}
+                      checked={field.value === true}
+                      onCheckedChange={(c) => field.onChange(c === true)}
+                      disabled={!canEditFullPlayer}
                     />
                   )} />
                   <Label htmlFor="registered" className={`cursor-pointer font-medium ${watchRegistered ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
-                    {watchRegistered ? (t.registered ?? "Tesserato") : (t.notRegistered ?? "Non tesserato")}
+                    {watchRegistered ? (t.registered ?? "Tesserato") : "Non tesserato"}
                   </Label>
                   {!watchRegistered && (
                     <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1 ml-1">
@@ -523,7 +718,7 @@ export default function TeamDetail() {
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-500" />
                   <h4 className="font-semibold text-sm">{t.playerAvailability}</h4>
-                  {!canEditAvailability && <span className="text-xs text-muted-foreground ml-auto italic">(solo admin/segreteria)</span>}
+                  {!canEditAvailability && <span className="text-xs text-muted-foreground ml-auto italic">(permessi insufficienti)</span>}
                 </div>
                 <div className="flex items-center gap-3">
                   <Controller control={editForm.control} name="available" render={({ field }) => (

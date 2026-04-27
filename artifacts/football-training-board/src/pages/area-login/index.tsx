@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Link, Redirect } from "wouter";
 import { Loader2, ArrowLeft, Eye, EyeOff, Shield, Target, FileText, BarChart3, Settings, Heart, Dumbbell } from "lucide-react";
 import { useState } from "react";
+import { withApi } from "@/lib/api-base";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email"),
@@ -115,11 +116,16 @@ const SECTION_LABELS: Record<string, string> = {
 };
 
 export function AreaLoginPage({ areaKey }: AreaLoginProps) {
-  const { login, isLoggingIn, user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const config = AREA_CONFIGS[areaKey];
 
-  const loginSection = new URLSearchParams(window.location.search).get("section") ?? undefined;
+  const searchParams = new URLSearchParams(window.location.search);
+  const loginSection = searchParams.get("section") ?? undefined;
+  const loginClub = searchParams.get("club") ?? undefined;
+  const loginArea = searchParams.get("area") ?? undefined;
   const sectionLabel = loginSection ? (SECTION_LABELS[loginSection] ?? loginSection) : undefined;
 
   const form = useForm<LoginForm>({
@@ -127,12 +133,74 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
     defaultValues: { email: "", password: "" },
   });
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#080d18] text-white flex items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-gray-400" aria-label="Caricamento sessione" />
+      </div>
+    );
+  }
+
   if (user) {
     return <Redirect to="/dashboard" />;
   }
 
-  function onSubmit(data: LoginForm) {
-    login({ ...data, section: loginSection });
+  async function onSubmit(data: LoginForm) {
+    setSubmitError("");
+    if (loginClub) {
+      localStorage.setItem("ftb-login-club", loginClub);
+    }
+  
+    if (loginSection) {
+      localStorage.setItem("ftb-login-section", loginSection);
+    }
+
+    setSubmitting(true);
+    try {
+      const effectiveAreaKey = (loginArea || areaKey || "").trim();
+      const res = await fetch(withApi(`/api/auth/login?area=${encodeURIComponent(effectiveAreaKey)}`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          email: data.email.trim().toLowerCase(),
+          password: data.password,
+          section: loginSection,
+        }),
+      });
+      const payload = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        setSubmitError(String(payload?.error || "Accesso negato"));
+        setSubmitting(false);
+        return;
+      }
+
+      // Frontend safety net: if backend didn't enforce area-role properly,
+      // block here using the role returned by /auth/login.
+      const roleFromResponse = String((payload as any)?.role ?? "").trim();
+      const areaRoleMap: Record<string, string[]> = {
+        admin: ["admin", "presidente"],
+        director: ["director"],
+        secretary: ["secretary"],
+        technical: ["technical_director"],
+        fitness: ["fitness_coach", "athletic_director"],
+        coach: ["coach"],
+        parent: ["parent"],
+      };
+      const allowedRoles = areaRoleMap[effectiveAreaKey];
+      if (allowedRoles && roleFromResponse && !allowedRoles.includes(roleFromResponse)) {
+        await fetch(withApi("/api/auth/logout"), { method: "POST", credentials: "include" }).catch(() => null);
+        setSubmitError("Accesso negato per mancanza di permessi nell'area selezionata.");
+        setSubmitting(false);
+        return;
+      }
+
+      // Successful login: go to dashboard; AuthProvider will hydrate from /api/auth/me
+      window.location.href = "/dashboard";
+    } catch {
+      setSubmitError("Errore di connessione. Riprova.");
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -213,15 +281,18 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
 
               <button
                 type="submit"
-                disabled={isLoggingIn}
+                disabled={submitting}
                 className={`w-full flex items-center justify-center gap-2 px-6 py-3.5 ${config.accentBg} border ${config.accentBorder} ${config.accent} font-bold text-base rounded-xl transition-all hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                {isLoggingIn ? (
+                {submitting ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Accesso in corso...</>
                 ) : (
                   <>Accedi — {config.label}</>
                 )}
               </button>
+              {submitError && (
+                <p className="text-sm text-red-400 text-center">{submitError}</p>
+              )}
             </form>
           </div>
 
@@ -237,8 +308,11 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
             </p>
             <p className="text-sm text-gray-500">
               Hai bisogno di un account?{" "}
-              <Link href="/register">
-                <span className="text-emerald-400 hover:text-emerald-300 font-medium cursor-pointer">Registra il tuo club</span>
+              <Link
+                href="/register"
+                className="text-emerald-400 hover:text-emerald-300 font-medium underline-offset-2 hover:underline"
+              >
+                Registra il tuo club
               </Link>
             </p>
           </div>
@@ -255,12 +329,19 @@ export function DirectorLoginPage() { return <AreaLoginPage areaKey="director" /
 export function AdminLoginPage() { return <AreaLoginPage areaKey="admin" />; }
 export function FitnessLoginPage() { return <AreaLoginPage areaKey="fitness" />; }
 export function ParentLoginPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [clubCode, setClubCode] = useState("");
   const [parentCode, setParentCode] = useState("");
   const [showCode, setShowCode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#080d18] text-white flex items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-gray-400" aria-label="Caricamento sessione" />
+      </div>
+    );
+  }
   if (user) return <Redirect to="/parent-dashboard" />;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -269,8 +350,7 @@ export function ParentLoginPage() {
     if (!clubCode.trim() || !parentCode.trim()) { setError("Inserisci entrambi i codici."); return; }
     setLoading(true);
     try {
-      const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-      const res = await fetch(`${BASE}/api/auth/parent-login`, {
+      const res = await fetch(withApi("/api/auth/parent-login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -278,7 +358,7 @@ export function ParentLoginPage() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Credenziali non valide"); setLoading(false); return; }
-      window.location.href = `${BASE}/parent-dashboard`;
+      window.location.href = "/parent-dashboard";
     } catch {
       setError("Errore di connessione. Riprova.");
       setLoading(false);

@@ -266,9 +266,7 @@ router.patch("/clubs/me/members/:userId", requireAuth, async (req, res): Promise
 
   const updateSectionsArray = Array.isArray(clubSection) && clubSection.length > 0
     ? clubSection
-    : clubSection
-      ? [clubSection as string]
-      : undefined;
+    : undefined;
 
   await db
     .update(clubMembershipsTable)
@@ -296,7 +294,7 @@ router.patch("/clubs/me/members/:userId", requireAuth, async (req, res): Promise
 
     if (teamIds.length > 0) {
       await db.insert(teamStaffAssignmentsTable).values(
-        teamIds.map(teamId => ({ teamId, userId, clubId: req.session.clubId!, role }))
+        teamIds.map((teamId: number) => ({ teamId, userId, clubId: req.session.clubId!, role }))
       );
     }
   }

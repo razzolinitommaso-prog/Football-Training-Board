@@ -27,6 +27,25 @@ async function apiFetch(url: string, options?: RequestInit) {
   return res.json();
 }
 
+function normalizeTime24(value: string): string | null {
+  const clean = value.trim();
+  const m = clean.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function combineDateAndTimeToIso(dateValue: string, timeValue: string): string | null {
+  if (!dateValue) return null;
+  const normalized = normalizeTime24(timeValue);
+  if (!normalized) return null;
+  const parsed = new Date(`${dateValue}T${normalized}:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = { pending: "secondary", confirmed: "default", declined: "destructive" };
   return <Badge variant={(colors[status] ?? "secondary") as "default" | "secondary" | "destructive" | "outline"}>{status}</Badge>;
@@ -38,7 +57,7 @@ export default function MatchesPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [callUpMatchId, setCallUpMatchId] = useState<number | null>(null);
-  const [opponent, setOpponent] = useState(""); const [matchDate, setMatchDate] = useState("");
+  const [opponent, setOpponent] = useState(""); const [matchDate, setMatchDate] = useState(""); const [matchTime, setMatchTime] = useState("");
   const [competition, setCompetition] = useState(""); const [location, setLocation] = useState("");
   const [homeAway, setHomeAway] = useState("home"); const [teamId, setTeamId] = useState("");
   const [selectedPlayer, setSelectedPlayer] = useState("");
@@ -84,11 +103,20 @@ export default function MatchesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/matches", callUpMatchId, "callups"] }),
   });
 
-  function resetForm() { setOpponent(""); setMatchDate(""); setCompetition(""); setLocation(""); setHomeAway("home"); setTeamId(""); }
+  function resetForm() { setOpponent(""); setMatchDate(""); setMatchTime(""); setCompetition(""); setLocation(""); setHomeAway("home"); setTeamId(""); }
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    createMatch.mutate({ opponent, date: matchDate, competition: competition || null, location: location || null, homeAway, teamId: teamId ? Number(teamId) : null });
+    const dateIso = combineDateAndTimeToIso(matchDate, matchTime);
+    if (!dateIso) {
+      toast({
+        title: "Formato orario non valido",
+        description: "Usa il formato 24h HH:mm (es. 10:00).",
+        variant: "destructive",
+      });
+      return;
+    }
+    createMatch.mutate({ opponent, date: dateIso, competition: competition || null, location: location || null, homeAway, teamId: teamId ? Number(teamId) : null });
   }
 
   const activeMatch = matches.find(m => m.id === callUpMatchId);
@@ -106,7 +134,13 @@ export default function MatchesPage() {
             <DialogHeader><DialogTitle>{t.createMatch}</DialogTitle></DialogHeader>
             <form onSubmit={handleCreate} className="space-y-4">
               <div className="space-y-2"><Label>{t.opponent}</Label><Input value={opponent} onChange={e => setOpponent(e.target.value)} required /></div>
-              <div className="space-y-2"><Label>{t.matchDate}</Label><Input type="datetime-local" value={matchDate} onChange={e => setMatchDate(e.target.value)} required /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2"><Label>{t.matchDate}</Label><Input type="date" value={matchDate} onChange={e => setMatchDate(e.target.value)} required /></div>
+                <div className="space-y-2">
+                  <Label>Orario (24h)</Label>
+                  <Input type="text" value={matchTime} onChange={e => setMatchTime(e.target.value)} placeholder="HH:mm" inputMode="numeric" pattern="^([01]\\d|2[0-3]):([0-5]\\d)$" required />
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2"><Label>{t.competition}</Label><Input value={competition} onChange={e => setCompetition(e.target.value)} /></div>
                 <div className="space-y-2"><Label>{t.location}</Label><Input value={location} onChange={e => setLocation(e.target.value)} /></div>
@@ -159,7 +193,17 @@ export default function MatchesPage() {
                 </CardHeader>
                 <CardContent className="space-y-1">
                   <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(m.date).toLocaleString()}</span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {new Date(m.date).toLocaleString("it-IT", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: false,
+                      })}
+                    </span>
                     {m.teamName && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{m.teamName}</span>}
                     {m.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{m.location}</span>}
                     {m.competition && <Badge variant="outline">{m.competition}</Badge>}

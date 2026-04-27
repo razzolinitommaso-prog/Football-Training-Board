@@ -6,7 +6,7 @@ import { requireAuth } from "../lib/auth";
 const router: IRouter = Router();
 
 router.get("/seasons/:id/observed-players", requireAuth, async (req, res): Promise<void> => {
-  const seasonId = parseInt(req.params.id);
+  const seasonId = parseInt(String(req.params.id));
   if (isNaN(seasonId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const players = await db
@@ -21,7 +21,7 @@ router.get("/seasons/:id/observed-players", requireAuth, async (req, res): Promi
 });
 
 router.post("/seasons/:id/observed-players", requireAuth, async (req, res): Promise<void> => {
-  const seasonId = parseInt(req.params.id);
+  const seasonId = parseInt(String(req.params.id));
   if (isNaN(seasonId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const {
@@ -45,8 +45,8 @@ router.post("/seasons/:id/observed-players", requireAuth, async (req, res): Prom
 });
 
 router.patch("/seasons/:id/observed-players/:pid", requireAuth, async (req, res): Promise<void> => {
-  const seasonId = parseInt(req.params.id);
-  const pid = parseInt(req.params.pid);
+  const seasonId = parseInt(String(req.params.id));
+  const pid = parseInt(String(req.params.pid));
   if (isNaN(seasonId) || isNaN(pid)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const {
@@ -80,7 +80,7 @@ router.patch("/seasons/:id/observed-players/:pid", requireAuth, async (req, res)
 });
 
 router.delete("/seasons/:id/observed-players/:pid", requireAuth, async (req, res): Promise<void> => {
-  const pid = parseInt(req.params.pid);
+  const pid = parseInt(String(req.params.pid));
   if (isNaN(pid)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   await db.delete(observedPlayersTable).where(and(

@@ -10,8 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { LanguageToggle } from "@/components/language-toggle";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { withApi } from "@/lib/api-base";
 
 const plans = [
   { value: "standard",  label: "Standard",  desc: "3 squadre · 50 giocatori",  color: "border-gray-500/30 bg-gray-500/5 hover:border-gray-400/50" },
@@ -104,48 +103,60 @@ export default function Register() {
     }
     setLoading(true); setError("");
     try {
-      const res = await fetch(`${BASE}/api/auth/register`, {
+      const formData = {
+        email: form.email,
+        password: form.password,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        clubName: form.clubName,
+        clubCity: form.city || undefined,
+        clubCountry: form.country || undefined,
+        legalName: form.legalName || undefined,
+        foundedYear: form.foundedYear ? Number(form.foundedYear) : undefined,
+        description: form.description || undefined,
+        vatNumber: form.vatNumber || undefined,
+        fiscalCode: form.fiscalCode || undefined,
+        sdiCode: form.sdiCode || undefined,
+        pec: form.pec || undefined,
+        phone: form.phone || undefined,
+        clubEmail: form.clubEmail || undefined,
+        website: form.website || undefined,
+        legalAddress: form.legalAddress || undefined,
+        legalCity: form.legalCity || undefined,
+        legalZip: form.legalZip || undefined,
+        legalProvince: form.legalProvince || undefined,
+        operationalAddress: form.operationalAddress || undefined,
+        operationalCity: form.operationalCity || undefined,
+        operationalZip: form.operationalZip || undefined,
+        operationalProvince: form.operationalProvince || undefined,
+        contactName: form.contactName || undefined,
+        contactPhone: form.contactPhone || undefined,
+        contactEmail: form.contactEmail || undefined,
+        planName: form.planName,
+        paymentMethod: form.paymentMethod,
+      };
+
+      const res = await fetch(withApi("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          email: form.email,
-          password: form.password,
-          firstName: form.firstName,
-          lastName: form.lastName,
-          clubName: form.clubName,
-          clubCity: form.city || undefined,
-          clubCountry: form.country || undefined,
-          legalName: form.legalName || undefined,
-          foundedYear: form.foundedYear ? Number(form.foundedYear) : undefined,
-          description: form.description || undefined,
-          vatNumber: form.vatNumber || undefined,
-          fiscalCode: form.fiscalCode || undefined,
-          sdiCode: form.sdiCode || undefined,
-          pec: form.pec || undefined,
-          phone: form.phone || undefined,
-          clubEmail: form.clubEmail || undefined,
-          website: form.website || undefined,
-          legalAddress: form.legalAddress || undefined,
-          legalCity: form.legalCity || undefined,
-          legalZip: form.legalZip || undefined,
-          legalProvince: form.legalProvince || undefined,
-          operationalAddress: form.operationalAddress || undefined,
-          operationalCity: form.operationalCity || undefined,
-          operationalZip: form.operationalZip || undefined,
-          operationalProvince: form.operationalProvince || undefined,
-          contactName: form.contactName || undefined,
-          contactPhone: form.contactPhone || undefined,
-          contactEmail: form.contactEmail || undefined,
-          planName: form.planName,
-          paymentMethod: form.paymentMethod,
-        }),
+        body: JSON.stringify(formData),
       });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || "Registrazione fallita. Riprova."); return; }
+
+      console.log("STATUS:", res.status);
+
+      const text = await res.text();
+      console.log("RESPONSE:", text);
+
+      if (!res.ok) {
+        throw new Error(text);
+      }
+
+      const data = JSON.parse(text) as { clubAccessCode: string; clubParentCode?: string };
       setSuccess({ accessCode: data.clubAccessCode, parentCode: data.clubParentCode ?? "" });
-    } catch {
-      setError("Errore di connessione. Riprova.");
+    } catch (err) {
+      console.error("REAL ERROR:", err);
+      alert("ERROR: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);
     }

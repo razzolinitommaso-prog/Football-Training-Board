@@ -14,11 +14,12 @@ import {
   GetDashboardStatsResponse,
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
+import { canViewAllClubTrainingSessions, isClubWideListRole, normalizeSessionRole } from "../lib/club-scope";
+import { requireClubAndUserIds } from "../lib/session-context";
 
-const STAFF_ONLY_ROLES = ["coach", "fitness_coach", "technical_director", "athletic_director"];
-const CAN_CREATE_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
-const VIEW_ALL_ROLES = ["admin", "presidente", "director", "technical_director"];
-
+/** Per le statistiche dashboard: solo chi è vincolato alle squadre assegnate (non il direttore tecnico). */
+const DASHBOARD_ASSIGNMENT_SCOPED_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
+const CAN_CREATE_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director", "secretary"];
 const router: IRouter = Router();
 
 async function enrichSession(session: typeof trainingSessionsTable.$inferSelect) {
@@ -50,24 +51,23 @@ async function enrichSession(session: typeof trainingSessionsTable.$inferSelect)
 
 // GET all training sessions (role-filtered)
 router.get("/training-sessions", requireAuth, async (req, res): Promise<void> => {
-  const role = req.session.role;
-  const userId = req.session.userId!;
-  const clubId = req.session.clubId!;
-
-  if (role === "secretary") {
-    res.status(403).json({ error: "Accesso non consentito" });
+  const ids = requireClubAndUserIds(req);
+  if (!ids) {
+    res.status(400).json({ error: "Club context required" });
     return;
   }
+  const { clubId, userId } = ids;
+  const role = req.session.role ?? "";
 
   const queryParams = ListTrainingSessionsQueryParams.safeParse(req.query);
   let sessions: (typeof trainingSessionsTable.$inferSelect)[] = [];
 
-  if (VIEW_ALL_ROLES.includes(role)) {
+  if (canViewAllClubTrainingSessions(role)) {
     let conditions: ReturnType<typeof eq>[] = [eq(trainingSessionsTable.clubId, clubId) as any];
     if (queryParams.success && queryParams.data.teamId) {
       conditions.push(eq(trainingSessionsTable.teamId, queryParams.data.teamId) as any);
     }
-    if (req.session.section) {
+    if (req.session.section && !isClubWideListRole(role)) {
       const sTeams = await db.select({ id: teamsTable.id }).from(teamsTable)
         .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.clubSection, req.session.section)));
       const ids = sTeams.map(t => t.id);
@@ -80,12 +80,27 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
       .orderBy(desc(trainingSessionsTable.scheduledAt));
   } else {
     // coach, fitness_coach, athletic_director: own sessions + tipo sessions addressed to them
+    // and only for assigned teams/annate (plus sessions without explicit team)
+    const assignedRows = await db
+      .select({ teamId: teamStaffAssignmentsTable.teamId })
+      .from(teamStaffAssignmentsTable)
+      .where(and(eq(teamStaffAssignmentsTable.userId, userId), eq(teamStaffAssignmentsTable.clubId, clubId)));
+    const coachedRows = await db
+      .select({ id: teamsTable.id })
+      .from(teamsTable)
+      .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.coachId, userId)));
+    const assignedTeamIds = [...new Set([...assignedRows.map((r) => r.teamId), ...coachedRows.map((r) => r.id)])];
+    const teamScope =
+      assignedTeamIds.length > 0
+        ? or(inArray(trainingSessionsTable.teamId, assignedTeamIds), sql`${trainingSessionsTable.teamId} is null`)
+        : sql`${trainingSessionsTable.teamId} is null`;
     sessions = await db
       .select()
       .from(trainingSessionsTable)
       .where(
         and(
           eq(trainingSessionsTable.clubId, clubId),
+          teamScope as any,
           or(
             eq(trainingSessionsTable.createdByUserId, userId),
             and(
@@ -104,7 +119,7 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
 
 // POST new training session
 router.post("/training-sessions", requireAuth, async (req, res): Promise<void> => {
-  const role = req.session.role;
+  const role = req.session.role ?? "";
   const userId = req.session.userId!;
 
   if (!CAN_CREATE_ROLES.includes(role)) {
@@ -141,9 +156,7 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
 
 // GET single training session
 router.get("/training-sessions/:id", requireAuth, async (req, res): Promise<void> => {
-  const role = req.session.role;
-  if (role === "secretary") { res.status(403).json({ error: "Accesso non consentito" }); return; }
-
+  const role = req.session.role ?? "";
   const params = GetTrainingSessionParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
@@ -160,11 +173,11 @@ router.get("/training-sessions/:id", requireAuth, async (req, res): Promise<void
 
 // PATCH training session
 router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<void> => {
-  const role = req.session.role;
+  const role = req.session.role ?? "";
   const userId = req.session.userId!;
   const clubId = req.session.clubId!;
 
-  if (role === "secretary" || role === "admin" || role === "presidente" || role === "director") {
+  if (role === "admin" || role === "presidente" || role === "director") {
     res.status(403).json({ error: "Non hai i permessi per modificare sessioni" });
     return;
   }
@@ -183,7 +196,14 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
 
   let updateData: Record<string, unknown> = {};
 
-  if (role === "technical_director") {
+  if (role === "secretary") {
+    const parsed = UpdateTrainingSessionBody.safeParse(body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    updateData = { ...parsed.data };
+  } else if (role === "technical_director") {
     // TD can update comment/guidelines on any session, or edit their own sessions
     if (existing.createdByUserId === userId) {
       const parsed = UpdateTrainingSessionBody.safeParse(body);
@@ -222,7 +242,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
 
 // DELETE training session
 router.delete("/training-sessions/:id", requireAuth, async (req, res): Promise<void> => {
-  const role = req.session.role;
+  const role = req.session.role ?? "";
   const userId = req.session.userId!;
   const clubId = req.session.clubId!;
 
@@ -236,8 +256,8 @@ router.delete("/training-sessions/:id", requireAuth, async (req, res): Promise<v
 
   if (!existing) { res.status(404).json({ error: "Training session not found" }); return; }
 
-  // Only creator or admin/presidente can delete
-  if (!["admin", "presidente"].includes(role ?? "") && existing.createdByUserId !== userId) {
+  // Only creator or admin/presidente/secretary can delete
+  if (!["admin", "presidente", "secretary"].includes(role ?? "") && existing.createdByUserId !== userId) {
     res.status(403).json({ error: "Puoi eliminare solo le tue sessioni" });
     return;
   }
@@ -253,7 +273,7 @@ router.delete("/training-sessions/:id", requireAuth, async (req, res): Promise<v
 
 // GET directives (TD gets all they created; others get those sent to them)
 router.get("/training-directives", requireAuth, async (req, res): Promise<void> => {
-  const role = req.session.role;
+  const role = req.session.role ?? "";
   const userId = req.session.userId!;
   const clubId = req.session.clubId!;
 
@@ -328,7 +348,7 @@ router.delete("/training-directives/:id", requireAuth, async (req, res): Promise
     return;
   }
 
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "ID non valido" }); return; }
 
   await db
@@ -341,14 +361,18 @@ router.delete("/training-directives/:id", requireAuth, async (req, res): Promise
 // ── Dashboard Stats ────────────────────────────────────────────────────────
 
 router.get("/dashboard/stats", requireAuth, async (req, res): Promise<void> => {
-  const clubId = req.session.clubId!;
-  const userId = req.session.userId!;
-  const role = req.session.role;
-  const sectionFilter = req.session.section;
+  const clubId = Number(req.session.clubId);
+  const userId = Number(req.session.userId);
+  const role = String(req.session.role ?? "");
+  if (!Number.isFinite(clubId) || clubId <= 0 || !Number.isFinite(userId)) {
+    res.status(400).json({ error: "Sessione club non valida" });
+    return;
+  }
+  const sectionFilter = isClubWideListRole(role) ? undefined : req.session.section;
   const now = new Date();
 
   let assignedTeamIds: number[] | undefined;
-  if (STAFF_ONLY_ROLES.includes(role)) {
+  if (!isClubWideListRole(role) && DASHBOARD_ASSIGNMENT_SCOPED_NORM.has(normalizeSessionRole(role))) {
     const rows = await db
       .select({ teamId: teamStaffAssignmentsTable.teamId })
       .from(teamStaffAssignmentsTable)
@@ -373,6 +397,11 @@ router.get("/dashboard/stats", requireAuth, async (req, res): Promise<void> => {
     effectiveTeamIds = assignedTeamIds;
   } else if (sectionTeamIds !== undefined) {
     effectiveTeamIds = sectionTeamIds;
+  }
+
+  // DT / DG: se la sezione in sessione non ha squadre, senza questo restano 0 squadre ma N membri (query membri senza filtro sezione).
+  if (isClubWideListRole(role) && effectiveTeamIds !== undefined && effectiveTeamIds.length === 0) {
+    effectiveTeamIds = undefined;
   }
 
   const teamIdWhere = effectiveTeamIds !== undefined

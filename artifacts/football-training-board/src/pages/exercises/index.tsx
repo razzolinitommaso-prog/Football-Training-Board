@@ -14,23 +14,48 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   BookOpen, Plus, Trash2, Clock, Users, Package2, Pencil,
-  ClipboardList, BookMarked, Link2, Info, Mic, PenLine,
-  CalendarDays, Layers, Dumbbell, Shield,
+  ClipboardList, BookMarked, Link2, Info, Mic, PenLine, Video,
+  CalendarDays, Layers, Dumbbell, Shield, Copy,
 } from "lucide-react";
 import { ExerciseDrawingBoard } from "./ExerciseDrawingBoard";
 import { ExerciseVoiceRecorder } from "./ExerciseVoiceRecorder";
+import { ExerciseVideoRecorder } from "./ExerciseVideoRecorder";
 
 interface Exercise {
   id: number; title: string; category?: string | null; description?: string | null;
   durationMinutes?: number | null; playersRequired?: number | null; equipment?: string | null;
-  drawingData?: string | null; drawingElementsJson?: string | null; voiceNoteData?: string | null;
-  isDraft?: boolean; teamId?: number | null; trainingDay?: string | null;
+  drawingData?: string | null; drawingElementsJson?: string | null; voiceNoteData?: string | null; videoNoteData?: string | null;
+  caricaRosaIntera?: boolean;
+  scegliGiocatori?: boolean;
+  selectedPlayerIdsJson?: string | null;
+  playersRequiredMode?: "all" | "manual" | "selected";
+  isDraft?: boolean; teamId?: number | null; trainingDay?: string | null; trainingSession?: string | null;
   principio?: string | null; trainingPhase?: string | null;
+  createdByUserId?: number | null;
+  creatorName?: string | null;
+  sourceExerciseId?: number | null;
+  originalCreatedByName?: string | null;
 }
 
 interface MyTeam { id: number; name: string; clubSection?: string | null; }
+interface PlayerOption { id: number; firstName: string; lastName: string; teamId?: number | null; teamName?: string | null; }
+type PlayersRequiredMode = "all" | "manual" | "selected";
+
+const MATERIAL_OPTIONS = [
+  { id: "cinesini", label: "Cinesini" },
+  { id: "ostacoli_20", label: "Ostacoli 20cm" },
+  { id: "ostacoli_40", label: "Ostacoli 40cm" },
+  { id: "ostacoli_60", label: "Ostacoli 60cm" },
+  { id: "ostacoli_80", label: "Ostacoli 80cm" },
+  { id: "porticine", label: "Porticine" },
+  { id: "coni", label: "Coni" },
+  { id: "scalette", label: "Scalette" },
+] as const;
+
+type MaterialId = (typeof MATERIAL_OPTIONS)[number]["id"];
 
 interface Guideline {
   id: number; title: string; content: string; category: string;
@@ -39,10 +64,19 @@ interface Guideline {
 }
 
 async function apiFetch(url: string, options?: RequestInit) {
+  const method = options?.method ?? "GET";
+  console.log(`[exercises] request ${method} ${url}`);
   const res = await fetch(url, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
-  if (!res.ok) throw new Error(await res.text());
+  console.log(`[exercises] response ${method} ${url} -> ${res.status}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error(`[exercises] error ${method} ${url}:`, errorText);
+    throw new Error(errorText);
+  }
   if (res.status === 204) return null;
-  return res.json();
+  const payload = await res.json();
+  console.log(`[exercises] payload ${method} ${url}:`, payload);
+  return payload;
 }
 
 const CATEGORIES = ["technique", "physical", "tactical", "warmup", "shooting", "passing", "defending"] as const;
@@ -62,6 +96,12 @@ const PHASES = [
   { value: "centrale", label: "Centrale", color: "bg-blue-100 text-blue-700" },
   { value: "finale", label: "Finale", color: "bg-amber-100 text-amber-700" },
 ];
+
+const TRAINING_SESSIONS = [
+  { value: "giorno_1", label: "Giorno 1" },
+  { value: "giorno_2", label: "Giorno 2" },
+  { value: "giorno_3", label: "Giorno 3" },
+] as const;
 
 const PRINCIPI = [
   { value: "forza",           label: "FORZA",           color: "bg-red-100 text-red-700" },
@@ -86,20 +126,111 @@ function getPrincipioLabel(v: string) { return PRINCIPI.find(p => p.value === v)
 function getPrincipioColor(v: string) { return PRINCIPI.find(p => p.value === v)?.color ?? "bg-gray-100 text-gray-700"; }
 
 function emptyForm(): Omit<Exercise, "id"> {
-  return { title: "", category: null, description: null, durationMinutes: null, playersRequired: null, equipment: null, drawingData: null, drawingElementsJson: null, voiceNoteData: null, isDraft: false, teamId: null, trainingDay: null, principio: null, trainingPhase: null };
+  return {
+    title: "",
+    category: null,
+    description: null,
+    durationMinutes: null,
+    playersRequired: null,
+    equipment: null,
+    drawingData: null,
+    drawingElementsJson: null,
+    voiceNoteData: null,
+    videoNoteData: null,
+    caricaRosaIntera: false,
+    scegliGiocatori: false,
+    selectedPlayerIdsJson: null,
+    playersRequiredMode: "manual",
+    isDraft: false,
+    teamId: null,
+    trainingDay: null,
+    trainingSession: null,
+    principio: null,
+    trainingPhase: null,
+  };
+}
+
+function parseSelectedPlayerIds(raw: string | null | undefined): number[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  } catch {
+    return [];
+  }
+}
+
+function parseEquipmentSelection(raw: string | null | undefined): Partial<Record<MaterialId, number>> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as { items?: Record<string, number> };
+    const source = parsed?.items ?? {};
+    const next: Partial<Record<MaterialId, number>> = {};
+    for (const option of MATERIAL_OPTIONS) {
+      const value = Number(source[option.id]);
+      if (Number.isFinite(value) && value > 0) next[option.id] = value;
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function serializeEquipmentSelection(selection: Partial<Record<MaterialId, number>>): string | null {
+  const compact = Object.entries(selection)
+    .filter(([, qty]) => Number.isFinite(Number(qty)) && Number(qty) > 0)
+    .reduce<Record<string, number>>((acc, [key, qty]) => {
+      acc[key] = Number(qty);
+      return acc;
+    }, {});
+  if (Object.keys(compact).length === 0) return null;
+  return JSON.stringify({ version: 1, items: compact });
+}
+
+function formatEquipmentLabel(raw: string | null | undefined): string | null {
+  const selection = parseEquipmentSelection(raw);
+  const chips = MATERIAL_OPTIONS
+    .filter((option) => (selection[option.id] ?? 0) > 0)
+    .map((option) => `${option.label}: ${selection[option.id]}`);
+  if (chips.length > 0) return chips.join(" · ");
+  return raw || null;
+}
+
+function formatTrainingSession(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const mapped = TRAINING_SESSIONS.find((item) => item.value === value);
+  if (mapped) return mapped.label;
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleDateString("it-IT", { day: "2-digit", month: "short" });
+  }
+  return value;
+}
+
+function formatTrainingDay(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (TRAINING_SESSIONS.some((item) => item.value === value)) return null;
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleDateString("it-IT", { day: "2-digit", month: "short" });
+  }
+  return value;
 }
 
 export default function ExercisesPage() {
   const { t } = useLanguage();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
 
   const canEditGuidelines = role === "technical_director";
 
   const [filter, setFilter] = useState("all");
+  const [exerciseSearch, setExerciseSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEx, setEditingEx] = useState<Exercise | null>(null);
+  const [duplicateSourceExerciseId, setDuplicateSourceExerciseId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm());
 
   const [glOpen, setGlOpen] = useState(false);
@@ -119,6 +250,12 @@ export default function ExercisesPage() {
   const { data: myTeams = [] } = useQuery<MyTeam[]>({
     queryKey: ["/api/exercises/my-teams"],
     queryFn: () => apiFetch("/api/exercises/my-teams"),
+  });
+
+  const { data: selectablePlayers = [] } = useQuery<PlayerOption[]>({
+    queryKey: ["/api/players", "exercise-selection", form.teamId ?? "all", dialogOpen, form.playersRequiredMode],
+    queryFn: () => apiFetch(form.teamId ? `/api/players?teamId=${form.teamId}` : "/api/players"),
+    enabled: dialogOpen,
   });
 
   const createEx = useMutation({
@@ -161,9 +298,66 @@ export default function ExercisesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/training-guidelines"] }),
   });
 
-  function openNewEx() { setEditingEx(null); setForm(emptyForm()); setDialogOpen(true); }
-  function openEditEx(ex: Exercise) { setEditingEx(ex); setForm({ ...ex }); setDialogOpen(true); }
-  function closeExDialog() { setDialogOpen(false); setEditingEx(null); setForm(emptyForm()); }
+  function openNewEx() { setEditingEx(null); setDuplicateSourceExerciseId(null); setForm(emptyForm()); setDialogOpen(true); }
+  function getOriginalSourceId(ex: Exercise): number {
+    return ex.sourceExerciseId ?? ex.id;
+  }
+  function openEditEx(ex: Exercise, asDuplicate = false) {
+    const inferredMode: PlayersRequiredMode =
+      ex.scegliGiocatori ? "selected" : ex.caricaRosaIntera ? "all" : "manual";
+    const isLegacySessionInTrainingDay = !!ex.trainingDay && TRAINING_SESSIONS.some((item) => item.value === ex.trainingDay);
+    setEditingEx(asDuplicate ? null : ex);
+    setDuplicateSourceExerciseId(asDuplicate ? getOriginalSourceId(ex) : null);
+    setForm({
+      ...emptyForm(),
+      ...ex,
+      trainingDay: isLegacySessionInTrainingDay ? null : (ex.trainingDay ?? null),
+      trainingSession: ex.trainingSession ?? (isLegacySessionInTrainingDay ? ex.trainingDay : null),
+      caricaRosaIntera: !!ex.caricaRosaIntera,
+      scegliGiocatori: !!ex.scegliGiocatori,
+      selectedPlayerIdsJson: ex.selectedPlayerIdsJson ?? null,
+      playersRequiredMode: ex.playersRequiredMode ?? inferredMode,
+    });
+    setDialogOpen(true);
+  }
+  function closeExDialog() { setDialogOpen(false); setEditingEx(null); setDuplicateSourceExerciseId(null); setForm(emptyForm()); }
+
+  const selectedPlayerIds = parseSelectedPlayerIds(form.selectedPlayerIdsJson);
+  const selectedPlayersCount = selectedPlayerIds.length;
+  const allPlayersCount = selectablePlayers.length;
+  const materialSelection = parseEquipmentSelection(form.equipment);
+
+  const computedPlayersRequired =
+    form.playersRequiredMode === "all"
+      ? allPlayersCount
+      : form.playersRequiredMode === "selected"
+        ? selectedPlayersCount
+        : (form.playersRequired ?? null);
+
+  function toggleSelectedPlayer(playerId: number, checked: boolean) {
+    const nextSet = new Set(selectedPlayerIds);
+    if (checked) nextSet.add(playerId);
+    else nextSet.delete(playerId);
+    setForm((prev) => ({
+      ...prev,
+      selectedPlayerIdsJson: nextSet.size > 0 ? JSON.stringify(Array.from(nextSet)) : null,
+    }));
+  }
+
+  function toggleMaterial(materialId: MaterialId, checked: boolean) {
+    const next = { ...materialSelection };
+    if (checked) next[materialId] = next[materialId] ?? 1;
+    else delete next[materialId];
+    setForm((prev) => ({ ...prev, equipment: serializeEquipmentSelection(next) }));
+  }
+
+  function setMaterialQty(materialId: MaterialId, qtyRaw: string) {
+    const next = { ...materialSelection };
+    const qty = Number(qtyRaw);
+    if (Number.isFinite(qty) && qty > 0) next[materialId] = qty;
+    else delete next[materialId];
+    setForm((prev) => ({ ...prev, equipment: serializeEquipmentSelection(next) }));
+  }
 
   function openNewGl() { setEditingGl(null); setGlForm({ title: "", content: "", category: "general", linkedExerciseId: "", sortOrder: "0" }); setGlOpen(true); }
   function openEditGl(gl: Guideline) {
@@ -175,24 +369,93 @@ export default function ExercisesPage() {
 
   function handleSaveEx(e: React.FormEvent) {
     e.preventDefault();
+    if (form.playersRequiredMode === "selected" && selectedPlayersCount === 0) {
+      toast({
+        title: "Seleziona i giocatori",
+        description: "Con 'Selezionati da rosa' devi scegliere almeno un giocatore prima di salvare.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (form.playersRequiredMode === "manual" && !form.playersRequired) {
+      toast({
+        title: "Numero giocatori mancante",
+        description: "Inserisci il numero giocatori richiesti o cambia modalita.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const normalizedMode = (form.playersRequiredMode ?? "manual") as PlayersRequiredMode;
     const payload = {
       title: form.title,
       category: form.category || null,
       description: form.description || null,
       durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : null,
-      playersRequired: form.playersRequired ? Number(form.playersRequired) : null,
+      playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
       equipment: form.equipment || null,
       drawingData: form.drawingData ?? null,
       drawingElementsJson: form.drawingElementsJson ?? null,
       voiceNoteData: form.voiceNoteData ?? null,
+      videoNoteData: form.videoNoteData ?? null,
+      caricaRosaIntera: normalizedMode === "all",
+      scegliGiocatori: normalizedMode === "selected",
+      selectedPlayerIdsJson: normalizedMode === "selected" ? (form.selectedPlayerIdsJson ?? null) : null,
+      playersRequiredMode: normalizedMode,
       isDraft: form.isDraft ?? false,
       teamId: form.teamId ?? null,
       trainingDay: form.trainingDay || null,
+      trainingSession: form.trainingSession || null,
       principio: form.principio || null,
       trainingPhase: form.trainingPhase || null,
+      ...(editingEx ? {} : { sourceExerciseId: duplicateSourceExerciseId }),
     };
     if (editingEx) updateEx.mutate({ id: editingEx.id, data: payload });
     else createEx.mutate(payload);
+  }
+  function handleSaveAsNewFromEdit() {
+    if (!editingEx) return;
+    if (form.playersRequiredMode === "selected" && selectedPlayersCount === 0) {
+      toast({
+        title: "Seleziona i giocatori",
+        description: "Con 'Selezionati da rosa' devi scegliere almeno un giocatore prima di salvare.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (form.playersRequiredMode === "manual" && !form.playersRequired) {
+      toast({
+        title: "Numero giocatori mancante",
+        description: "Inserisci il numero giocatori richiesti o cambia modalita.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const normalizedMode = (form.playersRequiredMode ?? "manual") as PlayersRequiredMode;
+    createEx.mutate({
+      title: form.title,
+      category: form.category || null,
+      description: form.description || null,
+      durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : null,
+      playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
+      equipment: form.equipment || null,
+      drawingData: form.drawingData ?? null,
+      drawingElementsJson: form.drawingElementsJson ?? null,
+      voiceNoteData: form.voiceNoteData ?? null,
+      videoNoteData: form.videoNoteData ?? null,
+      caricaRosaIntera: normalizedMode === "all",
+      scegliGiocatori: normalizedMode === "selected",
+      selectedPlayerIdsJson: normalizedMode === "selected" ? (form.selectedPlayerIdsJson ?? null) : null,
+      playersRequiredMode: normalizedMode,
+      isDraft: form.isDraft ?? false,
+      teamId: form.teamId ?? null,
+      trainingDay: form.trainingDay || null,
+      trainingSession: form.trainingSession || null,
+      principio: form.principio || null,
+      trainingPhase: form.trainingPhase || null,
+      sourceExerciseId: getOriginalSourceId(editingEx),
+    });
   }
 
   function handleSaveGl(e: React.FormEvent) {
@@ -202,7 +465,50 @@ export default function ExercisesPage() {
     else createGl.mutate(payload);
   }
 
-  const filtered = filter === "all" ? exercises : exercises.filter(ex => ex.category === filter);
+  const normalizedExerciseSearch = exerciseSearch.trim().toLowerCase();
+  const userId = Number((user as { id?: number } | null)?.id ?? 0);
+  const restrictedRoles = ["coach", "fitness_coach", "athletic_director"];
+  const isRestrictedStaff = restrictedRoles.includes(role ?? "");
+  const assignedTeamIds = new Set(myTeams.map((team) => team.id));
+  const canEditExercise = (ex: Exercise) => {
+    if (!isRestrictedStaff) return true;
+    return ex.createdByUserId == null || ex.createdByUserId === userId;
+  };
+  const visibleExercises = exercises.filter((ex) => {
+    if (!isRestrictedStaff) return true;
+    const isOwnerOrLegacy = ex.createdByUserId == null || ex.createdByUserId === userId;
+    const inAssignedTeam = ex.teamId == null || assignedTeamIds.has(ex.teamId);
+    return isOwnerOrLegacy && inAssignedTeam;
+  });
+  const filtered = (filter === "all" ? visibleExercises : visibleExercises.filter(ex => ex.category === filter))
+    .filter((ex) => {
+      if (!normalizedExerciseSearch) return true;
+      const trainingYear = (() => {
+        const source = ex.trainingDay;
+        if (!source) return "";
+        const parsed = new Date(source);
+        if (Number.isNaN(parsed.getTime())) return "";
+        return String(parsed.getFullYear());
+      })();
+      const teamName = ex.teamId ? myTeams.find((tm) => tm.id === ex.teamId)?.name : "";
+      const haystack = [
+        ex.title,
+        ex.description,
+        ex.category,
+        ex.principio,
+        ex.trainingPhase,
+        ex.trainingDay,
+        ex.trainingSession,
+        ex.equipment,
+        teamName,
+        trainingYear ? `annata ${trainingYear}` : "",
+        trainingYear,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedExerciseSearch);
+    });
   const guidelinesByCategory = GUIDELINE_CATEGORIES.map(cat => ({ ...cat, items: guidelines.filter(g => g.category === cat.value) })).filter(cat => cat.items.length > 0);
 
   return (
@@ -239,6 +545,15 @@ export default function ExercisesPage() {
             <Button onClick={openNewEx}><Plus className="w-4 h-4 mr-2" />{t.addExercise}</Button>
           </div>
 
+          <div className="space-y-2">
+            <Label>Cerca esercitazioni</Label>
+            <Input
+              value={exerciseSearch}
+              onChange={(e) => setExerciseSearch(e.target.value)}
+              placeholder="Es. possesso, tecnico tattico, giorno 2..."
+            />
+          </div>
+
           {isLoading ? (
             <div className="text-center py-12 text-muted-foreground">{t.loading}</div>
           ) : filtered.length === 0 ? (
@@ -254,6 +569,11 @@ export default function ExercisesPage() {
                           {ex.isDraft && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-300">
                               ✏️ Bozza
+                            </span>
+                          )}
+                          {ex.sourceExerciseId && ex.originalCreatedByName && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                              Originale creato da {ex.originalCreatedByName}
                             </span>
                           )}
                           <CardTitle className="text-base leading-snug">{ex.title}</CardTitle>
@@ -280,10 +600,16 @@ export default function ExercisesPage() {
                               {myTeams.find(tm => tm.id === ex.teamId)?.name ?? `Team #${ex.teamId}`}
                             </span>
                           )}
-                          {ex.trainingDay && (
+                          {formatTrainingDay(ex.trainingDay) && (
                             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                               <CalendarDays className="w-3 h-3" />
-                              {new Date(ex.trainingDay).toLocaleDateString("it-IT", { day: "2-digit", month: "short" })}
+                              {formatTrainingDay(ex.trainingDay)}
+                            </span>
+                          )}
+                          {formatTrainingSession(ex.trainingSession ?? ex.trainingDay) && (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <CalendarDays className="w-3 h-3" />
+                              {formatTrainingSession(ex.trainingSession ?? ex.trainingDay)}
                             </span>
                           )}
                         </div>
@@ -292,12 +618,21 @@ export default function ExercisesPage() {
                       <div className="flex items-center gap-1 shrink-0">
                         {ex.drawingData && <span title="Ha disegno tattico"><PenLine className="w-3.5 h-3.5 text-primary/60" /></span>}
                         {ex.voiceNoteData && <span title="Ha nota vocale"><Mic className="w-3.5 h-3.5 text-primary/60" /></span>}
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditEx(ex)} title="Modifica">
-                          <Pencil className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => { if (confirm("Eliminare l'esercizio?")) deleteEx.mutate(ex.id); }} title="Elimina">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        {ex.videoNoteData && <span title="Ha nota video"><Video className="w-3.5 h-3.5 text-primary/60" /></span>}
+                        {canEditExercise(ex) ? (
+                          <>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditEx(ex)} title="Modifica">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => { if (confirm("Eliminare l'esercizio?")) deleteEx.mutate(ex.id); }} title="Elimina">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </>
+                        ) : (
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditEx(ex, true)} title="Salva come nuova">
+                            <Copy className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardHeader>
@@ -306,16 +641,18 @@ export default function ExercisesPage() {
                     <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                       {ex.durationMinutes && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{ex.durationMinutes} min</span>}
                       {ex.playersRequired && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{ex.playersRequired} gioc.</span>}
-                      {ex.equipment && <span className="flex items-center gap-1"><Package2 className="w-3 h-3" />{ex.equipment}</span>}
+                      {formatEquipmentLabel(ex.equipment) && <span className="flex items-center gap-1"><Package2 className="w-3 h-3" />{formatEquipmentLabel(ex.equipment)}</span>}
                     </div>
                     {/* Draft toggle */}
-                    <div className="flex items-center justify-between pt-1 border-t border-border/40">
-                      <span className="text-xs text-muted-foreground">Segna come bozza</span>
-                      <Switch
-                        checked={!!ex.isDraft}
-                        onCheckedChange={(checked) => toggleDraft.mutate({ id: ex.id, isDraft: checked })}
-                      />
-                    </div>
+                    {canEditExercise(ex) && (
+                      <div className="flex items-center justify-between pt-1 border-t border-border/40">
+                        <span className="text-xs text-muted-foreground">Segna come bozza</span>
+                        <Switch
+                          checked={!!ex.isDraft}
+                          onCheckedChange={(checked) => toggleDraft.mutate({ id: ex.id, isDraft: checked })}
+                        />
+                      </div>
+                    )}
                     {/* Preview of drawing if exists */}
                     {ex.drawingData && (
                       <div className="mt-1 rounded overflow-hidden border" style={{ maxHeight: 90 }}>
@@ -404,7 +741,7 @@ export default function ExercisesPage() {
           <ScrollArea className="flex-1 overflow-auto">
             <form id="ex-form" onSubmit={handleSaveEx} className="px-6 pb-4">
               <Tabs defaultValue="info" className="w-full pt-4">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="info">Info</TabsTrigger>
                   <TabsTrigger value="board" className="flex items-center gap-1.5">
                     <PenLine className="w-3.5 h-3.5" /> Lavagna
@@ -412,21 +749,31 @@ export default function ExercisesPage() {
                   <TabsTrigger value="voice" className="flex items-center gap-1.5">
                     <Mic className="w-3.5 h-3.5" /> Voce
                   </TabsTrigger>
+                  <TabsTrigger value="video" className="flex items-center gap-1.5">
+                    <Video className="w-3.5 h-3.5" /> Video
+                  </TabsTrigger>
                 </TabsList>
 
                 {/* Info tab */}
                 <TabsContent value="info" className="space-y-4 pt-4">
-                  <div className="space-y-2">
-                    <Label>{t.exerciseTitle} <span className="text-destructive">*</span></Label>
-                    <Input value={form.title ?? ""} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Giorno + sessione + durata */}
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                     <div className="space-y-2">
-                      <Label>{t.category}</Label>
-                      <Select value={form.category ?? ""} onValueChange={v => setForm(f => ({ ...f, category: v || null }))}>
-                        <SelectTrigger><SelectValue placeholder={t.category} /></SelectTrigger>
-                        <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{t[c as keyof typeof t] as string}</SelectItem>)}</SelectContent>
+                      <Label className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Giorno allenamento</Label>
+                      <Input
+                        type="date"
+                        value={TRAINING_SESSIONS.some((item) => item.value === (form.trainingDay ?? "")) ? "" : (form.trainingDay ?? "")}
+                        onChange={e => setForm(f => ({ ...f, trainingDay: e.target.value || null }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Sessione allenamento</Label>
+                      <Select value={form.trainingSession ?? "_none"} onValueChange={v => setForm(f => ({ ...f, trainingSession: v === "_none" ? null : v }))}>
+                        <SelectTrigger><SelectValue placeholder="Seleziona sessione" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">Nessuna</SelectItem>
+                          {TRAINING_SESSIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                        </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
@@ -435,18 +782,8 @@ export default function ExercisesPage() {
                     </div>
                   </div>
 
-                  {/* Team + Principio */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Squadra</Label>
-                      <Select value={form.teamId?.toString() ?? "_none"} onValueChange={v => setForm(f => ({ ...f, teamId: v === "_none" ? null : Number(v) }))}>
-                        <SelectTrigger><SelectValue placeholder="Seleziona squadra" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">Nessuna</SelectItem>
-                          {myTeams.map(tm => <SelectItem key={tm.id} value={tm.id.toString()}>{tm.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  {/* Principio + categoria */}
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="flex items-center gap-1.5"><Dumbbell className="w-3.5 h-3.5" /> Principio</Label>
                       <Select value={form.principio ?? "_none"} onValueChange={v => setForm(f => ({ ...f, principio: v === "_none" ? null : v }))}>
@@ -457,14 +794,17 @@ export default function ExercisesPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-2">
+                      <Label>{t.category}</Label>
+                      <Select value={form.category ?? ""} onValueChange={v => setForm(f => ({ ...f, category: v || null }))}>
+                        <SelectTrigger><SelectValue placeholder={t.category} /></SelectTrigger>
+                        <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{t[c as keyof typeof t] as string}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
                   </div>
 
-                  {/* Training day + phase */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Giorno allenamento</Label>
-                      <Input type="date" value={form.trainingDay ?? ""} onChange={e => setForm(f => ({ ...f, trainingDay: e.target.value || null }))} />
-                    </div>
+                  {/* Fase + squadra */}
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="flex items-center gap-1.5"><Layers className="w-3.5 h-3.5" /> Fase allenamento</Label>
                       <Select value={form.trainingPhase ?? "_none"} onValueChange={v => setForm(f => ({ ...f, trainingPhase: v === "_none" ? null : v }))}>
@@ -475,6 +815,21 @@ export default function ExercisesPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Squadra</Label>
+                      <Select value={form.teamId?.toString() ?? "_none"} onValueChange={v => setForm(f => ({ ...f, teamId: v === "_none" ? null : Number(v) }))}>
+                        <SelectTrigger><SelectValue placeholder="Seleziona squadra" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">Nessuna</SelectItem>
+                          {myTeams.map(tm => <SelectItem key={tm.id} value={tm.id.toString()}>{tm.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>{t.exerciseTitle} <span className="text-destructive">*</span></Label>
+                    <Input value={form.title ?? ""} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required />
                   </div>
 
                   <div className="space-y-2">
@@ -482,14 +837,94 @@ export default function ExercisesPage() {
                     <Textarea value={form.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value || null }))} rows={3} />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>{t.playersRequired}</Label>
-                      <Input type="number" value={form.playersRequired ?? ""} onChange={e => setForm(f => ({ ...f, playersRequired: e.target.value ? Number(e.target.value) : null }))} min={0} />
+                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label>Giocatori richiesti</Label>
+                        <Select
+                          value={(form.playersRequiredMode ?? "manual") as PlayersRequiredMode}
+                          onValueChange={(value: PlayersRequiredMode) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              playersRequiredMode: value,
+                              ...(value !== "selected" ? { selectedPlayerIdsJson: null } : {}),
+                            }))
+                          }
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Tutti</SelectItem>
+                            <SelectItem value="manual">Inserisci numero</SelectItem>
+                            <SelectItem value="selected">Selezionati da rosa</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Totale richiesto</Label>
+                        <div className="flex h-10 items-center rounded-md border bg-background px-3 text-sm font-semibold">
+                          {computedPlayersRequired ?? 0} giocatori
+                        </div>
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label>{t.equipment}</Label>
-                      <Input value={form.equipment ?? ""} onChange={e => setForm(f => ({ ...f, equipment: e.target.value || null }))} />
+
+                    {form.playersRequiredMode === "manual" ? (
+                      <div className="space-y-2">
+                        <Label>Inserisci numero</Label>
+                        <Input
+                          type="number"
+                          value={form.playersRequired ?? ""}
+                          onChange={e => setForm(f => ({ ...f, playersRequired: e.target.value ? Number(e.target.value) : null }))}
+                          min={1}
+                        />
+                      </div>
+                    ) : null}
+
+                    {form.playersRequiredMode === "selected" ? (
+                      <div className="space-y-2 rounded-md border bg-background p-3">
+                        <div className="text-xs text-muted-foreground">
+                          {form.teamId ? "Seleziona giocatori della squadra scelta" : "Seleziona giocatori dalle squadre assegnate all'allenatore"}
+                        </div>
+                        {selectablePlayers.length === 0 ? (
+                          <p className="text-sm text-muted-foreground italic">Nessun giocatore disponibile per la selezione.</p>
+                        ) : (
+                          <div className="max-h-52 space-y-2 overflow-auto pr-1">
+                            {selectablePlayers.map((player) => {
+                              const isChecked = selectedPlayerIds.includes(player.id);
+                              return (
+                                <label key={player.id} className="flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 hover:bg-muted/40">
+                                  <Checkbox checked={isChecked} onCheckedChange={(value) => toggleSelectedPlayer(player.id, !!value)} />
+                                  <span className="text-sm">{player.firstName} {player.lastName}</span>
+                                  {player.teamName ? <span className="ml-auto text-xs text-muted-foreground">{player.teamName}</span> : null}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                    <div className="text-sm font-medium">Materiale</div>
+                    <div className="grid grid-cols-1 gap-2">
+                      {MATERIAL_OPTIONS.map((option) => {
+                        const checked = (materialSelection[option.id] ?? 0) > 0;
+                        return (
+                          <div key={option.id} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                            <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(option.id, !!value)} />
+                            <span className="flex-1 text-sm">{option.label}</span>
+                            {checked ? (
+                              <Input
+                                type="number"
+                                min={1}
+                                className="w-24"
+                                value={materialSelection[option.id] ?? 1}
+                                onChange={(event) => setMaterialQty(option.id, event.target.value)}
+                              />
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -521,11 +956,30 @@ export default function ExercisesPage() {
                     onChange={data => setForm(f => ({ ...f, voiceNoteData: data }))}
                   />
                 </TabsContent>
+
+                {/* Video note tab */}
+                <TabsContent value="video" className="pt-4 space-y-3">
+                  <p className="text-sm text-muted-foreground">Registra una nota video per mostrare movimenti, dettagli tecnici o istruzioni pratiche.</p>
+                  <ExerciseVideoRecorder
+                    value={form.videoNoteData}
+                    onChange={data => setForm(f => ({ ...f, videoNoteData: data }))}
+                  />
+                </TabsContent>
               </Tabs>
             </form>
           </ScrollArea>
           <DialogFooter className="px-6 py-4 border-t">
             <Button type="button" variant="ghost" onClick={closeExDialog}>{t.cancel}</Button>
+            {editingEx && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleSaveAsNewFromEdit}
+                disabled={createEx.isPending || updateEx.isPending}
+              >
+                Salva come nuova esercitazione
+              </Button>
+            )}
             <Button type="submit" form="ex-form" disabled={createEx.isPending || updateEx.isPending}>
               {editingEx ? "Salva modifiche" : t.save}
             </Button>

@@ -109,11 +109,11 @@ export default function ClubSettings() {
         foundedYear: club.foundedYear,
         description: club.description,
         logoUrl: club.logoUrl,
-        primaryColor: club.primaryColor,
+        primaryColor: (club as any).primaryColor,
         secondaryColor: (club as any).secondaryColor,
       });
       if (club.logoUrl) setLogoPreview(club.logoUrl);
-      if (club.primaryColor) setPrimaryColor(club.primaryColor);
+      if ((club as any).primaryColor) setPrimaryColor((club as any).primaryColor);
       if ((club as any).secondaryColor) setSecondaryColor((club as any).secondaryColor);
     }
   }, [club, form]);

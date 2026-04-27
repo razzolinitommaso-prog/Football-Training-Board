@@ -26,7 +26,7 @@ router.post("/seasons", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.patch("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { name, startDate, endDate, isActive, isArchived } = req.body;
 
@@ -48,7 +48,7 @@ router.patch("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.delete("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const [season] = await db.delete(seasonsTable)
     .where(and(eq(seasonsTable.id, id), eq(seasonsTable.clubId, req.session.clubId!))).returning();
@@ -57,7 +57,7 @@ router.delete("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.get("/seasons/:id/export", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const clubId = req.session.clubId!;

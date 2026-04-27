@@ -57,9 +57,10 @@ async function buildAll() {
   await esbuild({
     entryPoints: [path.resolve(__dirname, "src/index.ts")],
     platform: "node",
+    target: "node20",
     bundle: true,
-    format: "cjs",
-    outfile: path.resolve(distDir, "index.cjs"),
+    format: "esm",
+    outfile: path.resolve(distDir, "index.js"),
     define: {
       "process.env.NODE_ENV": '"production"',
     },
@@ -73,3 +74,4 @@ buildAll().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+

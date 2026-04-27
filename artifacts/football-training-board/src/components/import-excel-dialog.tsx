@@ -11,8 +11,8 @@ interface ImportExcelDialogProps {
   templateLabel: string;
   previewColumns: { key: string; label: string }[];
   onDownloadTemplate: () => void;
-  onParseRow: (row: Record<string, string>) => Record<string, unknown>;
-  isValidRow: (row: Record<string, string>) => boolean;
+  onParseRow: (row: Record<string, unknown>) => Record<string, unknown>;
+  isValidRow: (row: Record<string, unknown>) => boolean;
   onImportRows: (rows: Record<string, unknown>[]) => Promise<void>;
   canImport?: boolean;
 }
@@ -29,7 +29,7 @@ export function ImportExcelDialog({
 }: ImportExcelDialogProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
-  const [rawRows, setRawRows] = useState<Record<string, string>[]>([]);
+  const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -85,6 +85,12 @@ export function ImportExcelDialog({
   }
 
   if (!canImport) return null;
+
+  function previewCell(value: unknown): string {
+    if (value == null || value === "") return "—";
+    if (value instanceof Date) return value.toLocaleDateString("it-IT");
+    return String(value);
+  }
 
   return (
     <>
@@ -180,7 +186,7 @@ export function ImportExcelDialog({
                           <tr key={i} className={valid ? "" : "opacity-40 bg-muted/30"}>
                             <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
                             {previewColumns.map(c => (
-                              <td key={c.key} className="px-3 py-2 max-w-[120px] truncate">{row[c.key] ?? "—"}</td>
+                              <td key={c.key} className="px-3 py-2 max-w-[120px] truncate">{previewCell(row[c.key])}</td>
                             ))}
                             <td className="px-3 py-2">
                               {valid

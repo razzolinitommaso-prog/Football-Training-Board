@@ -3,7 +3,7 @@ import {
   db, clubsTable, playersTable, teamsTable,
   trainingSessionsTable, matchesTable, callUpsTable,
   playerPaymentsTable, playerDocumentsTable,
-  platformAnnouncementsTable,
+  platformAnnouncementsTable, parentNotificationsTable,
 } from "@workspace/db";
 import { eq, and, gte, asc, desc } from "drizzle-orm";
 
@@ -18,7 +18,7 @@ function requireParentSession(req: any, res: any, next: any) {
 }
 
 function requireAdminSession(req: any, res: any, next: any) {
-  if (!req.session.userId || !["admin", "presidente"].includes(req.session.role)) {
+  if (!req.session.userId || !["admin", "presidente"].includes(req.session.role ?? "")) {
     res.status(403).json({ error: "Admin required" });
     return;
   }
@@ -96,8 +96,8 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
 });
 
 router.patch("/parent/availability/:matchId/:playerId", requireParentSession, async (req, res): Promise<void> => {
-  const matchId = parseInt(req.params.matchId);
-  const playerId = parseInt(req.params.playerId);
+  const matchId = parseInt(String(req.params.matchId));
+  const playerId = parseInt(String(req.params.playerId));
   const { status } = req.body as { status: string };
   const clubId = req.session.clubId!;
 
@@ -171,14 +171,43 @@ router.get("/parent/communications", requireParentSession, async (req, res): Pro
     db.select().from(platformAnnouncementsTable).where(eq(platformAnnouncementsTable.targetClubId, null as any)).orderBy(desc(platformAnnouncementsTable.sentAt)).limit(10),
   ]);
 
-  const combined = [...clubAnnouncements, ...globalAnnouncements].sort((a, b) => new Date(b.sentAt ?? b.createdAt ?? 0).getTime() - new Date(a.sentAt ?? a.createdAt ?? 0).getTime()).slice(0, 30);
+  const combined = [...clubAnnouncements, ...globalAnnouncements].sort((a, b) => new Date(b.sentAt ?? 0).getTime() - new Date(a.sentAt ?? 0).getTime()).slice(0, 30);
 
   res.json(combined);
 });
 
+router.get("/parent/notifications", requireParentSession, async (req, res): Promise<void> => {
+  const rows = await db
+    .select()
+    .from(parentNotificationsTable)
+    .where(and(eq(parentNotificationsTable.parentUserId, req.session.userId!), eq(parentNotificationsTable.clubId, req.session.clubId!)))
+    .orderBy(desc(parentNotificationsTable.createdAt));
+  res.json(rows);
+});
+
+router.patch("/parent/notifications/:id/read", requireParentSession, async (req, res): Promise<void> => {
+  const id = parseInt(String(req.params.id));
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [row] = await db
+    .update(parentNotificationsTable)
+    .set({ isRead: true })
+    .where(and(eq(parentNotificationsTable.id, id), eq(parentNotificationsTable.parentUserId, req.session.userId!), eq(parentNotificationsTable.clubId, req.session.clubId!)))
+    .returning();
+  if (!row) { res.status(404).json({ error: "Notification not found" }); return; }
+  res.json(row);
+});
+
+router.patch("/parent/notifications/read-all", requireParentSession, async (_req, res): Promise<void> => {
+  await db
+    .update(parentNotificationsTable)
+    .set({ isRead: true })
+    .where(and(eq(parentNotificationsTable.parentUserId, _req.session.userId!), eq(parentNotificationsTable.clubId, _req.session.clubId!)));
+  res.sendStatus(204);
+});
+
 router.get("/parent/team/:teamId", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
-  const teamId = parseInt(req.params.teamId);
+  const teamId = parseInt(String(req.params.teamId));
 
   const [team] = await db.select().from(teamsTable)
     .where(and(eq(teamsTable.id, teamId), eq(teamsTable.clubId, clubId)));

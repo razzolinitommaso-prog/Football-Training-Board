@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import { Shield, ArrowLeft, ChevronRight, Lock } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
+import { withApi } from "@/lib/api-base";
 
 export default function LoginClubPage() {
   const [, setLocation] = useLocation();
@@ -21,7 +22,7 @@ export default function LoginClubPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/clubs/public/verify", {
+      const res = await fetch(withApi("/api/clubs/public/verify"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -156,9 +157,25 @@ export default function LoginClubPage() {
           <div className="mt-4 text-center">
             <p className="text-sm text-gray-500">
               {t.knowCredentials}{" "}
-              <Link href="/login">
-                <span className="text-gray-400 hover:text-white transition-colors cursor-pointer underline underline-offset-2">{t.signInDirectly}</span>
-              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  const typedSlug = clubName.trim() ? encodeURIComponent(clubName.trim()) : "";
+                  const savedSlug = localStorage.getItem("ftb-workspace-slug") ?? "";
+                  const targetSlug = typedSlug || savedSlug;
+                  setError("");
+                  if (!targetSlug) {
+                    setError("");
+                    setLocation("/login?direct=1");
+                    return;
+                  }
+                  localStorage.setItem("ftb-workspace-slug", targetSlug);
+                  setLocation(`/workspace/${targetSlug}`);
+                }}
+                className="text-gray-400 hover:text-white transition-colors cursor-pointer underline underline-offset-2"
+              >
+                {t.signInDirectly}
+              </button>
             </p>
           </div>
         </div>

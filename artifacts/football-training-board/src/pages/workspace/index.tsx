@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link, useLocation } from "wouter";
 import { Shield, ArrowLeft, ChevronRight, Users, Loader2, School, GraduationCap, Star, Settings } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
+import { withApi } from "@/lib/api-base";
 
 interface ClubInfo {
   id: number;
@@ -25,7 +26,7 @@ export default function WorkspacePage() {
       localStorage.setItem("ftb-workspace-slug", clubSlug);
     }
     if (!clubNameFromUrl) return;
-    fetch(`/api/clubs/public/search?name=${encodeURIComponent(clubNameFromUrl)}`, { credentials: "include" })
+    fetch(withApi(`/api/clubs/public/search?name=${encodeURIComponent(clubNameFromUrl)}`), { credentials: "include" })
       .then((r) => r.json())
       .then((data: ClubInfo[]) => {
         if (data && data.length > 0) setClub(data[0]);
@@ -175,12 +176,7 @@ export default function WorkspacePage() {
         </div>
 
         <div className="mt-8 text-center">
-          <p className="text-sm text-gray-500">
-            {t.knowCredentials}{" "}
-            <Link href="/login">
-              <span className="text-gray-400 hover:text-white transition-colors cursor-pointer underline underline-offset-2">{t.signInDirectly}</span>
-            </Link>
-          </p>
+          <p className="text-sm text-gray-500">{t.signInPickSectionHint}</p>
         </div>
       </div>
     </div>

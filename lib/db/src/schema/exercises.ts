@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { clubsTable } from "./clubs";
 import { teamsTable } from "./teams";
 import { trainingSessionsTable } from "./training";
+import { usersTable } from "./users";
 
 export const exercisesTable = pgTable("exercises", {
   id: serial("id").primaryKey(),
@@ -23,11 +24,18 @@ export const exercisesTable = pgTable("exercises", {
   /** Anteprima immagine della lavagna (URL o base64) — predisposizione campo, non auto-generata */
   immagineAnteprima: text("immagine_anteprima"),
   voiceNoteData: text("voice_note_data"),
+  videoNoteData: text("video_note_data"),
+  caricaRosaIntera: boolean("carica_rosa_intera").notNull().default(false),
+  scegliGiocatori: boolean("scegli_giocatori").notNull().default(false),
+  selectedPlayerIdsJson: text("selected_player_ids_json"),
   isDraft: boolean("is_draft").notNull().default(false),
   teamId: integer("team_id").references(() => teamsTable.id, { onDelete: "set null" }),
   trainingDay: text("training_day"),
+  trainingSession: text("training_session"),
   principio: text("principio"),
   trainingPhase: text("training_phase"),
+  createdByUserId: integer("created_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  sourceExerciseId: integer("source_exercise_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

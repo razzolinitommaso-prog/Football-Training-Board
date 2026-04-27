@@ -65,7 +65,7 @@ export default function EquipmentPage() {
 
       <div className="flex gap-4">
         <Select value={selectedPlayer} onValueChange={setSelectedPlayer}>
-          <SelectTrigger className="w-64"><SelectValue placeholder={t.filterByPlayer ?? "Filter by player..."} /></SelectTrigger>
+          <SelectTrigger className="w-64"><SelectValue placeholder="Filtra per giocatore..." /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t.all ?? "All"}</SelectItem>
             {players.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.firstName} {p.lastName}</SelectItem>)}

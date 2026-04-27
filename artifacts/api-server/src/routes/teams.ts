@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, teamsTable, playersTable, usersTable, teamStaffAssignmentsTable, seasonsTable, clubMembershipsTable } from "@workspace/db";
-import { eq, and, sql, inArray, SQL } from "drizzle-orm";
+import { eq, and, sql, inArray, SQL, asc } from "drizzle-orm";
 import {
   ListTeamsResponse,
   CreateTeamBody,
@@ -12,8 +12,11 @@ import {
   DeleteTeamParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
+import { isClubWideListRole, normalizeSessionRole, resolveClubSectionFilter } from "../lib/club-scope";
+import { requireClubAndUserIds } from "../lib/session-context";
 
-const STAFF_ONLY_ROLES = ["coach", "fitness_coach", "technical_director", "athletic_director"];
+/** Solo questi ruoli vedono le squadre limitate alle assegnazioni. Il direttore tecnico ha panoramica su tutto il club. */
+const TEAM_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
 
 const router: IRouter = Router();
 
@@ -69,6 +72,58 @@ async function getAssignedTeamIds(userId: number, clubId: number): Promise<numbe
   return rows.map(r => r.teamId);
 }
 
+/** Risolve la squadra “corrente” per l’utente: coach_id → assegnazione staff → prima squadra del club (opz. filtro sezione sessione). */
+async function resolveMyTeamForUser(
+  userId: number,
+  clubId: number,
+  section: string | undefined,
+): Promise<typeof teamsTable.$inferSelect | null> {
+  const baseClub = eq(teamsTable.clubId, clubId);
+  const sectionEq = section ? eq(teamsTable.clubSection, section) : null;
+
+  const asCoachWhere = sectionEq
+    ? and(baseClub, eq(teamsTable.coachId, userId), sectionEq)
+    : and(baseClub, eq(teamsTable.coachId, userId));
+  const asCoach = await db
+    .select()
+    .from(teamsTable)
+    .where(asCoachWhere)
+    .orderBy(asc(teamsTable.id))
+    .limit(1);
+  if (asCoach[0]) return asCoach[0];
+
+  const staffWhere = sectionEq
+    ? and(
+        eq(teamStaffAssignmentsTable.userId, userId),
+        eq(teamStaffAssignmentsTable.clubId, clubId),
+        sectionEq,
+      )
+    : and(eq(teamStaffAssignmentsTable.userId, userId), eq(teamStaffAssignmentsTable.clubId, clubId));
+
+  const staffRow = await db
+    .select({ teamId: teamStaffAssignmentsTable.teamId })
+    .from(teamStaffAssignmentsTable)
+    .innerJoin(teamsTable, eq(teamStaffAssignmentsTable.teamId, teamsTable.id))
+    .where(staffWhere)
+    .orderBy(asc(teamsTable.id))
+    .limit(1);
+
+  if (staffRow[0]) {
+    const [t] = await db.select().from(teamsTable).where(eq(teamsTable.id, staffRow[0].teamId));
+    if (t) return t;
+  }
+
+  const fallbackWhere = sectionEq ? and(baseClub, sectionEq) : baseClub;
+  const fallback = await db
+    .select()
+    .from(teamsTable)
+    .where(fallbackWhere)
+    .orderBy(asc(teamsTable.id))
+    .limit(1);
+
+  return fallback[0] ?? null;
+}
+
 async function getTeamsWithCounts(clubId: number, filterTeamIds?: number[], section?: string) {
   let whereClause: SQL = eq(teamsTable.clubId, clubId);
   if (section) {
@@ -118,13 +173,56 @@ async function getTeamsWithCounts(clubId: number, filterTeamIds?: number[], sect
 }
 
 router.get("/teams", requireAuth, async (req, res): Promise<void> => {
-  const section = typeof req.query.section === "string" ? req.query.section : req.session.section;
-  let filterTeamIds: number[] | undefined;
-  if (STAFF_ONLY_ROLES.includes(req.session.role)) {
-    filterTeamIds = await getAssignedTeamIds(req.session.userId!, req.session.clubId!);
+  const ids = requireClubAndUserIds(req);
+  if (!ids) {
+    res.status(400).json({ error: "Club context required" });
+    return;
   }
-  const teams = await getTeamsWithCounts(req.session.clubId!, filterTeamIds, section);
+  const { clubId, userId } = ids;
+  const role = req.session.role ?? "";
+  const section = resolveClubSectionFilter(
+    role,
+    typeof req.query.section === "string" ? req.query.section : undefined,
+    req.session.section,
+  );
+  let filterTeamIds: number[] | undefined;
+  if (!isClubWideListRole(role) && TEAM_ASSIGNMENT_FILTER_ROLES_NORM.has(normalizeSessionRole(role))) {
+    filterTeamIds = await getAssignedTeamIds(userId, clubId);
+  }
+  const teams = await getTeamsWithCounts(clubId, filterTeamIds, section);
   res.json(ListTeamsResponse.parse(teams));
+});
+
+// Must be registered before GET /teams/:id so "my-team" is not parsed as id.
+router.get("/teams/my-team", requireAuth, async (req, res): Promise<void> => {
+  if (req.session.isSuperAdmin || req.session.clubId == null) {
+    res.status(400).json({ error: "Club context required" });
+    return;
+  }
+
+  const userId = req.session.userId!;
+  const clubId = req.session.clubId;
+  const section = req.session.section;
+
+  const team = await resolveMyTeamForUser(userId, clubId, section);
+  if (!team) {
+    res.status(404).json({ error: "No team found for this club" });
+    return;
+  }
+
+  const players = await db
+    .select({
+      id: playersTable.id,
+      firstName: playersTable.firstName,
+      lastName: playersTable.lastName,
+      position: playersTable.position,
+      jerseyNumber: playersTable.jerseyNumber,
+    })
+    .from(playersTable)
+    .where(and(eq(playersTable.teamId, team.id), eq(playersTable.clubId, clubId)))
+    .orderBy(asc(playersTable.lastName), asc(playersTable.firstName));
+
+  res.json({ team, players });
 });
 
 router.post("/teams", requireAuth, async (req, res): Promise<void> => {
@@ -250,7 +348,7 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
 
 // GET /teams/:id/members — returns players for a team (for tactical board roster loading)
 router.get("/teams/:id/members", requireAuth, async (req, res): Promise<void> => {
-  const teamId = parseInt(req.params.id, 10);
+  const teamId = parseInt(String(req.params.id), 10);
   if (isNaN(teamId)) { res.status(400).json({ error: "Invalid team id" }); return; }
 
   const players = await db

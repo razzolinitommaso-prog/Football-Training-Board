@@ -47,3 +47,13 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Local Cursor environment
+.env.cursor.local.ps1
+
+# Local env and generated data
+.env
+*.env
+!.env.example
+.vite-dev.log
+artifacts/db-export/

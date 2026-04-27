@@ -1,5 +1,19 @@
 import { Router, type IRouter } from "express";
-import { db, registrationsTable, playerPaymentsTable, playerDocumentsTable, equipmentAssignmentsTable, playersTable, platformAnnouncementsTable, trainingSessionsTable, matchesTable, teamsTable, clubNotificationsTable, clubNotificationReadsTable } from "@workspace/db";
+import {
+  db,
+  registrationsTable,
+  playerPaymentsTable,
+  playerDocumentsTable,
+  equipmentAssignmentsTable,
+  playersTable,
+  platformAnnouncementsTable,
+  trainingSessionsTable,
+  matchesTable,
+  teamsTable,
+  clubNotificationsTable,
+  clubNotificationReadsTable,
+  clubSecretarySharedFilesTable,
+} from "@workspace/db";
 import { eq, and, desc, gte, lte, asc, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
@@ -42,7 +56,7 @@ router.post("/registrations", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.patch("/registrations/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { status, registrationDate, notes } = req.body;
   const updates: Record<string, unknown> = {};
@@ -56,7 +70,7 @@ router.patch("/registrations/:id", requireAuth, async (req, res): Promise<void> 
 });
 
 router.delete("/registrations/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   await db.delete(registrationsTable).where(and(eq(registrationsTable.id, id), eq(registrationsTable.clubId, req.session.clubId!)));
   res.sendStatus(204);
@@ -86,7 +100,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
 });
 
 router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { status, paymentDate, amount, description } = req.body;
   const updates: Record<string, unknown> = {};
@@ -101,7 +115,7 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
 });
 
 router.delete("/player-payments/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   await db.delete(playerPaymentsTable).where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!)));
   res.sendStatus(204);
@@ -131,7 +145,7 @@ router.post("/player-documents", requireAuth, async (req, res): Promise<void> =>
 });
 
 router.delete("/player-documents/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   await db.delete(playerDocumentsTable).where(and(eq(playerDocumentsTable.id, id), eq(playerDocumentsTable.clubId, req.session.clubId!)));
   res.sendStatus(204);
@@ -172,6 +186,194 @@ router.post("/equipment", requireAuth, async (req, res): Promise<void> => {
 
 const secretaryOrAdmin = ["admin", "presidente", "secretary", "director", "technical_director"];
 
+const MAX_SECRETARY_FILE_BYTES = 8 * 1024 * 1024;
+
+function isMissingRelationError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string };
+  if (e?.code === "42P01") return true;
+  return /relation .* does not exist/i.test(String(e?.message ?? err));
+}
+
+function parseBase64Payload(raw: string): { base64: string; mimeFromDataUrl?: string } {
+  const s = String(raw ?? "").trim();
+  if (s.startsWith("data:")) {
+    const comma = s.indexOf(",");
+    if (comma === -1) return { base64: "" };
+    const meta = s.slice(5, comma);
+    const mimeMatch = /^([^;]+)/.exec(meta);
+    const mimeFromDataUrl = mimeMatch?.[1]?.trim() || undefined;
+    return { base64: s.slice(comma + 1), mimeFromDataUrl };
+  }
+  return { base64: s };
+}
+
+// --- File segreteria (cloud, per club) ---
+
+router.get("/secretary/club-files", requireAuth, async (req, res): Promise<void> => {
+  if (!secretaryOrAdmin.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+  const clubId = req.session.clubId!;
+  try {
+    const rows = await db
+      .select({
+        id: clubSecretarySharedFilesTable.id,
+        originalFilename: clubSecretarySharedFilesTable.originalFilename,
+        mimeType: clubSecretarySharedFilesTable.mimeType,
+        sizeBytes: clubSecretarySharedFilesTable.sizeBytes,
+        createdAt: clubSecretarySharedFilesTable.createdAt,
+      })
+      .from(clubSecretarySharedFilesTable)
+      .where(eq(clubSecretarySharedFilesTable.clubId, clubId))
+      .orderBy(desc(clubSecretarySharedFilesTable.createdAt));
+    res.json(rows);
+  } catch (err) {
+    if (isMissingRelationError(err)) {
+      console.error("[secretary/club-files] tabella assente:", err);
+      res.status(503).json({
+        error:
+          "Database non aggiornato: esegui sul PostgreSQL lo script lib/db/sql/club_secretary_shared_files.sql (crea la tabella club_secretary_shared_files).",
+      });
+      return;
+    }
+    console.error("[secretary/club-files] GET:", err);
+    res.status(500).json({ error: "Errore nel caricamento elenco file." });
+  }
+});
+
+router.post("/secretary/club-files", requireAuth, async (req, res): Promise<void> => {
+  if (!secretaryOrAdmin.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+  const { fileName, mimeType, dataBase64 } = req.body as {
+    fileName?: string;
+    mimeType?: string;
+    dataBase64?: string;
+  };
+  if (!fileName || !dataBase64) {
+    res.status(400).json({ error: "fileName e dataBase64 sono obbligatori" });
+    return;
+  }
+  const { base64, mimeFromDataUrl } = parseBase64Payload(dataBase64);
+  if (!base64) {
+    res.status(400).json({ error: "Contenuto file non valido" });
+    return;
+  }
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(base64, "base64");
+  } catch {
+    res.status(400).json({ error: "Base64 non valido" });
+    return;
+  }
+  if (buf.length === 0) {
+    res.status(400).json({ error: "File vuoto" });
+    return;
+  }
+  if (buf.length > MAX_SECRETARY_FILE_BYTES) {
+    res.status(413).json({ error: `File troppo grande (max ${MAX_SECRETARY_FILE_BYTES / (1024 * 1024)} MB)` });
+    return;
+  }
+  const safeName = String(fileName).replace(/[/\\]/g, "_").slice(0, 255);
+  const mime = String(mimeType || mimeFromDataUrl || "application/octet-stream").slice(0, 200);
+  const contentBase64 = buf.toString("base64");
+  const [row] = await db
+    .insert(clubSecretarySharedFilesTable)
+    .values({
+      clubId: req.session.clubId!,
+      uploadedByUserId: req.session.userId ?? null,
+      originalFilename: safeName,
+      mimeType: mime,
+      contentBase64,
+      sizeBytes: buf.length,
+    })
+    .returning({
+      id: clubSecretarySharedFilesTable.id,
+      originalFilename: clubSecretarySharedFilesTable.originalFilename,
+      mimeType: clubSecretarySharedFilesTable.mimeType,
+      sizeBytes: clubSecretarySharedFilesTable.sizeBytes,
+      createdAt: clubSecretarySharedFilesTable.createdAt,
+    });
+  res.status(201).json(row);
+});
+
+router.get("/secretary/club-files/export-bundle", requireAuth, async (req, res): Promise<void> => {
+  if (!secretaryOrAdmin.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+  const clubId = req.session.clubId!;
+  const rows = await db
+    .select()
+    .from(clubSecretarySharedFilesTable)
+    .where(eq(clubSecretarySharedFilesTable.clubId, clubId))
+    .orderBy(desc(clubSecretarySharedFilesTable.createdAt));
+  const bundle = rows.map((r) => ({
+    id: r.id,
+    name: r.originalFilename,
+    mimeType: r.mimeType,
+    createdAt: r.createdAt?.toISOString?.() ?? String(r.createdAt),
+    dataUrl: `data:${r.mimeType};base64,${r.contentBase64}`,
+  }));
+  res.json(bundle);
+});
+
+router.get("/secretary/club-files/:id/file", requireAuth, async (req, res): Promise<void> => {
+  if (!secretaryOrAdmin.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+  const id = parseInt(String(req.params.id), 10);
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: "ID non valido" });
+    return;
+  }
+  const clubId = req.session.clubId!;
+  const [row] = await db
+    .select()
+    .from(clubSecretarySharedFilesTable)
+    .where(and(eq(clubSecretarySharedFilesTable.id, id), eq(clubSecretarySharedFilesTable.clubId, clubId)));
+  if (!row) {
+    res.status(404).json({ error: "Non trovato" });
+    return;
+  }
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(row.contentBase64, "base64");
+  } catch {
+    res.status(500).json({ error: "Errore lettura file" });
+    return;
+  }
+  const filename = row.originalFilename.replace(/[\r\n"]/g, "_");
+  res.setHeader("Content-Type", row.mimeType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.setHeader("Content-Length", String(buf.length));
+  res.send(buf);
+});
+
+router.delete("/secretary/club-files/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!secretaryOrAdmin.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+  const id = parseInt(String(req.params.id), 10);
+  if (Number.isNaN(id)) {
+    res.status(400).json({ error: "ID non valido" });
+    return;
+  }
+  const deleted = await db
+    .delete(clubSecretarySharedFilesTable)
+    .where(and(eq(clubSecretarySharedFilesTable.id, id), eq(clubSecretarySharedFilesTable.clubId, req.session.clubId!)))
+    .returning({ id: clubSecretarySharedFilesTable.id });
+  if (deleted.length === 0) {
+    res.status(404).json({ error: "Non trovato" });
+    return;
+  }
+  res.sendStatus(204);
+});
+
 router.get("/secretary/parent-comms", requireAuth, async (req, res): Promise<void> => {
   if (!secretaryOrAdmin.includes(req.session.role ?? "")) { res.status(403).json({ error: "Non autorizzato" }); return; }
   const records = await db.select().from(platformAnnouncementsTable)
@@ -192,7 +394,7 @@ router.post("/secretary/parent-comms", requireAuth, async (req, res): Promise<vo
 
 router.delete("/secretary/parent-comms/:id", requireAuth, async (req, res): Promise<void> => {
   if (!secretaryOrAdmin.includes(req.session.role ?? "")) { res.status(403).json({ error: "Non autorizzato" }); return; }
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   await db.delete(platformAnnouncementsTable)
     .where(and(eq(platformAnnouncementsTable.id, id), eq(platformAnnouncementsTable.targetClubId!, req.session.clubId!)));
   res.json({ success: true });
@@ -245,7 +447,7 @@ router.get("/club/platform-announcements", requireAuth, async (req, res): Promis
 
 router.patch("/club/platform-announcements/:id/read", requireAuth, async (req, res): Promise<void> => {
   if (!clubRoles.includes(req.session.role ?? "")) { res.status(403).json({ error: "Non autorizzato" }); return; }
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   await db
     .update(platformAnnouncementsTable)
     .set({ isRead: true })
@@ -285,7 +487,7 @@ router.get("/club/notifications", requireAuth, async (req, res) => {
 // POST /club/notifications — create a notification (admin/secretary only)
 router.post("/club/notifications", requireAuth, async (req, res) => {
   const role = req.session.role;
-  if (!["admin", "presidente", "secretary"].includes(role ?? "")) {
+  if (!["admin", "presidente", "secretary", "director", "technical_director"].includes(role ?? "")) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
@@ -308,7 +510,7 @@ router.post("/club/notifications", requireAuth, async (req, res) => {
 
 // PATCH /club/notifications/:id/read — mark a notification as read for the current user
 router.patch("/club/notifications/:id/read", requireAuth, async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   const userId = req.session.userId!;
   const existing = await db
     .select()

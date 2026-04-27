@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LogOut, Bell } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useLocation } from "wouter";
 
 const ROLE_LABELS: Record<string, string> = {
   admin:              "Amministratore",
@@ -24,6 +25,8 @@ const MOBILE_BREAKPOINT = 768;
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, club, role, logout } = useAuth();
+  const [location] = useLocation();
+  const isTacticalBoardRoute = location === "/tactical-board";
 
   const defaultSidebarOpen = typeof window !== "undefined"
     ? window.innerWidth >= MOBILE_BREAKPOINT
@@ -82,8 +85,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </div>
           </header>
 
-          <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 relative">
-            <div className="mx-auto max-w-7xl">
+          <main className={isTacticalBoardRoute ? "flex-1 overflow-auto relative" : "flex-1 overflow-auto p-4 sm:p-6 lg:p-8 relative"}>
+            <div className={isTacticalBoardRoute ? "w-full" : "mx-auto max-w-7xl"}>
               {children}
             </div>
           </main>

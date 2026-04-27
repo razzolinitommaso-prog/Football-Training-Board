@@ -36,7 +36,7 @@ router.post("/attendance", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.patch("/attendance/:id", requireAuth, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { status, notes } = req.body;
   const [record] = await db.update(trainingAttendancesTable).set({ status, notes })

@@ -24,7 +24,7 @@ const AGE_GROUP_CATEGORY: Record<string, string> = {
 };
 
 router.get("/seasons/:id/player-status", requireAuth, async (req, res): Promise<void> => {
-  const seasonId = parseInt(req.params.id);
+  const seasonId = parseInt(String(req.params.id));
   if (isNaN(seasonId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const statuses = await db
@@ -64,7 +64,7 @@ router.get("/seasons/:id/player-status", requireAuth, async (req, res): Promise<
 });
 
 router.post("/seasons/:id/player-status", requireAuth, async (req, res): Promise<void> => {
-  const seasonId = parseInt(req.params.id);
+  const seasonId = parseInt(String(req.params.id));
   if (isNaN(seasonId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const { playerId, status, transferAmount, swapPlayerData, notes } = req.body;
@@ -95,7 +95,7 @@ router.post("/seasons/:id/player-status", requireAuth, async (req, res): Promise
 });
 
 router.post("/seasons/:id/promote", requireAuth, async (req, res): Promise<void> => {
-  const fromSeasonId = parseInt(req.params.id);
+  const fromSeasonId = parseInt(String(req.params.id));
   if (isNaN(fromSeasonId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const { toSeasonId } = req.body;

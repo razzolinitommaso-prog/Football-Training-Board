@@ -17,6 +17,7 @@ export default function ParentDashboard() {
   const [training, setTraining] = useState<any[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,17 +26,20 @@ export default function ParentDashboard() {
       apiFetch("/parent/training"),
       apiFetch("/parent/matches"),
       apiFetch("/parent/payments"),
-    ]).then(([t, tr, m, p]) => {
+      apiFetch("/parent/notifications"),
+    ]).then(([t, tr, m, p, n]) => {
       setTeams(t);
       setTraining(tr);
       setMatches(m);
       setPayments(p);
+      setNotifications(n);
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
   const totalPlayers = teams.reduce((sum, t) => sum + (t.players?.length ?? 0), 0);
   const pendingPayments = payments.filter(p => p.status === "pending");
   const now = new Date();
+  const unreadNotifications = notifications.filter((n) => !n.isRead);
   const upcomingTraining = training.filter(t => new Date(t.scheduledAt) >= now).slice(0, 1)[0];
   const upcomingMatch = matches.filter(m => new Date(m.date) >= now).slice(0, 1)[0];
 
@@ -68,6 +72,20 @@ export default function ParentDashboard() {
           </div>
         </Link>
       </div>
+
+      {unreadNotifications.length > 0 && (
+        <Link href="/parent/notifications">
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 hover:border-amber-400 transition-all cursor-pointer">
+            <div className="flex items-center gap-2 mb-1">
+              <Bell className="w-4 h-4 text-amber-500" />
+              <span className="text-sm font-semibold">Nuove convocazioni/comunicazioni</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Hai {unreadNotifications.length} notifica{unreadNotifications.length === 1 ? "" : "he"} non letta{unreadNotifications.length === 1 ? "" : "e"}.
+            </p>
+          </div>
+        </Link>
+      )}
 
       {upcomingTraining && (
         <div className="bg-card border rounded-xl p-4">

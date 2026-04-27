@@ -137,7 +137,7 @@ router.post("/platform/clubs", requireSuperAdmin, async (req, res): Promise<void
 });
 
 router.patch("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise<void> => {
-  const clubId = parseInt(req.params.id);
+  const clubId = parseInt(String(req.params.id));
   if (isNaN(clubId)) { res.status(400).json({ error: "Invalid club ID" }); return; }
 
   const body = req.body as Record<string, string | number | undefined>;
@@ -163,7 +163,7 @@ router.patch("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise
 });
 
 router.delete("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise<void> => {
-  const clubId = parseInt(req.params.id);
+  const clubId = parseInt(String(req.params.id));
   if (isNaN(clubId)) {
     res.status(400).json({ error: "Invalid club ID" });
     return;
@@ -239,7 +239,7 @@ router.post("/platform/announcements", requireSuperAdmin, async (req, res): Prom
 });
 
 router.delete("/platform/announcements/:id", requireSuperAdmin, async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id));
   if (isNaN(id)) {
     res.status(400).json({ error: "Invalid ID" });
     return;
@@ -253,7 +253,7 @@ router.delete("/platform/announcements/:id", requireSuperAdmin, async (req, res)
 });
 
 router.get("/platform/announcements/club/:clubId", requireSuperAdmin, async (req, res): Promise<void> => {
-  const clubId = parseInt(req.params.clubId);
+  const clubId = parseInt(String(req.params.clubId));
   const items = await db
     .select()
     .from(platformAnnouncementsTable)

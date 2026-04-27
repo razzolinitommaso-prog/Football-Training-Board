@@ -4,8 +4,7 @@ import { Shield, Eye, EyeOff, Lock, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { withApi } from "@/lib/api-base";
 
 export default function PlatformLoginPage() {
   const [, setLocation] = useLocation();
@@ -20,7 +19,7 @@ export default function PlatformLoginPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch(`${BASE}/api/auth/login`, {
+      const res = await fetch(withApi("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -33,7 +32,7 @@ export default function PlatformLoginPage() {
       }
       if (!data.isSuperAdmin) {
         setError("Access denied. This portal is reserved for platform administrators.");
-        await fetch(`${BASE}/api/auth/logout`, { method: "POST", credentials: "include" });
+        await fetch(withApi("/api/auth/logout"), { method: "POST", credentials: "include" });
         return;
       }
       setLocation("/platform-admin");
