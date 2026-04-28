@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useListPlayers } from "@workspace/api-client-react";
 
 export type TeamPlayer = {
@@ -9,10 +10,12 @@ export type TeamPlayer = {
 };
 
 export function useTeamPlayers(teamId: number | null) {
-  const { data, isLoading } = useListPlayers(teamId ? { teamId } : undefined);
+  const params = useMemo(() => (teamId ? { teamId } : undefined), [teamId]);
+  const { data, isLoading } = useListPlayers(params);
+  const players = useMemo(() => ((data as TeamPlayer[] | undefined) ?? []), [data]);
 
   return {
-    players: ((data as TeamPlayer[] | undefined) ?? []),
+    players,
     isLoading,
   };
 }

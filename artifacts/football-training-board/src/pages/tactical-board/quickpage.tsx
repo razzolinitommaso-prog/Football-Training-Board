@@ -46,6 +46,136 @@ const parseNumericId = (value: unknown): number | null => {
 
 const BOARD_TYPES = ["Training", "Match", "Set Piece", "Quick Idea"] as const;
 const BOARD_TAGS = ["Pressing", "Build-up", "Transition"] as const;
+const EQUIPMENT_TOOLS = ["ball", "cone", "goal", "goalLarge", "sagoma", "flag", "ladder", "hurdle", "pole", "vest", "disc", "cinesino", "text"] as const;
+const PLAYER_TYPES = ["player", "opponent", "goalkeeper"] as const;
+const DRAWING_TYPES = ["path", "line", "arrow", "bezier", "bezierarrow", "draw", "zone"] as const;
+
+function isPlayerType(type?: string): boolean {
+  return PLAYER_TYPES.includes(type as (typeof PLAYER_TYPES)[number]);
+}
+
+function isEquipmentType(type?: string): boolean {
+  return EQUIPMENT_TOOLS.includes(type as (typeof EQUIPMENT_TOOLS)[number]);
+}
+
+function isDrawingType(type?: string): boolean {
+  return DRAWING_TYPES.includes(type as (typeof DRAWING_TYPES)[number]);
+}
+
+function getPitchPoint(event: React.PointerEvent<HTMLDivElement> | PointerEvent, pitch: HTMLDivElement) {
+  const rect = pitch.getBoundingClientRect();
+  const clamp = (v: number) => Math.max(0, Math.min(100, v));
+  return {
+    x: clamp(((event.clientX - rect.left) / rect.width) * 100),
+    y: clamp(((event.clientY - rect.top) / rect.height) * 100),
+  };
+}
+
+function makeSmoothPath(points: Array<{ x: number; y: number }>) {
+  if (!points.length) return "";
+  if (points.length < 3) return `M ${points[0].x} ${points[0].y} ${points.slice(1).map((p) => `L ${p.x} ${p.y}`).join(" ")}`;
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const midX = (points[i].x + points[i + 1].x) / 2;
+    const midY = (points[i].y + points[i + 1].y) / 2;
+    d += ` Q ${points[i].x} ${points[i].y} ${midX} ${midY}`;
+  }
+  const last = points[points.length - 1];
+  d += ` T ${last.x} ${last.y}`;
+  return d;
+}
+
+function EquipmentGlyph({ type }: { type?: string }) {
+  if (type === "ball") {
+    return <div className="text-[28px] leading-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.35)]">⚽</div>;
+  }
+
+  if (type === "cone") {
+    return (
+      <svg viewBox="0 0 48 48" className="h-10 w-10 drop-shadow-lg">
+        <path d="M24 6 36 36H12L24 6Z" fill="#f97316" stroke="#991b1b" strokeWidth="2" />
+        <path d="M17 24h14M14 33h20" stroke="#fed7aa" strokeWidth="3" strokeLinecap="round" />
+        <path d="M9 38h30" stroke="#7f1d1d" strokeWidth="4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === "goalLarge" || type === "goal") {
+    return (
+      <svg viewBox="0 0 64 44" className="h-12 w-16 drop-shadow-lg">
+        <path d="M6 34V10h52v24" fill="none" stroke="#f8fafc" strokeWidth="4" strokeLinejoin="round" />
+        <path d="M10 14h44M10 20h44M10 26h44M16 10v24M26 10v24M38 10v24M48 10v24" stroke="#bbf7d0" strokeWidth="1.5" opacity=".9" />
+        <path d="M6 34h52" stroke="#f8fafc" strokeWidth="4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === "sagoma") {
+    return (
+      <svg viewBox="0 0 44 58" className="h-14 w-11 drop-shadow-lg">
+        <circle cx="22" cy="11" r="8" fill="#38bdf8" stroke="#075985" strokeWidth="3" />
+        <path d="M13 22h18l4 25H9l4-25Z" fill="#0ea5e9" stroke="#075985" strokeWidth="3" strokeLinejoin="round" />
+        <path d="M11 50h22" stroke="#082f49" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === "flag") {
+    return (
+      <svg viewBox="0 0 38 58" className="h-14 w-10 drop-shadow-lg">
+        <path d="M10 7v43" stroke="#713f12" strokeWidth="3" strokeLinecap="round" />
+        <path d="M11 8c8-5 13 4 21 0v20c-8 4-13-5-21 0V8Z" fill="#fde047" stroke="#a16207" strokeWidth="2" />
+        <circle cx="10" cy="51" r="4" fill="#713f12" />
+      </svg>
+    );
+  }
+
+  if (type === "ladder") {
+    return (
+      <svg viewBox="0 0 70 34" className="h-9 w-16 drop-shadow-lg">
+        <path d="M8 7h54M8 27h54" stroke="#111827" strokeWidth="4" strokeLinecap="round" />
+        {[18, 28, 38, 48].map((x) => <path key={x} d={`M${x} 7v20`} stroke="#111827" strokeWidth="3" strokeLinecap="round" />)}
+      </svg>
+    );
+  }
+
+  if (type === "hurdle") {
+    return (
+      <svg viewBox="0 0 58 42" className="h-11 w-14 drop-shadow-lg">
+        <path d="M11 33V14h36v19" fill="none" stroke="#b91c1c" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8 33h10M40 33h10" stroke="#7f1d1d" strokeWidth="4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === "pole") {
+    return (
+      <svg viewBox="0 0 28 70" className="h-16 w-8 drop-shadow-lg">
+        <path d="M14 6v58" stroke="#fde047" strokeWidth="5" strokeLinecap="round" />
+        <path d="M8 64h12" stroke="#854d0e" strokeWidth="4" strokeLinecap="round" />
+        <path d="M14 16h0M14 28h0M14 40h0M14 52h0" stroke="#b45309" strokeWidth="6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === "vest") {
+    return (
+      <svg viewBox="0 0 50 52" className="h-12 w-12 drop-shadow-lg">
+        <path d="M15 6h8c0 6 4 6 4 0h8l8 10-7 7-3-4v26H17V19l-3 4-7-7 8-10Z" fill="#fde047" stroke="#a16207" strokeWidth="2.5" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  if (type === "disc" || type === "cinesino") {
+    return <div className="h-8 w-8 rounded-full bg-yellow-300 border-2 border-yellow-700 shadow-lg" />;
+  }
+
+  if (type === "text") {
+    return <div className="rounded-lg border-2 border-white bg-black/30 px-2 py-1 text-lg font-black text-white shadow-lg">T</div>;
+  }
+
+  return <div className="h-8 w-8 rounded-full bg-white/80 shadow-lg" />;
+}
 
 const QuickPage = () => {
   const { club } = useAuth();
@@ -221,10 +351,22 @@ const QuickPage = () => {
   const tools = [
     { id: "select", label: "Select", icon: Move },
     { id: "draw", label: "Draw", icon: PenTool },
-    { id: "movement", label: "Move", icon: ChevronRight },
+    { id: "movement", label: "Arrow", icon: ChevronRight },
     { id: "players", label: "Players", icon: Users },
     { id: "zones", label: "Zones", icon: Square },
     { id: "text", label: "Text", icon: Type },
+  ];
+  const equipmentTools = [
+    { id: "ball", label: "Palla" },
+    { id: "cone", label: "Cono" },
+    { id: "goalLarge", label: "Porta" },
+    { id: "sagoma", label: "Sagoma" },
+    { id: "flag", label: "Bandiera" },
+    { id: "ladder", label: "Scaletta" },
+    { id: "hurdle", label: "Ostacolo" },
+    { id: "pole", label: "Paletto" },
+    { id: "vest", label: "Casacca" },
+    { id: "disc", label: "Cinesino" },
   ];
   const filteredBoards = boards.filter((board) =>
     board.title?.toLowerCase().includes(librarySearch.toLowerCase())
@@ -235,9 +377,7 @@ const QuickPage = () => {
   const filteredPresets = presets.filter((preset) =>
     preset.toLowerCase().includes(librarySearch.toLowerCase())
   );
-  const hasRenderableElements = elements.some((el) =>
-    ["player", "opponent", "goalkeeper"].includes(el?.type ?? "")
-  );
+  const hasRenderableElements = elements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
   const selectedElement =
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
   const canAssignRealPlayer = selectedElement?.type === "player" || selectedElement?.type === "goalkeeper";
@@ -282,6 +422,50 @@ const QuickPage = () => {
       })
     );
     setSaveState("Unsaved");
+  };
+
+  const dragElement = (e: React.PointerEvent<HTMLDivElement>, indexToDrag: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const pointerId = e.pointerId;
+    setSelectedElementIndex(indexToDrag);
+    isDraggingRef.current = true;
+    skipNextPitchClickRef.current = true;
+    setSaveState("Unsaved");
+
+    const rect = pitchRef.current;
+    if (rect) {
+      const { x, y } = getPitchPoint(e, rect);
+      setElements((prev) =>
+        prev.map((item: TacticalBoardElement, idx: number) =>
+          idx === indexToDrag ? { ...item, x, y } : item
+        )
+      );
+    }
+
+    const handleMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      const pitch = pitchRef.current;
+      if (!pitch) return;
+      const { x, y } = getPitchPoint(ev, pitch);
+
+      setElements((prev) =>
+        prev.map((item: TacticalBoardElement, idx: number) =>
+          idx === indexToDrag ? { ...item, x, y } : item
+        )
+      );
+    };
+
+    const handleUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      isDraggingRef.current = false;
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
   };
 
   return (
@@ -463,6 +647,29 @@ const QuickPage = () => {
 
             <div>
               <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
+                Attrezzatura
+              </h3>
+              <div className="grid grid-cols-5 gap-2">
+                {equipmentTools.map((tool) => (
+                  <button
+                    key={tool.id}
+                    type="button"
+                    title={tool.label}
+                    onClick={() => setActiveTool(tool.id)}
+                    className={`flex h-12 items-center justify-center rounded-2xl border transition ${
+                      activeTool === tool.id
+                        ? "border-[#FACC15] bg-[#FACC15]/20"
+                        : "border-white/10 bg-white/5 hover:bg-white/10"
+                    }`}
+                  >
+                    <EquipmentGlyph type={tool.id} />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
                 Recent Boards
               </h3>
               <div className="space-y-2">
@@ -599,6 +806,57 @@ const QuickPage = () => {
             <div
               className="relative w-full h-[70vh] rounded-[30px] overflow-hidden border border-white/10 shadow-2xl bg-gradient-to-b from-[#19603A] via-[#165A37] to-[#11462C]"
               ref={pitchRef}
+              onPointerDown={(e: React.PointerEvent<HTMLDivElement>) => {
+                if (e.target !== e.currentTarget) return;
+                if (!["draw", "movement", "zones"].includes(activeTool)) return;
+
+                const pitch = pitchRef.current;
+                if (!pitch) return;
+                e.preventDefault();
+
+                const start = getPitchPoint(e, pitch);
+                const nextType = activeTool === "movement" ? "arrow" : activeTool === "zones" ? "zone" : "path";
+                const draftIndex = elements.length;
+                const draftElement: TacticalBoardElement = {
+                  type: nextType,
+                  points: [start, start],
+                  color: "#FACC15",
+                  lineWidth: activeTool === "zones" ? 2 : 3.2,
+                  drawShape: activeTool === "movement" ? "freehand-arrow" : activeTool === "zones" ? "rect-outline" : "freehand-solid",
+                  arrowEnd: activeTool === "movement" ? "end" : "none",
+                };
+
+                setElements((prev) => [...prev, draftElement]);
+                setSelectedElementIndex(draftIndex);
+                setSaveState("Unsaved");
+
+                const pointerId = e.pointerId;
+                const handleMove = (ev: PointerEvent) => {
+                  if (ev.pointerId !== pointerId) return;
+                  const currentPitch = pitchRef.current;
+                  if (!currentPitch) return;
+                  const point = getPitchPoint(ev, currentPitch);
+                  setElements((prev) =>
+                    prev.map((item, idx) => {
+                      if (idx !== draftIndex) return item;
+                      const points = Array.isArray(item.points) ? item.points as Array<{ x: number; y: number }> : [start];
+                      if (nextType === "zone") return { ...item, points: [start, point] };
+                      const last = points[points.length - 1];
+                      const movedEnough = !last || Math.hypot(point.x - last.x, point.y - last.y) > 0.8;
+                      return movedEnough ? { ...item, points: [...points, point] } : item;
+                    })
+                  );
+                };
+
+                const handleUp = (ev: PointerEvent) => {
+                  if (ev.pointerId !== pointerId) return;
+                  window.removeEventListener("pointermove", handleMove);
+                  window.removeEventListener("pointerup", handleUp);
+                };
+
+                window.addEventListener("pointermove", handleMove);
+                window.addEventListener("pointerup", handleUp);
+              }}
               onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                 // Evita di creare nuovi elementi quando clicchi sopra un marker esistente.
                 if (skipNextPitchClickRef.current) {
@@ -619,7 +877,7 @@ const QuickPage = () => {
                 const x = clamp(xPct);
                 const y = clamp(yPct);
 
-                if (activeTool !== "player" && activeTool !== "opponent" && activeTool !== "goalkeeper" && activeTool !== "players") {
+                if (activeTool !== "player" && activeTool !== "opponent" && activeTool !== "goalkeeper" && activeTool !== "players" && !isEquipmentType(activeTool)) {
                   return;
                 }
 
@@ -628,7 +886,7 @@ const QuickPage = () => {
                     ? "player"
                     : activeTool;
 
-                const newElement = { type: nextType, x, y };
+                const newElement = { type: nextType, x, y, label: activeTool === "text" ? "T" : undefined };
 
                 setElements((prev) => [...prev, newElement]);
                 setSaveState("Unsaved");
@@ -651,7 +909,7 @@ const QuickPage = () => {
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_45%)]" />
 
               {/* pitch markings */}
-              <div className="absolute inset-0">
+              <div className="pointer-events-none absolute inset-0">
                 <div className="absolute inset-y-0 left-1/2 w-[2px] bg-white/30 -translate-x-1/2" />
                 <div className="absolute top-1/2 left-1/2 w-40 h-40 border border-white/30 rounded-full -translate-x-1/2 -translate-y-1/2" />
                 <div className="absolute inset-4 border border-white/30 rounded-2xl" />
@@ -659,10 +917,64 @@ const QuickPage = () => {
                 <div className="absolute right-0 top-1/2 w-24 h-56 border border-white/30 border-r-0 -translate-y-1/2" />
               </div>
 
-              {/* Elements (player/opponent/goalkeeper) */}
+              {/* Dynamic tactical drawings */}
+              <svg className="pointer-events-none absolute inset-0 z-[3] h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <defs>
+                  <marker id="dynamicArrowYellow" markerWidth="4" markerHeight="4" refX="3.4" refY="2" orient="auto">
+                    <path d="M0,0 L0,4 L4,2 z" fill="#FACC15" />
+                  </marker>
+                </defs>
+                {elements.map((el: TacticalBoardElement, i: number) => {
+                  if (!isDrawingType(el.type)) return null;
+                  const points = Array.isArray(el.points) ? el.points as Array<{ x: number; y: number }> : [];
+                  if (points.length < 2) return null;
+                  const color = String(el.color ?? "#FACC15");
+                  const width = Number(el.lineWidth ?? 3);
+                  const selected = selectedElementIndex === i;
+
+                  if (el.type === "zone") {
+                    const [a, b] = points;
+                    const x = Math.min(a.x, b.x);
+                    const y = Math.min(a.y, b.y);
+                    const w = Math.abs(a.x - b.x);
+                    const h = Math.abs(a.y - b.y);
+                    return (
+                      <rect
+                        key={`draw-${i}`}
+                        x={x}
+                        y={y}
+                        width={w}
+                        height={h}
+                        rx="1.5"
+                        fill="rgba(250,204,21,0.14)"
+                        stroke={color}
+                        strokeWidth={selected ? width * 0.42 : width * 0.32}
+                        strokeDasharray={String(el.drawShape ?? "").includes("dashed") ? "2 1.6" : undefined}
+                      />
+                    );
+                  }
+
+                  return (
+                    <path
+                      key={`draw-${i}`}
+                      d={makeSmoothPath(points)}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={width * 0.28}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeDasharray={String(el.drawShape ?? "").includes("dashed") ? "2.3 1.6" : undefined}
+                      markerEnd={el.type === "arrow" || el.type === "bezierarrow" || el.arrowEnd === "end" ? "url(#dynamicArrowYellow)" : undefined}
+                      opacity={selected ? 1 : 0.96}
+                    />
+                  );
+                })}
+              </svg>
+
+              {/* Elements */}
               {hasRenderableElements ? (
                 elements.map((el: TacticalBoardElement, i: number) => {
-                  if (!["player", "opponent", "goalkeeper"].includes(el?.type ?? "")) return null;
+                  if (!isPlayerType(el?.type) && !isEquipmentType(el?.type)) return null;
 
                   const commonStyle = {
                     left: `${el.x ?? 50}%`,
@@ -680,69 +992,33 @@ const QuickPage = () => {
 
                   const isSelected = selectedElementIndex === i;
 
-                  const className =
+                  const playerClassName =
                     el.type === "player"
-                      ? `absolute w-8 h-8 rounded-full bg-yellow-400 text-black text-xs font-bold flex items-center justify-center shadow-lg border border-black/20${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
+                      ? `absolute z-[5] w-8 h-8 rounded-full bg-[#2f9cf4] text-white text-xs font-bold flex items-center justify-center shadow-lg border-2 border-white/80${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
                       : el.type === "opponent"
-                      ? `absolute w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shadow-lg border border-white/10${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
-                      : `absolute w-8 h-8 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center shadow-lg border border-white/10${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`;
+                      ? `absolute z-[5] w-8 h-8 rounded-full bg-[#ef4444] text-white text-xs font-bold flex items-center justify-center shadow-lg border-2 border-white/80${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
+                      : `absolute z-[5] w-8 h-8 rounded-full bg-[#facc15] text-black text-xs font-bold flex items-center justify-center shadow-lg border-2 border-white/80${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`;
+
+                  if (isEquipmentType(el.type)) {
+                    return (
+                      <div
+                        key={String(el.id ?? `el-${i}`)}
+                        className={`absolute z-[4] flex touch-none select-none items-center justify-center rounded-2xl p-1 transition ${isSelected ? "ring-2 ring-[#FACC15] ring-offset-2 ring-offset-[#145f38]" : ""}`}
+                        style={commonStyle}
+                        onPointerDown={(e) => dragElement(e, i)}
+                        title={String(el.type)}
+                      >
+                        <EquipmentGlyph type={el.type} />
+                      </div>
+                    );
+                  }
 
                   return (
                     <div
                       key={String(el.id ?? `el-${i}`)}
-                      className={className}
+                      className={playerClassName}
                       style={commonStyle}
-                      onPointerDown={(e: React.PointerEvent<HTMLDivElement>) => {
-                        // Drag di un elemento: non deve innescare l'add del pitch.
-                        e.preventDefault();
-                        e.stopPropagation();
-
-                        const indexToDrag = i;
-                        const pointerId = e.pointerId;
-                        setSelectedElementIndex(indexToDrag);
-                        isDraggingRef.current = true;
-                        skipNextPitchClickRef.current = true;
-                        setSaveState("Unsaved");
-
-                        // Aggiorna subito posizione (utile su touch e mouse).
-                        const rect = pitchRef.current?.getBoundingClientRect();
-                        if (rect) {
-                          const clamp = (v: number) => Math.max(0, Math.min(100, v));
-                          const x = clamp(((e.clientX - rect.left) / rect.width) * 100);
-                          const y = clamp(((e.clientY - rect.top) / rect.height) * 100);
-                          setElements((prev) =>
-                            prev.map((item: TacticalBoardElement, idx: number) =>
-                              idx === indexToDrag ? { ...item, x, y } : item
-                            )
-                          );
-                        }
-
-                        const handleMove = (ev: PointerEvent) => {
-                          if (ev.pointerId !== pointerId) return;
-                          const r = pitchRef.current?.getBoundingClientRect();
-                          if (!r) return;
-
-                          const clamp = (v: number) => Math.max(0, Math.min(100, v));
-                          const x = clamp(((ev.clientX - r.left) / r.width) * 100);
-                          const y = clamp(((ev.clientY - r.top) / r.height) * 100);
-
-                          setElements((prev) =>
-                            prev.map((item: TacticalBoardElement, idx: number) =>
-                              idx === indexToDrag ? { ...item, x, y } : item
-                            )
-                          );
-                        };
-
-                        const handleUp = (ev: PointerEvent) => {
-                          if (ev.pointerId !== pointerId) return;
-                          isDraggingRef.current = false;
-                          window.removeEventListener("pointermove", handleMove);
-                          window.removeEventListener("pointerup", handleUp);
-                        };
-
-                        window.addEventListener("pointermove", handleMove);
-                        window.addEventListener("pointerup", handleUp);
-                      }}
+                      onPointerDown={(e) => dragElement(e, i)}
                     >
                       {content}
                     </div>
@@ -756,7 +1032,7 @@ const QuickPage = () => {
 
               {/* Delete selected element */}
               {selectedElementIndex !== null && (
-                <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 w-64">
+                <div className={`absolute right-4 top-4 z-20 flex gap-2 ${canAssignRealPlayer ? "w-64 flex-col" : "rounded-2xl border border-white/10 bg-[#1f2937]/95 p-2 shadow-2xl backdrop-blur"}`}>
                   {canAssignRealPlayer && (
                     <div className="rounded-xl border border-white/20 bg-[#0F172A]/95 p-3 shadow-lg">
                       <div className="text-xs text-white/70 mb-2">Assegna giocatore reale</div>
@@ -787,7 +1063,7 @@ const QuickPage = () => {
 
                   <button
                     type="button"
-                    className="px-3 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold shadow-lg"
+                    className={`${canAssignRealPlayer ? "px-3 py-2" : "h-10 px-4"} rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold shadow-lg`}
                     onClick={(e) => {
                       e.stopPropagation();
                       setElements((prev) => prev.filter((_: TacticalBoardElement, idx: number) => idx !== selectedElementIndex));
@@ -801,18 +1077,18 @@ const QuickPage = () => {
               )}
 
               {/* Tactical arrows */}
-              <svg className="absolute inset-0 w-full h-full">
+              <svg className="pointer-events-none absolute inset-0 z-[2] h-full w-full">
                 <defs>
-                  <marker id="arrowYellow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
-                    <path d="M0,0 L0,6 L6,3 z" fill="#FACC15" />
+                  <marker id="arrowYellow" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto">
+                    <path d="M0,0 L0,8 L9,4 z" fill="#FACC15" />
                   </marker>
-                  <marker id="arrowWhite" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
-                    <path d="M0,0 L0,6 L6,3 z" fill="white" />
+                  <marker id="arrowWhite" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto">
+                    <path d="M0,0 L0,8 L9,4 z" fill="white" />
                   </marker>
                 </defs>
-                <path d="M220 300 C320 240, 400 220, 520 170" stroke="#FACC15" strokeWidth="4" fill="none" markerEnd="url(#arrowYellow)" />
-                <path d="M420 430 C520 380, 580 340, 690 250" stroke="white" strokeWidth="4" fill="none" markerEnd="url(#arrowWhite)" />
-                <path d="M300 180 C380 200, 460 250, 550 320" stroke="#FACC15" strokeWidth="3" strokeDasharray="8 8" fill="none" markerEnd="url(#arrowYellow)" />
+                <path d="M220 300 C310 245, 398 218, 520 170" stroke="#FACC15" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" markerEnd="url(#arrowYellow)" />
+                <path d="M420 430 C520 380, 585 340, 690 250" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" markerEnd="url(#arrowWhite)" />
+                <path d="M300 180 C385 205, 460 250, 550 320" stroke="#FACC15" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="10 12" fill="none" markerEnd="url(#arrowYellow)" />
               </svg>
 
               <div className="absolute inset-x-6 bottom-5 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#08142b]/72 border border-white/10 px-4 py-3 backdrop-blur-md">
