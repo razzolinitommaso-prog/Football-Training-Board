@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useLocation, Link } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { Shield, ArrowLeft, ChevronRight, Users, Loader2, School, GraduationCap, Star, Target, FileText, BarChart3, Dumbbell, Settings, Heart } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { withApi } from "@/lib/api-base";
@@ -254,21 +254,6 @@ export default function WorkspaceSectionAreasPage() {
           ))}
         </div>
 
-        <div className="mt-8 text-center">
-          <p className="text-sm text-gray-500">
-            {t.knowCredentials}{" "}
-            <Link
-              href={`/login?club=${encodeURIComponent(clubSlug)}&section=${encodeURIComponent(section)}`}
-              onClick={() => {
-                localStorage.setItem("ftb-login-club", clubSlug);
-                localStorage.setItem("ftb-login-section", section);
-                localStorage.setItem("ftb-post-login-dest", "dashboard");
-              }}
-            >
-              <span className="text-gray-400 hover:text-white transition-colors cursor-pointer underline underline-offset-2">{t.signInDirectly}</span>
-            </Link>
-          </p>
-        </div>
       </div>
     </div>
   );
