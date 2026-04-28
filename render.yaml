@@ -4,9 +4,9 @@ services:
     plan: free
     runtime: node
     rootDir: .
-    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server build
-    preDeployCommand: pnpm --filter @workspace/db push
-    startCommand: pnpm --filter @workspace/api-server start
+    buildCommand: pnpm install --frozen-lockfile && pnpm run build:api
+    preDeployCommand: pnpm run db:push
+    startCommand: pnpm run start:api
     healthCheckPath: /api/healthz
     envVars:
       - key: NODE_ENV
