@@ -8,7 +8,7 @@
     "import-db": "tsx ./src/scripts/import-db.ts",
     "test-login": "tsx ./src/scripts/test-login.ts",
     "build": "tsx ./build.ts",
-    "start": "node ./dist/index.js",
+    "start": "tsx ./src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

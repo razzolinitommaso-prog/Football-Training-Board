@@ -9,7 +9,6 @@ import { LanguageProvider } from "@/lib/i18n";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/layout/app-layout";
 
-import Login from "@/pages/login";
 import Register from "@/pages/register";
 import PlatformLoginPage from "@/pages/platform-login/index";
 import PlatformAdminPage from "@/pages/platform-admin/index";
@@ -274,7 +273,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={LandingPage} />
-      <Route path="/login" component={Login} />
+      <Route path="/login" component={LoginClubPage} />
       <Route path="/register" component={Register} />
       <Route path="/login-club" component={LoginClubPage} />
       <Route path="/workspace/:clubSlug/:section" component={WorkspaceSectionAreasPage} />

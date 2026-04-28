@@ -153,31 +153,6 @@ export default function LoginClubPage() {
               </Link>
             </p>
           </div>
-
-          <div className="mt-4 text-center">
-            <p className="text-sm text-gray-500">
-              {t.knowCredentials}{" "}
-              <button
-                type="button"
-                onClick={() => {
-                  const typedSlug = clubName.trim() ? encodeURIComponent(clubName.trim()) : "";
-                  const savedSlug = localStorage.getItem("ftb-workspace-slug") ?? "";
-                  const targetSlug = typedSlug || savedSlug;
-                  setError("");
-                  if (!targetSlug) {
-                    setError("");
-                    setLocation("/login?direct=1");
-                    return;
-                  }
-                  localStorage.setItem("ftb-workspace-slug", targetSlug);
-                  setLocation(`/workspace/${targetSlug}`);
-                }}
-                className="text-gray-400 hover:text-white transition-colors cursor-pointer underline underline-offset-2"
-              >
-                {t.signInDirectly}
-              </button>
-            </p>
-          </div>
         </div>
       </div>
     </div>
