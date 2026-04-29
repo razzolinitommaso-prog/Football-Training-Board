@@ -9,14 +9,8 @@ import {
   Share2,
   Search,
   ChevronLeft,
-  ChevronRight,
   Mic,
   Video,
-  PenTool,
-  Move,
-  Users,
-  Square,
-  Type,
   MoreHorizontal,
   Play,
   Upload,
@@ -30,8 +24,10 @@ import { useTeamPlayers, type TeamPlayer } from "./use-team-players";
 import { assignPlayersToElements } from "./player-mapping";
 
 const deriveFormatFromCategory = (category?: string | null): TacticalBoardFormat => {
-  if (category === "Pulcini") return "7v7";
-  if (category === "Esordienti") return "9v9";
+  const normalizedCategory = String(category ?? "").toLowerCase();
+  if (normalizedCategory.includes("piccoli") || normalizedCategory.includes("primi calci")) return "5v5";
+  if (normalizedCategory.includes("pulcini")) return "7v7";
+  if (normalizedCategory.includes("esordienti")) return "9v9";
   return "11v11";
 };
 
@@ -49,6 +45,27 @@ const BOARD_TAGS = ["Pressing", "Build-up", "Transition"] as const;
 const EQUIPMENT_TOOLS = ["ball", "cone", "goal", "goalLarge", "sagoma", "flag", "ladder", "hurdle", "pole", "vest", "disc", "cinesino", "text"] as const;
 const PLAYER_TYPES = ["player", "opponent", "goalkeeper"] as const;
 const DRAWING_TYPES = ["path", "line", "arrow", "bezier", "bezierarrow", "draw", "zone"] as const;
+const FIELD_MEASUREMENTS: Record<TacticalBoardFormat, {
+  canvasLength: number;
+  canvasWidth: number;
+  length: number;
+  width: number;
+  gridStep: number;
+  centerCircleRadius: number;
+  penaltyAreaDepth: number;
+  penaltyAreaWidth: number;
+  goalAreaDepth: number;
+  goalAreaWidth: number;
+  penaltySpotDistance: number;
+  goalWidth: number;
+  cornerRadius: number;
+}> = {
+  "3v3": { canvasLength: 110, canvasWidth: 75, length: 25, width: 15, gridStep: 10, centerCircleRadius: 3, penaltyAreaDepth: 0, penaltyAreaWidth: 0, goalAreaDepth: 0, goalAreaWidth: 0, penaltySpotDistance: 0, goalWidth: 3, cornerRadius: 1 },
+  "5v5": { canvasLength: 110, canvasWidth: 75, length: 40, width: 25, gridStep: 10, centerCircleRadius: 4, penaltyAreaDepth: 6, penaltyAreaWidth: 15, goalAreaDepth: 0, goalAreaWidth: 0, penaltySpotDistance: 6, goalWidth: 3, cornerRadius: 1 },
+  "7v7": { canvasLength: 110, canvasWidth: 75, length: 65, width: 45, gridStep: 10, centerCircleRadius: 6, penaltyAreaDepth: 13, penaltyAreaWidth: 26, goalAreaDepth: 4, goalAreaWidth: 14, penaltySpotDistance: 9, goalWidth: 5, cornerRadius: 1 },
+  "9v9": { canvasLength: 110, canvasWidth: 75, length: 72, width: 50, gridStep: 10, centerCircleRadius: 6, penaltyAreaDepth: 13, penaltyAreaWidth: 30, goalAreaDepth: 4.5, goalAreaWidth: 16, penaltySpotDistance: 9, goalWidth: 6, cornerRadius: 1 },
+  "11v11": { canvasLength: 110, canvasWidth: 75, length: 110, width: 75, gridStep: 10, centerCircleRadius: 9.15, penaltyAreaDepth: 16.5, penaltyAreaWidth: 40.32, goalAreaDepth: 5.5, goalAreaWidth: 18.32, penaltySpotDistance: 11, goalWidth: 7.32, cornerRadius: 1 },
+};
 
 function isPlayerType(type?: string): boolean {
   return PLAYER_TYPES.includes(type as (typeof PLAYER_TYPES)[number]);
@@ -83,6 +100,97 @@ function makeSmoothPath(points: Array<{ x: number; y: number }>) {
   const last = points[points.length - 1];
   d += ` T ${last.x} ${last.y}`;
   return d;
+}
+
+function MetricFieldOverlay({
+  spec,
+  showGrid,
+  showFieldMarkings,
+}: {
+  spec: (typeof FIELD_MEASUREMENTS)[TacticalBoardFormat];
+  showGrid: boolean;
+  showFieldMarkings: boolean;
+}) {
+  const verticalLines = Array.from({ length: Math.floor(spec.canvasLength / spec.gridStep) }, (_, i) => (i + 1) * spec.gridStep).filter((x) => x < spec.canvasLength);
+  const penaltyTop = (spec.width - spec.penaltyAreaWidth) / 2;
+  const goalAreaTop = (spec.width - spec.goalAreaWidth) / 2;
+  const goalTop = (spec.width - spec.goalWidth) / 2;
+  const showPenaltyArea = spec.penaltyAreaDepth > 0 && spec.penaltyAreaWidth > 0;
+  const showGoalArea = spec.goalAreaDepth > 0 && spec.goalAreaWidth > 0;
+  const showPenaltySpot = spec.penaltySpotDistance > 0;
+  const fieldOriginX = (spec.canvasLength - spec.length) / 2;
+  const fieldOriginY = (spec.canvasWidth - spec.width) / 2;
+  const fieldX = (meters: number) => fieldOriginX + meters;
+  const fieldY = (meters: number) => fieldOriginY + meters;
+  const centerX = fieldX(spec.length / 2);
+  const centerY = fieldY(spec.width / 2);
+  const centeredWidthLines = [10, 20, 30, 40, 50, 60, 70]
+    .map((label) => ({ label, y: centerY + (label - 40) }))
+    .filter((line) => line.y > 0 && line.y < spec.canvasWidth);
+
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
+      viewBox={`0 0 ${spec.canvasLength} ${spec.canvasWidth}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      {showGrid && (
+        <>
+          <g opacity="0.22">
+            {verticalLines.map((x) => (
+              <path key={`grid-x-${x}`} d={`M ${x} 0 V ${spec.canvasWidth}`} stroke="white" strokeWidth="0.08" />
+            ))}
+            {centeredWidthLines.map(({ label, y }) => (
+              <path key={`grid-y-${label}`} d={`M 0 ${y} H ${spec.canvasLength}`} stroke="white" strokeWidth="0.08" />
+            ))}
+          </g>
+          <g opacity="0.5" fontSize="2.2" fill="white" fontWeight="600">
+            {verticalLines.map((x) => (
+              <text key={`label-x-${x}`} x={x} y="3.2" textAnchor="middle">{x}m</text>
+            ))}
+            {centeredWidthLines.map(({ label, y }) => (
+              <text key={`label-y-${label}`} x="1.6" y={y + 0.7}>{label}m</text>
+            ))}
+          </g>
+        </>
+      )}
+      <g fill="none" stroke="white" strokeLinecap="round" strokeLinejoin="round" opacity="0.52">
+        <rect x={fieldOriginX} y={fieldOriginY} width={spec.length} height={spec.width} rx="1.8" strokeWidth="0.22" />
+        {showFieldMarkings && (
+          <>
+            <path d={`M ${centerX} ${fieldOriginY} V ${fieldOriginY + spec.width}`} strokeWidth="0.22" />
+            <circle cx={centerX} cy={centerY} r={spec.centerCircleRadius} strokeWidth="0.18" />
+            {showPenaltyArea && (
+              <>
+                <rect x={fieldOriginX} y={fieldY(penaltyTop)} width={spec.penaltyAreaDepth} height={spec.penaltyAreaWidth} strokeWidth="0.18" />
+                <rect x={fieldX(spec.length - spec.penaltyAreaDepth)} y={fieldY(penaltyTop)} width={spec.penaltyAreaDepth} height={spec.penaltyAreaWidth} strokeWidth="0.18" />
+              </>
+            )}
+            {showGoalArea && (
+              <>
+                <rect x={fieldOriginX} y={fieldY(goalAreaTop)} width={spec.goalAreaDepth} height={spec.goalAreaWidth} strokeWidth="0.18" />
+                <rect x={fieldX(spec.length - spec.goalAreaDepth)} y={fieldY(goalAreaTop)} width={spec.goalAreaDepth} height={spec.goalAreaWidth} strokeWidth="0.18" />
+              </>
+            )}
+            {showPenaltySpot && (
+              <>
+                <circle cx={fieldX(spec.penaltySpotDistance)} cy={centerY} r="0.35" fill="white" stroke="none" opacity="0.85" />
+                <circle cx={fieldX(spec.length - spec.penaltySpotDistance)} cy={centerY} r="0.35" fill="white" stroke="none" opacity="0.85" />
+                <path d={`M ${fieldX(spec.penaltyAreaDepth)} ${centerY - spec.centerCircleRadius} A ${spec.centerCircleRadius} ${spec.centerCircleRadius} 0 0 1 ${fieldX(spec.penaltyAreaDepth)} ${centerY + spec.centerCircleRadius}`} strokeWidth="0.18" />
+                <path d={`M ${fieldX(spec.length - spec.penaltyAreaDepth)} ${centerY - spec.centerCircleRadius} A ${spec.centerCircleRadius} ${spec.centerCircleRadius} 0 0 0 ${fieldX(spec.length - spec.penaltyAreaDepth)} ${centerY + spec.centerCircleRadius}`} strokeWidth="0.18" />
+              </>
+            )}
+            <path d={`M ${fieldOriginX} ${fieldY(goalTop)} V ${fieldY(goalTop + spec.goalWidth)} M ${fieldOriginX + spec.length} ${fieldY(goalTop)} V ${fieldY(goalTop + spec.goalWidth)}`} strokeWidth="0.45" />
+            <path d={`M ${fieldOriginX} ${fieldOriginY + spec.cornerRadius} A ${spec.cornerRadius} ${spec.cornerRadius} 0 0 1 ${fieldOriginX + spec.cornerRadius} ${fieldOriginY}`} strokeWidth="0.16" />
+            <path d={`M ${fieldOriginX + spec.length - spec.cornerRadius} ${fieldOriginY} A ${spec.cornerRadius} ${spec.cornerRadius} 0 0 1 ${fieldOriginX + spec.length} ${fieldOriginY + spec.cornerRadius}`} strokeWidth="0.16" />
+            <path d={`M ${fieldOriginX} ${fieldOriginY + spec.width - spec.cornerRadius} A ${spec.cornerRadius} ${spec.cornerRadius} 0 0 0 ${fieldOriginX + spec.cornerRadius} ${fieldOriginY + spec.width}`} strokeWidth="0.16" />
+            <path d={`M ${fieldOriginX + spec.length - spec.cornerRadius} ${fieldOriginY + spec.width} A ${spec.cornerRadius} ${spec.cornerRadius} 0 0 0 ${fieldOriginX + spec.length} ${fieldOriginY + spec.width - spec.cornerRadius}`} strokeWidth="0.16" />
+          </>
+        )}
+      </g>
+    </svg>
+  );
 }
 
 function EquipmentGlyph({ type }: { type?: string }) {
@@ -184,6 +292,10 @@ const QuickPage = () => {
     const params = new URLSearchParams(window.location.search);
     return parseNumericId(params.get("teamId"));
   }, []);
+  const initialBoardIdFromQuery = React.useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return parseNumericId(params.get("boardId"));
+  }, []);
   const initialPresetFromQuery = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const raw = params.get("preset");
@@ -198,19 +310,24 @@ const QuickPage = () => {
 
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
+  const showRightSidebar = false;
   const [focusMode, setFocusMode] = useState(false);
-  const [activeTool, setActiveTool] = useState("draw");
+  const [activeTool, setActiveTool] = useState("player");
   const [saveState, setSaveState] = useState("Saved");
   const [selectedPreset, setSelectedPreset] = useState<string | null>(initialPresetFromQuery ?? "4-3-3");
   const [boardTitle, setBoardTitle] = useState("Nuova lavagna");
   const [currentBoardId, setCurrentBoardId] = useState<number | null>(null);
   const [boardTeamId, setBoardTeamId] = useState<number | null>(initialTeamIdFromQuery);
+  const [boardMode, setBoardMode] = useState<"assigned" | "free">(initialTeamIdFromQuery ? "assigned" : "free");
   const [boardClubId, setBoardClubId] = useState<number | null>(parseNumericId((club as any)?.id));
   const [boardCategory, setBoardCategory] = useState<string | null>(null);
   const [boardFormat, setBoardFormat] = useState<TacticalBoardFormat>("11v11");
   const [boardType, setBoardType] = useState<(typeof BOARD_TYPES)[number]>("Training");
   const [boardNotes, setBoardNotes] = useState("Obiettivo: attirare la prima pressione e uscire sul lato debole con la mezzala dentro.");
   const [librarySearch, setLibrarySearch] = useState("");
+  const [bottomMenu, setBottomMenu] = useState<"players" | "equipment" | "library">("players");
+  const [showMetricGrid, setShowMetricGrid] = useState(true);
+  const [showFieldMarkings, setShowFieldMarkings] = useState(true);
 
   const [selectedElementIndex, setSelectedElementIndex] = useState<number | null>(null);
 
@@ -218,8 +335,47 @@ const QuickPage = () => {
   const [boards, setBoards] = useState<any[]>([]);
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const [elements, setElements] = useState<TacticalBoardElement[]>([]);
-  const { players: fetchedTeamPlayers } = useTeamPlayers(boardTeamId);
+  const effectiveTeamId = boardMode === "assigned" ? boardTeamId : null;
+  const { players: fetchedTeamPlayers } = useTeamPlayers(effectiveTeamId);
   const [teamPlayers, setTeamPlayers] = useState<TeamPlayer[]>([]);
+  const didHydrateBoardFromUrlRef = React.useRef(false);
+
+  const setBoardIdInUrl = React.useCallback((boardId: number | null) => {
+    const url = new URL(window.location.href);
+    if (boardId) {
+      url.searchParams.set("boardId", String(boardId));
+    } else {
+      url.searchParams.delete("boardId");
+    }
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  const applyBoardState = React.useCallback(
+    (board: any) => {
+      const data = (board.data || {}) as TacticalBoardData;
+      const parsedBoardId = parseNumericId(board?.id);
+      setCurrentBoardId(parsedBoardId);
+      setBoardTitle(board.title ?? "Nuova lavagna");
+      const nextTeamId = parseNumericId(data.teamId) ?? initialTeamIdFromQuery;
+      setBoardTeamId(nextTeamId);
+      setBoardMode(nextTeamId ? "assigned" : "free");
+      setBoardClubId(parseNumericId(data.clubId) ?? parseNumericId((club as any)?.id));
+      setBoardCategory((data.category as string | null) ?? null);
+      setBoardFormat(
+        (data.format as TacticalBoardFormat | undefined) ??
+          deriveFormatFromCategory((data.category as string | null) ?? null)
+      );
+      setSelectedPreset(data.preset ?? null);
+      setActiveTool(data.activeTool ?? "player");
+      setFocusMode(data.focusMode ?? false);
+      setElements(data.elements ?? []);
+      setSelectedElementIndex(null);
+      setSaveState("Saved");
+      setBoardIdInUrl(parsedBoardId);
+    },
+    [club, initialTeamIdFromQuery, setBoardIdInUrl]
+  );
+
   const loadBoards = async () => {
     try {
       console.log("[tactical-board] request GET /api/boards");
@@ -242,18 +398,36 @@ const QuickPage = () => {
   React.useEffect(() => {
     loadBoards();
   }, []);
+
+  React.useEffect(() => {
+    if (didHydrateBoardFromUrlRef.current) return;
+    if (!initialBoardIdFromQuery) return;
+    if (!boards.length) return;
+
+    const boardFromUrl = boards.find((b) => parseNumericId(b?.id) === initialBoardIdFromQuery);
+    if (!boardFromUrl) return;
+
+    applyBoardState(boardFromUrl);
+    didHydrateBoardFromUrlRef.current = true;
+  }, [applyBoardState, boards, initialBoardIdFromQuery]);
+
   React.useEffect(() => {
     setBoardClubId(parseNumericId((club as any)?.id));
   }, [club]);
 
   React.useEffect(() => {
+    if (boardMode === "free") {
+      setBoardCategory(null);
+      setBoardFormat("11v11");
+      return;
+    }
     if (!boardTeamId) return;
-    const team = (allTeams || []).find((t: any) => t.id === boardTeamId);
+    const team = (allTeams || []).find((t: any) => parseNumericId(t.id) === boardTeamId);
     if (!team) return;
     const category = team.category ?? null;
     setBoardCategory(category);
     setBoardFormat(deriveFormatFromCategory(category));
-  }, [allTeams, boardTeamId]);
+  }, [allTeams, boardMode, boardTeamId]);
 
   React.useEffect(() => {
     setTeamPlayers(fetchedTeamPlayers);
@@ -272,9 +446,10 @@ const QuickPage = () => {
   }, []);
 
   React.useEffect(() => {
+    if (boardMode === "free") return;
     if (!teamPlayers.length) return;
     setElements((prev) => assignPlayersToElements(prev, teamPlayers));
-  }, [teamPlayers]);
+  }, [boardMode, teamPlayers]);
 
   React.useEffect(() => {
     if (!initialPresetFromQuery) return;
@@ -291,21 +466,83 @@ const QuickPage = () => {
     ];
     setTeamPlayers(prioritized);
   }, [initialConvocatiIds, fetchedTeamPlayers]);
+
+  React.useEffect(() => {
+    if (!selectedPreset || !isFormationPresetId(selectedPreset)) return;
+    if (FORMATIONS[selectedPreset].formats.includes(boardFormat)) return;
+    setSelectedPreset(null);
+  }, [boardFormat, selectedPreset]);
   
   const pitchRef = React.useRef<HTMLDivElement | null>(null);
   const isDraggingRef = React.useRef(false);
   const skipNextPitchClickRef = React.useRef(false);
 
+  const assignedTeams = Array.isArray(allTeams) ? allTeams : [];
+  const fallbackAssignedTeam = assignedTeams[0] ?? null;
+  const formationPresetOptions = Object.entries(FORMATIONS)
+    .filter(([, formation]) => formation.formats.includes(boardFormat))
+    .map(([formation]) => formation);
   const presets = [
-    "4-3-3",
-    "4-2-3-1",
-    "3-5-2",
+    ...formationPresetOptions,
     "Pressing",
     "Uscita",
     "Transizione",
     "Corner Off",
     "Corner Def",
   ];
+  const loadTeamById = (teamIdRaw: string | number | null) => {
+    const nextTeamId = parseNumericId(teamIdRaw) ?? parseNumericId(fallbackAssignedTeam?.id);
+    if (!nextTeamId) return;
+    const team = (allTeams || []).find((item: any) => parseNumericId(item.id) === nextTeamId) ?? fallbackAssignedTeam;
+    const category = team?.category ?? null;
+    setBoardMode("assigned");
+    setBoardTeamId(nextTeamId);
+    setBoardCategory(category);
+    setBoardFormat(deriveFormatFromCategory(category));
+    setSaveState("Unsaved");
+  };
+
+  const workFree = () => {
+    setBoardMode("free");
+    setBoardTeamId(null);
+    setBoardCategory(null);
+    setBoardFormat("11v11");
+    setTeamPlayers([]);
+    setSaveState("Unsaved");
+  };
+
+  const detectedModule = React.useMemo(() => {
+    const ownPlayers = elements.filter((el) => isPlayerType(el?.type) && el.type !== "opponent");
+    const goalkeepers = ownPlayers.filter((el) => el.type === "goalkeeper").length;
+    const movementPlayers = ownPlayers
+      .filter((el) => el.type !== "goalkeeper" && typeof el.x === "number")
+      .sort((a, b) => Number(a.x ?? 0) - Number(b.x ?? 0));
+
+    if (!ownPlayers.length) return "";
+
+    const lineCounts: number[] = [];
+    let currentLineX: number | null = null;
+
+    movementPlayers.forEach((player) => {
+      const x = Number(player.x ?? 0);
+      if (currentLineX === null || Math.abs(x - currentLineX) > 8) {
+        lineCounts.push(1);
+        currentLineX = x;
+        return;
+      }
+      lineCounts[lineCounts.length - 1] += 1;
+      currentLineX = (currentLineX + x) / 2;
+    });
+
+    const goalkeeperPart = `(${goalkeepers || 0})`;
+    return [goalkeeperPart, ...lineCounts.map(String)].join("-");
+  }, [elements]);
+
+  const moduleLabel = selectedPreset && isFormationPresetId(selectedPreset)
+    ? detectedModule && detectedModule !== `(1)-${selectedPreset}`
+      ? `${selectedPreset} · rilevato ${detectedModule}`
+      : detectedModule || `(1)-${selectedPreset}`
+    : detectedModule || "Lavagna libera";
 
   const applyPreset = (presetName: string) => {
     setSelectedPreset(presetName);
@@ -348,14 +585,43 @@ const QuickPage = () => {
     "Quick Ideas",
   ];
 
-  const tools = [
-    { id: "select", label: "Select", icon: Move },
-    { id: "draw", label: "Draw", icon: PenTool },
-    { id: "movement", label: "Arrow", icon: ChevronRight },
-    { id: "players", label: "Players", icon: Users },
-    { id: "zones", label: "Zones", icon: Square },
-    { id: "text", label: "Text", icon: Type },
+  const playerTools = [
+    { id: "player", label: "Giocatore 1", accentClass: "bg-sky-500 border-sky-300 text-white" },
+    { id: "opponent", label: "Giocatore 2", accentClass: "bg-rose-500 border-rose-300 text-white" },
+    { id: "goalkeeper", label: "Portiere", accentClass: "bg-amber-400 border-amber-200 text-black" },
   ];
+  const boardActionTools = [
+    "Carica sessione",
+    "Esercizio",
+    "Tattica",
+    "Rosa",
+    "Note video",
+    "Note vocali",
+    "Note veloci testo",
+    "Prepara partita",
+  ];
+  const saveStateLabelMap: Record<string, string> = {
+    Saved: "Salvata",
+    Unsaved: "Non salvata",
+    Saving: "Salvataggio...",
+    New: "Nuova",
+    Error: "Errore",
+  };
+  const activeToolLabelMap: Record<string, string> = {
+    player: "Giocatore 1",
+    opponent: "Giocatore 2",
+    goalkeeper: "Portiere",
+    ball: "Palla",
+    cone: "Cono",
+    goalLarge: "Porta",
+    sagoma: "Sagoma",
+    flag: "Bandierina",
+    ladder: "Scaletta",
+    hurdle: "Ostacolo",
+    pole: "Paletto",
+    vest: "Casacca",
+    disc: "Cinesino",
+  };
   const equipmentTools = [
     { id: "ball", label: "Palla" },
     { id: "cone", label: "Cono" },
@@ -377,13 +643,14 @@ const QuickPage = () => {
   const filteredPresets = presets.filter((preset) =>
     preset.toLowerCase().includes(librarySearch.toLowerCase())
   );
+  const pitchMeasurement = FIELD_MEASUREMENTS[boardFormat] ?? FIELD_MEASUREMENTS["11v11"];
   const hasRenderableElements = elements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
   const selectedElement =
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
   const canAssignRealPlayer = selectedElement?.type === "player" || selectedElement?.type === "goalkeeper";
   const selectedElementLabel =
     selectedElement?.name ??
-    (selectedElement?.type ? `${selectedElement.type[0].toUpperCase()}${selectedElement.type.slice(1)}` : "No selection");
+    (selectedElement?.type ? `${selectedElement.type[0].toUpperCase()}${selectedElement.type.slice(1)}` : "Nessuna selezione");
   const selectedElementMeta = selectedElement
     ? [
         selectedElement.number ? `#${selectedElement.number}` : null,
@@ -497,7 +764,7 @@ const QuickPage = () => {
             className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm"
           >
             <Maximize2 size={16} />
-            Focus
+            Focus mode
           </button>
           <button className="p-2 rounded-xl hover:bg-white/10 transition">
             <Copy size={18} />
@@ -509,9 +776,10 @@ const QuickPage = () => {
 <button
   onClick={() => {
     setCurrentBoardId(null);
+    setBoardIdInUrl(null);
     setBoardTitle("Nuova lavagna");
     setSelectedPreset(null);
-    setActiveTool("draw");
+    setActiveTool("player");
     setFocusMode(false);
     setElements([]);
     setSelectedElementIndex(null);
@@ -519,7 +787,8 @@ const QuickPage = () => {
     const params = new URLSearchParams(window.location.search);
     const nextTeamId = parseNumericId(params.get("teamId"));
     setBoardTeamId(nextTeamId);
-    const nextTeam = (allTeams || []).find((t: any) => t.id === nextTeamId);
+    setBoardMode(nextTeamId ? "assigned" : "free");
+    const nextTeam = (allTeams || []).find((t: any) => parseNumericId(t.id) === nextTeamId);
     const nextCategory = nextTeam?.category ?? null;
     setBoardCategory(nextCategory);
     setBoardFormat(deriveFormatFromCategory(nextCategory));
@@ -537,7 +806,7 @@ const QuickPage = () => {
     setSaveState("Saving...");
 
     const data: TacticalBoardData = {
-      teamId: boardTeamId,
+      teamId: boardMode === "assigned" ? boardTeamId : null,
       clubId: boardClubId,
       category: boardCategory,
       format: boardFormat,
@@ -578,7 +847,9 @@ const QuickPage = () => {
       }
 
       const savedBoard = await response.json();
-      setCurrentBoardId(savedBoard.id);
+      const savedBoardId = parseNumericId(savedBoard?.id);
+      setCurrentBoardId(savedBoardId);
+      setBoardIdInUrl(savedBoardId);
       
       console.log("✅ Board salvata:", savedBoard);
       
@@ -592,7 +863,7 @@ const QuickPage = () => {
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#FACC15] text-black font-medium hover:opacity-90 transition"
           >
             <Save size={16} />
-            Save
+            Salva
           </button>
         </div>
       </header>
@@ -604,155 +875,6 @@ const QuickPage = () => {
 
       {/* MAIN */}
       <div className="flex flex-1 overflow-hidden">
-        {/* LEFT SIDEBAR */}
-        {!focusMode && leftOpen && (
-          <aside className="hidden lg:flex w-80 border-r border-white/10 bg-[#0F172A] flex-col p-4 gap-6 overflow-y-auto">
-            <div>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/5 border border-white/10">
-                <Search size={16} className="text-white/50" />
-                <input
-                  value={librarySearch}
-                  onChange={(e) => setLibrarySearch(e.target.value)}
-                  placeholder="Search presets, boards, folders..."
-                  className="bg-transparent outline-none text-sm w-full placeholder:text-white/40"
-                />
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
-                Tools
-              </h3>
-              <div className="grid grid-cols-2 gap-2">
-                {tools.map((tool) => {
-                  const Icon = tool.icon;
-                  const active = activeTool === tool.id;
-                  return (
-                    <button
-                      key={`sidebar-${tool.id}`}
-                      onClick={() => setActiveTool(tool.id)}
-                      className={`flex flex-col items-start gap-2 px-4 py-3 rounded-2xl border text-sm transition ${
-                        active
-                          ? "bg-[#FACC15] text-black border-[#FACC15] shadow-lg shadow-yellow-500/10"
-                          : "bg-white/5 hover:bg-white/10 border-white/10 text-white"
-                      }`}
-                    >
-                      <Icon size={16} />
-                      <span className="font-medium">{tool.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
-                Attrezzatura
-              </h3>
-              <div className="grid grid-cols-5 gap-2">
-                {equipmentTools.map((tool) => (
-                  <button
-                    key={tool.id}
-                    type="button"
-                    title={tool.label}
-                    onClick={() => setActiveTool(tool.id)}
-                    className={`flex h-12 items-center justify-center rounded-2xl border transition ${
-                      activeTool === tool.id
-                        ? "border-[#FACC15] bg-[#FACC15]/20"
-                        : "border-white/10 bg-white/5 hover:bg-white/10"
-                    }`}
-                  >
-                    <EquipmentGlyph type={tool.id} />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
-                Recent Boards
-              </h3>
-              <div className="space-y-2">
-              {filteredBoards.map((board) => (
-              <button
-              key={board.id}
-              onClick={() => {
-                const data = (board.data || {}) as TacticalBoardData;
-                setCurrentBoardId(board.id);
-                setBoardTitle(board.title);
-                setBoardTeamId(parseNumericId(data.teamId) ?? initialTeamIdFromQuery);
-                setBoardClubId(parseNumericId(data.clubId) ?? parseNumericId((club as any)?.id));
-                setBoardCategory((data.category as string | null) ?? null);
-                setBoardFormat(
-                  (data.format as TacticalBoardFormat | undefined) ??
-                    deriveFormatFromCategory((data.category as string | null) ?? null)
-                );
-                setSelectedPreset(data.preset ?? null);
-                setActiveTool(data.activeTool ?? "draw");
-                setFocusMode(data.focusMode ?? false);
-                setElements(data.elements ?? []);
-                setSelectedElementIndex(null);
-              }}  
-              className="w-full text-left px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm transition"
-            >
-              <div className="font-medium">{board.title}</div>
-              <div className="text-xs text-white/40 mt-1">Reopen board</div>
-            </button>    
-                ))}
-                {filteredBoards.length === 0 && (
-                  <div className="px-3 py-5 rounded-2xl border border-dashed border-white/10 text-center text-sm text-white/40">
-                    No boards found
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
-                Quick Presets
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {filteredPresets.map((preset) => (
-                  <button
-                    key={preset}
-                    onClick={() => applyPreset(preset)}
-                    className={`px-3 py-2 rounded-full text-sm transition ${
-                      selectedPreset === preset
-                        ? "bg-[#FACC15] text-black font-medium"
-                        : "bg-white/5 hover:bg-white/10 text-white"
-                    }`}
-                  >
-                    {preset}
-                  </button>
-                ))}
-                {filteredPresets.length === 0 && (
-                  <div className="text-sm text-white/40">No preset matches your search.</div>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
-                Folders
-              </h3>
-              <div className="space-y-2">
-                {filteredFolders.map((folder) => (
-                  <button
-                    key={folder}
-                    className="w-full flex items-center gap-2 text-left px-3 py-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm transition"
-                  >
-                    <Folder size={16} />
-                    {folder}
-                  </button>
-                ))}
-                {filteredFolders.length === 0 && (
-                  <div className="text-sm text-white/40">No folders found.</div>
-                )}
-              </div>
-            </div>
-          </aside>
-        )}
-
         {/* CENTER AREA */}
         <main className="flex-1 flex flex-col bg-[#0B1220]">
           {/* CANVAS TOP BAR */}
@@ -761,25 +883,52 @@ const QuickPage = () => {
               <select
                 value={selectedPreset ?? ""}
                 onChange={(e) => applyPreset(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm"
+                className="rounded-xl border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white outline-none"
               >
-                <option value="">Choose preset</option>
-                {Object.keys(FORMATIONS).map((formation) => (
-                  <option key={formation} value={formation}>{formation}</option>
+                <option className="bg-[#111827] text-white" value="">Scegli modulo</option>
+                {formationPresetOptions.map((formation) => (
+                  <option className="bg-[#111827] text-white" key={formation} value={formation}>{formation}</option>
                 ))}
               </select>
-              <select className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm">
-                <option>Full Pitch</option>
-                <option>Half Pitch</option>
-                <option>Final Third</option>
-                <option>Set Piece</option>
+              <select className="rounded-xl border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white outline-none">
+                <option className="bg-[#111827] text-white">Campo intero</option>
+                <option className="bg-[#111827] text-white">Meta campo</option>
+                <option className="bg-[#111827] text-white">Ultimo terzo</option>
+                <option className="bg-[#111827] text-white">Palla inattiva</option>
+              </select>
+              <button
+                type="button"
+                onClick={workFree}
+                className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                  boardMode === "free"
+                    ? "border-[#FACC15] bg-[#FACC15] text-black"
+                    : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                }`}
+              >
+                Lavora libero
+              </button>
+              <select
+                value={boardMode === "assigned" && boardTeamId ? String(boardTeamId) : ""}
+                onChange={(e) => loadTeamById(e.target.value)}
+                className="rounded-xl border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white outline-none"
+              >
+                <option className="bg-[#111827] text-white" value="">Carica squadra</option>
+                {assignedTeams.map((team: any) => (
+                  <option className="bg-[#111827] text-white" key={team.id} value={String(team.id)}>
+                    {team.name ?? team.displayName ?? `Squadra ${team.id}`}
+                  </option>
+                ))}
               </select>
               <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white/70">
-                <span className="font-semibold text-white">Tool</span>
-                <span>{activeTool}</span>
+                <span className="font-semibold text-white">Strumento</span>
+                <span>{activeToolLabelMap[activeTool] ?? activeTool}</span>
+              </div>
+              <div className="hidden lg:flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+                <span className="font-semibold text-white">Modulo</span>
+                <span>{moduleLabel}</span>
               </div>
             </div>
-            <div className="text-xs text-emerald-400 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">{saveState}</div>
+            <div className="text-xs text-emerald-400 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">{saveStateLabelMap[saveState] ?? saveState}</div>
           </div>
 
           {/* MOBILE PRESETS */}
@@ -802,9 +951,47 @@ const QuickPage = () => {
           </div>
 
           {/* CANVAS */}
-          <div className="flex-1 p-4 md:p-6 overflow-auto">
+          <div className="relative flex-1 overflow-auto px-3 py-4 sm:px-4 md:py-5">
+            <div className="grid w-full grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
+              <div className="min-w-0 flex-1">
+            <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-2 text-xs text-white/60">
+              <div className="font-medium text-white/75">
+                Tavola metrica: {pitchMeasurement.canvasLength}m x {pitchMeasurement.canvasWidth}m
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span>
+                  Campo: {pitchMeasurement.length}m x {pitchMeasurement.width}m · griglia {pitchMeasurement.gridStep}m
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowMetricGrid((value) => !value)}
+                  className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                    showMetricGrid
+                      ? "border-[#FACC15] bg-[#FACC15] text-black"
+                      : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                  }`}
+                >
+                  Griglia
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowFieldMarkings((value) => !value)}
+                  className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                    showFieldMarkings
+                      ? "border-[#FACC15] bg-[#FACC15] text-black"
+                      : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                  }`}
+                >
+                  Linee
+                </button>
+              </div>
+            </div>
             <div
-              className="relative w-full h-[70vh] rounded-[30px] overflow-hidden border border-white/10 shadow-2xl bg-gradient-to-b from-[#19603A] via-[#165A37] to-[#11462C]"
+              className="relative h-auto w-full rounded-[22px] sm:rounded-[26px] lg:rounded-[30px] overflow-hidden border border-white/10 shadow-2xl bg-gradient-to-b from-[#19603A] via-[#165A37] to-[#11462C]"
+              style={{
+                aspectRatio: `${pitchMeasurement.canvasLength} / ${pitchMeasurement.canvasWidth}`,
+                maxWidth: "100%",
+              }}
               ref={pitchRef}
               onPointerDown={(e: React.PointerEvent<HTMLDivElement>) => {
                 if (e.target !== e.currentTarget) return;
@@ -821,7 +1008,7 @@ const QuickPage = () => {
                   type: nextType,
                   points: [start, start],
                   color: "#FACC15",
-                  lineWidth: activeTool === "zones" ? 2 : 3.2,
+                  lineWidth: activeTool === "zones" ? 1.4 : 1.8,
                   drawShape: activeTool === "movement" ? "freehand-arrow" : activeTool === "zones" ? "rect-outline" : "freehand-solid",
                   arrowEnd: activeTool === "movement" ? "end" : "none",
                 };
@@ -877,14 +1064,11 @@ const QuickPage = () => {
                 const x = clamp(xPct);
                 const y = clamp(yPct);
 
-                if (activeTool !== "player" && activeTool !== "opponent" && activeTool !== "goalkeeper" && activeTool !== "players" && !isEquipmentType(activeTool)) {
+                if (activeTool !== "player" && activeTool !== "opponent" && activeTool !== "goalkeeper" && !isEquipmentType(activeTool)) {
                   return;
                 }
 
-                const nextType =
-                  activeTool === "players"
-                    ? "player"
-                    : activeTool;
+                const nextType = activeTool;
 
                 const newElement = { type: nextType, x, y, label: activeTool === "text" ? "T" : undefined };
 
@@ -892,10 +1076,10 @@ const QuickPage = () => {
                 setSaveState("Unsaved");
               }}
             >
-              <div className="absolute inset-x-6 top-5 z-10 flex items-center justify-between rounded-2xl bg-[#08142b]/72 border border-white/10 px-4 py-3 backdrop-blur-md">
+              <div className="hidden">
                 <div>
                   <div className="text-sm font-semibold">{boardTitle}</div>
-                  <div className="text-xs text-white/50">{boardType} · {boardFormat} · {selectedPreset ?? "Free board"}</div>
+                  <div className="text-xs text-white/50">{boardType} · {boardFormat} · {selectedPreset ?? "Lavagna libera"}</div>
                 </div>
                 <div className="hidden md:flex items-center gap-2">
                   {BOARD_TAGS.map((tag) => (
@@ -907,21 +1091,17 @@ const QuickPage = () => {
               </div>
 
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_45%)]" />
-
-              {/* pitch markings */}
-              <div className="pointer-events-none absolute inset-0">
-                <div className="absolute inset-y-0 left-1/2 w-[2px] bg-white/30 -translate-x-1/2" />
-                <div className="absolute top-1/2 left-1/2 w-40 h-40 border border-white/30 rounded-full -translate-x-1/2 -translate-y-1/2" />
-                <div className="absolute inset-4 border border-white/30 rounded-2xl" />
-                <div className="absolute left-0 top-1/2 w-24 h-56 border border-white/30 border-l-0 -translate-y-1/2" />
-                <div className="absolute right-0 top-1/2 w-24 h-56 border border-white/30 border-r-0 -translate-y-1/2" />
-              </div>
+              <MetricFieldOverlay
+                spec={pitchMeasurement}
+                showGrid={showMetricGrid}
+                showFieldMarkings={showFieldMarkings}
+              />
 
               {/* Dynamic tactical drawings */}
               <svg className="pointer-events-none absolute inset-0 z-[3] h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <defs>
-                  <marker id="dynamicArrowYellow" markerWidth="4" markerHeight="4" refX="3.4" refY="2" orient="auto">
-                    <path d="M0,0 L0,4 L4,2 z" fill="#FACC15" />
+                  <marker id="dynamicArrowYellow" markerWidth="3.2" markerHeight="3.2" refX="2.8" refY="1.6" orient="auto">
+                    <path d="M0,0 L0,3.2 L3.2,1.6 z" fill="#FACC15" />
                   </marker>
                 </defs>
                 {elements.map((el: TacticalBoardElement, i: number) => {
@@ -929,7 +1109,7 @@ const QuickPage = () => {
                   const points = Array.isArray(el.points) ? el.points as Array<{ x: number; y: number }> : [];
                   if (points.length < 2) return null;
                   const color = String(el.color ?? "#FACC15");
-                  const width = Number(el.lineWidth ?? 3);
+                  const width = Math.max(0.8, Math.min(Number(el.lineWidth ?? 1.8), 2.2));
                   const selected = selectedElementIndex === i;
 
                   if (el.type === "zone") {
@@ -948,7 +1128,7 @@ const QuickPage = () => {
                         rx="1.5"
                         fill="rgba(250,204,21,0.14)"
                         stroke={color}
-                        strokeWidth={selected ? width * 0.42 : width * 0.32}
+                        strokeWidth={selected ? width * 0.24 : width * 0.18}
                         strokeDasharray={String(el.drawShape ?? "").includes("dashed") ? "2 1.6" : undefined}
                       />
                     );
@@ -960,7 +1140,7 @@ const QuickPage = () => {
                       d={makeSmoothPath(points)}
                       fill="none"
                       stroke={color}
-                      strokeWidth={width * 0.28}
+                      strokeWidth={selected ? width * 0.2 : width * 0.16}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeDasharray={String(el.drawShape ?? "").includes("dashed") ? "2.3 1.6" : undefined}
@@ -1071,80 +1251,169 @@ const QuickPage = () => {
                       setSaveState("Unsaved");
                     }}
                   >
-                    Delete
+                    Elimina
                   </button>
                 </div>
               )}
 
-              {/* Tactical arrows */}
-              <svg className="pointer-events-none absolute inset-0 z-[2] h-full w-full">
-                <defs>
-                  <marker id="arrowYellow" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto">
-                    <path d="M0,0 L0,8 L9,4 z" fill="#FACC15" />
-                  </marker>
-                  <marker id="arrowWhite" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto">
-                    <path d="M0,0 L0,8 L9,4 z" fill="white" />
-                  </marker>
-                </defs>
-                <path d="M220 300 C310 245, 398 218, 520 170" stroke="#FACC15" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" markerEnd="url(#arrowYellow)" />
-                <path d="M420 430 C520 380, 585 340, 690 250" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" markerEnd="url(#arrowWhite)" />
-                <path d="M300 180 C385 205, 460 250, 550 320" stroke="#FACC15" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="10 12" fill="none" markerEnd="url(#arrowYellow)" />
-              </svg>
+            </div>
 
-              <div className="absolute inset-x-6 bottom-5 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#08142b]/72 border border-white/10 px-4 py-3 backdrop-blur-md">
-                <div className="flex items-center gap-2 text-xs text-white/60">
-                  <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-                  Live editing board
-                </div>
-                <div className="flex items-center gap-2 overflow-x-auto">
-                  {tools.slice(0, 5).map((tool) => (
+              </div>
+              <aside className="w-full shrink-0 rounded-2xl border border-white/10 bg-[#08142b]/90 px-3 py-3 shadow-xl backdrop-blur-md sm:px-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
+<div className="mb-4 grid grid-cols-2 gap-2">
+                  {boardActionTools.map((tool) => (
                     <button
-                      key={`canvas-tool-${tool.id}`}
-                      onClick={() => setActiveTool(tool.id)}
-                      className={`px-3 py-2 rounded-xl text-xs font-medium transition ${
-                        activeTool === tool.id
-                          ? "bg-[#FACC15] text-black"
-                          : "bg-white/10 text-white/80 hover:bg-white/15"
-                      }`}
+                      key={`board-action-${tool}`}
+                      type="button"
+                      className="min-h-10 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-xs font-semibold text-white/80 transition hover:bg-white/10"
                     >
-                      {tool.label}
+                      {tool}
                     </button>
                   ))}
                 </div>
-              </div>
-            </div>
-          </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-xs text-white/60">
+                    <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                    Modifica lavagna live
+                  </div>
+                  <div className="grid w-full grid-cols-3 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setBottomMenu("players")}
+                      className={`px-2 py-2 rounded-xl text-[11px] font-medium transition ${
+                        bottomMenu === "players" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
+                      }`}
+                    >
+                      Giocatori
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBottomMenu("equipment")}
+                      className={`px-2 py-2 rounded-xl text-[11px] font-medium transition ${
+                        bottomMenu === "equipment" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
+                      }`}
+                    >
+                      Attrezzatura
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBottomMenu("library")}
+                      className={`px-2 py-2 rounded-xl text-[11px] font-medium transition ${
+                        bottomMenu === "library" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
+                      }`}
+                    >
+                      Libreria
+                    </button>
+                  </div>
+                </div>
 
-          {/* BOTTOM TOOLBAR */}
-          <div className="border-t border-white/10 bg-[#0F172A] px-3 md:px-6 py-3">
-            <div className="flex items-center gap-2 overflow-x-auto">
-              {tools.map((tool) => {
-                const Icon = tool.icon;
-                return (
-                  <button
-                    key={tool.id}
-                    onClick={() => setActiveTool(tool.id)}
-                    className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-sm whitespace-nowrap transition ${
-                      activeTool === tool.id
-                        ? "bg-[#FACC15] text-black font-semibold"
-                        : "bg-white/5 hover:bg-white/10 text-white"
-                    }`}
-                  >
-                    <Icon size={16} />
-                    {tool.label}
-                  </button>
-                );
-              })}
+                {bottomMenu === "players" && (
+                  <div className="mt-3 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
+                    {playerTools.map((tool) => (
+                      <button
+                        key={`bottom-player-${tool.id}`}
+                        type="button"
+                        title={tool.label}
+                        onClick={() => setActiveTool(tool.id)}
+                        className={`flex h-14 min-w-24 flex-col items-center justify-center gap-1 rounded-2xl border transition ${
+                          activeTool === tool.id
+                            ? "border-[#FACC15] bg-[#FACC15]/20"
+                            : "border-white/10 bg-white/5 hover:bg-white/10"
+                        }`}
+                      >
+                        <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-bold ${tool.accentClass}`}>
+                          {tool.id === "goalkeeper" ? "GK" : "P"}
+                        </span>
+                        <span className="text-[11px] text-white/80">{tool.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {bottomMenu === "equipment" && (
+                  <div className="mt-3 grid grid-cols-5 gap-2">
+                    {equipmentTools.map((tool) => (
+                      <button
+                        key={`bottom-equipment-${tool.id}`}
+                        type="button"
+                        title={tool.label}
+                        onClick={() => setActiveTool(tool.id)}
+                        className={`flex h-12 items-center justify-center rounded-2xl border transition ${
+                          activeTool === tool.id
+                            ? "border-[#FACC15] bg-[#FACC15]/20"
+                            : "border-white/10 bg-white/5 hover:bg-white/10"
+                        }`}
+                      >
+                        <EquipmentGlyph type={tool.id} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {bottomMenu === "library" && (
+                  <div className="mt-3 space-y-3 pr-1">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/5 border border-white/10">
+                      <Search size={16} className="text-white/50" />
+                      <input
+                        value={librarySearch}
+                        onChange={(e) => setLibrarySearch(e.target.value)}
+                        placeholder="Cerca moduli, lavagne, cartelle..."
+                        className="bg-transparent outline-none text-sm w-full placeholder:text-white/40"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {filteredBoards.slice(0, 4).map((board) => (
+                        <button
+                          key={`bottom-board-${board.id}`}
+                          onClick={() => applyBoardState(board)}
+                          className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs"
+                        >
+                          {board.title}
+                        </button>
+                      ))}
+                      {filteredBoards.length === 0 && (
+                        <span className="text-xs text-white/40">Nessuna lavagna trovata</span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {filteredPresets.map((preset) => (
+                        <button
+                          key={`bottom-preset-${preset}`}
+                          onClick={() => applyPreset(preset)}
+                          className={`px-3 py-2 rounded-full text-xs transition ${
+                            selectedPreset === preset
+                              ? "bg-[#FACC15] text-black font-medium"
+                              : "bg-white/10 text-white hover:bg-white/15"
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {filteredFolders.map((folder) => (
+                        <button
+                          key={`bottom-folder-${folder}`}
+                          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs"
+                        >
+                          <Folder size={14} />
+                          {folder}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </aside>
             </div>
           </div>
         </main>
 
         {/* RIGHT SIDEBAR */}
-        {!focusMode && rightOpen && (
+        {showRightSidebar && !focusMode && rightOpen && (
           <aside className="hidden xl:flex w-80 border-l border-white/10 bg-[#0F172A] flex-col p-4 gap-5 overflow-y-auto">
             <div>
               <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
-                Board Details
+                Dettagli lavagna
               </h3>
               <div className="space-y-3">
                 <input
@@ -1166,7 +1435,7 @@ const QuickPage = () => {
                   onChange={(e) => applyPreset(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm"
                 >
-                  <option value="">No formation preset</option>
+                  <option value="">Nessun preset formazione</option>
                   {Object.keys(FORMATIONS).map((formation) => (
                     <option key={formation} value={formation}>{formation}</option>
                   ))}
@@ -1183,7 +1452,7 @@ const QuickPage = () => {
 
             <div>
               <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
-                Selection Inspector
+                Ispezione selezione
               </h3>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
                 {selectedElement ? (
@@ -1196,30 +1465,30 @@ const QuickPage = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-widest text-white/40">Type</div>
+                        <div className="text-[10px] uppercase tracking-widest text-white/40">Tipo</div>
                         <div className="mt-1 text-sm">{selectedElement.type}</div>
                       </div>
                       <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                        <div className="text-[10px] uppercase tracking-widest text-white/40">Position</div>
+                        <div className="text-[10px] uppercase tracking-widest text-white/40">Posizione</div>
                         <div className="mt-1 text-sm">
                           {selectedElement.x != null && selectedElement.y != null
                             ? `${Math.round(selectedElement.x)}% / ${Math.round(selectedElement.y)}%`
-                            : "n/a"}
+                            : "n.d."}
                         </div>
                       </div>
                     </div>
                     {canAssignRealPlayer && (
                       <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
-                        <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Assignment</div>
+                        <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Assegnazione</div>
                         <div className="text-sm text-white/80">
-                          {selectedElement.playerId ? selectedElementLabel : "Generic tactical marker"}
+                          {selectedElement.playerId ? selectedElementLabel : "Marcatore tattico generico"}
                         </div>
                       </div>
                     )}
                   </>
                 ) : (
                   <div className="text-sm text-white/55">
-                    Select an element on the pitch to edit contextual details here.
+                    Seleziona un elemento sul campo per modificarne i dettagli qui.
                   </div>
                 )}
               </div>
@@ -1227,7 +1496,7 @@ const QuickPage = () => {
 
             <div>
               <h3 className="text-xs uppercase tracking-widest text-white/40 mb-3">
-                Text Notes
+                Note testuali
               </h3>
               <textarea
                 rows={5}
@@ -1250,9 +1519,9 @@ const QuickPage = () => {
                   <button className="p-3 rounded-xl bg-[#FACC15] text-black">
                     <Play size={16} />
                   </button>
-                  <button className="px-3 py-2 rounded-xl bg-white/10 text-sm">Record</button>
-                  <button className="px-3 py-2 rounded-xl bg-white/10 text-sm">Replace</button>
-                  <button className="px-3 py-2 rounded-xl bg-white/10 text-sm">Delete</button>
+                  <button className="px-3 py-2 rounded-xl bg-white/10 text-sm">Registra</button>
+                  <button className="px-3 py-2 rounded-xl bg-white/10 text-sm">Sostituisci</button>
+                  <button className="px-3 py-2 rounded-xl bg-white/10 text-sm">Elimina</button>
                 </div>
               </div>
             </div>
@@ -1263,22 +1532,22 @@ const QuickPage = () => {
               </h3>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
                 <div className="h-32 rounded-xl bg-black/40 border border-white/10 flex items-center justify-center text-white/40 text-sm">
-                  Video Thumbnail
+                  Anteprima video
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-[#FACC15] text-black text-sm font-medium">
                     <Video size={16} />
-                    Record
+                    Registra
                   </button>
                   <button className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white/10 text-sm">
                     <Upload size={16} />
-                    Upload
+                    Carica
                   </button>
                   <button className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white/10 text-sm">
                     <Play size={16} />
-                    Play
+                    Riproduci
                   </button>
-                  <button className="px-3 py-2 rounded-xl bg-white/10 text-sm">Replace</button>
+                  <button className="px-3 py-2 rounded-xl bg-white/10 text-sm">Sostituisci</button>
                 </div>
               </div>
             </div>
