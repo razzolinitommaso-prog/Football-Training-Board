@@ -187,11 +187,16 @@ import type { BoardElement, BoardPoint as Point } from "./board-types";
     ctx.stroke();
   
     if (label) {
-      ctx.fillStyle = "#ffffff";
-      ctx.font = `bold ${Math.max(10, radius)}px Arial`;
+      const fontSize = Math.max(10, Math.round(radius * 0.8));
+      const labelY = y + radius + 4;
+      ctx.font = `bold ${fontSize}px Arial`;
       ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(label, x, y);
+      ctx.textBaseline = "top";
+      ctx.lineWidth = Math.max(2, Math.round(fontSize * 0.22));
+      ctx.strokeStyle = "rgba(0,0,0,0.9)";
+      ctx.strokeText(label, x, labelY);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(label, x, labelY);
     }
   
     ctx.restore();

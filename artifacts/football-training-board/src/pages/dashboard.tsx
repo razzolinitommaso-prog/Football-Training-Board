@@ -3,8 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboardStats, useListPlayers, useListTeams } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, Download, Trash2 } from "lucide-react";
-import { Link } from "wouter";
+import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
@@ -12,11 +12,20 @@ import { it as itLocale } from "date-fns/locale";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { withApi } from "@/lib/api-base";
 import { normalizeSessionRole } from "@/lib/session-role";
@@ -69,13 +78,54 @@ async function secretaryDownloadFile(fileId: number, filename: string) {
 type ClubNotification = {
   id: number;
   clubId?: number;
+  playerId?: number;
   title: string;
   message: string;
   type: string;
   createdAt: string;
   isRead: boolean;
-  source?: "internal" | "platform";
+  source?: "internal" | "platform" | "player_notes";
+  recipientTag?: string;
+  seasonTag?: string;
+  surnameTag?: string;
 };
+
+const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
+const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
+
+function stripPlayerMeta(raw?: string | null): string {
+  const full = String(raw ?? "").trim();
+  if (!full.startsWith(PLAYER_META_MARKER)) return full;
+  const nextNewLineIdx = full.indexOf("\n");
+  return nextNewLineIdx >= 0 ? full.slice(nextNewLineIdx + 1).trim() : "";
+}
+
+function parsePlayerThread(raw?: string | null): Array<{ recipient?: string; createdAt?: string; repliedAt?: string; requiresResponse?: boolean }> {
+  const full = String(raw ?? "").trim();
+  if (!full) return [];
+  const idx = full.lastIndexOf(PLAYER_NOTES_MARKER);
+  if (idx < 0) return [];
+  const jsonPart = full.slice(idx + PLAYER_NOTES_MARKER.length).trim();
+  try {
+    const parsed = JSON.parse(jsonPart);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function noteRecipientForRole(role: string): "secretary" | "technical_director" | "coach_staff" | null {
+  if (role === "secretary") return "secretary";
+  if (role === "technical_director") return "technical_director";
+  if (role === "coach" || role === "fitness_coach" || role === "athletic_director") return "coach_staff";
+  return null;
+}
+
+function noteRecipientLabel(recipient: "secretary" | "technical_director" | "coach_staff"): string {
+  if (recipient === "secretary") return "segreteria";
+  if (recipient === "technical_director") return "direttore tecnico";
+  return "staff tecnico";
+}
 
 async function fetchJsonOrThrow<T>(url: string): Promise<T> {
   console.log(`[dashboard] request GET ${url}`);
@@ -107,6 +157,8 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
 
 export default function Dashboard() {
   const { t, language } = useLanguage();
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const { role, user, club } = useAuth();
   const nr = normalizeSessionRole(role);
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
@@ -117,7 +169,7 @@ export default function Dashboard() {
       enabled: Boolean(user && nr),
     },
   });
-  const { data: allPlayers } = useListPlayers({
+  const { data: allPlayers } = useListPlayers(undefined, {
     query: {
       queryKey: ["/api/players", clubIdNum, nr],
       // La sessione API ha già clubId: non attendere club.id dal client (evita gare e liste mai caricate).
@@ -135,6 +187,9 @@ export default function Dashboard() {
 
   const queryClient = useQueryClient();
   const showSecretaryFilesCard = nr === "secretary" && clubIdNum > 0;
+  const [secretaryUploadKind, setSecretaryUploadKind] = useState<"federation" | "tournament">("federation");
+  const [calendarImportMode, setCalendarImportMode] = useState<"federation" | "tournament" | null>(null);
+  const [calendarImportTeamId, setCalendarImportTeamId] = useState("");
   const { data: secretaryFiles = [] } = useQuery({
     queryKey: ["/api/secretary/club-files", clubIdNum],
     queryFn: fetchSecretaryClubFilesList,
@@ -157,6 +212,17 @@ export default function Dashboard() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["/api/secretary/club-files", clubIdNum] });
+      toast({ title: "File caricato", description: "Il file e ora disponibile nella card." });
+    },
+    onError: (error) => {
+      let message = error instanceof Error ? error.message : "Caricamento non riuscito.";
+      try {
+        const parsed = JSON.parse(message) as { error?: string };
+        message = parsed.error || message;
+      } catch {
+        // keep plain text
+      }
+      toast({ title: "File non caricato", description: message, variant: "destructive" });
     },
   });
 
@@ -176,6 +242,40 @@ export default function Dashboard() {
     },
   });
 
+  const handleSecretaryReferenceUpload = (file: File, kind: "federation" | "tournament") => {
+    if (!file || clubIdNum <= 0) return;
+    if (file.type && file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      toast({ title: "Formato non valido", description: "Carica un file PDF.", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Caricamento file", description: file.name });
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataBase64 = typeof reader.result === "string" ? reader.result : "";
+      if (!dataBase64) return;
+      const label = kind === "federation" ? "[PDF Federazione]" : "[PDF Torneo]";
+      uploadSecretaryFileMutation.mutate({
+        fileName: `${label} ${file.name}`,
+        mimeType: file.type || "application/octet-stream",
+        dataBase64,
+      });
+    };
+    reader.onerror = () => {
+      toast({ title: "File non letto", description: "Non riesco a leggere il file selezionato.", variant: "destructive" });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const teamsForCalendarImport = ((allTeams ?? []) as any[]).filter((team) => Number(team?.id) > 0);
+  const openCalendarPdfImport = (mode: "federation" | "tournament") => {
+    setCalendarImportMode(mode);
+    setCalendarImportTeamId("");
+  };
+  const startCalendarPdfImport = () => {
+    if (!calendarImportMode || !calendarImportTeamId) return;
+    setLocation(`/calendari/${calendarImportTeamId}?importPdf=${calendarImportMode}`);
+  };
+
   const isStaffViewer = nr === "coach" || nr === "technical_director" || nr === "fitness_coach" || nr === "athletic_director";
   const isTrainingStaff = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
 
@@ -190,11 +290,6 @@ export default function Dashboard() {
   const { data: seasons = [] } = useQuery<{ id: number; name: string; isActive: boolean }[]>({
     queryKey: ["/api/seasons"],
     queryFn: () => fetchJsonOrThrow<{ id: number; name: string; isActive: boolean }[]>("/api/seasons"),
-  });
-
-  const { data: boards = [] } = useQuery({
-    queryKey: ["/api/boards"],
-    queryFn: () => fetchJsonOrThrow<any[]>("/api/boards"),
   });
 
   const activeSeason = seasons.find(s => s.isActive) ?? seasons[seasons.length - 1] ?? null;
@@ -254,13 +349,20 @@ export default function Dashboard() {
   const [notifLoading, setNotifLoading] = useState(true);
   const [notifError, setNotifError] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [notificationsCollapsed, setNotificationsCollapsed] = useState(false);
+  const [notifSourceFilter, setNotifSourceFilter] = useState("all");
+  const [notifTypeFilter, setNotifTypeFilter] = useState("all");
+  const [notifSeasonFilter, setNotifSeasonFilter] = useState("all");
+  const [notifRecipientFilter, setNotifRecipientFilter] = useState("all");
+  const [notifSurnameFilter, setNotifSurnameFilter] = useState("");
   const [formTitle, setFormTitle] = useState("");
   const [formMessage, setFormMessage] = useState("");
   const [formType, setFormType] = useState("info");
   const [formSending, setFormSending] = useState(false);
   const [formError, setFormError] = useState("");
 
-  const canSend = nr === "admin" || nr === "secretary" || nr === "technical_director";
+  const canSend = nr === "admin" || nr === "presidente" || nr === "director" || nr === "technical_director";
+  const canSeePlatformAnnouncements = nr === "admin" || nr === "presidente" || nr === "director";
 
   const fetchNotifications = useCallback(async () => {
     setNotifLoading(true);
@@ -268,7 +370,7 @@ export default function Dashboard() {
     try {
       const [internalRes, platformRes] = await Promise.all([
         fetch(withApi("/api/club/notifications"), { credentials: "include" }),
-        (canSend ? fetch(withApi("/api/club/platform-announcements"), { credentials: "include" }) : Promise.resolve(null)),
+        (canSeePlatformAnnouncements ? fetch(withApi("/api/club/platform-announcements"), { credentials: "include" }) : Promise.resolve(null)),
       ]);
 
       console.log("[dashboard] response GET /api/club/notifications ->", internalRes.status);
@@ -306,7 +408,7 @@ export default function Dashboard() {
       setNotifError("Errore caricamento comunicazioni dal backend.");
     }
     setNotifLoading(false);
-  }, [canSend]);
+  }, [canSeePlatformAnnouncements]);
 
   useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
 
@@ -329,6 +431,14 @@ export default function Dashboard() {
     setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
   };
 
+  const openPlayerNotesInbox = (notification: ClubNotification) => {
+    if (notification.playerId) {
+      setLocation(`/players?openPlayerId=${notification.playerId}&focus=notes`);
+      return;
+    }
+    setLocation("/players");
+  };
+
   const sendNotification = async () => {
     if (!formTitle.trim() || !formMessage.trim()) { setFormError("Compila titolo e messaggio."); return; }
     setFormSending(true);
@@ -347,7 +457,106 @@ export default function Dashboard() {
     setFormSending(false);
   };
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
+  const playerNoteAlerts: ClubNotification[] = useMemo(() => {
+    const myRecipient = noteRecipientForRole(nr);
+    if (!myRecipient) return [];
+    const players = (allPlayers as Array<{ id?: number; firstName?: string; lastName?: string; notes?: string | null; teamId?: number | null; teamName?: string | null }> | undefined) ?? [];
+    const alerts: ClubNotification[] = [];
+    for (const player of players) {
+      const noteText = stripPlayerMeta(player.notes);
+      const thread = parsePlayerThread(noteText);
+      let playerPendingCount = 0;
+      let latestCreatedAt: string | null = null;
+      for (const n of thread) {
+        if (n?.recipient !== myRecipient) continue;
+        if (!n?.requiresResponse) continue;
+        if (n?.repliedAt) continue;
+        playerPendingCount += 1;
+        const createdAt = String(n?.createdAt ?? "");
+        if (createdAt && (!latestCreatedAt || new Date(createdAt).getTime() > new Date(latestCreatedAt).getTime())) {
+          latestCreatedAt = createdAt;
+        }
+      }
+      if (playerPendingCount > 0) {
+        const fullName = `${String(player.firstName ?? "").trim()} ${String(player.lastName ?? "").trim()}`.trim() || "Giocatore";
+        const playerTeam = ((allTeams ?? []) as Array<{ id?: number; seasonName?: string | null; name?: string }>).find(
+          (t) => Number(t?.id ?? 0) === Number(player.teamId ?? 0)
+        );
+        alerts.push({
+          id: -(900000 + Number(player.id ?? alerts.length + 1)),
+          playerId: Number(player.id ?? 0) || undefined,
+          title: `Nota giocatore: ${fullName}`,
+          message: `${playerPendingCount} richiesta/e in attesa verso ${noteRecipientLabel(myRecipient)}.`,
+          type: "warning",
+          createdAt: latestCreatedAt ?? new Date().toISOString(),
+          isRead: false,
+          source: "player_notes",
+          recipientTag: noteRecipientLabel(myRecipient),
+          seasonTag: String(playerTeam?.seasonName ?? "").trim() || String(player.teamName ?? "").trim() || "—",
+          surnameTag: String(player.lastName ?? "").trim(),
+        });
+      }
+    }
+    return alerts;
+  }, [nr, allPlayers, allTeams]);
+
+  const notificationsView = useMemo(
+    () =>
+      [...notifications, ...playerNoteAlerts].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ),
+    [notifications, playerNoteAlerts]
+  );
+
+  const notificationSeasonOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          notificationsView
+            .map((n) => String(n.seasonTag ?? "").trim())
+            .filter((v) => v.length > 0 && v !== "—")
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [notificationsView]
+  );
+
+  const notificationRecipientOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          notificationsView
+            .map((n) => String(n.recipientTag ?? "").trim())
+            .filter((v) => v.length > 0)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [notificationsView]
+  );
+
+  const notificationsFilteredView = useMemo(() => {
+    const surnameNeedle = notifSurnameFilter.trim().toLowerCase();
+    return notificationsView.filter((n) => {
+      if (notifSourceFilter !== "all" && (n.source ?? "internal") !== notifSourceFilter) return false;
+      if (notifTypeFilter !== "all") {
+        const normalizedType = n.source === "player_notes" ? "note" : n.type;
+        if (normalizedType !== notifTypeFilter) return false;
+      }
+      if (notifSeasonFilter !== "all" && String(n.seasonTag ?? "—") !== notifSeasonFilter) return false;
+      if (notifRecipientFilter !== "all" && String(n.recipientTag ?? "") !== notifRecipientFilter) return false;
+      if (surnameNeedle) {
+        const surname = String(n.surnameTag ?? "").toLowerCase();
+        const title = String(n.title ?? "").toLowerCase();
+        const message = String(n.message ?? "").toLowerCase();
+        if (!surname.includes(surnameNeedle) && !title.includes(surnameNeedle) && !message.includes(surnameNeedle)) return false;
+      }
+      return true;
+    });
+  }, [notificationsView, notifSourceFilter, notifTypeFilter, notifSeasonFilter, notifRecipientFilter, notifSurnameFilter]);
+
+  const unreadCount = notificationsView.filter(n => !n.isRead).length;
+  const recipientNoteNotifications = notificationsView.filter((n) =>
+    String(n.title ?? "").toLowerCase().startsWith("nota giocatore") || n.source === "player_notes"
+  );
+  const unreadRecipientNotesCount = recipientNoteNotifications.filter((n) => !n.isRead).length;
 
   const showUnavailableAlert = !alertDismissed && (
     nr === "coach" || nr === "technical_director" || nr === "fitness_coach" ||
@@ -394,7 +603,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header + Season Banner */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
@@ -468,242 +677,6 @@ export default function Dashboard() {
   )}
 </div>
 
-      {showSecretaryFilesCard && (
-        <Card className="shadow-md border-border/50 border-emerald-500/20 bg-emerald-500/[0.03]">
-          <CardHeader className="pb-2 border-b border-emerald-500/10">
-            <div className="flex items-center gap-2">
-              <FileUp className="w-5 h-5 text-emerald-600" />
-              <CardTitle className="text-base font-display">File per pianificazione e calendari</CardTitle>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Carica PDF o Excel come riferimento per il club (salvati sul server, visibili da chi accede con le stesse credenziali). Per consultare gli impegni usa il pulsante Pianifica Settimana in questa card.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-4">
-            <div className="flex flex-wrap gap-2">
-              <Link href="/training">
-                <Button type="button" variant="outline" size="sm" className="gap-2">
-                  <CalendarDays className="w-4 h-4" />
-                  Pianifica Settimana
-                </Button>
-              </Link>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                disabled={uploadSecretaryFileMutation.isPending}
-                onClick={() => {
-                  const el = document.getElementById("secretary-file-input");
-                  el?.click();
-                }}
-              >
-                <FileUp className="w-4 h-4" />
-                Carica file
-              </Button>
-              <input
-                id="secretary-file-input"
-                type="file"
-                className="hidden"
-                accept=".pdf,.xlsx,.xls,.csv,application/pdf"
-                onChange={async (e) => {
-                  const input = e.target;
-                  const file = input.files?.[0];
-                  input.value = "";
-                  if (!file || clubIdNum <= 0) return;
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const dataBase64 = typeof reader.result === "string" ? reader.result : "";
-                    if (!dataBase64) return;
-                    uploadSecretaryFileMutation.mutate({
-                      fileName: file.name,
-                      mimeType: file.type || "application/octet-stream",
-                      dataBase64,
-                    });
-                  };
-                  reader.readAsDataURL(file);
-                }}
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="gap-2"
-                disabled={secretaryFiles.length === 0 || uploadSecretaryFileMutation.isPending}
-                onClick={async () => {
-                  try {
-                    const bundle = await fetchJsonOrThrow<
-                      { id: number; name: string; mimeType: string; createdAt: string; dataUrl: string }[]
-                    >("/api/secretary/club-files/export-bundle");
-                    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `ftb-file-condivisione-club-${clubIdNum}.json`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  } catch {
-                    /* toast optional */
-                  }
-                }}
-              >
-                <Download className="w-4 h-4" />
-                Esporta elenco
-              </Button>
-            </div>
-            {secretaryFiles.length > 0 ? (
-              <ul className="divide-y rounded-lg border text-sm">
-                {secretaryFiles.map((f) => (
-                  <li key={f.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                    <button
-                      type="button"
-                      className="text-primary hover:underline truncate min-w-0 text-left"
-                      onClick={() => void secretaryDownloadFile(f.id, f.originalFilename)}
-                    >
-                      {f.originalFilename}
-                    </button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                      disabled={deleteSecretaryFileMutation.isPending}
-                      onClick={() => deleteSecretaryFileMutation.mutate(f.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </CardContent>
-        </Card>
-      )}
-
-<div>
-  <h2 className="text-lg font-semibold mb-3">Ultime Lavagne</h2>
-
-  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-    {boards.map((board: any) => (
-      <Link key={board.id} href="/tactical-board">
-        <div className="p-4 rounded-xl border bg-card hover:shadow-md cursor-pointer transition">
-          <p className="font-semibold text-sm">{board.title}</p>
-          <p className="text-xs text-muted-foreground">Apri lavagna</p>
-        </div>
-      </Link>
-    ))}
-  </div>
-</div>
-      {/* Transition window CTA */}
-      {isTransitionWindow && canManageSeasons && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 dark:bg-blue-950/30 dark:border-blue-800 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center flex-shrink-0">
-            <RefreshCw className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-blue-900 dark:text-blue-200 text-sm">Periodo di transizione stagionale</h3>
-            <p className="text-blue-700 dark:text-blue-300 text-xs mt-0.5 mb-2">
-              Siamo nel periodo di transizione (luglio–agosto). Conferma, trasferisci o promuovi i giocatori per la prossima stagione.
-            </p>
-            <Link href="/season-transition">
-              <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-100 h-7 text-xs gap-1.5">
-                <ArrowRight className="w-3.5 h-3.5" />
-                Vai alla transizione stagionale
-              </Button>
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {/* Unavailable Players Alert */}
-      {showUnavailableAlert && unavailablePlayers.length > 0 && (
-        <div className="relative bg-amber-50 border border-amber-200 rounded-xl p-4 dark:bg-amber-950/30 dark:border-amber-800 animate-in fade-in slide-in-from-top-2 duration-300">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-2 right-2 h-7 w-7 text-amber-600 hover:text-amber-800 hover:bg-amber-100 dark:text-amber-400"
-            onClick={() => setAlertDismissed(true)}
-          >
-            <X className="w-4 h-4" />
-          </Button>
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div className="flex-1 pr-8">
-              <h3 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
-                {t.unavailablePlayers} ({unavailablePlayers.length})
-              </h3>
-              <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5 mb-3">
-                {t.unavailablePlayersAlert}
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {unavailablePlayers.map((p: any) => (
-                  <div
-                    key={p.id}
-                    className="bg-white dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-xs"
-                  >
-                    <div className="font-semibold text-amber-900 dark:text-amber-200">
-                      {p.firstName} {p.lastName}
-                    </div>
-                    {p.teamName && (
-                      <div className="text-amber-600 dark:text-amber-400 text-[11px]">{p.teamName}</div>
-                    )}
-                    <div className="flex flex-wrap gap-x-3 mt-1 text-amber-700 dark:text-amber-300">
-                      {p.unavailabilityReason && (
-                        <span>⚠ {reasonLabel(p.unavailabilityReason, t)}</span>
-                      )}
-                      {p.expectedReturn && (
-                        <span>📅 {p.expectedReturn}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3">
-                <Button size="sm" variant="outline" asChild className="text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900/30 text-xs h-7">
-                  <Link href="/players">{t.players} →</Link>
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Draft Exercises Banner — coach/fitness_coach/athletic_director */}
-      {isTrainingStaff && draftExercises.length > 0 && (
-        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 dark:bg-amber-950/30 dark:border-amber-700 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center flex-shrink-0">
-              <span className="text-base">✏️</span>
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
-                {draftExercises.length === 1 ? "1 bozza allenamento da completare" : `${draftExercises.length} bozze allenamento da completare`}
-              </h3>
-              <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5 mb-2">
-                {draftExercises.length === 1 ? "C'è un'esercitazione in bozza che richiede la tua attenzione." : "Ci sono esercitazioni in bozza che richiedono la tua attenzione."}
-              </p>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {draftExercises.slice(0, 4).map(ex => (
-                  <span key={ex.id} className="inline-flex items-center gap-1.5 text-xs bg-white dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 rounded-full px-2.5 py-0.5 font-medium">
-                    {ex.title}
-                    {ex.trainingDay && <span className="text-amber-500 dark:text-amber-400 text-[10px]">· {new Date(ex.trainingDay).toLocaleDateString("it-IT", { day: "2-digit", month: "short" })}</span>}
-                  </span>
-                ))}
-                {draftExercises.length > 4 && <span className="text-xs text-amber-600">+{draftExercises.length - 4} altri</span>}
-              </div>
-              <Link href="/exercises">
-                <Button size="sm" variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900/30 h-7 text-xs gap-1.5">
-                  <ArrowRight className="w-3.5 h-3.5" />
-                  Vai alla libreria esercizi
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Notifications Panel */}
       <Card className="shadow-md border-border/50">
         <CardHeader className="pb-3 border-b">
@@ -721,8 +694,22 @@ export default function Dashboard() {
                 )}
               </div>
               <CardTitle className="text-base font-display">Comunicazioni Interne</CardTitle>
+              {unreadRecipientNotesCount > 0 && (
+                <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                  Note ricevute: {unreadRecipientNotesCount}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => setNotificationsCollapsed((v) => !v)}
+                title={notificationsCollapsed ? "Mostra comunicazioni" : "Nascondi comunicazioni"}
+              >
+                {notificationsCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+              </Button>
               {unreadCount > 0 && (
                 <Button variant="ghost" size="sm" className="text-xs h-7 gap-1 text-muted-foreground" onClick={markAllRead}>
                   <CheckCheck className="w-3.5 h-3.5" />
@@ -784,62 +771,130 @@ export default function Dashboard() {
               {notifError}
             </div>
           )}
-          {notifLoading ? (
+          {notificationsCollapsed ? (
+            <div className="px-4 py-3 text-xs text-muted-foreground">
+              {unreadCount > 0 ? `${unreadCount} notifiche non lette` : `${notificationsView.length} notifiche`}
+            </div>
+          ) : notifLoading ? (
             <div className="p-6 space-y-2">
               {[1, 2].map(i => <Skeleton key={i} className="h-14 rounded-lg" />)}
             </div>
-          ) : notifications.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground flex flex-col items-center justify-center">
-              <Bell className="w-10 h-10 mb-3 opacity-20" />
-              <p className="text-sm">Nessuna comunicazione al momento.</p>
-            </div>
           ) : (
-            <div className="divide-y max-h-[340px] overflow-y-auto">
-              {notifications.map(n => {
-                const s = typeStyle(n.type);
-                return (
-                  <div
-                    key={n.id}
-                    className={cn("flex items-start gap-3 px-4 py-3 transition-colors", n.isRead ? "opacity-60" : "")}
-                  >
-                    <div className={cn("w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 border", s.bg)}>
-                      {s.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full", s.badge)}>
-                          {n.type === "urgent" ? "Urgente" : n.type === "warning" ? "Avviso" : "Info"}
-                        </span>
-                        {n.source === "platform" && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
-                            Piattaforma FTB
-                          </span>
-                        )}
-                        <span className="font-semibold text-sm leading-tight">{n.title}</span>
-                        {!n.isRead && (
-                          <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" title="Non letta" />
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
-                      <p className="text-[10px] text-muted-foreground mt-1">
-                        {format(new Date(n.createdAt), "d MMM yyyy • HH:mm", { locale: itLocale })}
-                      </p>
-                    </div>
-                    {!n.isRead && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-primary"
-                        title="Segna come letta"
-                        onClick={() => markRead(n.id, n.source)}
+            <>
+              <div className="px-4 py-3 border-b bg-muted/20 grid grid-cols-1 md:grid-cols-5 gap-2">
+                <Select value={notifSourceFilter} onValueChange={setNotifSourceFilter}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Provenienza" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Provenienza: tutte</SelectItem>
+                    <SelectItem value="internal">Interne</SelectItem>
+                    <SelectItem value="platform">Piattaforma FTB</SelectItem>
+                    <SelectItem value="player_notes">Note giocatore</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={notifTypeFilter} onValueChange={setNotifTypeFilter}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Tipologia" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tipologia: tutte</SelectItem>
+                    <SelectItem value="note">Note</SelectItem>
+                    <SelectItem value="info">Info</SelectItem>
+                    <SelectItem value="warning">Avviso</SelectItem>
+                    <SelectItem value="urgent">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={notifSeasonFilter} onValueChange={setNotifSeasonFilter}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Annata" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Annata: tutte</SelectItem>
+                    {notificationSeasonOptions.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={notifRecipientFilter} onValueChange={setNotifRecipientFilter}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Inviate a" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Inviate a: tutti</SelectItem>
+                    {notificationRecipientOptions.map((r) => (
+                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={notifSurnameFilter}
+                  onChange={(e) => setNotifSurnameFilter(e.target.value)}
+                  className="h-8 text-xs"
+                  placeholder="Cognome..."
+                />
+              </div>
+              {notificationsFilteredView.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground flex flex-col items-center justify-center">
+                  <Bell className="w-10 h-10 mb-3 opacity-20" />
+                  <p className="text-sm">Nessuna comunicazione con i filtri selezionati.</p>
+                </div>
+              ) : (
+                <div className="divide-y max-h-[340px] overflow-y-auto">
+                  {notificationsFilteredView.map(n => {
+                    const s = typeStyle(n.type);
+                    return (
+                      <div
+                        key={n.id}
+                        className={cn("flex items-start gap-3 px-4 py-3 transition-colors", n.isRead ? "opacity-60" : "")}
                       >
-                        <CheckCheck className="w-3.5 h-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                        <div className={cn("w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 border", s.bg)}>
+                          {s.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full", s.badge)}>
+                              {n.source === "player_notes" ? "Note" : n.type === "urgent" ? "Urgente" : n.type === "warning" ? "Avviso" : "Info"}
+                            </span>
+                            {n.source === "platform" && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                                Piattaforma FTB
+                              </span>
+                            )}
+                            {n.source === "player_notes" && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                Note giocatori
+                              </span>
+                            )}
+                            <span className="font-semibold text-sm leading-tight">{n.title}</span>
+                            {!n.isRead && (
+                              <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" title="Non letta" />
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            {format(new Date(n.createdAt), "d MMM yyyy • HH:mm", { locale: itLocale })}
+                          </p>
+                        </div>
+                        {n.source === "player_notes" ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[11px] flex-shrink-0 text-amber-700 hover:text-amber-800 hover:bg-amber-100 dark:text-amber-300"
+                            title="Apri note giocatori"
+                            onClick={() => openPlayerNotesInbox(n)}
+                          >
+                            Apri
+                          </Button>
+                        ) : (!n.isRead ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-primary"
+                            title="Segna come letta"
+                            onClick={() => markRead(n.id, n.source)}
+                          >
+                            <CheckCheck className="w-3.5 h-3.5" />
+                          </Button>
+                        ) : null)}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -850,6 +905,153 @@ export default function Dashboard() {
         <StatCard title={t.upcomingSessions} value={dashboardUpcomingCount} icon={CalendarDays} link="/training" />
         <StatCard title={t.staffMembers} value={stats?.totalMembers || 0} icon={ShieldCheck} link="/members" />
       </div>
+
+      {showSecretaryFilesCard && (
+        <>
+          <Card className="shadow-md border-border/50 border-emerald-500/20 bg-emerald-500/[0.03]">
+            <CardHeader className="pb-2 border-b border-emerald-500/10">
+              <div className="flex items-center gap-2">
+                <FileUp className="w-5 h-5 text-emerald-600" />
+                <CardTitle className="text-base font-display">File per pianificazione e calendari</CardTitle>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Importa i PDF nel calendario della squadra corretta: scegli annata/squadra, carica il file e conferma le partite riconosciute.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-4">
+              <div className="flex flex-wrap gap-2">
+                <Link href={nr === "secretary" ? "/scuola-calcio/calendar" : "/training"}>
+                  <Button type="button" variant="outline" size="sm" className="gap-2">
+                    <CalendarDays className="w-4 h-4" />
+                    {nr === "secretary" ? "Apri Calendario" : "Pianifica Settimana"}
+                  </Button>
+                </Link>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={uploadSecretaryFileMutation.isPending}
+                  onClick={() => openCalendarPdfImport("federation")}
+                >
+                  <FileText className="w-4 h-4" />
+                  PDF federazione
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={uploadSecretaryFileMutation.isPending}
+                  onClick={() => openCalendarPdfImport("tournament")}
+                >
+                  <Trophy className="w-4 h-4" />
+                  PDF tornei
+                </Button>
+                <input
+                  id="secretary-file-input"
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,application/pdf"
+                  onChange={async (e) => {
+                    const input = e.target;
+                    const file = input.files?.[0];
+                    input.value = "";
+                    if (!file) return;
+                    handleSecretaryReferenceUpload(file, secretaryUploadKind);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="gap-2"
+                  disabled={secretaryFiles.length === 0 || uploadSecretaryFileMutation.isPending}
+                  onClick={async () => {
+                    try {
+                      const bundle = await fetchJsonOrThrow<
+                        { id: number; name: string; mimeType: string; createdAt: string; dataUrl: string }[]
+                      >("/api/secretary/club-files/export-bundle");
+                      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `ftb-file-condivisione-club-${clubIdNum}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch {
+                      /* toast optional */
+                    }
+                  }}
+                >
+                  <Download className="w-4 h-4" />
+                  Esporta elenco
+                </Button>
+              </div>
+              {secretaryFiles.length > 0 ? (
+                <ul className="divide-y rounded-lg border text-sm">
+                  {secretaryFiles.map((f) => (
+                    <li key={f.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                      <button
+                        type="button"
+                        className="text-primary hover:underline truncate min-w-0 text-left"
+                        onClick={() => void secretaryDownloadFile(f.id, f.originalFilename)}
+                      >
+                        {f.originalFilename}
+                      </button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                        disabled={deleteSecretaryFileMutation.isPending}
+                        onClick={() => deleteSecretaryFileMutation.mutate(f.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </CardContent>
+          </Card>
+          <Dialog open={calendarImportMode !== null} onOpenChange={(open) => !open && setCalendarImportMode(null)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>
+                  {calendarImportMode === "tournament" ? "Import PDF tornei" : "Import PDF federazione"}
+                </DialogTitle>
+                <DialogDescription>
+                  Seleziona la squadra/annata in cui inserire le partite del PDF.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <Label htmlFor="calendar-import-team">Squadra / annata</Label>
+                <Select value={calendarImportTeamId} onValueChange={setCalendarImportTeamId}>
+                  <SelectTrigger id="calendar-import-team">
+                    <SelectValue placeholder="Scegli squadra" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {teamsForCalendarImport.map((team) => (
+                      <SelectItem key={team.id} value={String(team.id)}>
+                        {team.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setCalendarImportMode(null)}>
+                  Annulla
+                </Button>
+                <Button type="button" disabled={!calendarImportTeamId} onClick={startCalendarPdfImport}>
+                  Continua
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
 
       {/* ── Calendari Partite (stessa vista per segreteria, DT, presidenza, DG, admin) ── */}
       {(nr === "admin" ||
@@ -962,9 +1164,7 @@ export default function Dashboard() {
           <CardHeader className="pb-3 border-b">
             <div className="flex items-center gap-2">
               <Trophy className="w-5 h-5 text-primary" />
-              <CardTitle className="text-base font-display">
-                {nr === "technical_director" ? "Calendari partite (squadre club)" : "I miei Calendari Partite"}
-              </CardTitle>
+              <CardTitle className="text-base font-display">I miei Calendari Partite</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="p-5">
@@ -1123,6 +1323,116 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+      )}
+
+      {/* Transition window CTA */}
+      {isTransitionWindow && canManageSeasons && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 dark:bg-blue-950/30 dark:border-blue-800 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center flex-shrink-0">
+            <RefreshCw className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-blue-900 dark:text-blue-200 text-sm">Periodo di transizione stagionale</h3>
+            <p className="text-blue-700 dark:text-blue-300 text-xs mt-0.5 mb-2">
+              Siamo nel periodo di transizione (luglio–agosto). Conferma, trasferisci o promuovi i giocatori per la prossima stagione.
+            </p>
+            <Link href="/season-transition">
+              <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-100 h-7 text-xs gap-1.5">
+                <ArrowRight className="w-3.5 h-3.5" />
+                Vai alla transizione stagionale
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Unavailable Players Alert */}
+      {showUnavailableAlert && unavailablePlayers.length > 0 && (
+        <div className="relative bg-amber-50 border border-amber-200 rounded-xl p-4 dark:bg-amber-950/30 dark:border-amber-800 animate-in fade-in slide-in-from-top-2 duration-300">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-2 right-2 h-7 w-7 text-amber-600 hover:text-amber-800 hover:bg-amber-100 dark:text-amber-400"
+            onClick={() => setAlertDismissed(true)}
+          >
+            <X className="w-4 h-4" />
+          </Button>
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="flex-1 pr-8">
+              <h3 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
+                {t.unavailablePlayers} ({unavailablePlayers.length})
+              </h3>
+              <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5 mb-3">
+                {t.unavailablePlayersAlert}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {unavailablePlayers.map((p: any) => (
+                  <div
+                    key={p.id}
+                    className="bg-white dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-xs"
+                  >
+                    <div className="font-semibold text-amber-900 dark:text-amber-200">
+                      {p.firstName} {p.lastName}
+                    </div>
+                    {p.teamName && (
+                      <div className="text-amber-600 dark:text-amber-400 text-[11px]">{p.teamName}</div>
+                    )}
+                    <div className="flex flex-wrap gap-x-3 mt-1 text-amber-700 dark:text-amber-300">
+                      {p.unavailabilityReason && (
+                        <span>⚠ {reasonLabel(p.unavailabilityReason, t)}</span>
+                      )}
+                      {p.expectedReturn && (
+                        <span>📅 {p.expectedReturn}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3">
+                <Button size="sm" variant="outline" asChild className="text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900/30 text-xs h-7">
+                  <Link href="/players">{t.players} →</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Draft Exercises Banner — coach/fitness_coach/athletic_director */}
+      {isTrainingStaff && draftExercises.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 dark:bg-amber-950/30 dark:border-amber-700 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center flex-shrink-0">
+              <span className="text-base">✏️</span>
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
+                {draftExercises.length === 1 ? "1 bozza allenamento da completare" : `${draftExercises.length} bozze allenamento da completare`}
+              </h3>
+              <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5 mb-2">
+                {draftExercises.length === 1 ? "C'è un'esercitazione in bozza che richiede la tua attenzione." : "Ci sono esercitazioni in bozza che richiedono la tua attenzione."}
+              </p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {draftExercises.slice(0, 4).map(ex => (
+                  <span key={ex.id} className="inline-flex items-center gap-1.5 text-xs bg-white dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 rounded-full px-2.5 py-0.5 font-medium">
+                    {ex.title}
+                    {ex.trainingDay && <span className="text-amber-500 dark:text-amber-400 text-[10px]">· {new Date(ex.trainingDay).toLocaleDateString("it-IT", { day: "2-digit", month: "short" })}</span>}
+                  </span>
+                ))}
+                {draftExercises.length > 4 && <span className="text-xs text-amber-600">+{draftExercises.length - 4} altri</span>}
+              </div>
+              <Link href="/exercises">
+                <Button size="sm" variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900/30 h-7 text-xs gap-1.5">
+                  <ArrowRight className="w-3.5 h-3.5" />
+                  Vai alla libreria esercizi
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

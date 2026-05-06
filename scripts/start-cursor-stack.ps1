@@ -3,10 +3,11 @@
 # Keep PATH/Path aligned for child processes without removing either one.
 $pathUpper = [System.Environment]::GetEnvironmentVariable("PATH", "Process")
 $pathMixed = [System.Environment]::GetEnvironmentVariable("Path", "Process")
-if ($pathUpper -and -not $pathMixed) {
-  [System.Environment]::SetEnvironmentVariable("Path", $pathUpper, "Process")
-} elseif ($pathMixed -and -not $pathUpper) {
-  [System.Environment]::SetEnvironmentVariable("PATH", $pathMixed, "Process")
+$resolvedPath = if ($pathMixed) { $pathMixed } else { $pathUpper }
+if ($resolvedPath) {
+  Remove-Item Env:PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:Path -ErrorAction SilentlyContinue
+  [System.Environment]::SetEnvironmentVariable("Path", $resolvedPath, "Process")
 }
 
 function Stop-ListenersOnPort {
@@ -67,9 +68,9 @@ foreach ($file in @($apiOut, $apiErr, $webOut, $webErr)) {
 $apiScript = Join-Path $PSScriptRoot "dev-api-local.ps1"
 $webScript = Join-Path $PSScriptRoot "dev-web-local.ps1"
 
-$apiProcess = Start-Process -FilePath "powershell" -ArgumentList "-ExecutionPolicy Bypass -File `"$apiScript`"" -WorkingDirectory (Join-Path $PSScriptRoot "..") -RedirectStandardOutput $apiOut -RedirectStandardError $apiErr -PassThru
+$apiProcess = Start-Process -FilePath "powershell" -ArgumentList "-ExecutionPolicy Bypass -File `"$apiScript`"" -WorkingDirectory (Join-Path $PSScriptRoot "..") -RedirectStandardOutput $apiOut -RedirectStandardError $apiErr -WindowStyle Hidden -PassThru
 
-$webProcess = Start-Process -FilePath "powershell" -ArgumentList "-ExecutionPolicy Bypass -File `"$webScript`"" -WorkingDirectory (Join-Path $PSScriptRoot "..") -RedirectStandardOutput $webOut -RedirectStandardError $webErr -PassThru
+$webProcess = Start-Process -FilePath "powershell" -ArgumentList "-ExecutionPolicy Bypass -File `"$webScript`"" -WorkingDirectory (Join-Path $PSScriptRoot "..") -RedirectStandardOutput $webOut -RedirectStandardError $webErr -WindowStyle Hidden -PassThru
 
 Start-Sleep -Seconds 8
 

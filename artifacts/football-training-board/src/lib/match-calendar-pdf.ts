@@ -17,12 +17,21 @@ type ParsePdfOptions = {
    * Serve per spezzare "SQUADRA_A SQUADRA_B" senza VS. Se vuoto si usa clubName.
    */
   societyHint?: string;
+  documentMode?: "auto" | "federation" | "tournament";
+  /** Data da usare per programmi torneo che riportano solo orari e accoppiamenti. */
+  fallbackDateIso?: string;
 };
 
 export type MatchPdfImportResult = {
   recognized: MatchImportRow[];
   discarded: number;
   totalDateLines: number;
+};
+
+type ParseTextOptions = ParsePdfOptions & {
+  fileName?: string;
+  lastModified?: number;
+  sourceLabel?: string;
 };
 
 export function normalizeName(value: string): string {
@@ -160,6 +169,270 @@ function parseCompetition(line: string): string | null {
   if (s.includes("torneo") || s.includes("trofeo") || s.includes("coppa")) return "Torneo";
   if (s.includes("amichevole")) return "Amichevole";
   return null;
+}
+
+
+const ITALIAN_MONTHS: Record<string, number> = {
+  gennaio: 1,
+  febbraio: 2,
+  marzo: 3,
+  aprile: 4,
+  maggio: 5,
+  giugno: 6,
+  luglio: 7,
+  agosto: 8,
+  settembre: 9,
+  ottobre: 10,
+  novembre: 11,
+  dicembre: 12,
+};
+
+function looksLikeTournamentProgram(fullText: string): boolean {
+  const n = normalizeName(fullText);
+  const hasTournamentWord = /\b(torneo|trofeo|coppa)\b/.test(n);
+  const hasScheduleSignals =
+    n.includes("programma torneo") ||
+    n.includes("girone a") ||
+    n.includes("girone b") ||
+    n.includes("fase finale") ||
+    n.includes("semifinali") ||
+    /\bore\s+\d{1,2}[:.]\d{2}\b/i.test(fullText) ||
+    /\bgirone\s+[a-z]\s*\d{1,2}[:.]\d{2}\b/i.test(fullText);
+  const hasTournamentGrid =
+    (/\bore\s+\d{1,2}[:.]\d{2}\b/i.test(fullText) || /\bgirone\s+[a-z]\s*\d{1,2}[:.]\d{2}\b/i.test(fullText)) &&
+    (/\bvs\.?\b/i.test(fullText) || n.includes("riposano") || /\bfinale\b/.test(n) || /\bposto\b/.test(n));
+  return (hasTournamentWord && hasScheduleSignals) || hasTournamentGrid;
+}
+
+function parseItalianNamedDateIso(line: string, fallbackYear?: number | null): string | null {
+  const n = normalizeName(line).replace(/\s+/g, " ").trim();
+  const m = n.match(/(?:^|\s)(?:lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)?\s*(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?(?:\s|$)/i);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = ITALIAN_MONTHS[m[2] ?? ""];
+  const year = m[3] ? Number(m[3]) : fallbackYear;
+  if (!day || !month || !year) return null;
+  return isoFromDayMonthYear(day, month, year, 15, 0) || null;
+}
+
+function extractYearFromIso(value?: string | null): number | null {
+  if (!value) return null;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.getFullYear();
+}
+
+function cleanTournamentTeamName(value: string): string {
+  return value.replace(/^[\s:\u2013\u2014-]+|[\s:\u2013\u2014-]+$/g, "").replace(/\s+/g, " ").trim();
+}
+
+function cleanTournamentFixtureRest(value: string): string {
+  return cleanTournamentTeamName(
+    value
+      .replace(/^\s*(?:girone\s+)?[a-z]\s+/i, "")
+      .replace(/^\s*(?:gara|partita)\s+/i, ""),
+  );
+}
+
+function cleanTournamentEventPrefix(value: string): string {
+  return cleanTournamentTeamName(
+    value
+      .replace(/^\s*(?:lunedi|martedi|mercoledi|giovedi'?|venerdi|sabato|domenica)?\s*\d{1,2}\s+[a-zàèéìòù]+(?:\s+\d{4})?\s*/i, "")
+      .replace(/\bgirone\s+[a-z]\s*$/i, ""),
+  );
+}
+
+function tournamentAliasMatchesSide(sideNorm: string, aliasNorms: string[]): boolean {
+  return aliasNorms.some((alias) => {
+    if (alias.length < 3) return false;
+    if (sideNorm.includes(alias) || alias.includes(sideNorm)) return true;
+    return sideMatchesSociety(sideNorm, alias);
+  });
+}
+
+function detectTournamentPhase(line: string, currentPhase: string | null): string | null {
+  const n = normalizeName(line);
+  if (n.includes("programma torneo")) return "Gironi";
+  if (n.includes("fase finale")) return "Fase finale";
+  if (n.includes("semifinali")) return "Semifinali";
+  if (/\bfinale\b/.test(n) && !n.includes("fase finale")) return "Finale";
+  return currentPhase;
+}
+
+function extractTournamentTitle(allLines: string[]): string | null {
+  for (const raw of allLines) {
+    const line = raw.trim().replace(/\s+/g, " ");
+    const n = normalizeName(line);
+    if (!line || line.length > 80) continue;
+    if (!/\b(torneo|trofeo|coppa)\b/.test(n)) continue;
+    if (n.includes("programma torneo") || n.includes("fase finale")) continue;
+    return line;
+  }
+  return null;
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function inferTournamentName(fileName: string | undefined, allLines: string[]): string {
+  const fromText = extractTournamentTitle(allLines);
+  if (fromText) return fromText;
+  const base = (fileName ?? "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b(programma|torneo|trofeo|coppa|calendario|gare|partite)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return base ? titleCaseWords(base) : "Torneo";
+}
+
+function isTournamentPlacementFinalLabel(value: string): boolean {
+  const n = normalizeName(value);
+  if (!n) return false;
+  if (/\bfinale\b/.test(n) && /\b(?:posto|1|2|3|4|5|6|7|8)\b/.test(n)) return true;
+  return /\b\d{1,2}\s*(?:o|a)?\s*(?:-|\/|vs|versus|e)\s*\d{1,2}\s*(?:o|a)?\s*posto\b/.test(n);
+}
+
+function cleanTournamentPlacementFinalLabel(value: string): string {
+  const compact = cleanTournamentTeamName(value);
+  const withFinale = compact.match(/\bfinale\b[\s:-]*(\d{1,2})\s*(?:°|º|o|a)?\s*(?:-|\/|vs|versus|e)\s*(\d{1,2})\s*(?:°|º|o|a)?\s*posto\b/i);
+  if (withFinale) return `Finale ${withFinale[1]}° - ${withFinale[2]}° posto`;
+  const placement = compact.match(/\b(\d{1,2})\s*(?:°|º|o|a)?\s*(?:-|\/|vs|versus|e)\s*(\d{1,2})\s*(?:°|º|o|a)?\s*posto\b/i);
+  if (placement) return `Finale ${placement[1]}° - ${placement[2]}° posto`;
+  return /\bfinale\b/i.test(compact) ? compact : `Finale ${compact}`;
+}
+
+function parseTournamentMatchLine(
+  line: string,
+  currentDateIso: string,
+  aliasNorms: string[],
+): { date: string; opponent: string; homeAway: "home" | "away" } | null {
+  const m = line.match(/(?:\bORE\s*)?(\d{1,2})[:.](\d{2})\s*(.*)$/i);
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const prefix = cleanTournamentEventPrefix(line.slice(0, m.index ?? 0).trim());
+  const afterTime = cleanTournamentFixtureRest(m[3] ?? "");
+  const finalPrefix = isTournamentPlacementFinalLabel(prefix) ? prefix : "";
+  const rest = cleanTournamentTeamName([finalPrefix, afterTime].filter(Boolean).join(" "));
+  if (!rest) return null;
+
+  if (isTournamentPlacementFinalLabel(rest)) {
+    const base = new Date(currentDateIso);
+    if (Number.isNaN(base.getTime())) return null;
+    base.setHours(hour, minute, 0, 0);
+    return {
+      date: base.toISOString(),
+      opponent: cleanTournamentPlacementFinalLabel(rest).slice(0, 120),
+      homeAway: "home",
+    };
+  }
+
+  const pair = rest.match(/^(.+?)\s*(?:\bvs\.?\b|[\u2013\u2014-])\s*(.+)$/i);
+  if (!pair) {
+    for (const aliasNorm of aliasNorms) {
+      const split = splitFederalFixtureLine(rest, aliasNorm);
+      if (split) {
+        const base = new Date(currentDateIso);
+        if (Number.isNaN(base.getTime())) return null;
+        base.setHours(hour, minute, 0, 0);
+        return {
+          date: base.toISOString(),
+          opponent: split.opponent,
+          homeAway: split.homeAway,
+        };
+      }
+    }
+    return null;
+  }
+
+  const left = cleanTournamentTeamName(pair[1] ?? "");
+  const right = cleanTournamentTeamName(pair[2] ?? "");
+  if (!left || !right) return null;
+
+  const leftNorm = normalizeName(left);
+  const rightNorm = normalizeName(right);
+  const leftOwn = tournamentAliasMatchesSide(leftNorm, aliasNorms);
+  const rightOwn = tournamentAliasMatchesSide(rightNorm, aliasNorms);
+  if (leftOwn === rightOwn) return null;
+
+  const base = new Date(currentDateIso);
+  if (Number.isNaN(base.getTime())) return null;
+  base.setHours(hour, minute, 0, 0);
+
+  return {
+    date: base.toISOString(),
+    opponent: leftOwn ? right : left,
+    homeAway: leftOwn ? "home" : "away",
+  };
+}
+
+function parseTournamentProgramLines(
+  allLines: string[],
+  options: {
+    aliasNorms: string[];
+    tournamentTitle: string | null;
+    tournamentName: string;
+    fallbackDateIso?: string | null;
+  },
+): { recognized: MatchImportRow[]; discarded: number; totalDateLines: number } {
+  const recognized: MatchImportRow[] = [];
+  const seen = new Set<string>();
+  let discarded = 0;
+  let totalDateLines = 0;
+  let currentDateIso: string | null = null;
+  let currentPhase: string | null = null;
+  const fallbackYear = extractYearFromIso(options.fallbackDateIso);
+
+  for (const raw of allLines) {
+    const line = raw.trim().replace(/\s+/g, " ");
+    if (!line || isPageFooterOrNoise(line)) continue;
+
+    currentPhase = detectTournamentPhase(line, currentPhase);
+
+    const numericDateIso = parseDateTimeIso(line);
+    if (numericDateIso) {
+      currentDateIso = numericDateIso;
+    }
+
+    const namedDateIso = parseItalianNamedDateIso(line, fallbackYear);
+    if (namedDateIso) {
+      currentDateIso = namedDateIso;
+    }
+
+    if (!/(?:\bORE\s*)?\d{1,2}[:.]\d{2}\b/i.test(line)) continue;
+    if (!currentDateIso && options.fallbackDateIso) currentDateIso = options.fallbackDateIso;
+    if (!currentDateIso) continue;
+
+    totalDateLines++;
+    const parsed = parseTournamentMatchLine(line, currentDateIso, options.aliasNorms);
+    if (!parsed) {
+      discarded++;
+      continue;
+    }
+
+    const key = parsed.date + '|' + normalizeName(parsed.opponent) + '|' + parsed.homeAway;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const noteParts = [options.tournamentTitle, currentPhase].filter(Boolean);
+    recognized.push({
+      date: parsed.date,
+      opponent: parsed.opponent,
+      homeAway: parsed.homeAway,
+      competition: `Torneo: ${options.tournamentName}`,
+      location: null,
+      notes: noteParts.length > 0 ? ('PDF torneo - ' + noteParts.join(' - ')).slice(0, 500) : "PDF torneo",
+    });
+  }
+
+  return { recognized, discarded, totalDateLines };
 }
 
 function extractOpponent(line: string, aliases: string[]): { opponent: string | null; homeAway: "home" | "away" } {
@@ -748,13 +1021,6 @@ export async function parseMatchCalendarPdfFile(
   const loadingTask = getDocument({ data: raw });
   const pdf = await loadingTask.promise;
 
-  const termNorms = (options.searchTerms ?? []).map((t) => normalizeName(String(t))).filter((t) => t.length >= 2);
-  const sectionNorms = (options.sectionTitleHints ?? [])
-    .map((t) => normalizeName(String(t)))
-    .filter((t) => t.length >= 3);
-  const societyDisplay = (options.societyHint?.trim() || options.clubName?.trim() || options.teamName?.trim() || "").trim();
-  const societyNorm = normalizeName(societyDisplay);
-
   const allPageLines: string[] = [];
   const pageBlobs: string[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
@@ -764,8 +1030,41 @@ export async function parseMatchCalendarPdfFile(
     pageBlobs.push(lines.join(" "));
   }
 
-  const fullText = pageBlobs.join("\n");
-  const federal = looksLikeFederalCalendar(fullText) && societyNorm.length >= 2;
+  return parseMatchCalendarTextLines(allPageLines, pageBlobs, {
+    ...options,
+    fileName: file.name,
+    lastModified: file.lastModified,
+    sourceLabel: "PDF",
+  });
+}
+
+export function parseMatchCalendarTextLines(
+  allPageLines: string[],
+  pageBlobs?: string[],
+  options: ParseTextOptions = {},
+): MatchPdfImportResult {
+  const blobs = pageBlobs && pageBlobs.length > 0 ? pageBlobs : [allPageLines.join("\n")];
+  const fullText = blobs.join("\n");
+  const termNorms = (options.searchTerms ?? []).map((t) => normalizeName(String(t))).filter((t) => t.length >= 2);
+  const documentMode = options.documentMode ?? "auto";
+  const sectionNorms = (options.sectionTitleHints ?? [])
+    .map((t) => normalizeName(String(t)))
+    .filter((t) => t.length >= 3);
+  const societyDisplay = (options.societyHint?.trim() || options.clubName?.trim() || options.teamName?.trim() || "").trim();
+  const societyNorm = normalizeName(societyDisplay);
+  const fallbackDateIso =
+    options.fallbackDateIso ||
+    (Number.isFinite(options.lastModified) && Number(options.lastModified) > 0
+      ? isoFromDayMonthYear(
+          new Date(Number(options.lastModified)).getDate(),
+          new Date(Number(options.lastModified)).getMonth() + 1,
+          new Date(Number(options.lastModified)).getFullYear(),
+          15,
+          0,
+        )
+      : null);
+
+  const federal = documentMode !== "tournament" && looksLikeFederalCalendar(fullText) && societyNorm.length >= 2;
 
   if (federal) {
     const federalResult = parseFederalLines(allPageLines, {
@@ -776,6 +1075,38 @@ export async function parseMatchCalendarPdfFile(
     if (federalResult.recognized.length > 0) {
       return federalResult;
     }
+  }
+
+  const tournamentAliasSources =
+    documentMode === "tournament"
+      ? [options.societyHint, options.clubName, societyDisplay]
+      : [options.societyHint, options.clubName, options.teamName, societyDisplay];
+  const tournamentAliases = [...new Set(tournamentAliasSources.filter(Boolean).map((value) => normalizeName(String(value))))].filter(
+    (value) => value.length >= 3,
+  );
+  const tournamentLooksValid = looksLikeTournamentProgram(fullText);
+  const tournamentProgram = tournamentLooksValid && tournamentAliases.length > 0;
+  const tournamentName = inferTournamentName(options.fileName, allPageLines);
+  const tournamentTitle = extractTournamentTitle(allPageLines);
+
+  if (documentMode === "tournament") {
+    return tournamentLooksValid
+      ? parseTournamentProgramLines(allPageLines, {
+          aliasNorms: tournamentAliases,
+          tournamentTitle,
+          tournamentName,
+          fallbackDateIso,
+        })
+      : { recognized: [], discarded: 0, totalDateLines: 0 };
+  }
+
+  if (tournamentProgram) {
+    return parseTournamentProgramLines(allPageLines, {
+      aliasNorms: tournamentAliases,
+      tournamentTitle,
+      tournamentName,
+      fallbackDateIso,
+    });
   }
 
   // Calendari "a tabella" (DATA/CASA/OSPITE) senza righe "GIORNATA".
@@ -792,7 +1123,7 @@ export async function parseMatchCalendarPdfFile(
 
   const collectLines = (ignoreTermFilter: boolean) => {
     const lineSet = new Set<string>();
-    for (const pageText of pageBlobs) {
+    for (const pageText of blobs) {
       const pageNorm = normalizeName(pageText);
       if (!ignoreTermFilter && !textMatchesAnyTerm(pageNorm, termNorms)) continue;
       const fromNewlines = pageText
@@ -852,7 +1183,7 @@ export async function parseMatchCalendarPdfFile(
       homeAway,
       competition,
       location,
-      notes: "Import automatico da PDF federale",
+      notes: `Import automatico da ${options.sourceLabel ?? "PDF"} federale`,
     });
   }
 

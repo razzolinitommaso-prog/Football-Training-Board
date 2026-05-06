@@ -115,12 +115,12 @@ router.get("/matches", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/matches", requireAuth, async (req, res): Promise<void> => {
-  const { opponent, date, teamId, seasonId, competition, location, homeAway } = req.body;
+  const { opponent, date, teamId, seasonId, competition, location, homeAway, notes } = req.body;
   if (!opponent || !date) { res.status(400).json({ error: "opponent and date required" }); return; }
   const [match] = await db.insert(matchesTable).values({
     clubId: req.session.clubId!, opponent, date: new Date(date),
     teamId: teamId ?? null, seasonId: seasonId ?? null, competition: competition ?? null,
-    location: location ?? null, homeAway: homeAway ?? "home",
+    location: location ?? null, homeAway: homeAway ?? "home", notes: notes ?? null,
   }).returning();
   const enriched = await enrichMatch(match);
   res.status(201).json(enriched);

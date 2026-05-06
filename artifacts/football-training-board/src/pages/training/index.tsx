@@ -2176,6 +2176,10 @@ function SessionDetailsDialog({
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 
+type TrainingPageProps = {
+  section?: string;
+};
+
 export default function TrainingPage({ section }: TrainingPageProps = {}) {
   const { role, user } = useAuth();
   const { toast } = useToast();

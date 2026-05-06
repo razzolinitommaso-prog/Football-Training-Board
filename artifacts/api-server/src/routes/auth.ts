@@ -14,6 +14,15 @@ import { normalizeSessionRole } from "../lib/club-scope";
 
 const router: IRouter = Router();
 
+function saveSession(req: any): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.save((err: unknown) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 function planLimits(plan: string) {
   switch (plan) {
     case "advanced":  return { maxTeams: 5,  maxPlayers: 100 };
@@ -110,6 +119,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   req.session.userId = user.id;
   req.session.clubId = club.id;
   req.session.role = "admin";
+  await saveSession(req);
 
   const response = LoginUserResponse.parse({
     user: {
@@ -186,6 +196,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     if (user.isSuperAdmin) {
       req.session.userId = user.id;
       req.session.isSuperAdmin = true;
+      await saveSession(req);
       res.json({
         user: {
           id: user.id,
@@ -289,6 +300,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     if (!["admin", "presidente"].includes(membership.role) && section) {
       req.session.section = section.replace(/-/g, "_");
     }
+    await saveSession(req);
 
     const response = LoginUserResponse.parse({
       user: {
@@ -342,6 +354,7 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
   req.session.userId = 0;
   req.session.clubId = club.id;
   req.session.role = "parent";
+  await saveSession(req);
 
   res.json({
     user: { id: 0, email: `genitori@club.ftb`, firstName: "Area", lastName: "Genitori", createdAt: club.createdAt },

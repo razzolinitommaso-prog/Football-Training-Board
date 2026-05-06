@@ -1,11 +1,5 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { Switch, Route } from "wouter";
 import NotFound from "@/pages/not-found";
-
-import { AuthProvider } from "@/hooks/use-auth";
-import { LanguageProvider } from "@/lib/i18n";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/layout/app-layout";
 
@@ -56,8 +50,6 @@ import SeasonTransitionPage from "@/pages/season-transition/index";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import SectionMatchCalendars from "@/pages/matches/SectionMatchCalendars";
 
-const queryClient = new QueryClient();
-
 const coachingRoles = ["admin", "coach", "technical_director", "director"];
 const secretaryRoles = ["admin", "secretary"];
 const fitnessRoles = ["admin", "director", "technical_director", "fitness_coach", "athletic_director"];
@@ -86,7 +78,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={["admin"]}><ClubSettings /></ProtectedRoute>
         </Route>
         <Route path="/members">
-          <ProtectedRoute allowedRoles={["admin"]}><MembersList /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "secretary"]}><MembersList /></ProtectedRoute>
         </Route>
         <Route path="/tactical-board" component={TacticalBoard} />
   
@@ -175,7 +167,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={["admin"]}><ParentAdminManagement /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/calendar">
-          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
             <SectionCalendar section="scuola_calcio" />
           </ProtectedRoute>
         </Route>
@@ -200,7 +192,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={coachingRoles}><AttendancePage /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/calendar">
-          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
             <SectionCalendar section="settore_giovanile" />
           </ProtectedRoute>
         </Route>
@@ -228,7 +220,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={["admin"]}><SettoreGiovanilePage /></ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/calendar">
-          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
             <SectionCalendar section="prima_squadra" />
           </ProtectedRoute>
         </Route>
@@ -293,20 +285,7 @@ function Router() {
 }
 
 function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <LanguageProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <AuthProvider>
-              <Router />
-            </AuthProvider>
-          </WouterRouter>
-          <Toaster />
-        </LanguageProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
-  );
+  return <Router />;
 }
 
 export default App;

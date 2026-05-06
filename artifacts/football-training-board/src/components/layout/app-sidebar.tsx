@@ -83,6 +83,7 @@ const ALL_SECTIONS_ROLES = ["admin", "presidente", "director"];
 const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof UsersRound }[] = [
   { label: "Squadre", url: "/teams", icon: UsersRound },
   { label: "Giocatori", url: "/players", icon: Users },
+  { label: "Calendario", url: "/scuola-calcio/calendar", icon: CalendarRange },
   { label: "Partite", url: "/matches", icon: Trophy },
   { label: "Presenze", url: "/attendance", icon: CalendarCheck },
   { label: "Stagioni", url: "/seasons", icon: Layers },
@@ -109,7 +110,7 @@ export function AppSidebar() {
     { label: "Le mie sessioni",    url: "/training",     icon: CalendarDays,    roles: ["technical_director", "coach", "fitness_coach"], group: "main" },
     { label: "Esercitazioni",      url: "/exercises",    icon: BookOpen,        roles: ["coach", "fitness_coach", "athletic_director", "director", "technical_director"], group: "main" },
     { titleKey: "clubSettings",    url: "/club",         icon: Building2,       roles: ["admin", "presidente"], group: "main" },
-    { titleKey: "members",         url: "/members",      icon: ShieldCheck,     roles: ["admin", "presidente"], group: "main" },
+    { titleKey: "members",         url: "/members",      icon: ShieldCheck,     roles: ["admin", "presidente", "secretary"], group: "main" },
     { label: "Notifiche Piattaforma", url: "/club/platform-notifications", icon: Bell, roles: ["admin", "presidente", "secretary"], group: "main" },
     // Segreteria
     { titleKey: "registrations",   url: "/secretary/registrations", icon: ClipboardList, roles: ["admin", "presidente", "secretary"], group: "secretary" },

@@ -10,7 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   ArrowLeft, Calendar, MapPin, Trophy, FileText,
@@ -39,6 +38,16 @@ import {
   type ScheduleFilterOpts,
 } from "@/lib/calendar-schedule-filter";
 import { ScheduleFilterFields, ScheduleFilterExactBlock } from "@/components/calendar/ScheduleFilterFields";
+import {
+  TournamentGroupedCards,
+  groupTorneoMatchesByCompetition,
+  type TournamentCardGroup,
+} from "@/pages/calendari/tournament-grouped-cards";
+import {
+  fileToDataUrl,
+  normalizeTournamentKeyPart,
+  type StoredTournamentAttachment,
+} from "@/pages/calendari/tournament-documents-storage";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -82,7 +91,13 @@ interface Match {
   matchPlan?: MatchPlanData | null;
 }
 
-interface Team { id: number; name: string; category?: string; assignedStaff?: { userId: number }[]; }
+interface Team {
+  id: number;
+  clubId?: number;
+  name: string;
+  category?: string;
+  assignedStaff?: { userId: number }[];
+}
 interface Player {
   id: number;
   firstName: string;
@@ -391,6 +406,7 @@ function matchPassesListFilters(
   calendarTeamName: string | undefined,
   f: {
     search: string;
+    tournament: string;
     venue: MatchVenueFilter;
     squad: SquadLetterFilter;
     schedule: ScheduleFilterOpts;
@@ -405,6 +421,12 @@ function matchPassesListFilters(
     if (teamNameHasSquadMarker(calendarTeamName)) {
       if (!teamNameMatchesSquadLetter(calendarTeamName, f.squad)) return false;
     }
+  }
+
+  const torNeedle = f.tournament.trim().toLowerCase();
+  if (torNeedle) {
+    const comp = (m.competition ?? "").toLowerCase();
+    if (!comp.includes(torNeedle)) return false;
   }
 
   const needle = f.search.trim().toLowerCase();
@@ -797,7 +819,7 @@ function MatchCard({
   return (
     <Card
       className={cn(
-        "transition-shadow hover:shadow-md border-l-4",
+        "min-w-0 max-w-full overflow-hidden transition-shadow hover:shadow-md border-l-4",
         statusColor,
         bulkSelectEnabled && bulkSelected && "ring-2 ring-primary/50 ring-offset-2 ring-offset-background",
       )}
@@ -1573,6 +1595,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const importPdfFileRef = useRef<HTMLInputElement>(null);
   /** Evita di azzerare il file PDF quando si passa dal filtro al dialog scelta sezione. */
   const pdfKeepPendingWhilePickerRef = useRef(false);
+  const pdfImportModeRef = useRef<"federation" | "tournament">("federation");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewRows, setPreviewRows] = useState<MatchImportRow[]>([]);
   const [selectedRows, setSelectedRows] = useState<boolean[]>([]);
@@ -1588,10 +1611,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [phaseTab, setPhaseTab] = useState("autunnale");
   const [duplicateImportOpen, setDuplicateImportOpen] = useState(false);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
+  const [editingTournament, setEditingTournament] = useState<null | {
+    originalCompetition: string;
+    name: string;
+    location: string;
+  }>(null);
   const [pendingImportRows, setPendingImportRows] = useState<MatchImportRow[] | null>(null);
   const [pendingImportConflictIds, setPendingImportConflictIds] = useState<number[]>([]);
   const [duplicateImportExamples, setDuplicateImportExamples] = useState<string[]>([]);
   const [matchSearchText, setMatchSearchText] = useState("");
+  const [matchTournamentFilter, setMatchTournamentFilter] = useState("");
+  const [pdfImportMode, setPdfImportMode] = useState<"federation" | "tournament">("federation");
+  const [tournamentProgramSelection, setTournamentProgramSelection] = useState<Record<string, string>>({});
   const [matchVenueFilter, setMatchVenueFilter] = useState<MatchVenueFilter>("all");
   const [matchSquadFilter, setMatchSquadFilter] = useState<SquadLetterFilter>("all");
   const [matchFiltersOpen, setMatchFiltersOpen] = useState(false);
@@ -1615,6 +1646,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const isStandalone = !overrideTeamId;
 
   const canImportExport = ["admin", "director", "secretary", "presidente"].includes(role ?? "");
+  const canManageTournament = role === "secretary";
 
   // Segreteria, Direttore Sportivo, Amministratore → gestione logistica partita
   const canEditSchedule  = ["secretary", "director", "admin"].includes(role ?? "");
@@ -1643,6 +1675,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   });
 
   const team = teams.find(t => t.id === teamId);
+
   const { data: teamPlayers = [] } = useQuery<Player[]>({
     queryKey: ["/api/players", teamId],
     queryFn: () => apiFetch(`/api/players?teamId=${teamId}`),
@@ -1690,6 +1723,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       clubHint: string;
       sectionTitleHints: string[];
       societyHint: string;
+      pdfMode: "federation" | "tournament";
     }) => {
       if (!team) throw new Error("Squadra non valida");
       const parsed = await parseMatchCalendarPdfFile(input.file, {
@@ -1698,6 +1732,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         searchTerms: input.searchTerms,
         sectionTitleHints: input.sectionTitleHints,
         societyHint: input.societyHint,
+        documentMode: input.pdfMode,
       });
       return parsed;
     },
@@ -1781,6 +1816,35 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     onError: (e: Error) => toast({ title: e.message || "Errore eliminazione", variant: "destructive" }),
   });
 
+  const updateTournamentMutation = useMutation({
+    mutationFn: async (input: {
+      originalCompetition: string;
+      name: string;
+      location: string;
+    }) => {
+      const name = input.name.trim();
+      if (!name) throw new Error("Inserisci il nome del torneo");
+      const group = tournamentGroups.find((g) => g.competition === input.originalCompetition);
+      if (!group) throw new Error("Torneo non trovato");
+      for (const match of group.matches) {
+        await apiFetch(`/api/matches/${match.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            competition: name,
+            location: input.location.trim() || null,
+          }),
+        });
+      }
+      return group.matches.length;
+    },
+    onSuccess: (n) => {
+      qc.invalidateQueries({ queryKey: ["/api/matches", teamId] });
+      setEditingTournament(null);
+      toast({ title: "Torneo aggiornato", description: `${n} partite/eventi aggiornati.` });
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore aggiornamento torneo", variant: "destructive" }),
+  });
+
   const createMatchMutation = useMutation({
     mutationFn: async () => {
       if (!teamId) throw new Error("Squadra non valida");
@@ -1818,20 +1882,32 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     onError: (e: Error) => toast({ title: e.message || "Errore creazione partita", variant: "destructive" }),
   });
 
-  const sorted = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  const autunnale   = sorted.filter(m => matchPhase(m) === "autunnale");
-  const primaverile = sorted.filter(m => matchPhase(m) === "primaverile");
-  const tornei      = sorted.filter(m => matchPhase(m) === "tornei");
-  const amichevoli  = sorted.filter(m => matchPhase(m) === "amichevoli");
+  const sorted = useMemo(
+    () => [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+    [matches],
+  );
+  const autunnale = useMemo(() => sorted.filter((m) => matchPhase(m) === "autunnale"), [sorted]);
+  const primaverile = useMemo(() => sorted.filter((m) => matchPhase(m) === "primaverile"), [sorted]);
+  const tornei = useMemo(() => sorted.filter((m) => matchPhase(m) === "tornei"), [sorted]);
+  const amichevoli = useMemo(() => sorted.filter((m) => matchPhase(m) === "amichevoli"), [sorted]);
+
+  const torneoGroupCount = useMemo(() => {
+    const keys = new Set<string>();
+    for (const m of tornei) {
+      keys.add(((m.competition ?? "").trim() || "Senza competizione"));
+    }
+    return keys.size;
+  }, [tornei]);
 
   const listFilterOpts = useMemo(
     () => ({
       search: matchSearchText,
+      tournament: matchTournamentFilter,
       venue: matchVenueFilter,
       squad: matchSquadFilter,
       schedule: scheduleFilter,
     }),
-    [matchSearchText, matchVenueFilter, matchSquadFilter, scheduleFilter],
+    [matchSearchText, matchTournamentFilter, matchVenueFilter, matchSquadFilter, scheduleFilter],
   );
 
   const autunnaleFiltered = useMemo(
@@ -1851,8 +1927,57 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     [amichevoli, team?.name, listFilterOpts],
   );
 
+  const tournamentGroups = useMemo(() => {
+    if (phaseTab !== "tornei") return [];
+    return groupTorneoMatchesByCompetition(torneiFiltered);
+  }, [phaseTab, torneiFiltered]);
+
+  type TournamentDocumentApi = {
+    id: number;
+    teamId: number;
+    competition: string;
+    normalizedCompetition: string;
+    fileName: string;
+    fileType: string;
+    fileSize: number;
+    dataUrl: string;
+    createdAt: string;
+  };
+
+  const { data: tournamentDocsResponse } = useQuery<{ documents: TournamentDocumentApi[] }>({
+    queryKey: ["/api/tournament-documents", teamId],
+    queryFn: () => apiFetch(`/api/tournament-documents?teamId=${teamId}`),
+    enabled: !!teamId && phaseTab === "tornei",
+  });
+
+  function apiDocToStored(d: TournamentDocumentApi): StoredTournamentAttachment {
+    return {
+      id: String(d.id),
+      name: d.fileName,
+      type: d.fileType,
+      size: d.fileSize,
+      uploadedAt: d.createdAt,
+      dataUrl: d.dataUrl,
+    };
+  }
+
+  const tournamentAttachmentsByCompetition = useMemo(() => {
+    const docs = tournamentDocsResponse?.documents ?? [];
+    const map: Record<string, StoredTournamentAttachment[]> = {};
+    for (const g of tournamentGroups) {
+      const c = g.competition;
+      const norm = normalizeTournamentKeyPart(c);
+      map[c] = docs
+        .filter((d) => d.normalizedCompetition === norm)
+        .map(apiDocToStored)
+        .sort((a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime());
+    }
+    return map;
+  }, [tournamentDocsResponse?.documents, tournamentGroups]);
+
   const matchFiltersActive =
     matchSearchText.trim() !== "" ||
+    matchTournamentFilter.trim() !== "" ||
     matchVenueFilter !== "all" ||
     matchSquadFilter !== "all" ||
     scheduleTimeFilterActive(scheduleFilter);
@@ -1874,6 +1999,41 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       else next.add(id);
       return next;
     });
+  }
+
+  async function appendLocalTournamentDocument(competition: string, file: File) {
+    if (!teamId || !canImportExport) return;
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      await apiFetch("/api/tournament-documents", {
+        method: "POST",
+        body: JSON.stringify({
+          teamId,
+          competition,
+          fileName: file.name,
+          fileType: file.type || "application/octet-stream",
+          fileSize: file.size,
+          dataUrl,
+        }),
+      });
+      await qc.invalidateQueries({ queryKey: ["/api/tournament-documents", teamId] });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Salvataggio documento fallito";
+      toast({ title: msg, variant: "destructive" });
+    }
+  }
+
+  function openTournamentEdit(group: TournamentCardGroup) {
+    const firstLoc = group.matches.map((m) => (m.location ?? "").trim()).find(Boolean) ?? "";
+    setEditingTournament({
+      originalCompetition: group.competition,
+      name: group.competition,
+      location: firstLoc,
+    });
+  }
+
+  function deleteTournament(group: TournamentCardGroup) {
+    bulkDeleteMutation.mutate(group.matches.map((m) => m.id));
   }
 
   const renderPhaseImportToolbar = (phaseItems: Match[]) =>
@@ -1920,11 +2080,33 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             size="sm"
             className="h-8 text-xs gap-1.5"
             disabled={importActionsBusy}
-            onClick={() => importPdfFileRef.current?.click()}
+            onClick={() => {
+              pdfImportModeRef.current = "federation";
+              setPdfImportMode("federation");
+              importPdfFileRef.current?.click();
+            }}
           >
             <FileText className="w-3.5 h-3.5" />
             Carica PDF federazione
           </Button>
+          {phaseTab === "tornei" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              disabled={importActionsBusy}
+              onClick={() => {
+                pdfImportModeRef.current = "tournament";
+                setPdfImportMode("tournament");
+                setPdfCategoryFilter(team.name);
+                importPdfFileRef.current?.click();
+              }}
+            >
+              <Trophy className="w-3.5 h-3.5" />
+              Carica PDF torneo
+            </Button>
+          )}
           <Button
             type="button"
             variant="default"
@@ -2046,8 +2228,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   if (!teamId) return <div className="p-6 text-muted-foreground">Squadra non trovata.</div>;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
+    <div className="relative min-w-0 w-full overflow-x-clip">
+    <div className="w-full max-w-full min-w-0 sm:max-w-6xl mx-auto">
+      <div className="flex items-center gap-3 mb-5 sm:mb-6">
         {isStandalone && (
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => window.history.back()}>
             <ArrowLeft className="w-4 h-4" />
@@ -2093,7 +2276,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               lastModified: picked.lastModified,
             });
             setPendingPdfFile(safeFile);
-            setPdfCategoryFilter(team.name);
+            if (pdfImportModeRef.current === "federation") {
+              setPdfCategoryFilter(team.name);
+            }
             setPdfClubFilter("");
             setPdfFilterOpen(true);
           } catch (err: any) {
@@ -2107,7 +2292,291 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           }
         }}
       />
+      <div className="mt-5 sm:mt-6 min-w-0">
+      {isLoading ? (
+        <div className="text-center py-12 text-muted-foreground">Caricamento...</div>
+      ) : (
+        <div className="space-y-4 min-w-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setPhaseTab("autunnale")}
+              className={cn(
+                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
+                phaseTab === "autunnale" ? "border-amber-500/50 bg-amber-500/5 ring-1 ring-amber-500/20" : "border-border",
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                  <Leaf className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                </div>
+                <span className="font-semibold text-sm">Fase autunnale</span>
+              </div>
+              <p className="text-2xl font-bold tabular-nums">{autunnale.length}</p>
+              <p className="text-xs text-muted-foreground">partite (ago–gen)</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPhaseTab("primaverile")}
+              className={cn(
+                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
+                phaseTab === "primaverile" ? "border-pink-500/50 bg-pink-500/5 ring-1 ring-pink-500/20" : "border-border",
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-9 h-9 rounded-lg bg-pink-500/15 flex items-center justify-center">
+                  <Flower2 className="w-4 h-4 text-pink-700 dark:text-pink-400" />
+                </div>
+                <span className="font-semibold text-sm">Fase primaverile</span>
+              </div>
+              <p className="text-2xl font-bold tabular-nums">{primaverile.length}</p>
+              <p className="text-xs text-muted-foreground">partite (feb–lug)</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPhaseTab("tornei")}
+              className={cn(
+                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
+                phaseTab === "tornei" ? "border-violet-500/50 bg-violet-500/5 ring-1 ring-violet-500/20" : "border-border",
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-9 h-9 rounded-lg bg-violet-500/15 flex items-center justify-center">
+                  <Trophy className="w-4 h-4 text-violet-700 dark:text-violet-400" />
+                </div>
+                <span className="font-semibold text-sm">Tornei</span>
+              </div>
+              <p className="text-2xl font-bold tabular-nums">{torneoGroupCount}</p>
+              <p className="text-xs text-muted-foreground">tornei registrati</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPhaseTab("amichevoli")}
+              className={cn(
+                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
+                phaseTab === "amichevoli" ? "border-sky-500/50 bg-sky-500/5 ring-1 ring-sky-500/20" : "border-border",
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-9 h-9 rounded-lg bg-sky-500/15 flex items-center justify-center">
+                  <Handshake className="w-4 h-4 text-sky-700 dark:text-sky-400" />
+                </div>
+                <span className="font-semibold text-sm">Amichevoli</span>
+              </div>
+              <p className="text-2xl font-bold tabular-nums">{amichevoli.length}</p>
+              <p className="text-xs text-muted-foreground">partite non ufficiali</p>
+            </button>
+          </div>
 
+          {renderPhaseImportToolbar(activePhase.items)}
+
+          {phaseTab === "tornei" && tournamentGroups.length > 0 && team && (
+            <TournamentGroupedCards
+              groups={tournamentGroups}
+              teamDisplayName={team.name}
+              clubLabel={CLUB_NAME}
+              programSelection={tournamentProgramSelection}
+              onProgramChange={(competition, value) =>
+                setTournamentProgramSelection((prev) => ({ ...prev, [competition]: value }))
+              }
+              canUploadDocuments={canImportExport}
+              canManageTournament={canManageTournament}
+              attachmentsByCompetition={tournamentAttachmentsByCompetition}
+              onEditTournament={openTournamentEdit}
+              onDeleteTournament={deleteTournament}
+              onLocalDocumentSelected={appendLocalTournamentDocument}
+            />
+          )}
+
+          {team && teamId && (
+            <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
+              <div className="p-4 sm:p-5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full justify-between px-0 h-auto hover:bg-transparent"
+                  aria-expanded={matchFiltersOpen}
+                  onClick={() => setMatchFiltersOpen((o) => !o)}
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold">
+                    <Filter className="w-4 h-4 text-primary shrink-0" />
+                    Filtri elenco partite
+                    {matchFiltersActive && (
+                      <span className="text-[10px] rounded-full px-2 py-0.5 bg-primary/10 text-primary border border-primary/20">
+                        attivi
+                      </span>
+                    )}
+                  </span>
+                  <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", matchFiltersOpen && "rotate-180")} />
+                </Button>
+              </div>
+              {matchFiltersOpen ? (
+                <div className="px-4 pb-4 sm:px-5 sm:pb-5 space-y-5 border-t border-border/60">
+                    <div className="grid grid-cols-1 md:grid-cols-[1fr_minmax(0,240px)] gap-4 items-end">
+                      <div className="min-w-0 space-y-1.5">
+                        <Label htmlFor="match-list-search" className="text-xs font-medium text-muted-foreground">
+                          Cerca (avversario, competizione, luogo, note…)
+                        </Label>
+                        <Input
+                          id="match-list-search"
+                          value={matchSearchText}
+                          onChange={(e) => setMatchSearchText(e.target.value)}
+                          placeholder="Es. GRASSINA, campionato…"
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="min-w-0 space-y-1.5">
+                        <span className="text-xs font-medium text-muted-foreground block">Casa / trasferta</span>
+                        <div className="flex rounded-md border border-border bg-background p-0.5 gap-0.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={matchVenueFilter === "all" ? "secondary" : "ghost"}
+                            className="h-8 flex-1 text-xs"
+                            onClick={() => setMatchVenueFilter("all")}
+                          >
+                            Tutte
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={matchVenueFilter === "home" ? "secondary" : "ghost"}
+                            className="h-8 flex-1 text-xs"
+                            onClick={() => setMatchVenueFilter("home")}
+                          >
+                            Casa
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={matchVenueFilter === "away" ? "secondary" : "ghost"}
+                            className="h-8 flex-1 text-xs"
+                            onClick={() => setMatchVenueFilter("away")}
+                          >
+                            Trasferta
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 space-y-1.5">
+                      <Label htmlFor="match-list-tournament" className="text-xs font-medium text-muted-foreground">
+                        Nome torneo
+                      </Label>
+                      <Input
+                        id="match-list-tournament"
+                        value={matchTournamentFilter}
+                        onChange={(e) => setMatchTournamentFilter(e.target.value)}
+                        placeholder="Filtra per testo nella competizione (coppa, trofeo, nome torneo…)"
+                        className="h-9"
+                      />
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Nella tab Tornei restringe l&apos;elenco sotto ai filtri; tutte le partite torneo restano in un unico elenco ordinato per data e orario.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-start pt-1 border-t border-border/50">
+                      <div className="min-w-0 space-y-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Data e orario
+                        </p>
+                        <ScheduleFilterFields
+                          value={scheduleFilter}
+                          onChange={setScheduleFilter}
+                          idPrefix="team-cal"
+                          includeExactTime={false}
+                        />
+                      </div>
+                      <div className="min-w-0 space-y-3 lg:border-l lg:border-border/50 lg:pl-10 pt-6 lg:pt-0 border-t lg:border-t-0 border-border/50">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Squadra (sq.A / sq.B)
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(["all", "a", "b", "c"] as const).map((k) => (
+                            <Button
+                              key={k}
+                              type="button"
+                              size="sm"
+                              variant={matchSquadFilter === k ? "secondary" : "outline"}
+                              className="h-8 text-xs px-3"
+                              onClick={() => setMatchSquadFilter(k)}
+                            >
+                              {k === "all" ? "Tutte" : `sq.${k.toUpperCase()}`}
+                            </Button>
+                          ))}
+                        </div>
+                        {!teamNameHasSquadMarker(team.name) && (
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            Con «sq.A», «sq.B»… nel nome squadra il filtro restringe l&apos;elenco; altrimenti le opzioni non hanno effetto.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border/50 pt-4">
+                      <ScheduleFilterExactBlock
+                        value={scheduleFilter}
+                        onChange={setScheduleFilter}
+                        idPrefix="team-cal"
+                        variant="plain"
+                      />
+                    </div>
+
+                    <div className="flex justify-end border-t border-border/50 pt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9 gap-1.5"
+                        disabled={!matchFiltersActive}
+                        onClick={() => {
+                          setMatchSearchText("");
+                          setMatchTournamentFilter("");
+                          setMatchVenueFilter("all");
+                          setMatchSquadFilter("all");
+                          setScheduleFilter({ ...EMPTY_SCHEDULE_FILTER });
+                        }}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Azzera filtri
+                      </Button>
+                    </div>
+                  </div>
+              ) : null}
+            </div>
+          )}
+
+          {activePhase.items.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-muted-foreground text-sm">
+                {matchFiltersActive && activePhase.rawCount > 0
+                  ? "Nessuna partita in questa fase corrisponde ai filtri. Modifica i criteri sopra o usa «Azzera filtri»."
+                  : "Nessuna partita in questa fase."}
+              </CardContent>
+            </Card>
+          ) : activePhase.items.map(m => (
+            <MatchCard
+              key={m.id}
+              match={m}
+              canEditPreNotes={canEditPreNotes}
+              canEditPostNotes={canEditPostNotes}
+              canEditSchedule={canEditSchedule}
+              canDeleteMatch={canImportExport}
+              canManageMatchPlan={canManageMatchPlan}
+              canViewMatchPlan={canViewMatchPlan}
+              teamPlayers={teamPlayers}
+              matchSection={currentSection}
+              teamName={team?.name ?? ""}
+              teamCategory={team?.category ?? undefined}
+              bulkSelectEnabled={canImportExport}
+              bulkSelected={selectedMatchIds.has(m.id)}
+              onBulkToggle={() => togglePhaseMatchSelection(m.id)}
+            />
+          ))}
+        </div>
+      )}
+      </div>
+    </div>
       <Dialog
         open={createMatchOpen}
         onOpenChange={setCreateMatchOpen}
@@ -2207,6 +2676,60 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         </DialogContent>
       </Dialog>
       <Dialog
+        open={!!editingTournament}
+        onOpenChange={(open) => {
+          if (!open) setEditingTournament(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Modifica torneo</DialogTitle>
+            <DialogDescription>
+              Aggiorna nome e luogo del torneo.
+            </DialogDescription>
+          </DialogHeader>
+          {editingTournament ? (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="edit-tournament-name">Nome torneo</Label>
+                <Input
+                  id="edit-tournament-name"
+                  value={editingTournament.name}
+                  onChange={(e) =>
+                    setEditingTournament((prev) => prev ? { ...prev, name: e.target.value } : prev)
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-tournament-location">Luogo</Label>
+                <Input
+                  id="edit-tournament-location"
+                  value={editingTournament.location}
+                  onChange={(e) =>
+                    setEditingTournament((prev) => prev ? { ...prev, location: e.target.value } : prev)
+                  }
+                  placeholder="da completare"
+                />
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setEditingTournament(null)}>
+              Annulla
+            </Button>
+            <Button
+              type="button"
+              disabled={!editingTournament || updateTournamentMutation.isPending}
+              onClick={() => {
+                if (editingTournament) updateTournamentMutation.mutate(editingTournament);
+              }}
+            >
+              {updateTournamentMutation.isPending ? "Salvataggio..." : "Salva"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
         open={pdfFilterOpen}
         onOpenChange={(open) => {
           setPdfFilterOpen(open);
@@ -2215,9 +2738,14 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Filtro import PDF</DialogTitle>
+            <DialogTitle>
+              {pdfImportMode === "tournament" ? "Filtro import PDF torneo" : "Filtro import PDF federazione"}
+              {team ? ` — ${team.name}` : ""}
+            </DialogTitle>
             <DialogDescription>
-              Puoi scrivere una categoria generica (es. Pulcini): dopo «Analizza» il sistema legge i titoli nel PDF e, se serve, ti fa scegliere 1°/2° anno, misti, ecc. Se indichi già il titolo completo, si usa quello. Società come nel PDF negli accoppiamenti; date da «N GIORNATA».
+              {pdfImportMode === "tournament"
+                ? "Usa questo flusso per programmi torneo con gironi, orari e fase finale. Indica categoria e società come compaiono nel PDF."
+                : "Puoi scrivere una categoria generica (es. Pulcini): dopo «Analizza» il sistema legge i titoli nel PDF e, se serve, ti fa scegliere 1°/2° anno, misti, ecc. Se indichi già il titolo completo, si usa quello. Società come nel PDF negli accoppiamenti; date da «N GIORNATA»."}
             </DialogDescription>
           </DialogHeader>
           {pendingPdfFile && (
@@ -2236,17 +2764,21 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="pdf-club-filter">Società negli accoppiamenti (consigliato per PDF federali)</Label>
+              <Label htmlFor="pdf-club-filter">
+                {pdfImportMode === "tournament"
+                  ? "Società della tua squadra nel torneo"
+                  : "Società negli accoppiamenti (consigliato per PDF federali)"}
+              </Label>
               <Input
                 id="pdf-club-filter"
                 value={pdfClubFilter}
                 onChange={(e) => setPdfClubFilter(e.target.value)}
-                placeholder="Nome come nel PDF federazione"
+                placeholder={pdfImportMode === "tournament" ? "Come nel PDF" : "Nome come nel PDF federazione"}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => { setPdfFilterOpen(false); setPendingPdfFile(null); }}>
+            <Button type="button" variant="ghost" onClick={() => { setPendingPdfFile(null); setPdfFilterOpen(false); }}>
               Annulla
             </Button>
             <Button
@@ -2273,6 +2805,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                     clubHint: pdfClubFilter,
                     sectionTitleHints,
                     societyHint,
+                    pdfMode: pdfImportModeRef.current,
                   });
                 };
                 if (isGenericPdfCategoryHint(pdfCategoryFilter)) {
@@ -2384,6 +2917,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   clubHint: pdfClubFilter,
                   sectionTitleHints: [pdfSectionChoice],
                   societyHint: pdfClubFilter.trim() || CLUB_NAME,
+                  pdfMode: pdfImportModeRef.current,
                 });
               }}
             >
@@ -2585,256 +3119,6 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {isLoading ? (
-        <div className="text-center py-12 text-muted-foreground">Caricamento...</div>
-      ) : (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            <button
-              type="button"
-              onClick={() => setPhaseTab("autunnale")}
-              className={cn(
-                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
-                phaseTab === "autunnale" ? "border-amber-500/50 bg-amber-500/5 ring-1 ring-amber-500/20" : "border-border",
-              )}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
-                  <Leaf className="w-4 h-4 text-amber-700 dark:text-amber-400" />
-                </div>
-                <span className="font-semibold text-sm">Fase autunnale</span>
-              </div>
-              <p className="text-2xl font-bold tabular-nums">{autunnale.length}</p>
-              <p className="text-xs text-muted-foreground">partite (ago–gen)</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPhaseTab("primaverile")}
-              className={cn(
-                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
-                phaseTab === "primaverile" ? "border-pink-500/50 bg-pink-500/5 ring-1 ring-pink-500/20" : "border-border",
-              )}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-9 h-9 rounded-lg bg-pink-500/15 flex items-center justify-center">
-                  <Flower2 className="w-4 h-4 text-pink-700 dark:text-pink-400" />
-                </div>
-                <span className="font-semibold text-sm">Fase primaverile</span>
-              </div>
-              <p className="text-2xl font-bold tabular-nums">{primaverile.length}</p>
-              <p className="text-xs text-muted-foreground">partite (feb–lug)</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPhaseTab("tornei")}
-              className={cn(
-                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
-                phaseTab === "tornei" ? "border-violet-500/50 bg-violet-500/5 ring-1 ring-violet-500/20" : "border-border",
-              )}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-9 h-9 rounded-lg bg-violet-500/15 flex items-center justify-center">
-                  <Trophy className="w-4 h-4 text-violet-700 dark:text-violet-400" />
-                </div>
-                <span className="font-semibold text-sm">Tornei</span>
-              </div>
-              <p className="text-2xl font-bold tabular-nums">{tornei.length}</p>
-              <p className="text-xs text-muted-foreground">coppe e trofei</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPhaseTab("amichevoli")}
-              className={cn(
-                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
-                phaseTab === "amichevoli" ? "border-sky-500/50 bg-sky-500/5 ring-1 ring-sky-500/20" : "border-border",
-              )}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-9 h-9 rounded-lg bg-sky-500/15 flex items-center justify-center">
-                  <Handshake className="w-4 h-4 text-sky-700 dark:text-sky-400" />
-                </div>
-                <span className="font-semibold text-sm">Amichevoli</span>
-              </div>
-              <p className="text-2xl font-bold tabular-nums">{amichevoli.length}</p>
-              <p className="text-xs text-muted-foreground">partite non ufficiali</p>
-            </button>
-          </div>
-
-          {renderPhaseImportToolbar(activePhase.items)}
-
-          {team && teamId && (
-            <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
-              <Collapsible open={matchFiltersOpen} onOpenChange={setMatchFiltersOpen}>
-                <div className="p-4 sm:p-5">
-                  <CollapsibleTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="w-full justify-between px-0 h-auto hover:bg-transparent"
-                    >
-                      <span className="flex items-center gap-2 text-sm font-semibold">
-                        <Filter className="w-4 h-4 text-primary shrink-0" />
-                        Filtri elenco partite
-                        {matchFiltersActive && (
-                          <span className="text-[10px] rounded-full px-2 py-0.5 bg-primary/10 text-primary border border-primary/20">
-                            attivi
-                          </span>
-                        )}
-                      </span>
-                      <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", matchFiltersOpen && "rotate-180")} />
-                    </Button>
-                  </CollapsibleTrigger>
-                </div>
-                <CollapsibleContent>
-                  <div className="px-4 pb-4 sm:px-5 sm:pb-5 space-y-5">
-                    <div className="grid grid-cols-1 md:grid-cols-[1fr_minmax(0,240px)] gap-4 items-end">
-                      <div className="min-w-0 space-y-1.5">
-                        <Label htmlFor="match-list-search" className="text-xs font-medium text-muted-foreground">
-                          Cerca (avversario, competizione, luogo, note…)
-                        </Label>
-                        <Input
-                          id="match-list-search"
-                          value={matchSearchText}
-                          onChange={(e) => setMatchSearchText(e.target.value)}
-                          placeholder="Es. GRASSINA, campionato…"
-                          className="h-9"
-                        />
-                      </div>
-                      <div className="min-w-0 space-y-1.5">
-                        <span className="text-xs font-medium text-muted-foreground block">Casa / trasferta</span>
-                        <div className="flex rounded-md border border-border bg-background p-0.5 gap-0.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={matchVenueFilter === "all" ? "secondary" : "ghost"}
-                            className="h-8 flex-1 text-xs"
-                            onClick={() => setMatchVenueFilter("all")}
-                          >
-                            Tutte
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={matchVenueFilter === "home" ? "secondary" : "ghost"}
-                            className="h-8 flex-1 text-xs"
-                            onClick={() => setMatchVenueFilter("home")}
-                          >
-                            Casa
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={matchVenueFilter === "away" ? "secondary" : "ghost"}
-                            className="h-8 flex-1 text-xs"
-                            onClick={() => setMatchVenueFilter("away")}
-                          >
-                            Trasferta
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-start pt-1 border-t border-border/50">
-                      <div className="min-w-0 space-y-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Data e orario
-                        </p>
-                        <ScheduleFilterFields
-                          value={scheduleFilter}
-                          onChange={setScheduleFilter}
-                          idPrefix="team-cal"
-                          includeExactTime={false}
-                        />
-                      </div>
-                      <div className="min-w-0 space-y-3 lg:border-l lg:border-border/50 lg:pl-10 pt-6 lg:pt-0 border-t lg:border-t-0 border-border/50">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Squadra (sq.A / sq.B)
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {(["all", "a", "b", "c"] as const).map((k) => (
-                            <Button
-                              key={k}
-                              type="button"
-                              size="sm"
-                              variant={matchSquadFilter === k ? "secondary" : "outline"}
-                              className="h-8 text-xs px-3"
-                              onClick={() => setMatchSquadFilter(k)}
-                            >
-                              {k === "all" ? "Tutte" : `sq.${k.toUpperCase()}`}
-                            </Button>
-                          ))}
-                        </div>
-                        {!teamNameHasSquadMarker(team.name) && (
-                          <p className="text-[11px] text-muted-foreground leading-relaxed">
-                            Con «sq.A», «sq.B»… nel nome squadra il filtro restringe l&apos;elenco; altrimenti le opzioni non hanno effetto.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="border-t border-border/50 pt-4">
-                      <ScheduleFilterExactBlock
-                        value={scheduleFilter}
-                        onChange={setScheduleFilter}
-                        idPrefix="team-cal"
-                        variant="plain"
-                      />
-                    </div>
-
-                    <div className="flex justify-end border-t border-border/50 pt-4">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9 gap-1.5"
-                        disabled={!matchFiltersActive}
-                        onClick={() => {
-                          setMatchSearchText("");
-                          setMatchVenueFilter("all");
-                          setMatchSquadFilter("all");
-                          setScheduleFilter({ ...EMPTY_SCHEDULE_FILTER });
-                        }}
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        Azzera filtri
-                      </Button>
-                    </div>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          )}
-
-          {activePhase.items.length === 0 ? (
-            <Card>
-              <CardContent className="py-10 text-center text-muted-foreground text-sm">
-                {matchFiltersActive && activePhase.rawCount > 0
-                  ? "Nessuna partita in questa fase corrisponde ai filtri. Modifica i criteri sopra o usa «Azzera filtri»."
-                  : "Nessuna partita in questa fase."}
-              </CardContent>
-            </Card>
-          ) : activePhase.items.map(m => (
-            <MatchCard
-              key={m.id}
-              match={m}
-              canEditPreNotes={canEditPreNotes}
-              canEditPostNotes={canEditPostNotes}
-              canEditSchedule={canEditSchedule}
-              canDeleteMatch={canImportExport}
-              canManageMatchPlan={canManageMatchPlan}
-              canViewMatchPlan={canViewMatchPlan}
-              teamPlayers={teamPlayers}
-              matchSection={currentSection}
-              teamName={team?.name ?? ""}
-              teamCategory={team?.category ?? undefined}
-              bulkSelectEnabled={canImportExport}
-              bulkSelected={selectedMatchIds.has(m.id)}
-              onBulkToggle={() => togglePhaseMatchSelection(m.id)}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

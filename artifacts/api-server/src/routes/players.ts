@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, playersTable, teamsTable, teamStaffAssignmentsTable } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { db, playersTable, teamsTable, teamStaffAssignmentsTable, clubNotificationsTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 import {
   ListPlayersResponse,
   ListPlayersQueryParams,
@@ -21,6 +21,58 @@ const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "
 const PLAYER_DELETE_ROLES = ["admin", "presidente", "secretary", "director"];
 const PLAYER_FULL_EDIT_ROLES = ["admin", "presidente", "secretary", "director"];
 const PLAYER_LIMITED_EDIT_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
+const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
+const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
+
+type PlayerNoteRecipient = "secretary" | "technical_director" | "coach_staff";
+type PlayerNoteThreadItem = {
+  id: string;
+  authorRole?: string;
+  authorName?: string;
+  recipient?: PlayerNoteRecipient;
+  body?: string;
+  createdAt?: string;
+  requiresResponse?: boolean;
+  replyToId?: string;
+  repliedAt?: string;
+};
+
+function extractSupplementalTeamId(notes?: string | null): number | null {
+  const full = String(notes ?? "").trim();
+  if (!full.startsWith(PLAYER_META_MARKER)) return null;
+  const nextNewLineIdx = full.indexOf("\n");
+  const encodedMeta = nextNewLineIdx >= 0
+    ? full.slice(PLAYER_META_MARKER.length, nextNewLineIdx).trim()
+    : full.slice(PLAYER_META_MARKER.length).trim();
+  try {
+    const parsed = JSON.parse(encodedMeta) as { supplementalTeamId?: unknown };
+    const n = Number(parsed?.supplementalTeamId);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function stripMetaFromNotes(raw?: string | null): string {
+  const full = String(raw ?? "").trim();
+  if (!full.startsWith(PLAYER_META_MARKER)) return full;
+  const nextNewLineIdx = full.indexOf("\n");
+  return nextNewLineIdx >= 0 ? full.slice(nextNewLineIdx + 1).trim() : "";
+}
+
+function parsePlayerNotesThread(raw?: string | null): PlayerNoteThreadItem[] {
+  const full = String(raw ?? "").trim();
+  if (!full) return [];
+  const idx = full.lastIndexOf(PLAYER_NOTES_MARKER);
+  if (idx < 0) return [];
+  const jsonPart = full.slice(idx + PLAYER_NOTES_MARKER.length).trim();
+  try {
+    const parsed = JSON.parse(jsonPart);
+    return Array.isArray(parsed) ? (parsed as PlayerNoteThreadItem[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 const router: IRouter = Router();
 
@@ -57,6 +109,7 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   }
   const { clubId, userId } = ids;
   const queryParams = ListPlayersQueryParams.safeParse(req.query);
+  const requestedTeamId = queryParams.success ? queryParams.data.teamId : undefined;
   const role = req.session.role ?? "";
   const section = resolveClubSectionFilter(
     role,
@@ -67,7 +120,9 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   let conditions = [eq(playersTable.clubId, clubId)];
   if (section) conditions.push(eq(playersTable.clubSection, section));
 
-  if (!isClubWideListRole(role) && PLAYER_ASSIGNMENT_FILTER_ROLES_NORM.has(normalizeSessionRole(role))) {
+  let assignedTeamIds: number[] = [];
+  const needsAssignmentFiltering = !isClubWideListRole(role) && PLAYER_ASSIGNMENT_FILTER_ROLES_NORM.has(normalizeSessionRole(role));
+  if (needsAssignmentFiltering) {
     const assignments = await db
       .select({ teamId: teamStaffAssignmentsTable.teamId })
       .from(teamStaffAssignmentsTable)
@@ -81,24 +136,30 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
       return;
     }
 
-    const assignedTeamIds = assignments.map(a => a.teamId);
-    if (queryParams.success && queryParams.data.teamId) {
-      if (!assignedTeamIds.includes(queryParams.data.teamId)) {
+    assignedTeamIds = assignments.map(a => a.teamId);
+    if (requestedTeamId) {
+      if (!assignedTeamIds.includes(requestedTeamId)) {
         res.json(ListPlayersResponse.parse([]));
         return;
       }
-      conditions.push(eq(playersTable.teamId, queryParams.data.teamId));
-    } else {
-      conditions.push(inArray(playersTable.teamId, assignedTeamIds));
-    }
-  } else {
-    if (queryParams.success && queryParams.data.teamId) {
-      conditions.push(eq(playersTable.teamId, queryParams.data.teamId));
     }
   }
 
   const players = await db.select().from(playersTable).where(and(...conditions));
-  const enriched = await Promise.all(players.map(enrichPlayer));
+  const filtered = players.filter((player) => {
+    const supplementalTeamId = extractSupplementalTeamId(player.notes);
+    if (requestedTeamId) {
+      return player.teamId === requestedTeamId || supplementalTeamId === requestedTeamId;
+    }
+    if (needsAssignmentFiltering) {
+      return (
+        (player.teamId != null && assignedTeamIds.includes(player.teamId)) ||
+        (supplementalTeamId != null && assignedTeamIds.includes(supplementalTeamId))
+      );
+    }
+    return true;
+  });
+  const enriched = await Promise.all(filtered.map(enrichPlayer));
   res.json(ListPlayersResponse.parse(enriched));
 });
 
@@ -178,8 +239,8 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   }
 
   if (PLAYER_LIMITED_EDIT_ROLES.includes(role) && !PLAYER_FULL_EDIT_ROLES.includes(role)) {
-    // Coach/preparatori can only update notes and availability-related fields.
-    const allowed = new Set(["notes", "status", "available", "unavailabilityReason", "expectedReturn"]);
+    // Coach/preparatori can update notes, availability, and on-field role classification.
+    const allowed = new Set(["notes", "status", "available", "unavailabilityReason", "expectedReturn", "position"]);
     for (const k of Object.keys(updateData)) {
       if (!allowed.has(k)) delete updateData[k];
     }
@@ -222,6 +283,15 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const normalizedRole = normalizeSessionRole(role);
+  const previousThread = parsePlayerNotesThread(stripMetaFromNotes(existingPlayer.notes));
+  const updatedThread =
+    typeof updateData.notes === "string"
+      ? parsePlayerNotesThread(stripMetaFromNotes(String(updateData.notes)))
+      : previousThread;
+  const previousIds = new Set(previousThread.map((n) => n.id));
+  const newlyAddedThreadItems = updatedThread.filter((n) => n?.id && !previousIds.has(n.id));
+
   const [player] = await db
     .update(playersTable)
     .set(updateData)
@@ -231,6 +301,27 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   if (!player) {
     res.status(404).json({ error: "Player not found" });
     return;
+  }
+
+  if (newlyAddedThreadItems.length > 0 && req.session.clubId) {
+    const fullName = `${player.firstName} ${player.lastName}`.trim();
+    for (const note of newlyAddedThreadItems) {
+      const fromSecretary = normalizedRole === "secretary";
+      const toSecretary = note.recipient === "secretary";
+      const secretaryInvolved = fromSecretary || toSecretary;
+      if (!secretaryInvolved) continue;
+      const noteText = String(note.body ?? "").trim();
+      const compactNote = noteText.length > 140 ? `${noteText.slice(0, 137)}...` : noteText;
+      const directionLabel = fromSecretary ? "da segreteria" : "alla segreteria";
+      await db.insert(clubNotificationsTable).values({
+        clubId: req.session.clubId,
+        title: `Nota giocatore ${directionLabel}: ${fullName}`,
+        message: compactNote
+          ? `${compactNote}${note.requiresResponse ? " (richiesta risposta)" : ""}`
+          : `Nuova nota giocatore ${directionLabel}${note.requiresResponse ? " con richiesta risposta" : ""}.`,
+        type: note.requiresResponse ? "warning" : "info",
+      });
+    }
   }
 
   const enriched = await enrichPlayer(player);

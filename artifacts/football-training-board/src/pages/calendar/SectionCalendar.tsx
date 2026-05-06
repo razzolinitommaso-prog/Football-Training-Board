@@ -1,14 +1,21 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   format, addMonths, subMonths, startOfMonth, endOfMonth,
   startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, getDay,
   isBefore, isAfter,
 } from "date-fns";
 import { it } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, CalendarRange, Trophy, Dumbbell, Filter, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CalendarRange, Trophy, Dumbbell, Filter, RotateCcw, Plus, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
+import { normalizeSessionRole } from "@/lib/session-role";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   EMPTY_SCHEDULE_FILTER,
   scheduleTimeFilterActive,
@@ -17,12 +24,31 @@ import {
   type ScheduleFilterOpts,
 } from "@/lib/calendar-schedule-filter";
 import { ScheduleFilterFields } from "@/components/calendar/ScheduleFilterFields";
+import { useToast } from "@/hooks/use-toast";
 
 type Section = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 
 interface TrainingSlot { day: string; startTime: string; endTime: string; }
 interface Team { id: number; name: string; category?: string; trainingSchedule?: TrainingSlot[]; }
 interface Match { id: number; opponent: string; date: string; homeAway: string; result?: string; teamId?: number; teamName?: string; competition?: string; }
+interface PlayerLite { id: number; firstName?: string; lastName?: string; teamId?: number | null; }
+type ExtraCategory = "allenamento_preparazione" | "camp_estivo" | "partita_interna" | "provino";
+type ExtraFrequency = "everyday" | "selected_days";
+interface ExtraEvent {
+  id: number;
+  section: Section;
+  category: ExtraCategory;
+  title: string;
+  dateFrom: string;
+  dateTo: string;
+  startTime: string;
+  endTime: string;
+  frequency: ExtraFrequency;
+  weekdays: number[];
+  targetMode: "all" | "selected";
+  teamIds: number[];
+  playerIds: number[];
+}
 
 async function apiFetch(url: string) {
   const res = await fetch(url, { credentials: "include" });
@@ -57,7 +83,7 @@ const SECTION_LABELS: Record<Section, string> = {
 };
 
 interface CalendarEvent {
-  type: "training" | "match";
+  type: "training" | "match" | "extra";
   teamId: number;
   teamName: string;
   label: string;
@@ -88,6 +114,11 @@ function getInitialMonth(today: Date): Date {
 }
 
 export default function SectionCalendar({ section }: { section: Section }) {
+  const { role } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const nr = normalizeSessionRole(role);
+  const canManageExtraEvents = ["admin", "presidente", "secretary", "director", "technical_director"].includes(nr);
   const today = useMemo(() => new Date(), []);
   const schoolYear = useMemo(() => getSchoolYear(today), [today]);
   const [currentMonth, setCurrentMonth] = useState(() => getInitialMonth(today));
@@ -97,11 +128,22 @@ export default function SectionCalendar({ section }: { section: Section }) {
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilterOpts>(() => ({
     ...EMPTY_SCHEDULE_FILTER,
   }));
+  const [showScheduleFilters, setShowScheduleFilters] = useState(true);
+  const [extraDialogOpen, setExtraDialogOpen] = useState(false);
+  const [extraCategory, setExtraCategory] = useState<ExtraCategory>("allenamento_preparazione");
+  const [extraTitle, setExtraTitle] = useState("");
+  const [extraDateFrom, setExtraDateFrom] = useState("");
+  const [extraDateTo, setExtraDateTo] = useState("");
+  const [extraStartTime, setExtraStartTime] = useState("17:00");
+  const [extraEndTime, setExtraEndTime] = useState("18:30");
+  const [extraFrequency, setExtraFrequency] = useState<ExtraFrequency>("everyday");
+  const [extraWeekdays, setExtraWeekdays] = useState<number[]>([1, 3, 5]);
+  const [extraTargetMode, setExtraTargetMode] = useState<"all" | "selected">("all");
+  const [extraTeamIds, setExtraTeamIds] = useState<number[]>([]);
+  const [extraPlayerIds, setExtraPlayerIds] = useState<number[]>([]);
 
   const goToPrev = () => setCurrentMonth(m => subMonths(m, 1));
   const goToNext = () => setCurrentMonth(m => addMonths(m, 1));
-  const goToToday = () => setCurrentMonth(getInitialMonth(today));
-
   const { data: allTeams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", section],
     queryFn: () => apiFetch(`/api/teams?section=${section}`),
@@ -110,6 +152,14 @@ export default function SectionCalendar({ section }: { section: Section }) {
   const { data: allMatches = [] } = useQuery<Match[]>({
     queryKey: ["/api/matches"],
     queryFn: () => apiFetch("/api/matches"),
+  });
+  const { data: allPlayers = [] } = useQuery<PlayerLite[]>({
+    queryKey: ["/api/players", section, "calendar-extra"],
+    queryFn: () => apiFetch(`/api/players?section=${section}`),
+  });
+  const { data: extraEvents = [] } = useQuery<ExtraEvent[]>({
+    queryKey: ["/api/calendar-extra-events", section],
+    queryFn: () => apiFetch(`/api/calendar-extra-events?section=${section}`),
   });
 
   const sectionTeamIds = useMemo(() => new Set(allTeams.map(t => t.id)), [allTeams]);
@@ -153,9 +203,14 @@ export default function SectionCalendar({ section }: { section: Section }) {
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
+    const seasonStart = schoolYear.start;
+    const seasonEnd = schoolYear.end;
+    // Scuola calcio: attività allenamento fino a fine seconda settimana di giugno.
+    const trainingEnd = new Date(seasonEnd.getFullYear(), 5, 14);
 
     const addEvent = (date: Date, evt: CalendarEvent) => {
-      if (isBefore(date, schoolYear.start) || isAfter(date, schoolYear.end)) return;
+      if (isBefore(date, seasonStart) || isAfter(date, seasonEnd)) return;
+      if (evt.type === "training" && isAfter(date, trainingEnd)) return;
       const key = format(date, "yyyy-MM-dd");
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(evt);
@@ -202,8 +257,34 @@ export default function SectionCalendar({ section }: { section: Section }) {
       });
     });
 
+    extraEvents.forEach((evt) => {
+      if (evt.section !== section) return;
+      const from = new Date(`${evt.dateFrom}T00:00:00`);
+      const to = new Date(`${evt.dateTo}T00:00:00`);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || isAfter(from, to)) return;
+      const days = eachDayOfInterval({ start: from, end: to });
+      const teamsForEvent =
+        evt.targetMode === "all"
+          ? allTeams.filter((t) => selectedTeamIds.has(t.id))
+          : allTeams.filter((t) => evt.teamIds.includes(t.id) && selectedTeamIds.has(t.id));
+      days.forEach((day) => {
+        if (evt.frequency === "selected_days" && !evt.weekdays.includes(getDay(day))) return;
+        teamsForEvent.forEach((team) => {
+          const at = combineLocalDayWithHHmm(day, evt.startTime || "00:00");
+          addEvent(day, {
+            type: "extra",
+            teamId: team.id,
+            teamName: team.name,
+            label: evt.title,
+            time: `${evt.startTime}–${evt.endTime}`,
+            at,
+          });
+        });
+      });
+    });
+
     return map;
-  }, [calendarDays, allTeams, allMatches, sectionTeamIds, schoolYear, selectedTeamIds]);
+  }, [calendarDays, allTeams, allMatches, sectionTeamIds, schoolYear, selectedTeamIds, extraEvents, section]);
 
   const eventsByDayFiltered = useMemo(() => {
     if (!scheduleTimeFilterActive(scheduleFilter)) return eventsByDay;
@@ -218,6 +299,83 @@ export default function SectionCalendar({ section }: { section: Section }) {
   }, [eventsByDay, scheduleFilter]);
 
   const monthLabel = format(currentMonth, "MMMM yyyy", { locale: it });
+  const playersForExtraSelection = useMemo(() => {
+    if (extraTargetMode === "all" || extraTeamIds.length === 0) return allPlayers;
+    const set = new Set(extraTeamIds);
+    return allPlayers.filter((p) => set.has(Number(p.teamId ?? 0)));
+  }, [allPlayers, extraTargetMode, extraTeamIds]);
+
+  const toggleWeekday = (weekday: number) => {
+    setExtraWeekdays((prev) => (prev.includes(weekday) ? prev.filter((d) => d !== weekday) : [...prev, weekday].sort((a, b) => a - b)));
+  };
+
+  const toggleExtraPlayer = (playerId: number) => {
+    setExtraPlayerIds((prev) => (prev.includes(playerId) ? prev.filter((id) => id !== playerId) : [...prev, playerId]));
+  };
+
+  const toggleExtraTeam = (teamId: number) => {
+    setExtraTeamIds((prev) => (prev.includes(teamId) ? prev.filter((id) => id !== teamId) : [...prev, teamId]));
+  };
+
+  const createExtraEventMutation = useMutation({
+    mutationFn: async () => {
+      const categoryLabel =
+        extraCategory === "allenamento_preparazione"
+          ? "Allenamento preparazione"
+          : extraCategory === "camp_estivo"
+            ? "Camp estivo"
+            : extraCategory === "partita_interna"
+              ? "Partita interna"
+              : "Provino";
+      const title = extraTitle.trim() || categoryLabel;
+      const body = {
+        section,
+        category: extraCategory,
+        title,
+        dateFrom: extraDateFrom,
+        dateTo: extraDateTo,
+        startTime: extraStartTime,
+        endTime: extraEndTime,
+        frequency: extraFrequency,
+        weekdays: extraFrequency === "selected_days" ? extraWeekdays : [],
+        targetMode: extraTargetMode,
+        teamIds: extraTargetMode === "selected" ? extraTeamIds : [],
+        playerIds: extraPlayerIds,
+      };
+      const res = await fetch("/api/calendar-extra-events", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["/api/calendar-extra-events", section] });
+      setExtraDialogOpen(false);
+      setExtraTitle("");
+      setExtraDateFrom("");
+      setExtraDateTo("");
+      setExtraStartTime("17:00");
+      setExtraEndTime("18:30");
+      setExtraFrequency("everyday");
+      setExtraWeekdays([1, 3, 5]);
+      setExtraTargetMode("all");
+      setExtraTeamIds([]);
+      setExtraPlayerIds([]);
+      toast({ title: "Evento straordinario creato" });
+    },
+    onError: (err) => {
+      toast({ title: "Evento non creato", description: err instanceof Error ? err.message : "Errore", variant: "destructive" });
+    },
+  });
+
+  const handleCreateExtraEvent = () => {
+    if (!extraDateFrom || !extraDateTo || !extraStartTime || !extraEndTime) return;
+    if (extraFrequency === "selected_days" && extraWeekdays.length === 0) return;
+    if (extraTargetMode === "selected" && extraTeamIds.length === 0) return;
+    createExtraEventMutation.mutate();
+  };
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -231,21 +389,12 @@ export default function SectionCalendar({ section }: { section: Section }) {
             Anno sportivo {schoolYear.label} · 1 settembre – 30 giugno
           </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={goToPrev}>
-            <ChevronLeft className="w-4 h-4" />
+        {canManageExtraEvents && (
+          <Button type="button" className="gap-2" onClick={() => setExtraDialogOpen(true)}>
+            <Plus className="w-4 h-4" />
+            Aggiungi evento straordinario
           </Button>
-          <span className="text-base font-semibold min-w-[155px] text-center capitalize">
-            {monthLabel}
-          </span>
-          <Button variant="outline" size="icon" onClick={goToNext}>
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="sm" className="ml-1 text-xs" onClick={goToToday}>
-            Oggi
-          </Button>
-        </div>
+        )}
       </div>
 
       {allTeams.length > 0 && (
@@ -321,6 +470,24 @@ export default function SectionCalendar({ section }: { section: Section }) {
         </div>
       )}
 
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button variant="outline" size="sm" className="h-9 text-xs" onClick={goToPrev}>
+          Mese precedente
+        </Button>
+        <Button variant="outline" size="icon" onClick={goToPrev}>
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+        <span className="text-base font-semibold min-w-[155px] text-center capitalize">
+          {monthLabel}
+        </span>
+        <Button variant="outline" size="icon" onClick={goToNext}>
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+        <Button variant="outline" size="sm" className="h-9 text-xs" onClick={goToNext}>
+          Mese successivo
+        </Button>
+      </div>
+
       <div className="rounded-xl border border-border/80 bg-muted/15 p-4 space-y-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -328,24 +495,42 @@ export default function SectionCalendar({ section }: { section: Section }) {
               <Filter className="w-4 h-4 text-primary shrink-0" />
               Filtro giorno e fascia oraria
             </div>
-            <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
-              Utile in segreteria per vedere solo impegni in certi slot (es. sabato mattina) e valutare
-              disponibilità di campo o sovrapposizioni tra annate.
-            </p>
+            {showScheduleFilters && (
+              <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+                Utile in segreteria per vedere solo impegni in certi slot (es. sabato mattina) e valutare
+                disponibilità di campo o sovrapposizioni tra annate.
+              </p>
+            )}
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 gap-1.5 shrink-0"
-            disabled={!scheduleTimeFilterActive(scheduleFilter)}
-            onClick={() => setScheduleFilter({ ...EMPTY_SCHEDULE_FILTER })}
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Azzera orario
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => setShowScheduleFilters((v) => !v)}
+              title={showScheduleFilters ? "Nascondi filtri orari" : "Mostra filtri orari"}
+            >
+              {showScheduleFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </Button>
+            {showScheduleFilters && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5 shrink-0"
+                disabled={!scheduleTimeFilterActive(scheduleFilter)}
+                onClick={() => setScheduleFilter({ ...EMPTY_SCHEDULE_FILTER })}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Azzera orario
+              </Button>
+            )}
+          </div>
         </div>
-        <ScheduleFilterFields value={scheduleFilter} onChange={setScheduleFilter} idPrefix={`sec-cal-${section}`} />
+        {showScheduleFilters && (
+          <ScheduleFilterFields value={scheduleFilter} onChange={setScheduleFilter} idPrefix={`sec-cal-${section}`} />
+        )}
       </div>
 
       <div className="border rounded-xl overflow-hidden shadow-sm bg-card">
@@ -362,7 +547,6 @@ export default function SectionCalendar({ section }: { section: Section }) {
             const events = eventsByDayFiltered.get(key) ?? [];
             const isToday = isSameDay(day, today);
             const isCurrentMonth = isSameMonth(day, currentMonth);
-            const isOutOfSeason = isBefore(day, schoolYear.start) || isAfter(day, schoolYear.end);
             const isLastRow = idx >= calendarDays.length - 7;
             const isRightEdge = idx % 7 === 6;
 
@@ -371,7 +555,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
                 key={key}
                 className={[
                   "min-h-[100px] p-1.5 border-b border-r flex flex-col gap-0.5",
-                  (!isCurrentMonth || isOutOfSeason) && "bg-muted/20",
+                  !isCurrentMonth && "bg-muted/20",
                   isLastRow && "border-b-0",
                   isRightEdge && "border-r-0",
                 ].filter(Boolean).join(" ")}
@@ -380,15 +564,13 @@ export default function SectionCalendar({ section }: { section: Section }) {
                   "text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full mb-0.5 self-end",
                   isToday
                     ? "bg-primary text-primary-foreground"
-                    : isOutOfSeason
-                    ? "text-muted-foreground/30"
                     : isCurrentMonth
                     ? "text-foreground"
                     : "text-muted-foreground/50",
                 ].join(" ")}>
                   {format(day, "d")}
                 </span>
-                {!isOutOfSeason && events.map((evt, i) => {
+                {events.map((evt, i) => {
                   const color = teamColorMap.get(evt.teamId);
                   if (evt.type === "training") {
                     return (
@@ -400,6 +582,18 @@ export default function SectionCalendar({ section }: { section: Section }) {
                         <Dumbbell className="w-2.5 h-2.5 flex-shrink-0 opacity-70" />
                         <span className="truncate">{evt.teamName}</span>
                         {evt.time && <span className="flex-shrink-0 opacity-70 hidden sm:inline">{evt.time}</span>}
+                      </div>
+                    );
+                  }
+                  if (evt.type === "extra") {
+                    return (
+                      <div
+                        key={`x-${i}`}
+                        title={`${evt.teamName} — ${evt.label} ${evt.time ?? ""}`.trim()}
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border leading-tight cursor-default bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200`}
+                      >
+                        <ClipboardList className="w-2.5 h-2.5 flex-shrink-0 opacity-80" />
+                        <span className="truncate">{evt.label}</span>
                       </div>
                     );
                   }
@@ -428,7 +622,133 @@ export default function SectionCalendar({ section }: { section: Section }) {
         <span className="flex items-center gap-1.5">
           <Trophy className="w-3.5 h-3.5" /> Partita
         </span>
+        <span className="flex items-center gap-1.5">
+          <ClipboardList className="w-3.5 h-3.5" /> Evento straordinario
+        </span>
       </div>
+
+      <Dialog open={extraDialogOpen} onOpenChange={setExtraDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Nuovo evento straordinario</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Tipologia</Label>
+              <Select value={extraCategory} onValueChange={(v) => setExtraCategory(v as ExtraCategory)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="allenamento_preparazione">Allenamenti preparazione</SelectItem>
+                  <SelectItem value="camp_estivo">Camp estivo</SelectItem>
+                  <SelectItem value="partita_interna">Partite interne</SelectItem>
+                  <SelectItem value="provino">Provini</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Titolo (opzionale)</Label>
+              <Input value={extraTitle} onChange={(e) => setExtraTitle(e.target.value)} placeholder="Es. Preparazione pre-campionato" />
+            </div>
+            <div className="space-y-1">
+              <Label>Data da</Label>
+              <Input type="date" value={extraDateFrom} onChange={(e) => setExtraDateFrom(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Data a</Label>
+              <Input type="date" value={extraDateTo} onChange={(e) => setExtraDateTo(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Orario inizio</Label>
+              <Input type="time" value={extraStartTime} onChange={(e) => setExtraStartTime(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Orario fine</Label>
+              <Input type="time" value={extraEndTime} onChange={(e) => setExtraEndTime(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Frequenza</Label>
+              <Select value={extraFrequency} onValueChange={(v) => setExtraFrequency(v as ExtraFrequency)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="everyday">Tutti i giorni</SelectItem>
+                  <SelectItem value="selected_days">Seleziona giorni</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Invia calendari</Label>
+              <Select value={extraTargetMode} onValueChange={(v) => setExtraTargetMode(v as "all" | "selected")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tutti i calendari annata</SelectItem>
+                  <SelectItem value="selected">Solo calendari selezionati</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {extraTargetMode === "selected" && (
+            <div className="space-y-2">
+              <Label>Annate selezionate</Label>
+              <div className="max-h-28 overflow-auto rounded border p-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {allTeams.map((team) => (
+                  <label key={team.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={extraTeamIds.includes(team.id)} onCheckedChange={() => toggleExtraTeam(team.id)} />
+                    <span>{team.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {extraFrequency === "selected_days" && (
+            <div className="space-y-2">
+              <Label>Giorni</Label>
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { id: 1, label: "Lun" },
+                  { id: 2, label: "Mar" },
+                  { id: 3, label: "Mer" },
+                  { id: 4, label: "Gio" },
+                  { id: 5, label: "Ven" },
+                  { id: 6, label: "Sab" },
+                  { id: 0, label: "Dom" },
+                ].map((d) => (
+                  <label key={d.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={extraWeekdays.includes(d.id)} onCheckedChange={() => toggleWeekday(d.id)} />
+                    <span>{d.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Lista giocatori presenti</Label>
+            <div className="max-h-40 overflow-auto rounded border p-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {playersForExtraSelection.map((p) => {
+                const fullName = `${String(p.firstName ?? "").trim()} ${String(p.lastName ?? "").trim()}`.trim() || `Giocatore ${p.id}`;
+                return (
+                  <label key={p.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={extraPlayerIds.includes(p.id)} onCheckedChange={() => toggleExtraPlayer(p.id)} />
+                    <span>{fullName}</span>
+                  </label>
+                );
+              })}
+              {playersForExtraSelection.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nessun giocatore disponibile per la selezione annate corrente.</p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setExtraDialogOpen(false)}>Annulla</Button>
+            <Button type="button" onClick={handleCreateExtraEvent} disabled={createExtraEventMutation.isPending}>
+              {createExtraEventMutation.isPending ? "Inserimento..." : "Inserisci evento"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

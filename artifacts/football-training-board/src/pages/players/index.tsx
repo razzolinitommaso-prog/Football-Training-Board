@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -61,6 +61,9 @@ const editSchema = z.object({
   available: z.boolean().optional(),
   unavailabilityReason: z.string().optional(),
   expectedReturn: z.string().optional(),
+  squad: z.enum(["A", "B", "C", "D"]).optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
+  supplementalTeamId: z.coerce.number().optional().nullable(),
 });
 
 type EditForm = z.infer<typeof editSchema>;
@@ -84,6 +87,8 @@ type Player = {
   available?: boolean;
   unavailabilityReason?: string | null;
   expectedReturn?: string | null;
+  squad?: "A" | "B" | "C" | "D" | null;
+  imageUrl?: string | null;
 };
 
 function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof useLanguage>["t"]) {
@@ -122,6 +127,47 @@ type PlayerNoteThreadItem = {
 };
 
 const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
+const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
+type PlayerMeta = {
+  squad?: "A" | "B" | "C" | "D" | null;
+  imageUrl?: string | null;
+  supplementalTeamId?: number | null;
+};
+
+function splitPlayerMeta(raw?: string | null): { notesRaw: string; meta: PlayerMeta } {
+  const full = (raw ?? "").trim();
+  if (!full.startsWith(PLAYER_META_MARKER)) return { notesRaw: full, meta: {} };
+  const nextNewLineIdx = full.indexOf("\n");
+  const encodedMeta = nextNewLineIdx >= 0
+    ? full.slice(PLAYER_META_MARKER.length, nextNewLineIdx).trim()
+    : full.slice(PLAYER_META_MARKER.length).trim();
+  const notesRaw = nextNewLineIdx >= 0 ? full.slice(nextNewLineIdx + 1) : "";
+  try {
+    const parsed = JSON.parse(encodedMeta) as PlayerMeta;
+    return {
+      notesRaw: notesRaw.trim(),
+      meta: {
+        squad: parsed?.squad ?? null,
+        imageUrl: parsed?.imageUrl ?? null,
+        supplementalTeamId: parsed?.supplementalTeamId ?? null,
+      },
+    };
+  } catch {
+    return { notesRaw: full, meta: {} };
+  }
+}
+
+function composePlayerMeta(notesRaw: string, meta: PlayerMeta): string {
+  const cleanNotes = notesRaw.trim();
+  const hasAnyMeta = Boolean(meta?.squad || meta?.imageUrl || meta?.supplementalTeamId);
+  if (!hasAnyMeta) return cleanNotes;
+  const encoded = `${PLAYER_META_MARKER}${JSON.stringify({
+    squad: meta.squad ?? null,
+    imageUrl: meta.imageUrl ?? null,
+    supplementalTeamId: meta.supplementalTeamId ?? null,
+  })}`;
+  return cleanNotes ? `${encoded}\n${cleanNotes}` : encoded;
+}
 
 function splitPlayerNotes(raw?: string | null): { plainNote: string; thread: PlayerNoteThreadItem[] } {
   const full = (raw ?? "").trim();
@@ -161,11 +207,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [heightMax, setHeightMax] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [openedFromQuery, setOpenedFromQuery] = useState(false);
   const [formSeasonFilter, setFormSeasonFilter] = useState<string>("all");
   const [noteDraftText, setNoteDraftText] = useState("");
   const [noteRecipient, setNoteRecipient] = useState<PlayerNoteRecipient>("secretary");
   const [noteRequiresResponse, setNoteRequiresResponse] = useState(false);
   const [noteReplyToId, setNoteReplyToId] = useState<string>("");
+  const noteDraftRef = useRef<HTMLTextAreaElement | null>(null);
   const [lastDeletedPlayer, setLastDeletedPlayer] = useState<Player | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -173,7 +221,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const isLimitedEditor = ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(nr);
   const canEditFullPlayer = !isLimitedEditor && !!nr;
   const canEditAvailability = nr === "admin" || nr === "secretary" || nr === "director" || isLimitedEditor;
+  const canEditRoleAndSquad = canEditFullPlayer || isLimitedEditor;
   const canWritePlayerNotes = isLimitedEditor || nr === "secretary" || nr === "director" || nr === "admin" || nr === "presidente";
+  const canUploadPlayerImage = ["admin", "presidente", "secretary", "director"].includes(nr);
+  const canEditSupplementalTeam = canUploadPlayerImage;
   const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
   const isStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "technical_director" || nr === "athletic_director";
   const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
@@ -283,7 +334,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
   const openEdit = (player: Player) => {
     setEditingPlayer(player);
-    const parsedNotes = splitPlayerNotes(player.notes ?? "");
+    const { notesRaw, meta } = splitPlayerMeta(player.notes ?? "");
+    const parsedNotes = splitPlayerNotes(notesRaw);
     setNoteDraftText("");
     setNoteReplyToId("");
     setNoteRequiresResponse(false);
@@ -305,23 +357,56 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       available: player.available ?? true,
       unavailabilityReason: player.unavailabilityReason ?? undefined,
       expectedReturn: player.expectedReturn ?? undefined,
+      squad: player.squad ?? meta.squad ?? null,
+      imageUrl: player.imageUrl ?? meta.imageUrl ?? null,
+      supplementalTeamId: meta.supplementalTeamId ?? null,
     });
   };
+
+  const getReplyRecipient = (authorRole?: string): PlayerNoteRecipient => {
+    const r = normalizeSessionRole(authorRole);
+    if (r === "secretary") return "secretary";
+    if (r === "technical_director") return "technical_director";
+    return "coach_staff";
+  };
+
+  useEffect(() => {
+    if (openedFromQuery || editingPlayer) return;
+    const list = (players as Player[] | undefined) ?? [];
+    if (list.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const openPlayerId = Number(params.get("openPlayerId") ?? 0);
+    if (!Number.isFinite(openPlayerId) || openPlayerId <= 0) return;
+    const target = list.find((p) => p.id === openPlayerId);
+    if (!target) return;
+    openEdit(target);
+    setOpenedFromQuery(true);
+    if (params.get("focus") === "notes") {
+      window.setTimeout(() => {
+        const el = document.querySelector('textarea[placeholder="Scrivi una comunicazione sul giocatore..."]');
+        if (el instanceof HTMLElement) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 120);
+    }
+    params.delete("openPlayerId");
+    params.delete("focus");
+    const qs = params.toString();
+    const nextUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+    window.history.replaceState({}, "", nextUrl);
+  }, [openedFromQuery, editingPlayer, players]);
 
   const handleEditSubmit = (data: EditForm) => {
     if (!editingPlayer) return;
     const registered = data.registered === true;
-    const parsed = splitPlayerNotes(data.notes ?? "");
+    const { notesRaw: notesWithoutMeta } = splitPlayerMeta(data.notes ?? "");
+    const parsed = splitPlayerNotes(notesWithoutMeta);
     const thread = [...parsed.thread];
     const draftText = noteDraftText.trim();
-    let repliedNote: PlayerNoteThreadItem | null = null;
     if (draftText && canWritePlayerNotes) {
       const nowIso = new Date().toISOString();
       if (noteReplyToId) {
         const idx = thread.findIndex((n) => n.id === noteReplyToId);
         if (idx >= 0) {
           thread[idx] = { ...thread[idx], repliedAt: nowIso };
-          repliedNote = thread[idx];
         }
       }
       thread.push({
@@ -339,8 +424,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     const payload: Record<string, unknown> = {
       ...data,
       registered,
-      notes: composePlayerNotes(parsed.plainNote, thread),
+      notes: composePlayerMeta(
+        composePlayerNotes(parsed.plainNote, thread),
+        {
+          squad: data.squad ?? null,
+          imageUrl: data.imageUrl ?? null,
+          supplementalTeamId: data.supplementalTeamId ?? null,
+        }
+      ),
     };
+    delete payload.supplementalTeamId;
     if (!registered) payload.available = false;
     if (payload.status === "injured") {
       payload.available = false;
@@ -354,6 +447,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (isLimitedEditor) {
       const limitedPayload: Record<string, unknown> = {
         notes: payload.notes,
+        position: payload.position,
         available: payload.available,
         unavailabilityReason: payload.unavailabilityReason,
         expectedReturn: payload.expectedReturn,
@@ -364,18 +458,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       updateMutation.mutate({ id: editingPlayer.id, data: payload as any });
     }
 
-    if (repliedNote && ["secretary", "technical_director", "director", "admin", "presidente"].includes(nr)) {
-      void fetch("/api/club/notifications", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: `Risposta nota giocatore: ${editingPlayer.firstName} ${editingPlayer.lastName}`,
-          message: `Risposta inviata alla nota in attesa su ${editingPlayer.firstName} ${editingPlayer.lastName}.`,
-          type: "info",
-        }),
-      }).catch(() => null);
-    }
   };
 
   const activeFilterCount = [
@@ -593,6 +675,59 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
             <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
+                  <Label>Immagine giocatore</Label>
+                  <div className="flex items-center gap-3">
+                    {editForm.watch("imageUrl") ? (
+                      <img
+                        src={editForm.watch("imageUrl") ?? ""}
+                        alt="Anteprima giocatore"
+                        className="h-20 w-20 rounded-md object-cover border"
+                      />
+                    ) : (
+                      <div className="h-20 w-20 rounded-md border bg-muted flex items-center justify-center text-muted-foreground">
+                        <User className="h-8 w-8" />
+                      </div>
+                    )}
+                  </div>
+                  {!canUploadPlayerImage && (
+                    <p className="text-[11px] text-muted-foreground">Consentito solo a segreteria e ruoli equivalenti.</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Carica file immagine</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      disabled={!canUploadPlayerImage}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const value = typeof reader.result === "string" ? reader.result : "";
+                          editForm.setValue("imageUrl", value || null, { shouldDirty: true });
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={!canUploadPlayerImage}
+                      onClick={() => editForm.setValue("imageUrl", null, { shouldDirty: true })}
+                      title="Rimuovi immagine"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Carica immagine profilo giocatore.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
                   <Label>{t.firstName} <span className="text-destructive">*</span></Label>
                   <Input {...editForm.register("firstName")} disabled={!canEditFullPlayer} />
                 </div>
@@ -604,33 +739,19 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>{t.dateOfBirth}</Label>
-                  <Input type="date" {...editForm.register("dateOfBirth")} disabled={!canEditFullPlayer} />
-                </div>
-                <div className="space-y-2">
                   <Label>{t.nationality}</Label>
                   <Input {...editForm.register("nationality")} disabled={!canEditFullPlayer} />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.dateOfBirth}</Label>
+                  <Input type="date" {...editForm.register("dateOfBirth")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>{t.position}</Label>
-                  <Controller
-                    control={editForm.control}
-                    name="position"
-                    render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditFullPlayer}>
-                        <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="GK">{t.goalkeeper}</SelectItem>
-                          <SelectItem value="DEF">{t.defender}</SelectItem>
-                          <SelectItem value="MID">{t.midfielder}</SelectItem>
-                          <SelectItem value="FWD">{t.forward}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
+                  <Label>{t.registrationNumber}</Label>
+                  <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t.jerseyNumber}</Label>
@@ -655,8 +776,28 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>{t.registrationNumber}</Label>
-                  <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
+                  <Label>Assegna squadra supplementare</Label>
+                  <Controller
+                    control={editForm.control}
+                    name="supplementalTeamId"
+                    render={({ field }) => (
+                      <Select
+                        onValueChange={(v) => field.onChange(v === "_none" ? null : parseInt(v))}
+                        value={field.value ? String(field.value) : "_none"}
+                        disabled={!canEditSupplementalTeam}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Nessuna" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">Nessuna</SelectItem>
+                          {teams?.map(team => (
+                            <SelectItem key={`supp-${team.id}`} value={team.id.toString()}>
+                              {team.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
                 </div>
               </div>
 
@@ -668,6 +809,49 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 <div className="space-y-2">
                   <Label>{t.weight} (kg)</Label>
                   <Input type="number" {...editForm.register("weight")} disabled={!canEditFullPlayer} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Squadra</Label>
+                  <Controller
+                    control={editForm.control}
+                    name="squad"
+                    render={({ field }) => (
+                      <Select
+                        onValueChange={(v) => field.onChange(v)}
+                        value={field.value || ""}
+                        disabled={!canEditRoleAndSquad}
+                      >
+                        <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="A">A</SelectItem>
+                          <SelectItem value="B">B</SelectItem>
+                          <SelectItem value="C">C</SelectItem>
+                          <SelectItem value="D">D</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.position}</Label>
+                  <Controller
+                    control={editForm.control}
+                    name="position"
+                    render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditRoleAndSquad}>
+                        <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="GK">{t.goalkeeper}</SelectItem>
+                          <SelectItem value="DEF">{t.defender}</SelectItem>
+                          <SelectItem value="MID">{t.midfielder}</SelectItem>
+                          <SelectItem value="FWD">{t.forward}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
                 </div>
               </div>
 
@@ -726,12 +910,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         value={parsed.plainNote}
                         onChange={(e) => editForm.setValue("notes", composePlayerNotes(e.target.value, parsed.thread))}
                         disabled={!canWritePlayerNotes}
+                        spellCheck={false}
                         placeholder="Nota generale sul giocatore..."
                       />
                       {parsed.thread.length > 0 && (
                         <div className="space-y-1 max-h-36 overflow-auto rounded border p-2 bg-muted/20">
                           {parsed.thread.map((n) => (
-                            <div key={n.id} className="text-xs rounded border px-2 py-1 bg-background">
+                            <div
+                              key={n.id}
+                              className={`text-xs rounded border px-2 py-1 bg-background ${noteReplyToId === n.id ? "border-primary ring-1 ring-primary/30" : ""}`}
+                            >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-medium">{n.authorName || n.authorRole}</span>
                                 <span className="text-muted-foreground">{new Date(n.createdAt).toLocaleString("it-IT")}</span>
@@ -752,9 +940,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                                   size="sm"
                                   variant="ghost"
                                   className="h-6 px-2 text-[10px] mt-1"
-                                  onClick={() => setNoteReplyToId(n.id)}
+                                  onClick={() => {
+                                    setNoteReplyToId(n.id);
+                                    setNoteRecipient(getReplyRecipient(n.authorRole));
+                                    setNoteRequiresResponse(false);
+                                    window.setTimeout(() => noteDraftRef.current?.focus(), 0);
+                                  }}
                                 >
-                                  Rispondi
+                                  {noteReplyToId === n.id ? "Risposta selezionata" : "Rispondi"}
                                 </Button>
                               )}
                             </div>
@@ -765,8 +958,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         <div className="space-y-2 rounded border p-2 bg-muted/20">
                           <Label className="text-xs">Nuova comunicazione</Label>
                           <Textarea
+                            ref={noteDraftRef}
                             value={noteDraftText}
                             onChange={(e) => setNoteDraftText(e.target.value)}
+                            spellCheck={false}
                             placeholder="Scrivi una comunicazione sul giocatore..."
                           />
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -870,7 +1065,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               <DialogFooter className="pt-2">
                 <Button type="button" variant="outline" onClick={() => setEditingPlayer(null)}>{t.cancel}</Button>
                 <Button type="submit" disabled={updateMutation.isPending}>
-                  {updateMutation.isPending ? t.saving : t.saveChanges}
+                  {updateMutation.isPending ? t.saving : "INVIA MODIFICHE"}
                 </Button>
               </DialogFooter>
             </form>
@@ -1002,12 +1197,28 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </tr>
               ) : (
                 filteredPlayers?.map(player => (
+                  (() => {
+                    const { meta } = splitPlayerMeta(player.notes ?? "");
+                    const imageUrl = player.imageUrl ?? meta.imageUrl ?? null;
+                    return (
                   <tr key={player.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold font-display text-sm border shadow-sm ${player.available === false ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800" : "bg-secondary text-secondary-foreground"}`}>
-                          {player.firstName[0]}{player.lastName[0]}
-                        </div>
+                        {imageUrl ? (
+                          <img
+                            src={imageUrl}
+                            alt={`${player.firstName} ${player.lastName}`}
+                            className="w-10 h-10 rounded-md object-cover border shadow-sm"
+                          />
+                        ) : (
+                          <div className={`w-10 h-10 rounded-md flex items-center justify-center border shadow-sm ${
+                            player.available === false
+                              ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+                              : "bg-muted text-muted-foreground"
+                          }`}>
+                            <User className="w-4 h-4" />
+                          </div>
+                        )}
                         <div>
                           <div className="font-semibold text-foreground">{player.firstName} {player.lastName}</div>
                           {player.jerseyNumber && <div className="text-xs text-muted-foreground">#{player.jerseyNumber}</div>}
@@ -1095,6 +1306,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       </div>
                     </td>
                   </tr>
+                    );
+                  })()
                 ))
               )}
             </tbody>

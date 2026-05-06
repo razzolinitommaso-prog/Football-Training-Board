@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { useListTeams } from "@workspace/api-client-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,6 +9,7 @@ import {
   Copy,
   Share2,
   Search,
+  ChevronDown,
   ChevronLeft,
   Mic,
   Video,
@@ -16,10 +18,13 @@ import {
   Upload,
   Folder,
   Maximize2,
+  MousePointer2,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { withApi } from "@/lib/api-base";
 import { FORMATIONS, isFormationPresetId } from "./formations";
-import type { TacticalBoardData, TacticalBoardElement, TacticalBoardFormat } from "./board-types";
+import type { ArrowToolPreset, TacticalBoardData, TacticalBoardElement, TacticalBoardFormat } from "./board-types";
 import { useTeamPlayers, type TeamPlayer } from "./use-team-players";
 import { assignPlayersToElements } from "./player-mapping";
 
@@ -40,6 +45,21 @@ const parseNumericId = (value: unknown): number | null => {
   return null;
 };
 
+const formatRosterLastName = (player?: Pick<TeamPlayer, "firstName" | "lastName"> | null) => {
+  const raw = String(player?.lastName || player?.firstName || "").trim();
+  if (!raw) return "";
+  return raw
+    .toLowerCase()
+    .split(/\s+/)
+    .map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : "")
+    .join(" ");
+};
+
+const fullPlayerName = (player: Pick<TeamPlayer, "firstName" | "lastName">) =>
+  `${player.firstName ?? ""} ${player.lastName ?? ""}`.trim();
+
+const isPlayerAvailable = (player?: Pick<TeamPlayer, "available"> | null) => player?.available !== false;
+
 const BOARD_TYPES = ["Training", "Match", "Set Piece", "Quick Idea"] as const;
 const BOARD_TAGS = ["Pressing", "Build-up", "Transition"] as const;
 const EQUIPMENT_TOOLS = ["ball", "cone", "goal", "goalLarge", "sagoma", "flag", "ladder", "hurdle", "pole", "vest", "disc", "cinesino", "text"] as const;
@@ -58,13 +78,14 @@ const FIELD_MEASUREMENTS: Record<TacticalBoardFormat, {
   goalAreaWidth: number;
   penaltySpotDistance: number;
   goalWidth: number;
+  goalDepth: number;
   cornerRadius: number;
 }> = {
-  "3v3": { canvasLength: 110, canvasWidth: 75, length: 25, width: 15, gridStep: 10, centerCircleRadius: 3, penaltyAreaDepth: 0, penaltyAreaWidth: 0, goalAreaDepth: 0, goalAreaWidth: 0, penaltySpotDistance: 0, goalWidth: 3, cornerRadius: 1 },
-  "5v5": { canvasLength: 110, canvasWidth: 75, length: 40, width: 25, gridStep: 10, centerCircleRadius: 4, penaltyAreaDepth: 6, penaltyAreaWidth: 15, goalAreaDepth: 0, goalAreaWidth: 0, penaltySpotDistance: 6, goalWidth: 3, cornerRadius: 1 },
-  "7v7": { canvasLength: 110, canvasWidth: 75, length: 65, width: 45, gridStep: 10, centerCircleRadius: 6, penaltyAreaDepth: 13, penaltyAreaWidth: 26, goalAreaDepth: 4, goalAreaWidth: 14, penaltySpotDistance: 9, goalWidth: 5, cornerRadius: 1 },
-  "9v9": { canvasLength: 110, canvasWidth: 75, length: 72, width: 50, gridStep: 10, centerCircleRadius: 6, penaltyAreaDepth: 13, penaltyAreaWidth: 30, goalAreaDepth: 4.5, goalAreaWidth: 16, penaltySpotDistance: 9, goalWidth: 6, cornerRadius: 1 },
-  "11v11": { canvasLength: 110, canvasWidth: 75, length: 110, width: 75, gridStep: 10, centerCircleRadius: 9.15, penaltyAreaDepth: 16.5, penaltyAreaWidth: 40.32, goalAreaDepth: 5.5, goalAreaWidth: 18.32, penaltySpotDistance: 11, goalWidth: 7.32, cornerRadius: 1 },
+  "3v3": { canvasLength: 27.4, canvasWidth: 17.4, length: 25, width: 15, gridStep: 5, centerCircleRadius: 3, penaltyAreaDepth: 0, penaltyAreaWidth: 0, goalAreaDepth: 0, goalAreaWidth: 0, penaltySpotDistance: 0, goalWidth: 3, goalDepth: 1.2, cornerRadius: 1 },
+  "5v5": { canvasLength: 42.8, canvasWidth: 27.8, length: 40, width: 25, gridStep: 5, centerCircleRadius: 4, penaltyAreaDepth: 6, penaltyAreaWidth: 15, goalAreaDepth: 0, goalAreaWidth: 0, penaltySpotDistance: 6, goalWidth: 3, goalDepth: 1.4, cornerRadius: 1 },
+  "7v7": { canvasLength: 68.2, canvasWidth: 47.2, length: 65, width: 45, gridStep: 5, centerCircleRadius: 6, penaltyAreaDepth: 13, penaltyAreaWidth: 26, goalAreaDepth: 4, goalAreaWidth: 14, penaltySpotDistance: 9, goalWidth: 5, goalDepth: 1.6, cornerRadius: 1 },
+  "9v9": { canvasLength: 75.6, canvasWidth: 52.6, length: 72, width: 50, gridStep: 5, centerCircleRadius: 6, penaltyAreaDepth: 13, penaltyAreaWidth: 30, goalAreaDepth: 4.5, goalAreaWidth: 16, penaltySpotDistance: 9, goalWidth: 6, goalDepth: 1.8, cornerRadius: 1 },
+  "11v11": { canvasLength: 114, canvasWidth: 77, length: 110, width: 75, gridStep: 10, centerCircleRadius: 9.15, penaltyAreaDepth: 16.5, penaltyAreaWidth: 40.32, goalAreaDepth: 5.5, goalAreaWidth: 18.32, penaltySpotDistance: 11, goalWidth: 7.32, goalDepth: 2, cornerRadius: 1 },
 };
 
 function isPlayerType(type?: string): boolean {
@@ -102,6 +123,124 @@ function makeSmoothPath(points: Array<{ x: number; y: number }>) {
   return d;
 }
 
+const DEFAULT_ARROW_PRESET: ArrowToolPreset = {
+  geometry: "freehand",
+  heads: "end",
+  lineStyle: "solid",
+};
+
+function buildArrowDrawShape(preset: ArrowToolPreset): string {
+  const base = preset.geometry === "straight" ? "straight-arrow" : "freehand-arrow";
+  return preset.lineStyle === "dashed" ? `${base}-dashed` : base;
+}
+
+function resolveArrowHeads(el: TacticalBoardElement): ArrowToolPreset["heads"] {
+  const h = el.arrowHeads;
+  if (h === "none" || h === "end" || h === "start" || h === "both") return h;
+  if (el.type !== "arrow" && el.type !== "bezierarrow") return "none";
+  if (el.arrowEnd === "none") return "none";
+  return "end";
+}
+
+function polylineLength(points: Array<{ x: number; y: number }>): number {
+  let s = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    s += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  }
+  return s;
+}
+
+function drawingPathData(el: TacticalBoardElement, points: Array<{ x: number; y: number }>): string {
+  if (points.length < 2) return "";
+  if (String(el.drawShape ?? "").includes("straight")) {
+    const a = points[0];
+    const b = points[points.length - 1];
+    return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
+  }
+  return makeSmoothPath(points);
+}
+
+function strokeDashForDrawing(el: TacticalBoardElement): string | undefined {
+  return String(el.drawShape ?? "").includes("dashed") ? "2.3 1.6" : undefined;
+}
+
+function ArrowToolPresetMenuContent({
+  arrowToolPreset,
+  setArrowToolPreset,
+}: {
+  arrowToolPreset: ArrowToolPreset;
+  setArrowToolPreset: React.Dispatch<React.SetStateAction<ArrowToolPreset>>;
+}) {
+  return (
+    <>
+      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Tracciato</div>
+      <div className="mb-2 grid gap-1">
+        <button
+          type="button"
+          onClick={() => setArrowToolPreset((p) => ({ ...p, geometry: "freehand" }))}
+          className={`rounded-lg px-3 py-2 text-left text-sm ${
+            arrowToolPreset.geometry === "freehand" ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"
+          }`}
+        >
+          Mano libera (curva)
+        </button>
+        <button
+          type="button"
+          onClick={() => setArrowToolPreset((p) => ({ ...p, geometry: "straight" }))}
+          className={`rounded-lg px-3 py-2 text-left text-sm ${
+            arrowToolPreset.geometry === "straight" ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"
+          }`}
+        >
+          Rettilinea
+        </button>
+      </div>
+      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Punte</div>
+      <div className="mb-2 grid gap-1">
+        {(
+          [
+            ["end", "Verso la fine"],
+            ["start", "Verso l'inizio"],
+            ["both", "Entrambe le estremità"],
+            ["none", "Senza punta"],
+          ] as const
+        ).map(([heads, label]) => (
+          <button
+            key={heads}
+            type="button"
+            onClick={() => setArrowToolPreset((p) => ({ ...p, heads }))}
+            className={`rounded-lg px-3 py-2 text-left text-sm ${
+              arrowToolPreset.heads === heads ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Linea</div>
+      <div className="grid gap-1">
+        <button
+          type="button"
+          onClick={() => setArrowToolPreset((p) => ({ ...p, lineStyle: "solid" }))}
+          className={`rounded-lg px-3 py-2 text-left text-sm ${
+            arrowToolPreset.lineStyle === "solid" ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"
+          }`}
+        >
+          Continua
+        </button>
+        <button
+          type="button"
+          onClick={() => setArrowToolPreset((p) => ({ ...p, lineStyle: "dashed" }))}
+          className={`rounded-lg px-3 py-2 text-left text-sm ${
+            arrowToolPreset.lineStyle === "dashed" ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"
+          }`}
+        >
+          Tratteggiata
+        </button>
+      </div>
+    </>
+  );
+}
+
 function MetricFieldOverlay({
   spec,
   showGrid,
@@ -111,22 +250,31 @@ function MetricFieldOverlay({
   showGrid: boolean;
   showFieldMarkings: boolean;
 }) {
-  const verticalLines = Array.from({ length: Math.floor(spec.canvasLength / spec.gridStep) }, (_, i) => (i + 1) * spec.gridStep).filter((x) => x < spec.canvasLength);
+  const verticalLines = Array.from({ length: Math.floor(spec.length / spec.gridStep) }, (_, i) => (i + 1) * spec.gridStep).filter((x) => x < spec.length);
   const penaltyTop = (spec.width - spec.penaltyAreaWidth) / 2;
   const goalAreaTop = (spec.width - spec.goalAreaWidth) / 2;
   const goalTop = (spec.width - spec.goalWidth) / 2;
+  const goalNetLines = Array.from({ length: 5 }, (_, i) => i + 1);
   const showPenaltyArea = spec.penaltyAreaDepth > 0 && spec.penaltyAreaWidth > 0;
   const showGoalArea = spec.goalAreaDepth > 0 && spec.goalAreaWidth > 0;
   const showPenaltySpot = spec.penaltySpotDistance > 0;
   const fieldOriginX = (spec.canvasLength - spec.length) / 2;
   const fieldOriginY = (spec.canvasWidth - spec.width) / 2;
+  const gridOffsetY = spec.length >= 100 ? -(spec.gridStep / 4) : 0;
+  const gridOffsetX = 0;
+  const isFiveAside = spec.length <= 40;
+  const gridLabelFontSize = isFiveAside
+    ? 0.9
+    : Math.max(1.0, Number((1.8 * (spec.canvasLength / 114)).toFixed(2)));
+  const gridStrokeWidth = isFiveAside ? 0.06 : 0.08;
   const fieldX = (meters: number) => fieldOriginX + meters;
   const fieldY = (meters: number) => fieldOriginY + meters;
   const centerX = fieldX(spec.length / 2);
   const centerY = fieldY(spec.width / 2);
-  const centeredWidthLines = [10, 20, 30, 40, 50, 60, 70]
-    .map((label) => ({ label, y: centerY + (label - 40) }))
-    .filter((line) => line.y > 0 && line.y < spec.canvasWidth);
+  const goalOuterLeft = fieldOriginX - spec.goalDepth;
+  const goalOuterRight = fieldOriginX + spec.length;
+  const horizontalLines = Array.from({ length: Math.ceil(spec.width / spec.gridStep) }, (_, i) => (i + 1) * spec.gridStep)
+    .filter((y) => y < spec.width);
 
   return (
     <svg
@@ -139,24 +287,27 @@ function MetricFieldOverlay({
         <>
           <g opacity="0.22">
             {verticalLines.map((x) => (
-              <path key={`grid-x-${x}`} d={`M ${x} 0 V ${spec.canvasWidth}`} stroke="white" strokeWidth="0.08" />
+              <path key={`grid-x-${x}`} d={`M ${fieldX(x + gridOffsetX)} ${fieldOriginY + gridOffsetY} V ${fieldOriginY + spec.width}`} stroke="white" strokeWidth={gridStrokeWidth} />
             ))}
-            {centeredWidthLines.map(({ label, y }) => (
-              <path key={`grid-y-${label}`} d={`M 0 ${y} H ${spec.canvasLength}`} stroke="white" strokeWidth="0.08" />
+            {horizontalLines.map((y) => (
+              <path key={`grid-y-${y}`} d={`M ${fieldOriginX} ${fieldY(y) + gridOffsetY} H ${fieldOriginX + spec.length}`} stroke="white" strokeWidth={gridStrokeWidth} />
             ))}
           </g>
-          <g opacity="0.5" fontSize="2.2" fill="white" fontWeight="600">
+          <g opacity="0.5" fontSize={gridLabelFontSize} fill="white" fontWeight="600">
             {verticalLines.map((x) => (
-              <text key={`label-x-${x}`} x={x} y="3.2" textAnchor="middle">{x}m</text>
+              <text key={`label-x-${x}`} x={fieldX(x + gridOffsetX)} y={fieldOriginY + (isFiveAside ? 2.0 : 2.5)} textAnchor="middle">{x}m</text>
             ))}
-            {centeredWidthLines.map(({ label, y }) => (
-              <text key={`label-y-${label}`} x="1.6" y={y + 0.7}>{label}m</text>
+            {horizontalLines.map((y) => (
+              <text key={`label-y-${y}`} x={fieldOriginX + (isFiveAside ? 0.9 : 1.2)} y={fieldY(y) + gridOffsetY + (isFiveAside ? 0.42 : 0.55)}>
+                {Math.max(0, Math.round(y + gridOffsetY))}m
+              </text>
             ))}
           </g>
         </>
       )}
       <g fill="none" stroke="white" strokeLinecap="round" strokeLinejoin="round" opacity="0.52">
-        <rect x={fieldOriginX} y={fieldOriginY} width={spec.length} height={spec.width} rx="1.8" strokeWidth="0.22" />
+        {/* Single rounded outline: rx matches spec.cornerRadius; extra corner paths duplicated this and looked like a stray curve when Linee was on. */}
+        <rect x={fieldOriginX} y={fieldOriginY} width={spec.length} height={spec.width} rx={spec.cornerRadius} strokeWidth="0.22" />
         {showFieldMarkings && (
           <>
             <path d={`M ${centerX} ${fieldOriginY} V ${fieldOriginY + spec.width}`} strokeWidth="0.22" />
@@ -182,10 +333,22 @@ function MetricFieldOverlay({
               </>
             )}
             <path d={`M ${fieldOriginX} ${fieldY(goalTop)} V ${fieldY(goalTop + spec.goalWidth)} M ${fieldOriginX + spec.length} ${fieldY(goalTop)} V ${fieldY(goalTop + spec.goalWidth)}`} strokeWidth="0.45" />
-            <path d={`M ${fieldOriginX} ${fieldOriginY + spec.cornerRadius} A ${spec.cornerRadius} ${spec.cornerRadius} 0 0 1 ${fieldOriginX + spec.cornerRadius} ${fieldOriginY}`} strokeWidth="0.16" />
-            <path d={`M ${fieldOriginX + spec.length - spec.cornerRadius} ${fieldOriginY} A ${spec.cornerRadius} ${spec.cornerRadius} 0 0 1 ${fieldOriginX + spec.length} ${fieldOriginY + spec.cornerRadius}`} strokeWidth="0.16" />
-            <path d={`M ${fieldOriginX} ${fieldOriginY + spec.width - spec.cornerRadius} A ${spec.cornerRadius} ${spec.cornerRadius} 0 0 0 ${fieldOriginX + spec.cornerRadius} ${fieldOriginY + spec.width}`} strokeWidth="0.16" />
-            <path d={`M ${fieldOriginX + spec.length - spec.cornerRadius} ${fieldOriginY + spec.width} A ${spec.cornerRadius} ${spec.cornerRadius} 0 0 0 ${fieldOriginX + spec.length} ${fieldOriginY + spec.width - spec.cornerRadius}`} strokeWidth="0.16" />
+            <g opacity="0.9">
+              <rect x={goalOuterLeft} y={fieldY(goalTop)} width={spec.goalDepth} height={spec.goalWidth} fill="rgba(255,255,255,0.08)" stroke="white" strokeWidth="0.12" />
+              <rect x={goalOuterRight} y={fieldY(goalTop)} width={spec.goalDepth} height={spec.goalWidth} fill="rgba(255,255,255,0.08)" stroke="white" strokeWidth="0.12" />
+              {goalNetLines.map((line) => (
+                <React.Fragment key={`goal-net-${line}`}>
+                  <path d={`M ${goalOuterLeft} ${fieldY(goalTop + (spec.goalWidth / 6) * line)} H ${fieldOriginX}`} stroke="white" strokeWidth="0.05" opacity="0.65" />
+                  <path d={`M ${goalOuterRight} ${fieldY(goalTop + (spec.goalWidth / 6) * line)} H ${fieldOriginX + spec.length + spec.goalDepth}`} stroke="white" strokeWidth="0.05" opacity="0.65" />
+                </React.Fragment>
+              ))}
+              {[0.35, 0.7].map((offset) => (
+                <React.Fragment key={`goal-depth-${offset}`}>
+                  <path d={`M ${goalOuterLeft + spec.goalDepth * offset} ${fieldY(goalTop)} V ${fieldY(goalTop + spec.goalWidth)}`} stroke="white" strokeWidth="0.05" opacity="0.65" />
+                  <path d={`M ${goalOuterRight + spec.goalDepth * offset} ${fieldY(goalTop)} V ${fieldY(goalTop + spec.goalWidth)}`} stroke="white" strokeWidth="0.05" opacity="0.65" />
+                </React.Fragment>
+              ))}
+            </g>
           </>
         )}
       </g>
@@ -328,8 +491,45 @@ const QuickPage = () => {
   const [bottomMenu, setBottomMenu] = useState<"players" | "equipment" | "library">("players");
   const [showMetricGrid, setShowMetricGrid] = useState(true);
   const [showFieldMarkings, setShowFieldMarkings] = useState(true);
+  const [pendingRosterPlayerId, setPendingRosterPlayerId] = useState<number | null>(null);
+  const [freeMenuOpen, setFreeMenuOpen] = useState(false);
+  const [arrowMenuOpen, setArrowMenuOpen] = useState(false);
+  const [arrowToolPreset, setArrowToolPreset] = useState<ArrowToolPreset>(DEFAULT_ARROW_PRESET);
+  const movementToolShellRef = useRef<HTMLDivElement>(null);
+  const [arrowMenuViewport, setArrowMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!arrowMenuOpen) {
+      setArrowMenuViewport(null);
+      return;
+    }
+    const el = movementToolShellRef.current;
+    if (!el) return;
+    const place = () => {
+      const r = el.getBoundingClientRect();
+      const width = Math.max(260, r.width);
+      let top = r.bottom + 6;
+      let left = r.left;
+      const maxH = Math.min(window.innerHeight * 0.7, 420);
+      if (top + maxH > window.innerHeight - 8) {
+        top = Math.max(8, r.top - 6 - maxH);
+      }
+      if (left + width > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - width - 8);
+      }
+      setArrowMenuViewport({ top, left, width });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [arrowMenuOpen]);
 
   const [selectedElementIndex, setSelectedElementIndex] = useState<number | null>(null);
+  const [selectedElementIndexes, setSelectedElementIndexes] = useState<number[]>([]);
 
   
   const [boards, setBoards] = useState<any[]>([]);
@@ -368,8 +568,25 @@ const QuickPage = () => {
       setSelectedPreset(data.preset ?? null);
       setActiveTool(data.activeTool ?? "player");
       setFocusMode(data.focusMode ?? false);
+      const ap = data.arrowToolPreset;
+      if (
+        ap &&
+        typeof ap === "object" &&
+        (ap.geometry === "freehand" || ap.geometry === "straight") &&
+        (ap.heads === "none" || ap.heads === "end" || ap.heads === "start" || ap.heads === "both") &&
+        (ap.lineStyle === "solid" || ap.lineStyle === "dashed")
+      ) {
+        setArrowToolPreset({
+          geometry: ap.geometry,
+          heads: ap.heads,
+          lineStyle: ap.lineStyle,
+        });
+      } else {
+        setArrowToolPreset(DEFAULT_ARROW_PRESET);
+      }
       setElements(data.elements ?? []);
       setSelectedElementIndex(null);
+      setSelectedElementIndexes([]);
       setSaveState("Saved");
       setBoardIdInUrl(parsedBoardId);
     },
@@ -398,6 +615,16 @@ const QuickPage = () => {
   React.useEffect(() => {
     loadBoards();
   }, []);
+
+  React.useEffect(() => {
+    if (!freeMenuOpen && !arrowMenuOpen) return;
+    const close = () => {
+      setFreeMenuOpen(false);
+      setArrowMenuOpen(false);
+    };
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [freeMenuOpen, arrowMenuOpen]);
 
   React.useEffect(() => {
     if (didHydrateBoardFromUrlRef.current) return;
@@ -434,18 +661,6 @@ const QuickPage = () => {
   }, [fetchedTeamPlayers]);
 
   React.useEffect(() => {
-    // Fallback iniziale: non sovrascrive elementi già presenti (es. dopo rehydrate).
-    setElements((prev) =>
-      prev && prev.length
-        ? prev
-        : [
-            { type: "player", x: 30, y: 50 },
-            { type: "player", x: 60, y: 50 },
-          ]
-    );
-  }, []);
-
-  React.useEffect(() => {
     if (boardMode === "free") return;
     if (!teamPlayers.length) return;
     setElements((prev) => assignPlayersToElements(prev, teamPlayers));
@@ -472,7 +687,7 @@ const QuickPage = () => {
     if (FORMATIONS[selectedPreset].formats.includes(boardFormat)) return;
     setSelectedPreset(null);
   }, [boardFormat, selectedPreset]);
-  
+
   const pitchRef = React.useRef<HTMLDivElement | null>(null);
   const isDraggingRef = React.useRef(false);
   const skipNextPitchClickRef = React.useRef(false);
@@ -502,12 +717,16 @@ const QuickPage = () => {
     setSaveState("Unsaved");
   };
 
-  const workFree = () => {
+  const workFree = (format: TacticalBoardFormat = "11v11") => {
     setBoardMode("free");
     setBoardTeamId(null);
     setBoardCategory(null);
-    setBoardFormat("11v11");
+    setBoardFormat(format);
     setTeamPlayers([]);
+    setSelectedPreset(null);
+    setElements([]);
+    setFreeMenuOpen(false);
+    setArrowMenuOpen(false);
     setSaveState("Unsaved");
   };
 
@@ -566,14 +785,18 @@ const QuickPage = () => {
       return;
     }
 
+    const presetElements = formation.slots.map((slot) => ({
+      type: slot.role,
+      x: slot.x,
+      y: slot.y,
+    }));
     setElements(
-      formation.slots.map((slot) => ({
-        type: slot.role,
-        x: slot.x,
-        y: slot.y,
-      }))
+      boardMode === "assigned" && teamPlayers.length
+        ? assignPlayersToElements(presetElements, teamPlayers)
+        : presetElements
     );
     setSelectedElementIndex(null);
+    setSelectedElementIndexes([]);
     setSaveState("Unsaved");
   };
 
@@ -600,6 +823,12 @@ const QuickPage = () => {
     "Note veloci testo",
     "Prepara partita",
   ];
+  const tacticalToolButtons = [
+    { id: "select", label: "Seleziona" },
+    { id: "draw", label: "Disegno" },
+    { id: "movement", label: "Freccia" },
+    { id: "zones", label: "Zona" },
+  ];
   const saveStateLabelMap: Record<string, string> = {
     Saved: "Salvata",
     Unsaved: "Non salvata",
@@ -608,6 +837,10 @@ const QuickPage = () => {
     Error: "Errore",
   };
   const activeToolLabelMap: Record<string, string> = {
+    select: "Seleziona",
+    draw: "Disegno",
+    movement: "Freccia",
+    zones: "Zona",
     player: "Giocatore 1",
     opponent: "Giocatore 2",
     goalkeeper: "Portiere",
@@ -621,6 +854,7 @@ const QuickPage = () => {
     pole: "Paletto",
     vest: "Casacca",
     disc: "Cinesino",
+    text: "Testo",
   };
   const equipmentTools = [
     { id: "ball", label: "Palla" },
@@ -647,6 +881,14 @@ const QuickPage = () => {
   const hasRenderableElements = elements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
   const selectedElement =
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
+  const selectedElements = selectedElementIndexes
+    .map((idx) => elements[idx])
+    .filter(Boolean);
+  const usedPlayerIds = new Set(
+    elements
+      .map((el) => el.playerId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0)
+  );
   const canAssignRealPlayer = selectedElement?.type === "player" || selectedElement?.type === "goalkeeper";
   const selectedElementLabel =
     selectedElement?.name ??
@@ -658,6 +900,34 @@ const QuickPage = () => {
       ].filter(Boolean)
     : [];
 
+  const buildPlayerAssignment = (player: TeamPlayer) => ({
+    playerId: String(player.id),
+    name: fullPlayerName(player),
+    displayName: formatRosterLastName(player),
+    number: player.jerseyNumber ?? undefined,
+  });
+
+  const getNextAvailableRosterPlayer = (type?: string) => {
+    if (boardMode !== "assigned" || !teamPlayers.length) return null;
+    if (pendingRosterPlayerId) {
+      const pending = teamPlayers.find((p) =>
+        p.id === pendingRosterPlayerId &&
+        !usedPlayerIds.has(String(p.id)) &&
+        isPlayerAvailable(p)
+      );
+      if (pending) return pending;
+    }
+    const isGoalkeeperSlot = type === "goalkeeper";
+    const available = teamPlayers.filter((player) => !usedPlayerIds.has(String(player.id)) && isPlayerAvailable(player));
+    if (!available.length) return null;
+    const matchingRole = available.find((player) =>
+      isGoalkeeperSlot
+        ? String(player.position ?? "").toLowerCase().includes("port")
+        : !String(player.position ?? "").toLowerCase().includes("port")
+    );
+    return matchingRole ?? available[0] ?? null;
+  };
+
   const assignPlayerToSelectedElement = (playerIdRaw: string) => {
     if (selectedElementIndex === null) return;
     const player = teamPlayers.find((p) => String(p.id) === playerIdRaw);
@@ -668,13 +938,49 @@ const QuickPage = () => {
         idx === selectedElementIndex
           ? {
               ...item,
-              playerId: String(player.id),
-              name: `${player.firstName} ${player.lastName}`.trim(),
-              number: player.jerseyNumber ?? undefined,
+              ...buildPlayerAssignment(player),
             }
           : item
       )
     );
+    setPendingRosterPlayerId(null);
+    setSaveState("Unsaved");
+  };
+
+  const selectElement = (index: number, event?: React.PointerEvent | React.MouseEvent) => {
+    const additive = Boolean(event?.shiftKey || event?.ctrlKey || event?.metaKey);
+    setSelectedElementIndexes((prev) => {
+      const next = additive
+        ? prev.includes(index)
+          ? prev.filter((idx) => idx !== index)
+          : [...prev, index]
+        : [index];
+      setSelectedElementIndex(next[next.length - 1] ?? null);
+      return next;
+    });
+  };
+
+  const deleteSelectedElements = () => {
+    const indexes = selectedElementIndexes.length ? selectedElementIndexes : selectedElementIndex !== null ? [selectedElementIndex] : [];
+    if (!indexes.length) return;
+    const toDelete = new Set(indexes);
+    setElements((prev) => prev.filter((_, idx) => !toDelete.has(idx)));
+    setSelectedElementIndex(null);
+    setSelectedElementIndexes([]);
+    setSaveState("Unsaved");
+  };
+
+  const clearDrawings = () => {
+    setElements((prev) => prev.filter((item) => !isDrawingType(item.type)));
+    setSelectedElementIndex(null);
+    setSelectedElementIndexes([]);
+    setSaveState("Unsaved");
+  };
+
+  const undoLastElement = () => {
+    setElements((prev) => prev.slice(0, -1));
+    setSelectedElementIndex(null);
+    setSelectedElementIndexes([]);
     setSaveState("Unsaved");
   };
 
@@ -696,14 +1002,19 @@ const QuickPage = () => {
     e.stopPropagation();
 
     const pointerId = e.pointerId;
-    setSelectedElementIndex(indexToDrag);
+    selectElement(indexToDrag, e);
     isDraggingRef.current = true;
     skipNextPitchClickRef.current = true;
     setSaveState("Unsaved");
 
     const rect = pitchRef.current;
+    const selectedGroup = selectedElementIndexes.includes(indexToDrag) && selectedElementIndexes.length > 1
+      ? selectedElementIndexes
+      : [indexToDrag];
+    const startPoint = rect ? getPitchPoint(e, rect) : { x: 0, y: 0 };
+    const startPositions = elements.map((item) => ({ x: Number(item.x ?? 50), y: Number(item.y ?? 50) }));
     if (rect) {
-      const { x, y } = getPitchPoint(e, rect);
+      const { x, y } = startPoint;
       setElements((prev) =>
         prev.map((item: TacticalBoardElement, idx: number) =>
           idx === indexToDrag ? { ...item, x, y } : item
@@ -716,11 +1027,16 @@ const QuickPage = () => {
       const pitch = pitchRef.current;
       if (!pitch) return;
       const { x, y } = getPitchPoint(ev, pitch);
+      const dx = x - startPoint.x;
+      const dy = y - startPoint.y;
+      const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
       setElements((prev) =>
-        prev.map((item: TacticalBoardElement, idx: number) =>
-          idx === indexToDrag ? { ...item, x, y } : item
-        )
+        prev.map((item: TacticalBoardElement, idx: number) => {
+          if (!selectedGroup.includes(idx)) return item;
+          const origin = startPositions[idx] ?? { x, y };
+          return { ...item, x: clamp(origin.x + dx), y: clamp(origin.y + dy) };
+        })
       );
     };
 
@@ -813,6 +1129,7 @@ const QuickPage = () => {
       preset: selectedPreset,
       activeTool,
       focusMode,
+      arrowToolPreset,
       elements: elements,
       // Present already in backend blob usage and safe to keep:
       updatedAt: new Date().toISOString(),
@@ -896,21 +1213,55 @@ const QuickPage = () => {
                 <option className="bg-[#111827] text-white">Ultimo terzo</option>
                 <option className="bg-[#111827] text-white">Palla inattiva</option>
               </select>
-              <button
-                type="button"
-                onClick={workFree}
-                className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
-                  boardMode === "free"
-                    ? "border-[#FACC15] bg-[#FACC15] text-black"
-                    : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-                }`}
-              >
-                Lavora libero
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setArrowMenuOpen(false);
+                    setFreeMenuOpen((v) => !v);
+                  }}
+                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                    boardMode === "free" || freeMenuOpen
+                      ? "border-[#FACC15] bg-[#FACC15] text-black"
+                      : "border-white/10 bg-white/5 text-white/85 hover:bg-white/10"
+                  }`}
+                >
+                  Lavora libero
+                  <ChevronDown size={14} className="opacity-75" />
+                </button>
+                {freeMenuOpen && (
+                  <div
+                    className="absolute left-0 top-full mt-2 z-50 min-w-[210px] rounded-xl border border-white/10 bg-[#0F172A] p-2 shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {[
+                      { label: "Lavora libero a 11", format: "11v11" as TacticalBoardFormat },
+                      { label: "Lavora libero a 9", format: "9v9" as TacticalBoardFormat },
+                      { label: "Lavora libero a 7", format: "7v7" as TacticalBoardFormat },
+                      { label: "Lavora libero a 5", format: "5v5" as TacticalBoardFormat },
+                    ].map((opt) => (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => workFree(opt.format)}
+                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-white/90 hover:bg-white/10"
+                      >
+                        <span>{opt.label}</span>
+                        <span className="text-xs text-white/60">{opt.format}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <select
                 value={boardMode === "assigned" && boardTeamId ? String(boardTeamId) : ""}
                 onChange={(e) => loadTeamById(e.target.value)}
-                className="rounded-xl border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white outline-none"
+                className={`rounded-xl border px-3 py-2 text-sm outline-none transition ${
+                  boardMode === "assigned"
+                    ? "border-[#FACC15] bg-[#FACC15] text-black font-semibold"
+                    : "border-white/10 bg-[#111827] text-white"
+                }`}
               >
                 <option className="bg-[#111827] text-white" value="">Carica squadra</option>
                 {assignedTeams.map((team: any) => (
@@ -919,6 +1270,16 @@ const QuickPage = () => {
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={() => setActiveTool("select")}
+                className={`hidden md:flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                  activeTool === "select" ? "border-[#FACC15] bg-[#FACC15] text-black" : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
+                }`}
+              >
+                <MousePointer2 size={15} />
+                Seleziona
+              </button>
               <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white/70">
                 <span className="font-semibold text-white">Strumento</span>
                 <span>{activeToolLabelMap[activeTool] ?? activeTool}</span>
@@ -926,6 +1287,34 @@ const QuickPage = () => {
               <div className="hidden lg:flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
                 <span className="font-semibold text-white">Modulo</span>
                 <span>{moduleLabel}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={undoLastElement}
+                  disabled={!elements.length}
+                  title="Indietro"
+                  className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/75 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  <RotateCcw size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={deleteSelectedElements}
+                  disabled={!selectedElementIndexes.length && selectedElementIndex === null}
+                  title="Elimina selezione"
+                  className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/75 transition hover:bg-red-500/80 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  <Trash2 size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={clearDrawings}
+                  disabled={!elements.some((item) => isDrawingType(item.type))}
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/75 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  Pulisci disegni
+                </button>
               </div>
             </div>
             <div className="text-xs text-emerald-400 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">{saveStateLabelMap[saveState] ?? saveState}</div>
@@ -1004,13 +1393,25 @@ const QuickPage = () => {
                 const start = getPitchPoint(e, pitch);
                 const nextType = activeTool === "movement" ? "arrow" : activeTool === "zones" ? "zone" : "path";
                 const draftIndex = elements.length;
+                const ap = arrowToolPreset;
                 const draftElement: TacticalBoardElement = {
                   type: nextType,
                   points: [start, start],
                   color: "#FACC15",
                   lineWidth: activeTool === "zones" ? 1.4 : 1.8,
-                  drawShape: activeTool === "movement" ? "freehand-arrow" : activeTool === "zones" ? "rect-outline" : "freehand-solid",
-                  arrowEnd: activeTool === "movement" ? "end" : "none",
+                  drawShape:
+                    activeTool === "movement"
+                      ? buildArrowDrawShape(ap)
+                      : activeTool === "zones"
+                        ? "rect-outline"
+                        : "freehand-solid",
+                  arrowHeads: activeTool === "movement" ? ap.heads : undefined,
+                  arrowEnd:
+                    activeTool === "movement" && (ap.heads === "end" || ap.heads === "both")
+                      ? "end"
+                      : activeTool === "movement"
+                        ? "none"
+                        : "none",
                 };
 
                 setElements((prev) => [...prev, draftElement]);
@@ -1028,6 +1429,9 @@ const QuickPage = () => {
                       if (idx !== draftIndex) return item;
                       const points = Array.isArray(item.points) ? item.points as Array<{ x: number; y: number }> : [start];
                       if (nextType === "zone") return { ...item, points: [start, point] };
+                      if (nextType === "arrow" && ap.geometry === "straight") {
+                        return { ...item, points: [start, point] };
+                      }
                       const last = points[points.length - 1];
                       const movedEnough = !last || Math.hypot(point.x - last.x, point.y - last.y) > 0.8;
                       return movedEnough ? { ...item, points: [...points, point] } : item;
@@ -1049,12 +1453,14 @@ const QuickPage = () => {
                 if (skipNextPitchClickRef.current) {
                   skipNextPitchClickRef.current = false;
                   setSelectedElementIndex(null);
+                  setSelectedElementIndexes([]);
                   return;
                 }
                 if (isDraggingRef.current) return;
                 if (e.target !== e.currentTarget) return;
 
                 setSelectedElementIndex(null);
+                setSelectedElementIndexes([]);
 
                 const rect = e.currentTarget.getBoundingClientRect();
                 const xPct = ((e.clientX - rect.left) / rect.width) * 100;
@@ -1069,10 +1475,21 @@ const QuickPage = () => {
                 }
 
                 const nextType = activeTool;
-
-                const newElement = { type: nextType, x, y, label: activeTool === "text" ? "T" : undefined };
+                const nextPlayer = isPlayerType(nextType) ? getNextAvailableRosterPlayer(nextType) : null;
+                const usedPlayerCount = elements.filter((item) => isPlayerType(item.type) && item.playerId).length;
+                const newElement: TacticalBoardElement = {
+                  type: nextType,
+                  x,
+                  y,
+                  label: activeTool === "text" ? "T" : undefined,
+                  ...(nextPlayer ? buildPlayerAssignment(nextPlayer) : {}),
+                  ...(nextPlayer && selectedPreset && isFormationPresetId(selectedPreset) && usedPlayerCount >= FORMATIONS[selectedPreset].slots.length
+                    ? { rosterStatus: "extra" }
+                    : {}),
+                };
 
                 setElements((prev) => [...prev, newElement]);
+                if (nextPlayer && pendingRosterPlayerId === nextPlayer.id) setPendingRosterPlayerId(null);
                 setSaveState("Unsaved");
               }}
             >
@@ -1101,6 +1518,16 @@ const QuickPage = () => {
               <svg className="pointer-events-none absolute inset-0 z-[3] h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <defs>
                   <marker id="dynamicArrowYellow" markerWidth="3.2" markerHeight="3.2" refX="2.8" refY="1.6" orient="auto">
+                    <path d="M0,0 L0,3.2 L3.2,1.6 z" fill="#FACC15" />
+                  </marker>
+                  <marker
+                    id="dynamicArrowYellowStart"
+                    markerWidth="3.2"
+                    markerHeight="3.2"
+                    refX="2.8"
+                    refY="1.6"
+                    orient="auto-start-reverse"
+                  >
                     <path d="M0,0 L0,3.2 L3.2,1.6 z" fill="#FACC15" />
                   </marker>
                 </defs>
@@ -1134,17 +1561,30 @@ const QuickPage = () => {
                     );
                   }
 
+                  const heads = resolveArrowHeads(el);
+                  const tipLen = polylineLength(points);
+                  const showTips = tipLen > 1.5;
+                  const markerEndUrl =
+                    showTips && (heads === "end" || heads === "both") && (el.type === "arrow" || el.type === "bezierarrow")
+                      ? "url(#dynamicArrowYellow)"
+                      : undefined;
+                  const markerStartUrl =
+                    showTips && (heads === "start" || heads === "both") && (el.type === "arrow" || el.type === "bezierarrow")
+                      ? "url(#dynamicArrowYellowStart)"
+                      : undefined;
+
                   return (
                     <path
                       key={`draw-${i}`}
-                      d={makeSmoothPath(points)}
+                      d={drawingPathData(el, points)}
                       fill="none"
                       stroke={color}
                       strokeWidth={selected ? width * 0.2 : width * 0.16}
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      strokeDasharray={String(el.drawShape ?? "").includes("dashed") ? "2.3 1.6" : undefined}
-                      markerEnd={el.type === "arrow" || el.type === "bezierarrow" || el.arrowEnd === "end" ? "url(#dynamicArrowYellow)" : undefined}
+                      strokeDasharray={strokeDashForDrawing(el)}
+                      markerStart={markerStartUrl}
+                      markerEnd={markerEndUrl}
                       opacity={selected ? 1 : 0.96}
                     />
                   );
@@ -1166,24 +1606,48 @@ const QuickPage = () => {
                     ? teamPlayers.find((p) => String(p.id) === String(el.playerId))
                     : null;
                   const fallbackTypeLabel = el.type === "goalkeeper" ? "GK" : "P";
-                  const content = el.playerId
-                    ? (el.number ?? linkedPlayer?.jerseyNumber ?? fallbackTypeLabel)
-                    : (el.playerNumber ?? el.label ?? i + 1);
+                  const rawLabel = typeof el.label === "string" ? el.label.trim() : "";
+                  const rawName = typeof el.name === "string" ? el.name.trim() : "";
+                  const rawDisplayName = typeof (el as { displayName?: unknown }).displayName === "string"
+                    ? String((el as { displayName?: string }).displayName).trim()
+                    : "";
+                  const toNumeric = (value: unknown): number | null => {
+                    if (typeof value === "number" && Number.isFinite(value)) return value;
+                    if (typeof value === "string" && /^\d+$/.test(value.trim())) return Number(value.trim());
+                    return null;
+                  };
+                  const numberFromNumber = toNumeric(el.number);
+                  const numberFromPlayerNumber = toNumeric(el.playerNumber);
+                  const numberFromLabel = toNumeric(rawLabel);
+                  const nameCandidates = [
+                    rawDisplayName,
+                    rawName,
+                    typeof el.number === "string" && !/^\d+$/.test(el.number.trim()) ? el.number.trim() : "",
+                    typeof el.playerNumber === "string" && !/^\d+$/.test(el.playerNumber.trim()) ? el.playerNumber.trim() : "",
+                    rawLabel && !/^\d+$/.test(rawLabel) ? rawLabel : "",
+                  ].filter(Boolean);
+                  const markerNumber = el.playerId
+                    ? (numberFromNumber ?? linkedPlayer?.jerseyNumber ?? null)
+                    : (numberFromPlayerNumber ?? numberFromLabel ?? null);
+                  const content = markerNumber ?? (el.type === "goalkeeper" ? "GK" : i + 1);
+                  const playerSurname = el.playerId
+                    ? String(el.displayName ?? formatRosterLastName(linkedPlayer) ?? nameCandidates[0] ?? "")
+                    : String(nameCandidates[0] ?? "");
 
-                  const isSelected = selectedElementIndex === i;
+                  const isSelected = selectedElementIndex === i || selectedElementIndexes.includes(i);
 
                   const playerClassName =
                     el.type === "player"
-                      ? `absolute z-[5] w-8 h-8 rounded-full bg-[#2f9cf4] text-white text-xs font-bold flex items-center justify-center shadow-lg border-2 border-white/80${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
+                      ? `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full ${el.rosterStatus === "extra" ? "bg-emerald-500" : "bg-[#2f9cf4]"} text-xs font-bold text-white shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
                       : el.type === "opponent"
-                      ? `absolute z-[5] w-8 h-8 rounded-full bg-[#ef4444] text-white text-xs font-bold flex items-center justify-center shadow-lg border-2 border-white/80${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
-                      : `absolute z-[5] w-8 h-8 rounded-full bg-[#facc15] text-black text-xs font-bold flex items-center justify-center shadow-lg border-2 border-white/80${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`;
+                      ? `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full bg-[#ef4444] text-xs font-bold text-white shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
+                      : `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full bg-[#facc15] text-xs font-bold text-black shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`;
 
                   if (isEquipmentType(el.type)) {
                     return (
                       <div
                         key={String(el.id ?? `el-${i}`)}
-                        className={`absolute z-[4] flex touch-none select-none items-center justify-center rounded-2xl p-1 transition ${isSelected ? "ring-2 ring-[#FACC15] ring-offset-2 ring-offset-[#145f38]" : ""}`}
+                        className={`absolute z-[4] flex cursor-grab touch-none select-none items-center justify-center rounded-2xl p-1 transition active:cursor-grabbing ${isSelected ? "ring-2 ring-[#FACC15] ring-offset-2 ring-offset-[#145f38]" : ""}`}
                         style={commonStyle}
                         onPointerDown={(e) => dragElement(e, i)}
                         title={String(el.type)}
@@ -1194,13 +1658,22 @@ const QuickPage = () => {
                   }
 
                   return (
-                    <div
-                      key={String(el.id ?? `el-${i}`)}
-                      className={playerClassName}
-                      style={commonStyle}
-                      onPointerDown={(e) => dragElement(e, i)}
-                    >
-                      {content}
+                    <div key={String(el.id ?? `el-${i}`)}>
+                      <div
+                        className={playerClassName}
+                        style={commonStyle}
+                        onPointerDown={(e) => dragElement(e, i)}
+                      >
+                        {content}
+                      </div>
+                      {playerSurname && (
+                        <div
+                          className="pointer-events-none absolute z-[6] max-w-28 truncate px-0.5 text-center text-[12px] font-semibold leading-none text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.95)]"
+                          style={{ left: `${el.x ?? 50}%`, top: `calc(${el.y ?? 50}% + 22px)`, transform: "translateX(-50%)" }}
+                        >
+                          {playerSurname}
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -1246,9 +1719,7 @@ const QuickPage = () => {
                     className={`${canAssignRealPlayer ? "px-3 py-2" : "h-10 px-4"} rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold shadow-lg`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setElements((prev) => prev.filter((_: TacticalBoardElement, idx: number) => idx !== selectedElementIndex));
-                      setSelectedElementIndex(null);
-                      setSaveState("Unsaved");
+                      deleteSelectedElements();
                     }}
                   >
                     Elimina
@@ -1308,25 +1779,149 @@ const QuickPage = () => {
                 </div>
 
                 {bottomMenu === "players" && (
-                  <div className="mt-3 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-                    {playerTools.map((tool) => (
-                      <button
-                        key={`bottom-player-${tool.id}`}
-                        type="button"
-                        title={tool.label}
-                        onClick={() => setActiveTool(tool.id)}
-                        className={`flex h-14 min-w-24 flex-col items-center justify-center gap-1 rounded-2xl border transition ${
-                          activeTool === tool.id
-                            ? "border-[#FACC15] bg-[#FACC15]/20"
-                            : "border-white/10 bg-white/5 hover:bg-white/10"
-                        }`}
-                      >
-                        <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-bold ${tool.accentClass}`}>
-                          {tool.id === "goalkeeper" ? "GK" : "P"}
-                        </span>
-                        <span className="text-[11px] text-white/80">{tool.label}</span>
-                      </button>
-                    ))}
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      {tacticalToolButtons.map((tool) =>
+                        tool.id === "movement" ? (
+                          <div key="tactical-tool-movement" ref={movementToolShellRef} className="relative z-[60]">
+                            <div
+                              className={`flex min-h-[2.5rem] w-full overflow-hidden rounded-xl border text-xs font-semibold transition ${
+                                activeTool === "movement" || arrowMenuOpen
+                                  ? "border-[#FACC15] bg-[#FACC15] text-black"
+                                  : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                className="flex flex-1 items-center justify-center px-2 py-2"
+                                onClick={() => setActiveTool("movement")}
+                              >
+                                {tool.label}
+                              </button>
+                              <button
+                                type="button"
+                                className={`flex shrink-0 items-center justify-center border-l px-1.5 ${
+                                  activeTool === "movement" || arrowMenuOpen
+                                    ? "border-black/15 bg-black/10 text-black hover:bg-black/15"
+                                    : "border-white/10 bg-white/5 text-white/90 hover:bg-white/10"
+                                }`}
+                                aria-label="Opzioni freccia"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setFreeMenuOpen(false);
+                                  setArrowMenuOpen((v) => !v);
+                                }}
+                              >
+                                <ChevronDown size={14} />
+                              </button>
+                            </div>
+                            {arrowMenuOpen &&
+                              arrowMenuViewport &&
+                              createPortal(
+                                <div
+                                  className="fixed z-[10000] max-h-[min(70vh,420px)] overflow-y-auto rounded-xl border border-white/10 bg-[#0F172A] p-2 shadow-2xl"
+                                  style={{
+                                    top: arrowMenuViewport.top,
+                                    left: arrowMenuViewport.left,
+                                    width: arrowMenuViewport.width,
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <ArrowToolPresetMenuContent
+                                    arrowToolPreset={arrowToolPreset}
+                                    setArrowToolPreset={setArrowToolPreset}
+                                  />
+                                </div>,
+                                document.body
+                              )}
+                          </div>
+                        ) : (
+                          <button
+                            key={`tactical-tool-${tool.id}`}
+                            type="button"
+                            onClick={() => setActiveTool(tool.id)}
+                            className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                              activeTool === tool.id
+                                ? "border-[#FACC15] bg-[#FACC15] text-black"
+                                : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                            }`}
+                          >
+                            {tool.label}
+                          </button>
+                        )
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {playerTools.map((tool) => (
+                        <button
+                          key={`bottom-player-${tool.id}`}
+                          type="button"
+                          title={tool.label}
+                          onClick={() => setActiveTool(tool.id)}
+                          className={`flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl border px-2 transition ${
+                            activeTool === tool.id
+                              ? "border-[#FACC15] bg-[#FACC15]/20"
+                              : "border-white/10 bg-white/5 hover:bg-white/10"
+                          }`}
+                        >
+                          <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-bold ${tool.accentClass}`}>
+                            {tool.id === "goalkeeper" ? "GK" : "P"}
+                          </span>
+                          <span className="text-[11px] text-white/80">{tool.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {boardMode === "assigned" && teamPlayers.length > 0 && (
+                      <div className="rounded-2xl border border-white/10 bg-white/5 p-2">
+                        <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-white/55">
+                          <span>Rosa caricata</span>
+                          <span>{elements.filter((item) => item.playerId).length}/{teamPlayers.length}</span>
+                        </div>
+                        <div className="grid max-h-80 grid-cols-1 gap-2 overflow-y-auto pr-1">
+                          {teamPlayers.map((player) => {
+                            const inBoard = usedPlayerIds.has(String(player.id));
+                            const isPending = pendingRosterPlayerId === player.id;
+                            const isUnavailable = !isPlayerAvailable(player);
+                            return (
+                              <button
+                                key={player.id}
+                                type="button"
+                                disabled={isUnavailable}
+                                onClick={() => {
+                                  setPendingRosterPlayerId(player.id);
+                                  setActiveTool(String(player.position ?? "").toLowerCase().includes("port") ? "goalkeeper" : "player");
+                                }}
+                                className={`rounded-xl border px-2 py-2 text-left transition ${
+                                  isUnavailable
+                                    ? "border-red-400/45 bg-red-500/20 text-red-100"
+                                    : isPending
+                                    ? "border-[#FACC15] bg-[#FACC15] text-black"
+                                    : inBoard
+                                    ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-100"
+                                    : "border-white/10 bg-[#0F172A] text-white/80 hover:bg-white/10"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                                    isUnavailable
+                                      ? "bg-red-500 text-white"
+                                      : inBoard
+                                      ? "bg-emerald-500 text-white"
+                                      : "bg-[#2f9cf4] text-white"
+                                  }`}>
+                                    {player.jerseyNumber ?? "-"}
+                                  </span>
+                                  <span className="min-w-0 truncate text-[11px] font-semibold">{formatRosterLastName(player)}</span>
+                                </div>
+                                <div className="mt-1 text-[10px] opacity-70">
+                                  {isUnavailable ? "Non disponibile" : inBoard ? "In campo" : "Disponibile"}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

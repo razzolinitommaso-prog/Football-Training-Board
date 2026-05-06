@@ -103,7 +103,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
             }
             className={isTacticalBoardRoute ? "flex-1 overflow-auto relative" : "flex-1 overflow-auto p-4 sm:p-6 lg:p-8 relative"}
           >
-            <div className={isTacticalBoardRoute ? "w-full" : "mx-auto max-w-7xl"}>
+            <div
+              className={
+                isTacticalBoardRoute ? "w-full min-w-0" : "mx-auto w-full min-w-0 max-w-7xl"
+              }
+            >
               {children}
             </div>
           </main>

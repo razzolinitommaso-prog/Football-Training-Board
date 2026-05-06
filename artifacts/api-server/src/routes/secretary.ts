@@ -484,10 +484,10 @@ router.get("/club/notifications", requireAuth, async (req, res) => {
   res.json(result);
 });
 
-// POST /club/notifications — create a notification (admin/secretary only)
+// POST /club/notifications — create a notification (ruoli direzionali)
 router.post("/club/notifications", requireAuth, async (req, res) => {
   const role = req.session.role;
-  if (!["admin", "presidente", "secretary", "director", "technical_director"].includes(role ?? "")) {
+  if (!["admin", "presidente", "director", "technical_director"].includes(role ?? "")) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }

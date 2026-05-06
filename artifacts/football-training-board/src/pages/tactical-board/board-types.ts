@@ -97,6 +97,13 @@ export type SerializedDrawingElement = {
  * Intentionally permissive: the backend blob already contains extra keys
  * (e.g. `updatedAt`, `notes`) and we must remain compatible.
  */
+/** Preset for the arrow / movement drawing tool (stored with board data). */
+export type ArrowToolPreset = {
+  geometry: "freehand" | "straight";
+  heads: "none" | "end" | "start" | "both";
+  lineStyle: "solid" | "dashed";
+};
+
 export type TacticalBoardData = {
   clubId?: string | number | null;
   format?: TacticalBoardFormat;
@@ -106,6 +113,7 @@ export type TacticalBoardData = {
   focusMode?: boolean;
   teamId?: string | number | null;
   category?: FootballCategoryId | string | null;
+  arrowToolPreset?: ArrowToolPreset;
   elements: TacticalBoardElement[];
   [key: string]: unknown;
 };

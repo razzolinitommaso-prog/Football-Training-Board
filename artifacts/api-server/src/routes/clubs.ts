@@ -16,6 +16,27 @@ import bcrypt from "bcryptjs";
 
 const router: IRouter = Router();
 
+function normalizeClubLookup(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\b(asd|ssd|srl|spa|societa|sportiva|dilettantistica|calcio|fc|firenze)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function clubNameMatches(inputName: string, storedName: string): boolean {
+  const inputNorm = normalizeClubLookup(inputName);
+  const storedNorm = normalizeClubLookup(storedName);
+  if (!inputNorm || !storedNorm) return false;
+  if (inputNorm.includes(storedNorm) || storedNorm.includes(inputNorm)) return true;
+  const inputTokens = inputNorm.split(" ").filter((token) => token.length >= 3);
+  const storedTokens = storedNorm.split(" ").filter((token) => token.length >= 3);
+  return inputTokens.some((token) => storedTokens.includes(token));
+}
+
 router.get("/clubs/public/search", async (req, res): Promise<void> => {
   const name = typeof req.query.name === "string" ? req.query.name.trim() : "";
   if (!name) { res.status(400).json({ error: "name required" }); return; }
@@ -31,10 +52,12 @@ router.post("/clubs/public/verify", async (req, res): Promise<void> => {
   if (!name || !code) { res.status(400).json({ error: "name and code required" }); return; }
   const trimmedName = name.trim();
   const trimmedCode = code.trim();
-  const clubs = await db
+  const firstLookupToken = normalizeClubLookup(trimmedName).split(" ")[0] ?? trimmedName;
+  const candidates = await db
     .select({ id: clubsTable.id, name: clubsTable.name, logoUrl: clubsTable.logoUrl, city: clubsTable.city, accessCode: clubsTable.accessCode })
     .from(clubsTable)
-    .where(ilike(clubsTable.name, `%${trimmedName}%`));
+    .where(ilike(clubsTable.name, `%${firstLookupToken}%`));
+  const clubs = candidates.filter((club) => clubNameMatches(trimmedName, club.name));
   if (!clubs || clubs.length === 0) { res.status(404).json({ error: "Club not found" }); return; }
   const club = clubs[0];
   if (club.accessCode && club.accessCode !== trimmedCode) {

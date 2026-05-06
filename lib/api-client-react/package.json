@@ -7,10 +7,12 @@
     ".": "./src/index.ts",
     "./custom-fetch": "./src/custom-fetch.ts"
   },
-  "dependencies": {
-    "@tanstack/react-query": "catalog:"
-  },
+  "dependencies": {},
   "peerDependencies": {
-    "react": ">=18"
+    "react": ">=18",
+    "@tanstack/react-query": ">=5"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "catalog:"
   }
 }

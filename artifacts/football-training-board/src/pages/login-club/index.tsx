@@ -26,7 +26,10 @@ export default function LoginClubPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name: trimmedName, code: trimmedCode }),
+        body: JSON.stringify({
+          name: clubName.trim(),
+          code: clubCode.trim(),
+        }),
       });
       if (res.status === 404) { setError(t.clubNotFound); return; }
       if (res.status === 401) { setError(t.invalidClubCode); return; }

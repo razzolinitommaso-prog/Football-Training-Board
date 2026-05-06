@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Trophy, ArrowRight, Users, Upload, Download, FileSpreadsheet, FileText, Trash2 } from "lucide-react";
-import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import {
   downloadMatchCalendarTemplate,
   exportMatchesToExcel,
@@ -34,7 +33,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Team { id: number; name: string; category?: string; assignedStaff?: { userId: number }[]; }
 
@@ -695,7 +693,6 @@ async function apiFetch(url: string, options?: RequestInit) {
 export default function SectionMatchCalendars({ section }: { section: string }) {
   const { role, user } = useAuth();
   const [, navigate] = useLocation();
-  const [staffTeamScope, setStaffTeamScope] = useState<string>("");
 
   const { data: sectionTeams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", section],
@@ -712,11 +709,9 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
     [sectionTeams, user?.id],
   );
 
-  useEffect(() => {
-    if (staffTeams.length === 1) setStaffTeamScope(String(staffTeams[0].id));
-  }, [staffTeams]);
+  const visibleTeams = isManagement ? sectionTeams : staffTeams;
 
-  if (isManagement) {
+  if (isManagement || isStaff) {
     return (
       <div className="p-6 max-w-5xl mx-auto space-y-6">
         <div>
@@ -729,76 +724,23 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
           </p>
         </div>
 
-        {sectionTeams.length === 0 ? (
+        {visibleTeams.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
-              Nessuna squadra trovata per questa sezione.
+              {isManagement
+                ? "Nessuna squadra trovata per questa sezione."
+                : "Nessuna squadra assegnata in questa sezione."}
             </CardContent>
           </Card>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sectionTeams.map(team => (
+            {visibleTeams.map(team => (
               <MatchCalendarTeamCard key={team.id} team={team} navigate={navigate} />
             ))}
           </div>
         )}
       </div>
     );
-  }
-
-  if (isStaff) {
-    if (staffTeams.length === 0) {
-      return (
-        <div className="p-6 max-w-4xl mx-auto">
-          <Card>
-            <CardContent className="py-16 text-center text-muted-foreground flex flex-col items-center gap-3">
-              <Trophy className="w-12 h-12 opacity-20" />
-              <p className="text-sm">Nessuna squadra assegnata in questa sezione.</p>
-            </CardContent>
-          </Card>
-        </div>
-      );
-    }
-
-    if (staffTeams.length === 1) {
-      return <TeamCalendar overrideTeamId={staffTeams[0].id} />;
-    }
-
-    const selectedTeam = staffTeamScope ? staffTeams.find((t) => t.id === Number(staffTeamScope)) ?? null : null;
-    if (!selectedTeam) {
-      return (
-        <div className="p-6 max-w-4xl mx-auto space-y-4">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Trophy className="w-6 h-6 text-primary" />
-              Partite — {SECTION_LABEL[section]}
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Seleziona annata/squadra per aprire il calendario partite.
-            </p>
-          </div>
-          <Card>
-            <CardContent className="pt-6 space-y-2">
-              <Label>Annata / squadra di riferimento</Label>
-              <Select value={staffTeamScope} onValueChange={setStaffTeamScope}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona annata/squadra" />
-                </SelectTrigger>
-                <SelectContent>
-                  {staffTeams.map((team) => (
-                    <SelectItem key={team.id} value={String(team.id)}>
-                      {team.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-        </div>
-      );
-    }
-
-    return <TeamCalendar overrideTeamId={selectedTeam.id} />;
   }
 
   return null;
