@@ -102,6 +102,7 @@ export type ArrowToolPreset = {
   geometry: "freehand" | "straight";
   heads: "none" | "end" | "start" | "both";
   lineStyle: "solid" | "dashed";
+  color?: string;
 };
 
 export type TacticalBoardData = {

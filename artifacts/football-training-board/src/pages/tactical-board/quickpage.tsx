@@ -109,17 +109,43 @@ function getPitchPoint(event: React.PointerEvent<HTMLDivElement> | PointerEvent,
   };
 }
 
-function makeSmoothPath(points: Array<{ x: number; y: number }>) {
-  if (!points.length) return "";
-  if (points.length < 3) return `M ${points[0].x} ${points[0].y} ${points.slice(1).map((p) => `L ${p.x} ${p.y}`).join(" ")}`;
-  let d = `M ${points[0].x} ${points[0].y}`;
+function stabilizedDrawingPoints(points: Array<{ x: number; y: number }>) {
+  if (points.length < 4) return points;
+  const filtered = [points[0]];
   for (let i = 1; i < points.length - 1; i += 1) {
-    const midX = (points[i].x + points[i + 1].x) / 2;
-    const midY = (points[i].y + points[i + 1].y) / 2;
-    d += ` Q ${points[i].x} ${points[i].y} ${midX} ${midY}`;
+    const prev = filtered[filtered.length - 1];
+    const p = points[i];
+    if (Math.hypot(p.x - prev.x, p.y - prev.y) >= 1.15) filtered.push(p);
   }
-  const last = points[points.length - 1];
-  d += ` T ${last.x} ${last.y}`;
+  filtered.push(points[points.length - 1]);
+  if (filtered.length < 4) return filtered;
+  return filtered.map((p, i) => {
+    if (i === 0 || i === filtered.length - 1) return p;
+    const prev = filtered[i - 1];
+    const next = filtered[i + 1];
+    return {
+      x: (prev.x + p.x * 2 + next.x) / 4,
+      y: (prev.y + p.y * 2 + next.y) / 4,
+    };
+  });
+}
+
+function makeSmoothPath(points: Array<{ x: number; y: number }>) {
+  const pts = stabilizedDrawingPoints(points);
+  if (!pts.length) return "";
+  if (pts.length < 3) return `M ${pts[0].x} ${pts[0].y} ${pts.slice(1).map((p) => `L ${p.x} ${p.y}`).join(" ")}`;
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i += 1) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${p2.x} ${p2.y}`;
+  }
   return d;
 }
 
@@ -127,7 +153,16 @@ const DEFAULT_ARROW_PRESET: ArrowToolPreset = {
   geometry: "freehand",
   heads: "end",
   lineStyle: "solid",
+  color: "#FACC15",
 };
+
+const ARROW_COLOR_OPTIONS = [
+  { label: "Giallo", value: "#FACC15" },
+  { label: "Bianco", value: "#F8FAFC" },
+  { label: "Rosso", value: "#EF4444" },
+  { label: "Blu", value: "#38BDF8" },
+  { label: "Nero", value: "#111827" },
+];
 
 function buildArrowDrawShape(preset: ArrowToolPreset): string {
   const base = preset.geometry === "straight" ? "straight-arrow" : "freehand-arrow";
@@ -161,7 +196,7 @@ function drawingPathData(el: TacticalBoardElement, points: Array<{ x: number; y:
 }
 
 function strokeDashForDrawing(el: TacticalBoardElement): string | undefined {
-  return String(el.drawShape ?? "").includes("dashed") ? "2.3 1.6" : undefined;
+  return String(el.drawShape ?? "").includes("dashed") ? "1.55 1.75" : undefined;
 }
 
 function ArrowToolPresetMenuContent({
@@ -217,7 +252,7 @@ function ArrowToolPresetMenuContent({
         ))}
       </div>
       <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Linea</div>
-      <div className="grid gap-1">
+      <div className="mb-2 grid gap-1">
         <button
           type="button"
           onClick={() => setArrowToolPreset((p) => ({ ...p, lineStyle: "solid" }))}
@@ -236,6 +271,27 @@ function ArrowToolPresetMenuContent({
         >
           Tratteggiata
         </button>
+      </div>
+      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Colore</div>
+      <div className="grid grid-cols-5 gap-1 px-1">
+        {ARROW_COLOR_OPTIONS.map((c) => {
+          const active = (arrowToolPreset.color ?? DEFAULT_ARROW_PRESET.color) === c.value;
+          return (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => setArrowToolPreset((p) => ({ ...p, color: c.value }))}
+              className={`h-8 rounded-lg border transition ${active ? "border-white bg-white/15" : "border-white/10 hover:bg-white/10"}`}
+              title={c.label}
+              aria-label={`Colore freccia ${c.label}`}
+            >
+              <span
+                className="mx-auto block h-4 w-4 rounded-full border border-white/40"
+                style={{ backgroundColor: c.value }}
+              />
+            </button>
+          );
+        })}
       </div>
     </>
   );
@@ -358,35 +414,42 @@ function MetricFieldOverlay({
 
 function EquipmentGlyph({ type }: { type?: string }) {
   if (type === "ball") {
-    return <div className="text-[28px] leading-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.35)]">⚽</div>;
+    return (
+      <svg viewBox="0 0 32 32" className="h-7 w-7">
+        <circle cx="16" cy="16" r="11.5" fill="#f8fafc" stroke="#111827" strokeWidth="1.2" />
+        <path d="M7 16.4c2.2-1.1 4.5-1 6.8.1 3.1 1.5 5.1 3.1 8.5 1.1 1.1-.7 2-.8 2.8-.7" fill="none" stroke="#111827" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
   }
 
   if (type === "cone") {
     return (
-      <svg viewBox="0 0 48 48" className="h-10 w-10 drop-shadow-lg">
-        <path d="M24 6 36 36H12L24 6Z" fill="#f97316" stroke="#991b1b" strokeWidth="2" />
-        <path d="M17 24h14M14 33h20" stroke="#fed7aa" strokeWidth="3" strokeLinecap="round" />
-        <path d="M9 38h30" stroke="#7f1d1d" strokeWidth="4" strokeLinecap="round" />
+      <svg viewBox="0 0 48 48" className="h-10 w-10">
+        <path d="M19.8 10h8.4L35.5 37H12.5L19.8 10Z" fill="#f8fafc" stroke="#64748b" strokeWidth="1" strokeLinejoin="round" />
+        <path d="M24 10h4.2L35.5 37H24V10Z" fill="#dbe3ec" opacity="0.58" />
+        <ellipse cx="24" cy="10" rx="4.2" ry="1.7" fill="#f8fafc" stroke="#64748b" strokeWidth="0.9" />
+        <ellipse cx="24" cy="10" rx="1.75" ry="0.72" fill="#166534" stroke="#334155" strokeWidth="0.45" />
+        <ellipse cx="24" cy="39.2" rx="12.6" ry="2.45" fill="#f8fafc" stroke="#64748b" strokeWidth="0.9" />
       </svg>
     );
   }
 
   if (type === "goalLarge" || type === "goal") {
     return (
-      <svg viewBox="0 0 64 44" className="h-12 w-16 drop-shadow-lg">
-        <path d="M6 34V10h52v24" fill="none" stroke="#f8fafc" strokeWidth="4" strokeLinejoin="round" />
-        <path d="M10 14h44M10 20h44M10 26h44M16 10v24M26 10v24M38 10v24M48 10v24" stroke="#bbf7d0" strokeWidth="1.5" opacity=".9" />
-        <path d="M6 34h52" stroke="#f8fafc" strokeWidth="4" strokeLinecap="round" />
+      <svg viewBox="0 0 68 44" className="h-11 w-16">
+        <path d="M7 35V9h54v26" fill="rgba(248,250,252,0.04)" stroke="#f8fafc" strokeWidth="2.2" strokeLinejoin="round" />
+        <path d="M11 14h46M11 20h46M11 26h46M17 9v26M28 9v26M40 9v26M51 9v26" stroke="#d9f99d" strokeWidth="0.8" opacity=".9" />
+        <path d="M7 35h54" stroke="#f8fafc" strokeWidth="2.2" strokeLinecap="round" />
       </svg>
     );
   }
 
   if (type === "sagoma") {
     return (
-      <svg viewBox="0 0 44 58" className="h-14 w-11 drop-shadow-lg">
-        <circle cx="22" cy="11" r="8" fill="#38bdf8" stroke="#075985" strokeWidth="3" />
-        <path d="M13 22h18l4 25H9l4-25Z" fill="#0ea5e9" stroke="#075985" strokeWidth="3" strokeLinejoin="round" />
-        <path d="M11 50h22" stroke="#082f49" strokeWidth="3" strokeLinecap="round" />
+      <svg viewBox="0 0 40 58" className="h-14 w-10">
+        <circle cx="20" cy="10" r="6.5" fill="#2563eb" stroke="#dbeafe" strokeWidth="1.4" />
+        <path d="M13.5 21h13l3.5 25H10l3.5-25Z" fill="#2563eb" stroke="#dbeafe" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M12 49.5h16" stroke="#dbeafe" strokeWidth="1.8" strokeLinecap="round" />
       </svg>
     );
   }
@@ -403,28 +466,28 @@ function EquipmentGlyph({ type }: { type?: string }) {
 
   if (type === "ladder") {
     return (
-      <svg viewBox="0 0 70 34" className="h-9 w-16 drop-shadow-lg">
-        <path d="M8 7h54M8 27h54" stroke="#111827" strokeWidth="4" strokeLinecap="round" />
-        {[18, 28, 38, 48].map((x) => <path key={x} d={`M${x} 7v20`} stroke="#111827" strokeWidth="3" strokeLinecap="round" />)}
+      <svg viewBox="0 0 70 34" className="h-8 w-16">
+        <path d="M8 8h54M8 26h54" stroke="#f8fafc" strokeWidth="2.2" strokeLinecap="round" />
+        {[18, 28, 38, 48].map((x) => <path key={x} d={`M${x} 8v18`} stroke="#f8fafc" strokeWidth="1.6" strokeLinecap="round" />)}
       </svg>
     );
   }
 
   if (type === "hurdle") {
     return (
-      <svg viewBox="0 0 58 42" className="h-11 w-14 drop-shadow-lg">
-        <path d="M11 33V14h36v19" fill="none" stroke="#b91c1c" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M8 33h10M40 33h10" stroke="#7f1d1d" strokeWidth="4" strokeLinecap="round" />
+      <svg viewBox="0 0 58 42" className="h-10 w-14">
+        <path d="M12 33V15h34v18" fill="none" stroke="#f8fafc" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M8 33h11M39 33h11" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" />
       </svg>
     );
   }
 
   if (type === "pole") {
     return (
-      <svg viewBox="0 0 28 70" className="h-16 w-8 drop-shadow-lg">
-        <path d="M14 6v58" stroke="#fde047" strokeWidth="5" strokeLinecap="round" />
-        <path d="M8 64h12" stroke="#854d0e" strokeWidth="4" strokeLinecap="round" />
-        <path d="M14 16h0M14 28h0M14 40h0M14 52h0" stroke="#b45309" strokeWidth="6" strokeLinecap="round" />
+      <svg viewBox="0 0 24 68" className="h-16 w-7">
+        <path d="M12 6v56" stroke="#facc15" strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M7 63h10" stroke="#f8fafc" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M12 18h0M12 31h0M12 44h0" stroke="#f8fafc" strokeWidth="3" strokeLinecap="round" />
       </svg>
     );
   }
@@ -438,7 +501,14 @@ function EquipmentGlyph({ type }: { type?: string }) {
   }
 
   if (type === "disc" || type === "cinesino") {
-    return <div className="h-8 w-8 rounded-full bg-yellow-300 border-2 border-yellow-700 shadow-lg" />;
+    return (
+      <svg viewBox="0 0 34 22" className="h-5 w-8">
+        <path d="M9.5 14.2 12.8 8.5h8.4l3.3 5.7c-2.75 2.8-12.25 2.8-15 0Z" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="0.38" strokeLinejoin="round" />
+        <path d="M17 8.5h4.2l3.3 5.7c-1.45 1.45-4.3 2.15-7.5 2.15V8.5Z" fill="#dbe3ec" opacity="0.36" />
+        <ellipse cx="17" cy="8.5" rx="4.6" ry="1.85" fill="#f8fafc" />
+        <ellipse cx="17" cy="8.5" rx="2.25" ry="0.9" fill="#166534" />
+      </svg>
+    );
   }
 
   if (type === "text") {
@@ -580,6 +650,7 @@ const QuickPage = () => {
           geometry: ap.geometry,
           heads: ap.heads,
           lineStyle: ap.lineStyle,
+          color: typeof ap.color === "string" ? ap.color : DEFAULT_ARROW_PRESET.color,
         });
       } else {
         setArrowToolPreset(DEFAULT_ARROW_PRESET);
@@ -1397,7 +1468,7 @@ const QuickPage = () => {
                 const draftElement: TacticalBoardElement = {
                   type: nextType,
                   points: [start, start],
-                  color: "#FACC15",
+                  color: activeTool === "movement" ? (ap.color ?? DEFAULT_ARROW_PRESET.color) : "#FACC15",
                   lineWidth: activeTool === "zones" ? 1.4 : 1.8,
                   drawShape:
                     activeTool === "movement"
@@ -1517,18 +1588,27 @@ const QuickPage = () => {
               {/* Dynamic tactical drawings */}
               <svg className="pointer-events-none absolute inset-0 z-[3] h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <defs>
-                  <marker id="dynamicArrowYellow" markerWidth="3.2" markerHeight="3.2" refX="2.8" refY="1.6" orient="auto">
-                    <path d="M0,0 L0,3.2 L3.2,1.6 z" fill="#FACC15" />
+                  <marker
+                    id="dynamicArrowYellow"
+                    markerWidth="2"
+                    markerHeight="2"
+                    refX="1.85"
+                    refY="1"
+                    orient="auto"
+                    markerUnits="userSpaceOnUse"
+                  >
+                    <path d="M0.2,0.2 L1.85,1 L0.2,1.8" fill="none" stroke="context-stroke" strokeWidth="0.24" strokeLinecap="round" strokeLinejoin="round" />
                   </marker>
                   <marker
                     id="dynamicArrowYellowStart"
-                    markerWidth="3.2"
-                    markerHeight="3.2"
-                    refX="2.8"
-                    refY="1.6"
+                    markerWidth="2"
+                    markerHeight="2"
+                    refX="1.85"
+                    refY="1"
                     orient="auto-start-reverse"
+                    markerUnits="userSpaceOnUse"
                   >
-                    <path d="M0,0 L0,3.2 L3.2,1.6 z" fill="#FACC15" />
+                    <path d="M0.2,0.2 L1.85,1 L0.2,1.8" fill="none" stroke="context-stroke" strokeWidth="0.24" strokeLinecap="round" strokeLinejoin="round" />
                   </marker>
                 </defs>
                 {elements.map((el: TacticalBoardElement, i: number) => {
@@ -1536,7 +1616,8 @@ const QuickPage = () => {
                   const points = Array.isArray(el.points) ? el.points as Array<{ x: number; y: number }> : [];
                   if (points.length < 2) return null;
                   const color = String(el.color ?? "#FACC15");
-                  const width = Math.max(0.8, Math.min(Number(el.lineWidth ?? 1.8), 2.2));
+                  const width = Math.max(0.75, Math.min(Number(el.lineWidth ?? 1.8), 2.2));
+                  const renderedStroke = Math.max(0.12, Math.min(width * 0.08, 0.18));
                   const selected = selectedElementIndex === i;
 
                   if (el.type === "zone") {
@@ -1563,7 +1644,7 @@ const QuickPage = () => {
 
                   const heads = resolveArrowHeads(el);
                   const tipLen = polylineLength(points);
-                  const showTips = tipLen > 1.5;
+                  const showTips = tipLen > 4;
                   const markerEndUrl =
                     showTips && (heads === "end" || heads === "both") && (el.type === "arrow" || el.type === "bezierarrow")
                       ? "url(#dynamicArrowYellow)"
@@ -1579,13 +1660,13 @@ const QuickPage = () => {
                       d={drawingPathData(el, points)}
                       fill="none"
                       stroke={color}
-                      strokeWidth={selected ? width * 0.2 : width * 0.16}
+                      strokeWidth={selected ? renderedStroke * 1.08 : renderedStroke}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeDasharray={strokeDashForDrawing(el)}
                       markerStart={markerStartUrl}
                       markerEnd={markerEndUrl}
-                      opacity={selected ? 1 : 0.96}
+                      opacity={selected ? 0.95 : 0.84}
                     />
                   );
                 })}
@@ -1619,11 +1700,13 @@ const QuickPage = () => {
                   const numberFromNumber = toNumeric(el.number);
                   const numberFromPlayerNumber = toNumeric(el.playerNumber);
                   const numberFromLabel = toNumeric(rawLabel);
+                  const rawNumber = el.number as unknown;
+                  const rawPlayerNumber = el.playerNumber as unknown;
                   const nameCandidates = [
                     rawDisplayName,
                     rawName,
-                    typeof el.number === "string" && !/^\d+$/.test(el.number.trim()) ? el.number.trim() : "",
-                    typeof el.playerNumber === "string" && !/^\d+$/.test(el.playerNumber.trim()) ? el.playerNumber.trim() : "",
+                    typeof rawNumber === "string" && !/^\d+$/.test(rawNumber.trim()) ? rawNumber.trim() : "",
+                    typeof rawPlayerNumber === "string" && !/^\d+$/.test(rawPlayerNumber.trim()) ? rawPlayerNumber.trim() : "",
                     rawLabel && !/^\d+$/.test(rawLabel) ? rawLabel : "",
                   ].filter(Boolean);
                   const markerNumber = el.playerId
