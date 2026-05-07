@@ -106,10 +106,10 @@ export function groupTorneoMatchesByCompetition(matches: TournamentCardMatch[]):
   return rows;
 }
 
-function matchRowLabels(m: TournamentCardMatch, teamDisplayName: string, clubLabel: string) {
+function matchRowLabels(m: TournamentCardMatch, clubLabel: string) {
   const isHome = m.homeAway === "home";
   const homeSide = isHome ? clubLabel : m.opponent;
-  const awaySide = isHome ? m.opponent : teamDisplayName;
+  const awaySide = isHome ? m.opponent : clubLabel;
   return { homeSide, awaySide };
 }
 
@@ -295,7 +295,7 @@ export function TournamentGroupedCards({
                 ) : (
                   <div className="divide-y divide-border/60 max-h-[280px] overflow-y-auto">
                     {displayedMatches.map((m) => {
-                      const { homeSide, awaySide } = matchRowLabels(m, teamDisplayName, clubLabel);
+                      const { homeSide, awaySide } = matchRowLabels(m, clubLabel);
                       return (
                         <div key={m.id} className="py-2.5 text-sm leading-snug first:pt-0 last:pb-0">
                           <div className="font-medium">
