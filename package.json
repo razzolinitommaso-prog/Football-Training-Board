@@ -48,6 +48,7 @@
     "@radix-ui/react-use-callback-ref": "^1.1.1",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
     "@radix-ui/react-use-escape-keydown": "^1.1.1",
+    "@radix-ui/react-use-effect-event": "0.0.2",
     "@radix-ui/react-use-layout-effect": "^1.1.1",
     "@radix-ui/react-use-previous": "^1.1.1",
     "@radix-ui/react-use-size": "^1.1.1",

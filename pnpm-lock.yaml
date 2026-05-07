@@ -223,6 +223,9 @@ importers:
       '@radix-ui/react-use-escape-keydown':
         specifier: ^1.1.1
         version: 1.1.1(@types/react@19.2.14)(react@19.1.0)
+      '@radix-ui/react-use-effect-event':
+        specifier: 0.0.2
+        version: 0.0.2(@types/react@19.2.14)(react@19.1.0)
       '@radix-ui/react-use-layout-effect':
         specifier: ^1.1.1
         version: 1.1.1(@types/react@19.2.14)(react@19.1.0)
