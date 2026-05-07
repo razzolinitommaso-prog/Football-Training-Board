@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@/hooks/use-auth";
-import { useListTeams } from "@workspace/api-client-react";
+import { useListPlayers, useListTeams } from "@workspace/api-client-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ArrowLeft,
@@ -21,6 +21,14 @@ import {
   MousePointer2,
   RotateCcw,
   Trash2,
+  Users,
+  Package,
+  PencilLine,
+  Library,
+  Ruler,
+  Type,
+  ArrowRight,
+  Square,
 } from "lucide-react";
 import { withApi } from "@/lib/api-base";
 import { FORMATIONS, isFormationPresetId } from "./formations";
@@ -62,7 +70,7 @@ const isPlayerAvailable = (player?: Pick<TeamPlayer, "available"> | null) => pla
 
 const BOARD_TYPES = ["Training", "Match", "Set Piece", "Quick Idea"] as const;
 const BOARD_TAGS = ["Pressing", "Build-up", "Transition"] as const;
-const EQUIPMENT_TOOLS = ["ball", "cone", "goal", "goalLarge", "sagoma", "flag", "ladder", "hurdle", "pole", "vest", "disc", "cinesino", "text"] as const;
+const EQUIPMENT_TOOLS = ["ball", "cone", "goal", "goalLarge", "goalMini", "goal5", "goal7", "goal9", "goal11", "sagoma", "flag", "ladder", "hurdle", "pole", "vest", "disc", "cinesino", "text"] as const;
 const PLAYER_TYPES = ["player", "opponent", "goalkeeper"] as const;
 const DRAWING_TYPES = ["path", "line", "arrow", "bezier", "bezierarrow", "draw", "zone"] as const;
 const FIELD_MEASUREMENTS: Record<TacticalBoardFormat, {
@@ -87,6 +95,66 @@ const FIELD_MEASUREMENTS: Record<TacticalBoardFormat, {
   "9v9": { canvasLength: 75.6, canvasWidth: 52.6, length: 72, width: 50, gridStep: 5, centerCircleRadius: 6, penaltyAreaDepth: 13, penaltyAreaWidth: 30, goalAreaDepth: 4.5, goalAreaWidth: 16, penaltySpotDistance: 9, goalWidth: 6, goalDepth: 1.8, cornerRadius: 1 },
   "11v11": { canvasLength: 114, canvasWidth: 77, length: 110, width: 75, gridStep: 10, centerCircleRadius: 9.15, penaltyAreaDepth: 16.5, penaltyAreaWidth: 40.32, goalAreaDepth: 5.5, goalAreaWidth: 18.32, penaltySpotDistance: 11, goalWidth: 7.32, goalDepth: 2, cornerRadius: 1 },
 };
+
+function normalizeBoardPlayer(raw: any): TeamPlayer | null {
+  const id = Number(raw?.id);
+  if (!Number.isFinite(id)) return null;
+  return {
+    id,
+    firstName: String(raw?.firstName ?? raw?.first_name ?? "").trim(),
+    lastName: String(raw?.lastName ?? raw?.last_name ?? "").trim(),
+    jerseyNumber:
+      typeof raw?.jerseyNumber === "number" ? raw.jerseyNumber : raw?.jerseyNumber == null ? null : Number(raw.jerseyNumber),
+    position: (raw?.position ?? raw?.role ?? null) as string | null,
+    available: typeof raw?.available === "boolean" ? raw.available : null,
+  };
+}
+
+const GOAL_TOOL_VARIANTS = [
+  { id: "goalMini", label: "Porticina 1m", shortLabel: "1", widthMeters: 1, heightMeters: 0.67, depthMeters: 0.38, showInMenu: false },
+  { id: "goal5", label: "Small", shortLabel: "S", widthMeters: 3, heightMeters: 2, depthMeters: 1.4, showInMenu: true },
+  { id: "goal7", label: "Medium", shortLabel: "M", widthMeters: 5, heightMeters: 2, depthMeters: 1.6, showInMenu: true },
+  { id: "goal9", label: "Large", shortLabel: "L", widthMeters: 6, heightMeters: 2, depthMeters: 1.8, showInMenu: true },
+  { id: "goal11", label: "Extra Large", shortLabel: "XL", widthMeters: 7.32, heightMeters: 2.44, depthMeters: 2, showInMenu: true },
+] as const;
+
+function goalVariantForType(type?: string) {
+  if (type === "goal" || type === "goalLarge") return GOAL_TOOL_VARIANTS[3];
+  return GOAL_TOOL_VARIANTS.find((g) => g.id === type);
+}
+
+const BALL_SIZE_OPTIONS = [
+  { id: "small", label: "Small", shortLabel: "S", className: "h-5 w-5" },
+  { id: "medium", label: "Medium", shortLabel: "M", className: "h-7 w-7" },
+  { id: "large", label: "Large", shortLabel: "L", className: "h-9 w-9" },
+] as const;
+
+const LADDER_STEP_OPTIONS = [
+  { id: "5", label: "5 steps", shortLabel: "5", steps: 5, className: "h-8 w-16", viewWidth: 70 },
+  { id: "10", label: "10 steps", shortLabel: "10", steps: 10, className: "h-8 w-32", viewWidth: 132 },
+  { id: "15", label: "15 steps", shortLabel: "15", steps: 15, className: "h-8 w-48", viewWidth: 194 },
+] as const;
+
+const HURDLE_HEIGHT_OPTIONS = [
+  { id: "20", label: "20 cm", shortLabel: "20", className: "h-8 w-14", topY: 22 },
+  { id: "40", label: "40 cm", shortLabel: "40", className: "h-10 w-14", topY: 15 },
+  { id: "60", label: "60 cm", shortLabel: "60", className: "h-12 w-14", topY: 9 },
+  { id: "80", label: "80 cm", shortLabel: "80", className: "h-14 w-14", topY: 4 },
+] as const;
+
+function equipmentFormatOptions(type?: string) {
+  if (type === "ball") return BALL_SIZE_OPTIONS;
+  if (type === "ladder") return LADDER_STEP_OPTIONS;
+  if (type === "hurdle") return HURDLE_HEIGHT_OPTIONS;
+  return [];
+}
+
+function defaultEquipmentFormat(type?: string) {
+  if (type === "ball") return "medium";
+  if (type === "ladder") return "5";
+  if (type === "hurdle") return "40";
+  return undefined;
+}
 
 function isPlayerType(type?: string): boolean {
   return PLAYER_TYPES.includes(type as (typeof PLAYER_TYPES)[number]);
@@ -163,6 +231,52 @@ const ARROW_COLOR_OPTIONS = [
   { label: "Blu", value: "#38BDF8" },
   { label: "Nero", value: "#111827" },
 ];
+
+const EQUIPMENT_COLOR_OPTIONS = [
+  { label: "Default", value: "default" },
+  { label: "Bianco", value: "#F8FAFC" },
+  { label: "Giallo", value: "#FACC15" },
+  { label: "Arancio", value: "#F97316" },
+  { label: "Rosso", value: "#EF4444" },
+  { label: "Blu", value: "#2563EB" },
+  { label: "Verde", value: "#22C55E" },
+  { label: "Nero", value: "#111827" },
+];
+
+const DRAW_COLOR_OPTIONS = [
+  { label: "Giallo", value: "#FACC15" },
+  { label: "Bianco", value: "#F8FAFC" },
+  { label: "Rosso", value: "#EF4444" },
+  { label: "Blu", value: "#38BDF8" },
+  { label: "Verde", value: "#22C55E" },
+  { label: "Nero", value: "#111827" },
+];
+
+const ZONE_SHAPE_OPTIONS = [
+  { id: "square", label: "Quadrata" },
+  { id: "circle", label: "Rotonda" },
+  { id: "triangle", label: "Triangolare" },
+  { id: "hexagon", label: "Esagonale" },
+] as const;
+
+function drawingElementBounds(el?: TacticalBoardElement | null) {
+  const points = Array.isArray(el?.points) ? el?.points as Array<{ x: number; y: number }> : [];
+  if (!points.length) return null;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(2.5, maxX - minX),
+    height: Math.max(2.5, maxY - minY),
+    cx: (minX + maxX) / 2,
+    cy: (minY + maxY) / 2,
+  };
+}
 
 function buildArrowDrawShape(preset: ArrowToolPreset): string {
   const base = preset.geometry === "straight" ? "straight-arrow" : "freehand-arrow";
@@ -297,6 +411,37 @@ function ArrowToolPresetMenuContent({
   );
 }
 
+function ColorSwatches({
+  value,
+  onChange,
+  ariaPrefix,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  ariaPrefix: string;
+}) {
+  return (
+    <div className="grid grid-cols-6 gap-1 px-1">
+      {DRAW_COLOR_OPTIONS.map((c) => {
+        const active = value === c.value;
+        return (
+          <button
+            key={c.value}
+            type="button"
+            onClick={() => onChange(c.value)}
+            className={`h-8 rounded-lg border transition ${active ? "border-white bg-white/15" : "border-white/10 hover:bg-white/10"}`}
+            title={c.label}
+            aria-label={`${ariaPrefix} ${c.label}`}
+          >
+            <span className="mx-auto block h-4 w-4 rounded-full border border-white/40" style={{ backgroundColor: c.value }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+
 function MetricFieldOverlay({
   spec,
   showGrid,
@@ -412,80 +557,181 @@ function MetricFieldOverlay({
   );
 }
 
-function EquipmentGlyph({ type }: { type?: string }) {
+function GoalEquipmentGlyph({ type, color }: { type?: string; color?: string }) {
+  const variant = goalVariantForType(type) ?? GOAL_TOOL_VARIANTS[3];
+  const primary = color ?? "#f8fafc";
+  const insetBySize = {
+    goalMini: 6.5,
+    goal5: 4.5,
+    goal7: 3,
+    goal9: 1.5,
+    goal11: 0.8,
+  } as Record<string, number>;
+  const inset = insetBySize[variant.id] ?? 5.7;
+  const top = inset;
+  const bottom = 32 - inset;
+  const netX = 6.5;
+  const faceX = 22.5;
+  const faceEndX = 26;
+
+  return (
+    <svg viewBox="0 0 32 32" className="h-8 w-10 overflow-visible">
+      <g transform="rotate(90 16 16)">
+        <rect
+          x={netX}
+          y={top}
+          width={faceX - netX}
+          height={bottom - top}
+          fill="rgba(248,250,252,0.08)"
+          stroke={primary}
+          strokeWidth="1.2"
+        />
+        {[1, 2, 3].map((line) => (
+          <React.Fragment key={line}>
+            <path d={`M ${netX} ${top + ((bottom - top) / 4) * line} H ${faceX}`} stroke="#d9f99d" strokeWidth="0.55" opacity="0.76" />
+            <path d={`M ${netX + ((faceX - netX) / 4) * line} ${top} V ${bottom}`} stroke="#d9f99d" strokeWidth="0.5" opacity="0.68" />
+          </React.Fragment>
+        ))}
+        <path
+          d={`M ${faceX} ${top - 0.9} H ${faceEndX} A 1.1 1.1 0 0 1 ${faceEndX} ${top + 1.3} V ${bottom - 1.3} A 1.1 1.1 0 0 1 ${faceEndX} ${bottom + 0.9} H ${faceX} A 1.1 1.1 0 0 1 ${faceX} ${bottom - 1.3} V ${top + 1.3} A 1.1 1.1 0 0 1 ${faceX} ${top - 0.9} Z`}
+          fill={primary}
+        />
+      </g>
+    </svg>
+  );
+}
+
+function FieldGoalEquipment({
+  type,
+  color,
+}: {
+  type?: string;
+  color?: string;
+}) {
+  const variant = goalVariantForType(type) ?? GOAL_TOOL_VARIANTS[3];
+  const postStroke = variant.id === "goalMini" ? 5.2 : 4.2;
+  const primary = color ?? "#f8fafc";
+  return (
+    <svg viewBox="0 0 100 100" className="h-full w-full overflow-visible" preserveAspectRatio="none" style={{ overflow: "visible" }}>
+      <rect
+        x="0"
+        y="0"
+        width="72"
+        height="100"
+        fill="rgba(248,250,252,0.08)"
+        stroke={primary}
+        strokeWidth={variant.id === "goalMini" ? 3.2 : 2.4}
+      />
+      {[1, 2, 3, 4, 5].map((line) => (
+        <React.Fragment key={line}>
+          <path d={`M 0 ${(100 / 6) * line} H 72`} stroke="#d9f99d" strokeWidth="1.3" opacity="0.72" />
+          {line <= 3 && <path d={`M ${18 * line} 0 V 100`} stroke="#d9f99d" strokeWidth="1.15" opacity="0.62" />}
+        </React.Fragment>
+      ))}
+      <path
+        d={`M 72 ${-postStroke / 2} H 86 A ${postStroke / 2} ${postStroke / 2} 0 0 1 86 ${postStroke / 2} V ${100 - postStroke / 2} A ${postStroke / 2} ${postStroke / 2} 0 0 1 86 ${100 + postStroke / 2} H 72 A ${postStroke / 2} ${postStroke / 2} 0 0 1 72 ${100 - postStroke / 2} V ${postStroke / 2} A ${postStroke / 2} ${postStroke / 2} 0 0 1 72 ${-postStroke / 2} Z`}
+        fill={primary}
+      />
+    </svg>
+  );
+}
+
+function EquipmentGlyph({
+  type,
+  color,
+  format,
+  fontSize,
+  fontWeight,
+}: {
+  type?: string;
+  color?: string;
+  format?: string;
+  fontSize?: number;
+  fontWeight?: string;
+}) {
+  const primary = color;
   if (type === "ball") {
+    const fill = primary ?? "#f8fafc";
+    const ink = fill === "#111827" ? "#f8fafc" : "#111827";
+    const ballSize = BALL_SIZE_OPTIONS.find((option) => option.id === (format ?? defaultEquipmentFormat(type))) ?? BALL_SIZE_OPTIONS[1];
     return (
-      <svg viewBox="0 0 32 32" className="h-7 w-7">
-        <circle cx="16" cy="16" r="11.5" fill="#f8fafc" stroke="#111827" strokeWidth="1.2" />
-        <path d="M7 16.4c2.2-1.1 4.5-1 6.8.1 3.1 1.5 5.1 3.1 8.5 1.1 1.1-.7 2-.8 2.8-.7" fill="none" stroke="#111827" strokeWidth="1.8" strokeLinecap="round" />
+      <svg viewBox="0 0 32 32" className={ballSize.className}>
+        <circle cx="16" cy="16" r="11.5" fill={fill} stroke={ink} strokeWidth="1.2" />
+        <path d="M7 16.4c2.2-1.1 4.5-1 6.8.1 3.1 1.5 5.1 3.1 8.5 1.1 1.1-.7 2-.8 2.8-.7" fill="none" stroke={ink} strokeWidth="1.8" strokeLinecap="round" />
       </svg>
     );
   }
 
   if (type === "cone") {
+    const fill = primary ?? "#f8fafc";
     return (
       <svg viewBox="0 0 48 48" className="h-10 w-10">
-        <path d="M19.8 10h8.4L35.5 37H12.5L19.8 10Z" fill="#f8fafc" stroke="#64748b" strokeWidth="1" strokeLinejoin="round" />
-        <path d="M24 10h4.2L35.5 37H24V10Z" fill="#dbe3ec" opacity="0.58" />
-        <ellipse cx="24" cy="10" rx="4.2" ry="1.7" fill="#f8fafc" stroke="#64748b" strokeWidth="0.9" />
+        <path d="M19.8 10h8.4L35.5 37H12.5L19.8 10Z" fill={fill} stroke="#64748b" strokeWidth="1" strokeLinejoin="round" />
+        <path d="M24 10h4.2L35.5 37H24V10Z" fill="#dbe3ec" opacity={primary ? "0.24" : "0.58"} />
+        <ellipse cx="24" cy="10" rx="4.2" ry="1.7" fill={fill} stroke="#64748b" strokeWidth="0.9" />
         <ellipse cx="24" cy="10" rx="1.75" ry="0.72" fill="#166534" stroke="#334155" strokeWidth="0.45" />
-        <ellipse cx="24" cy="39.2" rx="12.6" ry="2.45" fill="#f8fafc" stroke="#64748b" strokeWidth="0.9" />
+        <ellipse cx="24" cy="39.2" rx="12.6" ry="2.45" fill={fill} stroke="#64748b" strokeWidth="0.9" />
       </svg>
     );
   }
 
-  if (type === "goalLarge" || type === "goal") {
-    return (
-      <svg viewBox="0 0 68 44" className="h-11 w-16">
-        <path d="M7 35V9h54v26" fill="rgba(248,250,252,0.04)" stroke="#f8fafc" strokeWidth="2.2" strokeLinejoin="round" />
-        <path d="M11 14h46M11 20h46M11 26h46M17 9v26M28 9v26M40 9v26M51 9v26" stroke="#d9f99d" strokeWidth="0.8" opacity=".9" />
-        <path d="M7 35h54" stroke="#f8fafc" strokeWidth="2.2" strokeLinecap="round" />
-      </svg>
-    );
+  if (type === "goalLarge" || type === "goal" || goalVariantForType(type)) {
+    return <GoalEquipmentGlyph type={type} color={primary} />;
   }
 
   if (type === "sagoma") {
+    const fill = primary ?? "#2563eb";
     return (
-      <svg viewBox="0 0 40 58" className="h-14 w-10">
-        <circle cx="20" cy="10" r="6.5" fill="#2563eb" stroke="#dbeafe" strokeWidth="1.4" />
-        <path d="M13.5 21h13l3.5 25H10l3.5-25Z" fill="#2563eb" stroke="#dbeafe" strokeWidth="1.4" strokeLinejoin="round" />
+      <svg viewBox="0 0 40 58" className="h-11 w-8">
+        <circle cx="20" cy="10" r="6.5" fill={fill} stroke="#dbeafe" strokeWidth="1.4" />
+        <path d="M13.5 21h13l3.5 25H10l3.5-25Z" fill={fill} stroke="#dbeafe" strokeWidth="1.4" strokeLinejoin="round" />
         <path d="M12 49.5h16" stroke="#dbeafe" strokeWidth="1.8" strokeLinecap="round" />
       </svg>
     );
   }
 
   if (type === "flag") {
+    const fill = primary ?? "#fde047";
     return (
-      <svg viewBox="0 0 38 58" className="h-14 w-10 drop-shadow-lg">
+      <svg viewBox="0 0 38 58" className="h-11 w-8 drop-shadow-lg">
         <path d="M10 7v43" stroke="#713f12" strokeWidth="3" strokeLinecap="round" />
-        <path d="M11 8c8-5 13 4 21 0v20c-8 4-13-5-21 0V8Z" fill="#fde047" stroke="#a16207" strokeWidth="2" />
+        <path d="M11 8c8-5 13 4 21 0v20c-8 4-13-5-21 0V8Z" fill={fill} stroke="#a16207" strokeWidth="2" />
         <circle cx="10" cy="51" r="4" fill="#713f12" />
       </svg>
     );
   }
 
   if (type === "ladder") {
+    const stroke = primary ?? "#f8fafc";
+    const ladder = LADDER_STEP_OPTIONS.find((option) => option.id === (format ?? defaultEquipmentFormat(type))) ?? LADDER_STEP_OPTIONS[0];
+    const unitGap = 10;
+    const railStart = 8;
+    const railEnd = railStart + unitGap * ladder.steps;
+    const rungs = Array.from({ length: Math.max(1, ladder.steps - 1) }, (_, i) => railStart + unitGap * (i + 1));
     return (
-      <svg viewBox="0 0 70 34" className="h-8 w-16">
-        <path d="M8 8h54M8 26h54" stroke="#f8fafc" strokeWidth="2.2" strokeLinecap="round" />
-        {[18, 28, 38, 48].map((x) => <path key={x} d={`M${x} 8v18`} stroke="#f8fafc" strokeWidth="1.6" strokeLinecap="round" />)}
+      <svg viewBox={`0 0 ${ladder.viewWidth} 34`} className={ladder.className}>
+        <path d={`M${railStart} 8h${railEnd - railStart}M${railStart} 26h${railEnd - railStart}`} stroke={stroke} strokeWidth="2.2" strokeLinecap="round" />
+        {rungs.map((x) => <path key={x} d={`M${x} 8v18`} stroke={stroke} strokeWidth="1.6" strokeLinecap="round" />)}
       </svg>
     );
   }
 
   if (type === "hurdle") {
+    const stroke = primary ?? "#f8fafc";
+    const hurdle = HURDLE_HEIGHT_OPTIONS.find((option) => option.id === (format ?? defaultEquipmentFormat(type))) ?? HURDLE_HEIGHT_OPTIONS[1];
     return (
-      <svg viewBox="0 0 58 42" className="h-10 w-14">
-        <path d="M12 33V15h34v18" fill="none" stroke="#f8fafc" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <svg viewBox="0 0 58 42" className={hurdle.className}>
+        <path d={`M12 33V${hurdle.topY}h34v${33 - hurdle.topY}`} fill="none" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M8 33h11M39 33h11" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" />
       </svg>
     );
   }
 
   if (type === "pole") {
+    const stroke = primary ?? "#facc15";
     return (
-      <svg viewBox="0 0 24 68" className="h-16 w-7">
-        <path d="M12 6v56" stroke="#facc15" strokeWidth="2.4" strokeLinecap="round" />
+      <svg viewBox="0 0 24 68" className="h-12 w-5">
+        <path d="M12 6v56" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
         <path d="M7 63h10" stroke="#f8fafc" strokeWidth="1.6" strokeLinecap="round" />
         <path d="M12 18h0M12 31h0M12 44h0" stroke="#f8fafc" strokeWidth="3" strokeLinecap="round" />
       </svg>
@@ -493,26 +739,41 @@ function EquipmentGlyph({ type }: { type?: string }) {
   }
 
   if (type === "vest") {
+    const fill = primary ?? "#fde047";
     return (
-      <svg viewBox="0 0 50 52" className="h-12 w-12 drop-shadow-lg">
-        <path d="M15 6h8c0 6 4 6 4 0h8l8 10-7 7-3-4v26H17V19l-3 4-7-7 8-10Z" fill="#fde047" stroke="#a16207" strokeWidth="2.5" strokeLinejoin="round" />
+      <svg viewBox="0 0 50 52" className="h-10 w-10 drop-shadow-lg">
+        <path d="M15 6h8c0 6 4 6 4 0h8l8 10-7 7-3-4v26H17V19l-3 4-7-7 8-10Z" fill={fill} stroke="#a16207" strokeWidth="2.5" strokeLinejoin="round" />
       </svg>
     );
   }
 
   if (type === "disc" || type === "cinesino") {
+    const fill = primary ?? "#f8fafc";
     return (
       <svg viewBox="0 0 34 22" className="h-5 w-8">
-        <path d="M9.5 14.2 12.8 8.5h8.4l3.3 5.7c-2.75 2.8-12.25 2.8-15 0Z" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="0.38" strokeLinejoin="round" />
+        <path d="M9.5 14.2 12.8 8.5h8.4l3.3 5.7c-2.75 2.8-12.25 2.8-15 0Z" fill={fill} stroke="#cbd5e1" strokeWidth="0.38" strokeLinejoin="round" />
         <path d="M17 8.5h4.2l3.3 5.7c-1.45 1.45-4.3 2.15-7.5 2.15V8.5Z" fill="#dbe3ec" opacity="0.36" />
-        <ellipse cx="17" cy="8.5" rx="4.6" ry="1.85" fill="#f8fafc" />
+        <ellipse cx="17" cy="8.5" rx="4.6" ry="1.85" fill={fill} />
         <ellipse cx="17" cy="8.5" rx="2.25" ry="0.9" fill="#166534" />
       </svg>
     );
   }
 
   if (type === "text") {
-    return <div className="rounded-lg border-2 border-white bg-black/30 px-2 py-1 text-lg font-black text-white shadow-lg">T</div>;
+    return (
+      <div
+        className="rounded-lg border-2 bg-black/30 px-2 py-1 text-lg font-black shadow-lg"
+        style={{
+          borderColor: primary ?? "#f8fafc",
+          color: primary ?? "#f8fafc",
+          fontFamily: format,
+          fontSize: fontSize ? `${fontSize}px` : undefined,
+          fontWeight: fontWeight ?? undefined,
+        }}
+      >
+        T
+      </div>
+    );
   }
 
   return <div className="h-8 w-8 rounded-full bg-white/80 shadow-lg" />;
@@ -521,6 +782,7 @@ function EquipmentGlyph({ type }: { type?: string }) {
 const QuickPage = () => {
   const { club } = useAuth();
   const { data: allTeams } = useListTeams();
+  const { data: allPlayersData } = useListPlayers();
   const initialTeamIdFromQuery = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return parseNumericId(params.get("teamId"));
@@ -558,15 +820,37 @@ const QuickPage = () => {
   const [boardType, setBoardType] = useState<(typeof BOARD_TYPES)[number]>("Training");
   const [boardNotes, setBoardNotes] = useState("Obiettivo: attirare la prima pressione e uscire sul lato debole con la mezzala dentro.");
   const [librarySearch, setLibrarySearch] = useState("");
-  const [bottomMenu, setBottomMenu] = useState<"players" | "equipment" | "library">("players");
+  const [bottomMenu, setBottomMenu] = useState<"players" | "equipment" | "drawing" | "library">("players");
   const [showMetricGrid, setShowMetricGrid] = useState(true);
   const [showFieldMarkings, setShowFieldMarkings] = useState(true);
   const [pendingRosterPlayerId, setPendingRosterPlayerId] = useState<number | null>(null);
   const [freeMenuOpen, setFreeMenuOpen] = useState(false);
   const [arrowMenuOpen, setArrowMenuOpen] = useState(false);
+  const [drawMenuOpen, setDrawMenuOpen] = useState(false);
+  const [textMenuOpen, setTextMenuOpen] = useState(false);
+  const [zoneMenuOpen, setZoneMenuOpen] = useState(false);
+  const [measureMenuOpen, setMeasureMenuOpen] = useState(false);
+  const [goalMenuOpen, setGoalMenuOpen] = useState(false);
+  const [fieldElementMenuOpen, setFieldElementMenuOpen] = useState(false);
+  const [selectedGoalTool, setSelectedGoalTool] = useState<(typeof GOAL_TOOL_VARIANTS)[number]["id"]>("goal9");
+  const [equipmentColor, setEquipmentColor] = useState("default");
   const [arrowToolPreset, setArrowToolPreset] = useState<ArrowToolPreset>(DEFAULT_ARROW_PRESET);
+  const [drawToolPreset, setDrawToolPreset] = useState({ color: "#FACC15", lineWidth: 2 });
+  const [textToolPreset, setTextToolPreset] = useState({ color: "#F8FAFC", fontFamily: "Arial", fontSize: 16, bold: true });
+  const [zoneToolPreset, setZoneToolPreset] = useState<{ color: string; shape: (typeof ZONE_SHAPE_OPTIONS)[number]["id"] }>({ color: "#FACC15", shape: "square" });
+  const [measureToolPreset, setMeasureToolPreset] = useState({ color: "#F8FAFC", textSize: 2.35 });
   const movementToolShellRef = useRef<HTMLDivElement>(null);
+  const drawToolShellRef = useRef<HTMLDivElement>(null);
+  const textToolShellRef = useRef<HTMLDivElement>(null);
+  const zoneToolShellRef = useRef<HTMLDivElement>(null);
+  const measureToolShellRef = useRef<HTMLDivElement>(null);
+  const goalToolShellRef = useRef<HTMLDivElement>(null);
   const [arrowMenuViewport, setArrowMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [drawMenuViewport, setDrawMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [textMenuViewport, setTextMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [zoneMenuViewport, setZoneMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [measureMenuViewport, setMeasureMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [goalMenuViewport, setGoalMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useLayoutEffect(() => {
     if (!arrowMenuOpen) {
@@ -597,6 +881,72 @@ const QuickPage = () => {
       window.removeEventListener("resize", place);
     };
   }, [arrowMenuOpen]);
+
+  useLayoutEffect(() => {
+    if (!goalMenuOpen) {
+      setGoalMenuViewport(null);
+      return;
+    }
+    const el = goalToolShellRef.current;
+    if (!el) return;
+    const place = () => {
+      const r = el.getBoundingClientRect();
+      const width = Math.max(112, r.width);
+      let top = r.bottom + 6;
+      let left = r.left;
+      const maxH = Math.min(window.innerHeight * 0.7, 360);
+      if (top + maxH > window.innerHeight - 8) {
+        top = Math.max(8, r.top - 6 - maxH);
+      }
+      if (left + width > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - width - 8);
+      }
+      setGoalMenuViewport({ top, left, width });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [goalMenuOpen]);
+
+  useLayoutEffect(() => {
+    const configs = [
+      { open: drawMenuOpen, ref: drawToolShellRef, set: setDrawMenuViewport, width: 230 },
+      { open: textMenuOpen, ref: textToolShellRef, set: setTextMenuViewport, width: 250 },
+      { open: zoneMenuOpen, ref: zoneToolShellRef, set: setZoneMenuViewport, width: 250 },
+      { open: measureMenuOpen, ref: measureToolShellRef, set: setMeasureMenuViewport, width: 230 },
+    ] as const;
+    const active = configs.find((cfg) => cfg.open);
+    if (!active) {
+      setDrawMenuViewport(null);
+      setTextMenuViewport(null);
+      setZoneMenuViewport(null);
+      setMeasureMenuViewport(null);
+      return;
+    }
+    const el = active.ref.current;
+    if (!el) return;
+    const place = () => {
+      const r = el.getBoundingClientRect();
+      const width = Math.max(active.width, r.width);
+      let top = r.bottom + 6;
+      let left = r.left;
+      const maxH = Math.min(window.innerHeight * 0.7, 420);
+      if (top + maxH > window.innerHeight - 8) top = Math.max(8, r.top - 6 - maxH);
+      if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+      active.set({ top, left, width });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [drawMenuOpen, textMenuOpen, zoneMenuOpen, measureMenuOpen]);
 
   const [selectedElementIndex, setSelectedElementIndex] = useState<number | null>(null);
   const [selectedElementIndexes, setSelectedElementIndexes] = useState<number[]>([]);
@@ -765,6 +1115,11 @@ const QuickPage = () => {
 
   const assignedTeams = Array.isArray(allTeams) ? allTeams : [];
   const fallbackAssignedTeam = assignedTeams[0] ?? null;
+  const allRosterPlayers = React.useMemo(
+    () => (Array.isArray(allPlayersData) ? allPlayersData : []).map(normalizeBoardPlayer).filter((p): p is TeamPlayer => Boolean(p)),
+    [allPlayersData]
+  );
+  const playerAssignmentOptions = boardMode === "assigned" && teamPlayers.length ? teamPlayers : allRosterPlayers;
   const formationPresetOptions = Object.entries(FORMATIONS)
     .filter(([, formation]) => formation.formats.includes(boardFormat))
     .map(([formation]) => formation);
@@ -894,11 +1249,12 @@ const QuickPage = () => {
     "Note veloci testo",
     "Prepara partita",
   ];
-  const tacticalToolButtons = [
-    { id: "select", label: "Seleziona" },
-    { id: "draw", label: "Disegno" },
-    { id: "movement", label: "Freccia" },
-    { id: "zones", label: "Zona" },
+  const drawingTools = [
+    { id: "draw", label: "Disegno", icon: PencilLine },
+    { id: "movement", label: "Freccia", icon: ArrowRight },
+    { id: "zones", label: "Zona campo", icon: Square },
+    { id: "text", label: "Testo", icon: Type },
+    { id: "measure", label: "Misura", icon: Ruler },
   ];
   const saveStateLabelMap: Record<string, string> = {
     Saved: "Salvata",
@@ -912,12 +1268,18 @@ const QuickPage = () => {
     draw: "Disegno",
     movement: "Freccia",
     zones: "Zona",
+    measure: "Misura",
     player: "Giocatore 1",
     opponent: "Giocatore 2",
     goalkeeper: "Portiere",
     ball: "Palla",
     cone: "Cono",
     goalLarge: "Porta",
+    goalMini: "Porticina 1m",
+    goal5: "Small",
+    goal7: "Medium",
+    goal9: "Large",
+    goal11: "Extra Large",
     sagoma: "Sagoma",
     flag: "Bandierina",
     ladder: "Scaletta",
@@ -930,7 +1292,7 @@ const QuickPage = () => {
   const equipmentTools = [
     { id: "ball", label: "Palla" },
     { id: "cone", label: "Cono" },
-    { id: "goalLarge", label: "Porta" },
+    { id: "goalMenu", label: "Porta" },
     { id: "sagoma", label: "Sagoma" },
     { id: "flag", label: "Bandiera" },
     { id: "ladder", label: "Scaletta" },
@@ -952,6 +1314,8 @@ const QuickPage = () => {
   const hasRenderableElements = elements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
   const selectedElement =
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
+  const selectedRotation = selectedElement ? Math.round(Number(selectedElement.rotation ?? 0)) : 0;
+  const selectedDrawingBounds = drawingElementBounds(selectedElement);
   const selectedElements = selectedElementIndexes
     .map((idx) => elements[idx])
     .filter(Boolean);
@@ -960,8 +1324,9 @@ const QuickPage = () => {
       .map((el) => el.playerId)
       .filter((id): id is string => typeof id === "string" && id.length > 0)
   );
-  const canAssignRealPlayer = selectedElement?.type === "player" || selectedElement?.type === "goalkeeper";
+  const canEditPlayerMarker = selectedElement?.type === "player" || selectedElement?.type === "goalkeeper";
   const selectedElementLabel =
+    (typeof selectedElement?.displayName === "string" ? selectedElement.displayName : null) ??
     selectedElement?.name ??
     (selectedElement?.type ? `${selectedElement.type[0].toUpperCase()}${selectedElement.type.slice(1)}` : "Nessuna selezione");
   const selectedElementMeta = selectedElement
@@ -970,6 +1335,12 @@ const QuickPage = () => {
         selectedElement.x != null && selectedElement.y != null ? `${Math.round(selectedElement.x)}% / ${Math.round(selectedElement.y)}%` : null,
       ].filter(Boolean)
     : [];
+  const selectedElementMenuStyle = selectedElement
+    ? {
+        left: `${Math.max(12, Math.min(88, Number(selectedElement.x ?? selectedDrawingBounds?.cx ?? 50)))}%`,
+        top: `${Math.max(10, Math.min(90, Number(selectedElement.y ?? selectedDrawingBounds?.cy ?? 50)))}%`,
+      }
+    : undefined;
 
   const buildPlayerAssignment = (player: TeamPlayer) => ({
     playerId: String(player.id),
@@ -1001,7 +1372,7 @@ const QuickPage = () => {
 
   const assignPlayerToSelectedElement = (playerIdRaw: string) => {
     if (selectedElementIndex === null) return;
-    const player = teamPlayers.find((p) => String(p.id) === playerIdRaw);
+    const player = playerAssignmentOptions.find((p) => String(p.id) === playerIdRaw);
     if (!player) return;
 
     setElements((prev) =>
@@ -1031,6 +1402,11 @@ const QuickPage = () => {
     });
   };
 
+  const selectElementAndOpenMenu = (index: number, event: React.PointerEvent | React.MouseEvent) => {
+    selectElement(index, event);
+    setFieldElementMenuOpen(true);
+  };
+
   const deleteSelectedElements = () => {
     const indexes = selectedElementIndexes.length ? selectedElementIndexes : selectedElementIndex !== null ? [selectedElementIndex] : [];
     if (!indexes.length) return;
@@ -1038,8 +1414,112 @@ const QuickPage = () => {
     setElements((prev) => prev.filter((_, idx) => !toDelete.has(idx)));
     setSelectedElementIndex(null);
     setSelectedElementIndexes([]);
+    setFieldElementMenuOpen(false);
     setSaveState("Unsaved");
   };
+
+  const rotateSelectedElements = (delta: number) => {
+    const indexes = selectedElementIndexes.length ? selectedElementIndexes : selectedElementIndex !== null ? [selectedElementIndex] : [];
+    if (!indexes.length) return;
+    const toRotate = new Set(indexes);
+    setElements((prev) =>
+      prev.map((item, idx) => {
+        if (!toRotate.has(idx)) return item;
+        const current = typeof item.rotation === "number" ? item.rotation : Number(item.rotation ?? 0);
+        return { ...item, rotation: ((Number.isFinite(current) ? current : 0) + delta + 360) % 360 };
+      })
+    );
+    setSaveState("Unsaved");
+  };
+
+  const setSelectedElementsRotation = (rotation: number) => {
+    const indexes = selectedElementIndexes.length ? selectedElementIndexes : selectedElementIndex !== null ? [selectedElementIndex] : [];
+    if (!indexes.length) return;
+    const normalized = ((rotation % 360) + 360) % 360;
+    const toRotate = new Set(indexes);
+    setElements((prev) =>
+      prev.map((item, idx) => (
+        toRotate.has(idx) ? { ...item, rotation: normalized } : item
+      ))
+    );
+    setSaveState("Unsaved");
+  };
+
+  const setSelectedEquipmentColor = (color: string) => {
+    const indexes = selectedElementIndexes.length ? selectedElementIndexes : selectedElementIndex !== null ? [selectedElementIndex] : [];
+    if (!indexes.length) return;
+    const toColor = new Set(indexes);
+    setElements((prev) =>
+      prev.map((item, idx) => {
+        if (!toColor.has(idx) || !isEquipmentType(item.type)) return item;
+        if (color === "default") {
+          const { equipColor, ...rest } = item;
+          return rest;
+        }
+        return { ...item, equipColor: color };
+      })
+    );
+    setEquipmentColor(color);
+    setSaveState("Unsaved");
+  };
+
+  const setSelectedGoalType = (type: (typeof GOAL_TOOL_VARIANTS)[number]["id"]) => {
+    if (selectedElementIndex === null) return;
+    setElements((prev) =>
+      prev.map((item, idx) => (
+        idx === selectedElementIndex && goalVariantForType(item.type)
+          ? { ...item, type }
+          : item
+      ))
+    );
+    setSelectedGoalTool(type);
+    setFieldElementMenuOpen(true);
+    setSaveState("Unsaved");
+  };
+
+  const setSelectedEquipmentFormat = (format: string) => {
+    const indexes = selectedElementIndexes.length ? selectedElementIndexes : selectedElementIndex !== null ? [selectedElementIndex] : [];
+    if (!indexes.length) return;
+    const toFormat = new Set(indexes);
+    setElements((prev) =>
+      prev.map((item, idx) => (
+        toFormat.has(idx) && equipmentFormatOptions(item.type).length
+          ? { ...item, equipFormat: format }
+          : item
+      ))
+    );
+    setFieldElementMenuOpen(true);
+    setSaveState("Unsaved");
+  };
+
+  const updateSelectedElements = (updater: (item: TacticalBoardElement) => TacticalBoardElement) => {
+    const indexes = selectedElementIndexes.length ? selectedElementIndexes : selectedElementIndex !== null ? [selectedElementIndex] : [];
+    if (!indexes.length) return;
+    const selected = new Set(indexes);
+    setElements((prev) => prev.map((item, idx) => selected.has(idx) ? updater(item) : item));
+    setFieldElementMenuOpen(true);
+    setSaveState("Unsaved");
+  };
+
+  const setSelectedDrawingColor = (color: string) => updateSelectedElements((item) =>
+    isDrawingType(item.type) || item.type === "text" ? { ...item, color } : item
+  );
+
+  const setSelectedDrawingLineWidth = (lineWidth: number) => updateSelectedElements((item) =>
+    isDrawingType(item.type) ? { ...item, lineWidth } : item
+  );
+
+  const setSelectedZoneShape = (shape: (typeof ZONE_SHAPE_OPTIONS)[number]["id"]) => updateSelectedElements((item) =>
+    item.type === "zone" ? { ...item, drawShape: `zone-${shape}` } : item
+  );
+
+  const setSelectedMeasureTextSize = (measureTextSize: number) => updateSelectedElements((item) =>
+    String(item.drawShape ?? "") === "measure-line" ? { ...item, measureTextSize } : item
+  );
+
+  const updateSelectedTextStyle = (patch: Record<string, unknown>) => updateSelectedElements((item) =>
+    item.type === "text" ? { ...item, ...patch } : item
+  );
 
   const clearDrawings = () => {
     setElements((prev) => prev.filter((item) => !isDrawingType(item.type)));
@@ -1061,8 +1541,42 @@ const QuickPage = () => {
     setElements((prev) =>
       prev.map((item, idx) => {
         if (idx !== selectedElementIndex) return item;
-        const { playerId, name, number, ...rest } = item;
+        const { playerId, name, displayName, number, playerNumber, ...rest } = item;
         return rest;
+      })
+    );
+    setSaveState("Unsaved");
+  };
+
+  const updateSelectedPlayerText = (value: string) => {
+    if (selectedElementIndex === null) return;
+    const text = value.trim();
+    setElements((prev) =>
+      prev.map((item, idx) =>
+        idx === selectedElementIndex
+          ? {
+              ...item,
+              name: text || undefined,
+              displayName: text || undefined,
+            }
+          : item
+      )
+    );
+    setSaveState("Unsaved");
+  };
+
+  const updateSelectedPlayerNumber = (value: string) => {
+    if (selectedElementIndex === null) return;
+    const trimmed = value.trim();
+    const parsed = trimmed ? Number(trimmed) : null;
+    setElements((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== selectedElementIndex) return item;
+        if (!trimmed || !Number.isFinite(parsed)) {
+          const { number, playerNumber, ...rest } = item;
+          return rest;
+        }
+        return { ...item, number: parsed, playerNumber: parsed };
       })
     );
     setSaveState("Unsaved");
@@ -1073,10 +1587,9 @@ const QuickPage = () => {
     e.stopPropagation();
 
     const pointerId = e.pointerId;
-    selectElement(indexToDrag, e);
-    isDraggingRef.current = true;
+    selectElementAndOpenMenu(indexToDrag, e);
     skipNextPitchClickRef.current = true;
-    setSaveState("Unsaved");
+    let moved = false;
 
     const rect = pitchRef.current;
     const selectedGroup = selectedElementIndexes.includes(indexToDrag) && selectedElementIndexes.length > 1
@@ -1084,14 +1597,11 @@ const QuickPage = () => {
       : [indexToDrag];
     const startPoint = rect ? getPitchPoint(e, rect) : { x: 0, y: 0 };
     const startPositions = elements.map((item) => ({ x: Number(item.x ?? 50), y: Number(item.y ?? 50) }));
-    if (rect) {
-      const { x, y } = startPoint;
-      setElements((prev) =>
-        prev.map((item: TacticalBoardElement, idx: number) =>
-          idx === indexToDrag ? { ...item, x, y } : item
-        )
-      );
-    }
+    const startPointLists = elements.map((item) => (
+      Array.isArray(item.points)
+        ? (item.points as Array<{ x: number; y: number }>).map((p) => ({ x: p.x, y: p.y }))
+        : null
+    ));
 
     const handleMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
@@ -1100,11 +1610,25 @@ const QuickPage = () => {
       const { x, y } = getPitchPoint(ev, pitch);
       const dx = x - startPoint.x;
       const dy = y - startPoint.y;
+      if (!moved && Math.hypot(dx, dy) < 0.65) return;
+      if (!moved) {
+        moved = true;
+        setFieldElementMenuOpen(false);
+        isDraggingRef.current = true;
+        setSaveState("Unsaved");
+      }
       const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
       setElements((prev) =>
         prev.map((item: TacticalBoardElement, idx: number) => {
           if (!selectedGroup.includes(idx)) return item;
+          const originalPoints = startPointLists[idx];
+          if (originalPoints?.length) {
+            return {
+              ...item,
+              points: originalPoints.map((p) => ({ x: clamp(p.x + dx), y: clamp(p.y + dy) })),
+            };
+          }
           const origin = startPositions[idx] ?? { x, y };
           return { ...item, x: clamp(origin.x + dx), y: clamp(origin.y + dy) };
         })
@@ -1447,35 +1971,46 @@ const QuickPage = () => {
               </div>
             </div>
             <div
-              className="relative h-auto w-full rounded-[22px] sm:rounded-[26px] lg:rounded-[30px] overflow-hidden border border-white/10 shadow-2xl bg-gradient-to-b from-[#19603A] via-[#165A37] to-[#11462C]"
+              className="relative h-auto w-full rounded-[22px] sm:rounded-[26px] lg:rounded-[30px] overflow-hidden border border-white/10 shadow-2xl bg-gradient-to-b from-[#34A853] via-[#2B914A] to-[#23783F]"
               style={{
                 aspectRatio: `${pitchMeasurement.canvasLength} / ${pitchMeasurement.canvasWidth}`,
                 maxWidth: "100%",
               }}
               ref={pitchRef}
+              onContextMenu={(e) => e.preventDefault()}
               onPointerDown={(e: React.PointerEvent<HTMLDivElement>) => {
                 if (e.target !== e.currentTarget) return;
-                if (!["draw", "movement", "zones"].includes(activeTool)) return;
+                if (!["draw", "movement", "zones", "measure"].includes(activeTool)) return;
 
                 const pitch = pitchRef.current;
                 if (!pitch) return;
                 e.preventDefault();
 
                 const start = getPitchPoint(e, pitch);
-                const nextType = activeTool === "movement" ? "arrow" : activeTool === "zones" ? "zone" : "path";
+                const nextType = activeTool === "movement" ? "arrow" : activeTool === "zones" ? "zone" : activeTool === "measure" ? "line" : "path";
                 const draftIndex = elements.length;
                 const ap = arrowToolPreset;
                 const draftElement: TacticalBoardElement = {
                   type: nextType,
                   points: [start, start],
-                  color: activeTool === "movement" ? (ap.color ?? DEFAULT_ARROW_PRESET.color) : "#FACC15",
-                  lineWidth: activeTool === "zones" ? 1.4 : 1.8,
+                  color:
+                    activeTool === "movement"
+                      ? (ap.color ?? DEFAULT_ARROW_PRESET.color)
+                      : activeTool === "measure"
+                        ? measureToolPreset.color
+                        : activeTool === "zones"
+                          ? zoneToolPreset.color
+                          : drawToolPreset.color,
+                  lineWidth: activeTool === "zones" ? 1.4 : activeTool === "draw" ? drawToolPreset.lineWidth : 1.8,
                   drawShape:
                     activeTool === "movement"
                       ? buildArrowDrawShape(ap)
                       : activeTool === "zones"
-                        ? "rect-outline"
+                        ? `zone-${zoneToolPreset.shape}`
+                        : activeTool === "measure"
+                          ? "measure-line"
                         : "freehand-solid",
+                  ...(activeTool === "measure" ? { measureTextSize: measureToolPreset.textSize } : {}),
                   arrowHeads: activeTool === "movement" ? ap.heads : undefined,
                   arrowEnd:
                     activeTool === "movement" && (ap.heads === "end" || ap.heads === "both")
@@ -1487,6 +2022,7 @@ const QuickPage = () => {
 
                 setElements((prev) => [...prev, draftElement]);
                 setSelectedElementIndex(draftIndex);
+                setFieldElementMenuOpen(false);
                 setSaveState("Unsaved");
 
                 const pointerId = e.pointerId;
@@ -1500,7 +2036,7 @@ const QuickPage = () => {
                       if (idx !== draftIndex) return item;
                       const points = Array.isArray(item.points) ? item.points as Array<{ x: number; y: number }> : [start];
                       if (nextType === "zone") return { ...item, points: [start, point] };
-                      if (nextType === "arrow" && ap.geometry === "straight") {
+                      if ((nextType === "arrow" && ap.geometry === "straight") || nextType === "line") {
                         return { ...item, points: [start, point] };
                       }
                       const last = points[points.length - 1];
@@ -1523,8 +2059,6 @@ const QuickPage = () => {
                 // Evita di creare nuovi elementi quando clicchi sopra un marker esistente.
                 if (skipNextPitchClickRef.current) {
                   skipNextPitchClickRef.current = false;
-                  setSelectedElementIndex(null);
-                  setSelectedElementIndexes([]);
                   return;
                 }
                 if (isDraggingRef.current) return;
@@ -1532,6 +2066,7 @@ const QuickPage = () => {
 
                 setSelectedElementIndex(null);
                 setSelectedElementIndexes([]);
+                setFieldElementMenuOpen(false);
 
                 const rect = e.currentTarget.getBoundingClientRect();
                 const xPct = ((e.clientX - rect.left) / rect.width) * 100;
@@ -1548,11 +2083,22 @@ const QuickPage = () => {
                 const nextType = activeTool;
                 const nextPlayer = isPlayerType(nextType) ? getNextAvailableRosterPlayer(nextType) : null;
                 const usedPlayerCount = elements.filter((item) => isPlayerType(item.type) && item.playerId).length;
+                const selectedEquipmentColor = equipmentColor === "default" ? undefined : equipmentColor;
                 const newElement: TacticalBoardElement = {
                   type: nextType,
                   x,
                   y,
                   label: activeTool === "text" ? "T" : undefined,
+                  ...(activeTool === "text"
+                    ? {
+                        color: textToolPreset.color,
+                        fontFamily: textToolPreset.fontFamily,
+                        fontSize: textToolPreset.fontSize,
+                        fontWeight: textToolPreset.bold ? "700" : "400",
+                      }
+                    : {}),
+                  ...(isEquipmentType(nextType) && selectedEquipmentColor ? { equipColor: selectedEquipmentColor } : {}),
+                  ...(isEquipmentType(nextType) && defaultEquipmentFormat(nextType) ? { equipFormat: defaultEquipmentFormat(nextType) } : {}),
                   ...(nextPlayer ? buildPlayerAssignment(nextPlayer) : {}),
                   ...(nextPlayer && selectedPreset && isFormationPresetId(selectedPreset) && usedPlayerCount >= FORMATIONS[selectedPreset].slots.length
                     ? { rosterStatus: "extra" }
@@ -1560,6 +2106,7 @@ const QuickPage = () => {
                 };
 
                 setElements((prev) => [...prev, newElement]);
+                setFieldElementMenuOpen(false);
                 if (nextPlayer && pendingRosterPlayerId === nextPlayer.id) setPendingRosterPlayerId(null);
                 setSaveState("Unsaved");
               }}
@@ -1626,6 +2173,49 @@ const QuickPage = () => {
                     const y = Math.min(a.y, b.y);
                     const w = Math.abs(a.x - b.x);
                     const h = Math.abs(a.y - b.y);
+                    const shape = String(el.drawShape ?? "zone-square").replace("zone-", "");
+                    const cx = x + w / 2;
+                    const cy = y + h / 2;
+                    const polygon = (vertices: Array<[number, number]>) => vertices.map(([px, py]) => `${px},${py}`).join(" ");
+                    if (shape === "circle") {
+                      return (
+                        <ellipse
+                          key={`draw-${i}`}
+                          cx={cx}
+                          cy={cy}
+                          rx={w / 2}
+                          ry={h / 2}
+                          fill="rgba(250,204,21,0.14)"
+                          stroke={color}
+                          strokeWidth={selected ? width * 0.24 : width * 0.18}
+                          strokeDasharray={String(el.drawShape ?? "").includes("dashed") ? "2 1.6" : undefined}
+                        />
+                      );
+                    }
+                    if (shape === "triangle") {
+                      return (
+                        <polygon
+                          key={`draw-${i}`}
+                          points={polygon([[cx, y], [x + w, y + h], [x, y + h]])}
+                          fill="rgba(250,204,21,0.14)"
+                          stroke={color}
+                          strokeWidth={selected ? width * 0.24 : width * 0.18}
+                          strokeLinejoin="round"
+                        />
+                      );
+                    }
+                    if (shape === "hexagon") {
+                      return (
+                        <polygon
+                          key={`draw-${i}`}
+                          points={polygon([[x + w * 0.25, y], [x + w * 0.75, y], [x + w, cy], [x + w * 0.75, y + h], [x + w * 0.25, y + h], [x, cy]])}
+                          fill="rgba(250,204,21,0.14)"
+                          stroke={color}
+                          strokeWidth={selected ? width * 0.24 : width * 0.18}
+                          strokeLinejoin="round"
+                        />
+                      );
+                    }
                     return (
                       <rect
                         key={`draw-${i}`}
@@ -1654,6 +2244,46 @@ const QuickPage = () => {
                       ? "url(#dynamicArrowYellowStart)"
                       : undefined;
 
+                  if (String(el.drawShape ?? "") === "measure-line") {
+                    const [a, b] = points;
+                    const dxPct = b.x - a.x;
+                    const dyPct = b.y - a.y;
+                    const dxM = (dxPct / 100) * pitchMeasurement.canvasLength;
+                    const dyM = (dyPct / 100) * pitchMeasurement.canvasWidth;
+                    const meters = Math.hypot(dxM, dyM);
+                    const len = Math.hypot(dxPct, dyPct) || 1;
+                    const nx = (-dyPct / len) * 1.2;
+                    const ny = (dxPct / len) * 1.2;
+                    const mx = (a.x + b.x) / 2;
+                    const my = (a.y + b.y) / 2;
+                    return (
+                      <g key={`draw-${i}`} opacity={selected ? 0.98 : 0.88}>
+                        <path
+                          d={`M ${a.x} ${a.y} L ${b.x} ${b.y}`}
+                          fill="none"
+                          stroke={color}
+                          strokeWidth={selected ? renderedStroke * 1.2 : renderedStroke}
+                          strokeLinecap="round"
+                        />
+                        <path d={`M ${a.x - nx} ${a.y - ny} L ${a.x + nx} ${a.y + ny}`} stroke={color} strokeWidth={renderedStroke * 1.35} strokeLinecap="round" />
+                        <path d={`M ${b.x - nx} ${b.y - ny} L ${b.x + nx} ${b.y + ny}`} stroke={color} strokeWidth={renderedStroke * 1.35} strokeLinecap="round" />
+                        <text
+                          x={mx}
+                          y={my - 1.4}
+                          textAnchor="middle"
+                          fill={color}
+                          stroke="#0F172A"
+                          strokeWidth="0.45"
+                          paintOrder="stroke"
+                          fontSize={String(Number(el.measureTextSize ?? 2.35))}
+                          fontWeight="700"
+                        >
+                          {`${meters.toFixed(meters >= 10 ? 0 : 1)}m`}
+                        </text>
+                      </g>
+                    );
+                  }
+
                   return (
                     <path
                       key={`draw-${i}`}
@@ -1672,6 +2302,32 @@ const QuickPage = () => {
                 })}
               </svg>
 
+              {elements.map((el: TacticalBoardElement, i: number) => {
+                if (!isDrawingType(el.type)) return null;
+                const bounds = drawingElementBounds(el);
+                if (!bounds) return null;
+                const isSelected = selectedElementIndex === i || selectedElementIndexes.includes(i);
+                const pad = String(el.drawShape ?? "") === "measure-line" ? 1.4 : 1;
+                return (
+                  <div
+                    key={`drawing-hit-${String(el.id ?? i)}`}
+                    className={`absolute z-[4] cursor-grab touch-none select-none rounded-lg transition active:cursor-grabbing ${
+                      isSelected ? "ring-2 ring-[#FACC15] ring-offset-2 ring-offset-[#145f38]" : ""
+                    }`}
+                    style={{
+                      left: `${bounds.x - pad}%`,
+                      top: `${bounds.y - pad}%`,
+                      width: `${bounds.width + pad * 2}%`,
+                      height: `${bounds.height + pad * 2}%`,
+                      minWidth: "20px",
+                      minHeight: "20px",
+                    }}
+                    title={activeToolLabelMap[el.type ?? ""] ?? String(el.type ?? "Disegno")}
+                    onPointerDown={(e) => dragElement(e, i)}
+                  />
+                );
+              })}
+
               {/* Elements */}
               {hasRenderableElements ? (
                 elements.map((el: TacticalBoardElement, i: number) => {
@@ -1680,7 +2336,7 @@ const QuickPage = () => {
                   const commonStyle = {
                     left: `${el.x ?? 50}%`,
                     top: `${el.y ?? 50}%`,
-                    transform: "translate(-50%, -50%)",
+                    transform: `translate(-50%, -50%) rotate(${Number(el.rotation ?? 0)}deg)`,
                   } as const;
 
                   const linkedPlayer = el.playerId
@@ -1727,6 +2383,29 @@ const QuickPage = () => {
                       : `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full bg-[#facc15] text-xs font-bold text-black shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`;
 
                   if (isEquipmentType(el.type)) {
+                    const elEquipColor = typeof el.equipColor === "string" ? el.equipColor : undefined;
+                    const elEquipFormat = typeof el.equipFormat === "string" ? el.equipFormat : defaultEquipmentFormat(el.type);
+                    const goalVariant = goalVariantForType(el.type);
+                    if (goalVariant) {
+                      const fieldGoalStyle = {
+                        ...commonStyle,
+                        width: `${(goalVariant.depthMeters / pitchMeasurement.canvasLength) * 100}%`,
+                        height: `${(goalVariant.widthMeters / pitchMeasurement.canvasWidth) * 100}%`,
+                        minWidth: goalVariant.id === "goalMini" ? "8px" : "12px",
+                        minHeight: goalVariant.id === "goalMini" ? "10px" : "18px",
+                      } as const;
+                      return (
+                        <div
+                          key={String(el.id ?? `el-${i}`)}
+                          className={`absolute z-[4] cursor-grab touch-none select-none transition active:cursor-grabbing ${isSelected ? "ring-2 ring-[#FACC15] ring-offset-2 ring-offset-[#145f38]" : ""}`}
+                          style={fieldGoalStyle}
+                          onPointerDown={(e) => dragElement(e, i)}
+                          title={goalVariant.label}
+                        >
+                          <FieldGoalEquipment type={el.type} color={elEquipColor} />
+                        </div>
+                      );
+                    }
                     return (
                       <div
                         key={String(el.id ?? `el-${i}`)}
@@ -1735,7 +2414,13 @@ const QuickPage = () => {
                         onPointerDown={(e) => dragElement(e, i)}
                         title={String(el.type)}
                       >
-                        <EquipmentGlyph type={el.type} />
+                        <EquipmentGlyph
+                          type={el.type}
+                          color={el.type === "text" ? String(el.color ?? elEquipColor ?? "#F8FAFC") : elEquipColor}
+                          format={el.type === "text" ? String(el.fontFamily ?? "Arial") : elEquipFormat}
+                          fontSize={el.type === "text" ? Number(el.fontSize ?? 16) : undefined}
+                          fontWeight={el.type === "text" ? String(el.fontWeight ?? "700") : undefined}
+                        />
                       </div>
                     );
                   }
@@ -1766,12 +2451,33 @@ const QuickPage = () => {
                 </div>
               )}
 
-              {/* Delete selected element */}
-              {selectedElementIndex !== null && (
-                <div className={`absolute right-4 top-4 z-20 flex gap-2 ${canAssignRealPlayer ? "w-64 flex-col" : "rounded-2xl border border-white/10 bg-[#1f2937]/95 p-2 shadow-2xl backdrop-blur"}`}>
-                  {canAssignRealPlayer && (
-                    <div className="rounded-xl border border-white/20 bg-[#0F172A]/95 p-3 shadow-lg">
+              {selectedElementIndex !== null && selectedElement && selectedElementMenuStyle && fieldElementMenuOpen && (
+                <div
+                  className="absolute z-30 w-64 -translate-x-1/2 -translate-y-[calc(100%+14px)] rounded-2xl border border-white/10 bg-[#0F172A]/95 p-3 shadow-2xl backdrop-blur"
+                  style={selectedElementMenuStyle}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold text-white/90">{selectedElementLabel}</div>
+                      {selectedElementMeta.length > 0 && (
+                        <div className="truncate text-[10px] text-white/45">{selectedElementMeta.join(" · ")}</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-lg bg-red-500 px-3 py-2 text-xs font-bold text-white transition hover:bg-red-600"
+                      onClick={deleteSelectedElements}
+                    >
+                      Elimina
+                    </button>
+                  </div>
+
+                  {canEditPlayerMarker && (
+                    <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
                       <div className="text-xs text-white/70 mb-2">Assegna giocatore reale</div>
+                      {playerAssignmentOptions.length > 0 ? (
                       <Select
                         value={selectedElement?.playerId ? String(selectedElement.playerId) : "_none"}
                         onValueChange={(value) => {
@@ -1787,26 +2493,279 @@ const QuickPage = () => {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">Marker generico (nessun player)</SelectItem>
-                          {teamPlayers.map((p) => (
+                          {playerAssignmentOptions.map((p) => (
                             <SelectItem key={p.id} value={String(p.id)}>
                               {`${p.jerseyNumber ?? "-"} · ${p.firstName} ${p.lastName}`}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      ) : (
+                        <div className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-xs text-white/50">
+                          Nessuna rosa disponibile
+                        </div>
+                      )}
+                      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_4.5rem] gap-2">
+                        <label className="min-w-0">
+                          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-white/45">Testo</span>
+                          <input
+                            value={String(selectedElement.displayName ?? selectedElement.name ?? "")}
+                            onChange={(e) => updateSelectedPlayerText(e.target.value)}
+                            placeholder="Nome o etichetta"
+                            className="h-9 w-full rounded-lg border border-white/10 bg-white/5 px-2 text-xs text-white outline-none placeholder:text-white/35"
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-white/45">Numero</span>
+                          <input
+                            value={selectedElement.number != null ? String(selectedElement.number) : selectedElement.playerNumber != null ? String(selectedElement.playerNumber) : ""}
+                            onChange={(e) => updateSelectedPlayerNumber(e.target.value)}
+                            inputMode="numeric"
+                            placeholder="#"
+                            className="h-9 w-full rounded-lg border border-white/10 bg-white/5 px-2 text-xs text-white outline-none placeholder:text-white/35"
+                          />
+                        </label>
+                      </div>
                     </div>
                   )}
 
-                  <button
-                    type="button"
-                    className={`${canAssignRealPlayer ? "px-3 py-2" : "h-10 px-4"} rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold shadow-lg`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteSelectedElements();
-                    }}
-                  >
-                    Elimina
-                  </button>
+                  {isDrawingType(selectedElement.type) && selectedElement.type !== "zone" && String(selectedElement.drawShape ?? "") !== "measure-line" && (
+                    <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
+                      <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Disegno</div>
+                      {(selectedElement.type === "arrow" || selectedElement.type === "bezierarrow") && (
+                        <div className="mb-2 grid grid-cols-4 gap-1">
+                          {(["none", "start", "end", "both"] as const).map((heads) => (
+                            <button
+                              key={`selected-arrow-heads-${heads}`}
+                              type="button"
+                              onClick={() => updateSelectedElements((item) => item.type === "arrow" || item.type === "bezierarrow" ? { ...item, arrowHeads: heads, arrowEnd: heads === "end" || heads === "both" ? "end" : "none" } : item)}
+                              className={`h-8 rounded-lg text-[10px] font-bold ${
+                                resolveArrowHeads(selectedElement) === heads ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                              }`}
+                            >
+                              {heads === "none" ? "No" : heads === "start" ? "In" : heads === "end" ? "Fine" : "2"}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <div className="mb-2 grid grid-cols-4 gap-1">
+                        {[1.4, 2, 2.8, 3.6].map((size) => (
+                          <button
+                            key={`selected-line-width-${size}`}
+                            type="button"
+                            onClick={() => setSelectedDrawingLineWidth(size)}
+                            className={`h-8 rounded-lg text-xs font-bold ${
+                              Number(selectedElement.lineWidth ?? 1.8) === size ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                            }`}
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
+                      <ColorSwatches value={String(selectedElement.color ?? "#FACC15")} onChange={setSelectedDrawingColor} ariaPrefix="Colore disegno selezionato" />
+                    </div>
+                  )}
+
+                  {selectedElement.type === "zone" && (
+                    <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
+                      <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Zona</div>
+                      <div className="mb-2 grid grid-cols-2 gap-1">
+                        {ZONE_SHAPE_OPTIONS.map((shape) => {
+                          const active = String(selectedElement.drawShape ?? "zone-square") === `zone-${shape.id}`;
+                          return (
+                            <button
+                              key={`selected-zone-shape-${shape.id}`}
+                              type="button"
+                              onClick={() => setSelectedZoneShape(shape.id)}
+                              className={`rounded-lg px-2 py-2 text-left text-xs font-semibold ${active ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"}`}
+                            >
+                              {shape.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <ColorSwatches value={String(selectedElement.color ?? "#FACC15")} onChange={setSelectedDrawingColor} ariaPrefix="Colore zona selezionata" />
+                    </div>
+                  )}
+
+                  {String(selectedElement.drawShape ?? "") === "measure-line" && (
+                    <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
+                      <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Misura</div>
+                      <div className="mb-2 grid grid-cols-4 gap-1">
+                        {[1.8, 2.35, 3, 3.8].map((size) => (
+                          <button
+                            key={`selected-measure-text-${size}`}
+                            type="button"
+                            onClick={() => setSelectedMeasureTextSize(size)}
+                            className={`h-8 rounded-lg text-xs font-bold ${
+                              Number(selectedElement.measureTextSize ?? 2.35) === size ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                            }`}
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
+                      <ColorSwatches value={String(selectedElement.color ?? "#F8FAFC")} onChange={setSelectedDrawingColor} ariaPrefix="Colore misura selezionata" />
+                    </div>
+                  )}
+
+                  {selectedElement.type === "text" && (
+                    <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
+                      <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Testo</div>
+                      <div className="mb-2 grid gap-1">
+                        {["Helvetica", "Arial", "Verdana"].map((font) => (
+                          <button
+                            key={`selected-text-font-${font}`}
+                            type="button"
+                            onClick={() => updateSelectedTextStyle({ fontFamily: font })}
+                            className={`rounded-lg px-3 py-2 text-left text-sm ${String(selectedElement.fontFamily ?? "Arial") === font ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"}`}
+                          >
+                            {font}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="mb-2 grid grid-cols-4 gap-1">
+                        {[14, 16, 20, 24].map((size) => (
+                          <button
+                            key={`selected-text-size-${size}`}
+                            type="button"
+                            onClick={() => updateSelectedTextStyle({ fontSize: size })}
+                            className={`h-8 rounded-lg text-xs font-bold ${Number(selectedElement.fontSize ?? 16) === size ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"}`}
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => updateSelectedTextStyle({ fontWeight: String(selectedElement.fontWeight ?? "700") === "700" ? "400" : "700" })}
+                        className={`mb-2 h-8 w-full rounded-lg text-xs font-bold ${String(selectedElement.fontWeight ?? "700") === "700" ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"}`}
+                      >
+                        Grassetto
+                      </button>
+                      <ColorSwatches value={String(selectedElement.color ?? "#F8FAFC")} onChange={setSelectedDrawingColor} ariaPrefix="Colore testo selezionato" />
+                    </div>
+                  )}
+
+                  {goalVariantForType(selectedElement.type) && (
+                    <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
+                      <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Formato porta</div>
+                      <div className="grid grid-cols-4 gap-1">
+                        {GOAL_TOOL_VARIANTS.filter((variant) => variant.showInMenu).map((variant) => {
+                          const active = selectedElement.type === variant.id || ((selectedElement.type === "goal" || selectedElement.type === "goalLarge") && variant.id === "goal9");
+                          return (
+                            <button
+                              key={`field-goal-size-${variant.id}`}
+                              type="button"
+                              title={variant.label}
+                              onClick={() => setSelectedGoalType(variant.id)}
+                              className={`h-8 rounded-lg text-xs font-black transition ${
+                                active ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                              }`}
+                            >
+                              {variant.shortLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {equipmentFormatOptions(selectedElement.type).length > 0 && (
+                    <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
+                      <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Formato</div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {equipmentFormatOptions(selectedElement.type).map((option) => {
+                          const currentFormat = typeof selectedElement.equipFormat === "string"
+                            ? selectedElement.equipFormat
+                            : defaultEquipmentFormat(selectedElement.type);
+                          const active = currentFormat === option.id;
+                          return (
+                            <button
+                              key={`field-equipment-format-${String(option.id)}`}
+                              type="button"
+                              title={option.label}
+                              onClick={() => setSelectedEquipmentFormat(option.id)}
+                              className={`h-8 rounded-lg text-xs font-black transition ${
+                                active ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                              }`}
+                            >
+                              {option.shortLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {isEquipmentType(selectedElement.type) && selectedElement.type !== "text" && (
+                    <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
+                      <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Colore</div>
+                      <div className="grid grid-cols-8 gap-1">
+                        {EQUIPMENT_COLOR_OPTIONS.map((c) => {
+                          const current = typeof selectedElement.equipColor === "string" ? selectedElement.equipColor : "default";
+                          const active = current === c.value;
+                          return (
+                            <button
+                              key={`field-equipment-color-${c.value}`}
+                              type="button"
+                              onClick={() => setSelectedEquipmentColor(c.value)}
+                              className={`flex h-8 items-center justify-center rounded-lg border transition ${
+                                active ? "border-white bg-white/15" : "border-white/10 hover:bg-white/10"
+                              }`}
+                              title={c.label}
+                              aria-label={`Colore attrezzatura ${c.label}`}
+                            >
+                              {c.value === "default" ? (
+                                <span className="text-[10px] font-black text-white/80">D</span>
+                              ) : (
+                                <span className="block h-4 w-4 rounded-full border border-white/40" style={{ backgroundColor: c.value }} />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-2">
+                    <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-white/45">Ruota</span>
+                      <span className="text-xs font-bold text-white/80">{selectedRotation}°</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="360"
+                      step="5"
+                      value={selectedRotation}
+                      onChange={(e) => setSelectedElementsRotation(Number(e.target.value))}
+                      className="h-2 w-full cursor-pointer accent-[#FACC15]"
+                      aria-label="Ruota elemento"
+                    />
+                    <div className="mt-2 grid grid-cols-4 text-center text-[10px] text-white/40">
+                      <span>0°</span>
+                      <span>90°</span>
+                      <span>180°</span>
+                      <span>270°</span>
+                    </div>
+                    <div className="hidden">
+                      <button
+                        type="button"
+                        onClick={() => rotateSelectedElements(-15)}
+                        className="rounded-lg bg-white/5 px-3 py-2 text-sm font-bold text-white/90 transition hover:bg-white/10"
+                      >
+                        -15°
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => rotateSelectedElements(15)}
+                        className="rounded-lg bg-white/5 px-3 py-2 text-sm font-bold text-white/90 transition hover:bg-white/10"
+                      >
+                        +15°
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1830,32 +2789,57 @@ const QuickPage = () => {
                     <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
                     Modifica lavagna live
                   </div>
-                  <div className="grid w-full grid-cols-3 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTool("select")}
+                    className={`flex h-9 w-full items-center justify-center gap-2 rounded-xl border text-xs font-semibold transition ${
+                      activeTool === "select"
+                        ? "border-[#FACC15] bg-[#FACC15] text-black"
+                        : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                    }`}
+                  >
+                    <MousePointer2 size={14} />
+                    Seleziona
+                  </button>
+                  <div className="grid w-full grid-cols-4 gap-1">
                     <button
                       type="button"
                       onClick={() => setBottomMenu("players")}
-                      className={`px-2 py-2 rounded-xl text-[11px] font-medium transition ${
+                      className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "players" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
                       }`}
                     >
+                      <Users size={14} />
                       Giocatori
                     </button>
                     <button
                       type="button"
                       onClick={() => setBottomMenu("equipment")}
-                      className={`px-2 py-2 rounded-xl text-[11px] font-medium transition ${
+                      className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "equipment" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
                       }`}
                     >
+                      <Package size={14} />
                       Attrezzatura
                     </button>
                     <button
                       type="button"
+                      onClick={() => setBottomMenu("drawing")}
+                      className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
+                        bottomMenu === "drawing" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
+                      }`}
+                    >
+                      <PencilLine size={14} />
+                      Disegno
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setBottomMenu("library")}
-                      className={`px-2 py-2 rounded-xl text-[11px] font-medium transition ${
+                      className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "library" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
                       }`}
                     >
+                      <Library size={14} />
                       Libreria
                     </button>
                   </div>
@@ -1863,77 +2847,6 @@ const QuickPage = () => {
 
                 {bottomMenu === "players" && (
                   <div className="mt-3 space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      {tacticalToolButtons.map((tool) =>
-                        tool.id === "movement" ? (
-                          <div key="tactical-tool-movement" ref={movementToolShellRef} className="relative z-[60]">
-                            <div
-                              className={`flex min-h-[2.5rem] w-full overflow-hidden rounded-xl border text-xs font-semibold transition ${
-                                activeTool === "movement" || arrowMenuOpen
-                                  ? "border-[#FACC15] bg-[#FACC15] text-black"
-                                  : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                className="flex flex-1 items-center justify-center px-2 py-2"
-                                onClick={() => setActiveTool("movement")}
-                              >
-                                {tool.label}
-                              </button>
-                              <button
-                                type="button"
-                                className={`flex shrink-0 items-center justify-center border-l px-1.5 ${
-                                  activeTool === "movement" || arrowMenuOpen
-                                    ? "border-black/15 bg-black/10 text-black hover:bg-black/15"
-                                    : "border-white/10 bg-white/5 text-white/90 hover:bg-white/10"
-                                }`}
-                                aria-label="Opzioni freccia"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setFreeMenuOpen(false);
-                                  setArrowMenuOpen((v) => !v);
-                                }}
-                              >
-                                <ChevronDown size={14} />
-                              </button>
-                            </div>
-                            {arrowMenuOpen &&
-                              arrowMenuViewport &&
-                              createPortal(
-                                <div
-                                  className="fixed z-[10000] max-h-[min(70vh,420px)] overflow-y-auto rounded-xl border border-white/10 bg-[#0F172A] p-2 shadow-2xl"
-                                  style={{
-                                    top: arrowMenuViewport.top,
-                                    left: arrowMenuViewport.left,
-                                    width: arrowMenuViewport.width,
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <ArrowToolPresetMenuContent
-                                    arrowToolPreset={arrowToolPreset}
-                                    setArrowToolPreset={setArrowToolPreset}
-                                  />
-                                </div>,
-                                document.body
-                              )}
-                          </div>
-                        ) : (
-                          <button
-                            key={`tactical-tool-${tool.id}`}
-                            type="button"
-                            onClick={() => setActiveTool(tool.id)}
-                            className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
-                              activeTool === tool.id
-                                ? "border-[#FACC15] bg-[#FACC15] text-black"
-                                : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-                            }`}
-                          >
-                            {tool.label}
-                          </button>
-                        )
-                      )}
-                    </div>
                     <div className="grid grid-cols-3 gap-2">
                       {playerTools.map((tool) => (
                         <button
@@ -2008,23 +2921,327 @@ const QuickPage = () => {
                   </div>
                 )}
 
+                {bottomMenu === "drawing" && (
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      {drawingTools.map((tool) => {
+                        const Icon = tool.icon;
+                        return tool.id === "movement" ? (
+                          <div key="drawing-tool-movement" ref={movementToolShellRef} className="relative z-[60]">
+                            <button
+                              type="button"
+                              className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
+                                activeTool === "movement" || arrowMenuOpen
+                                  ? "border-[#FACC15] bg-[#FACC15]/20"
+                                  : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                              }`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveTool("movement");
+                                setArrowMenuOpen((v) => !v);
+                                setDrawMenuOpen(false);
+                                setTextMenuOpen(false);
+                                setZoneMenuOpen(false);
+                                setGoalMenuOpen(false);
+                              }}
+                            >
+                              <Icon size={18} />
+                              <span>{tool.label}</span>
+                            </button>
+                            {arrowMenuOpen &&
+                              arrowMenuViewport &&
+                              createPortal(
+                                <div
+                                  className="fixed z-[10000] max-h-[min(70vh,420px)] overflow-y-auto rounded-xl border border-white/10 bg-[#0F172A] p-2 shadow-2xl"
+                                  style={{
+                                    top: arrowMenuViewport.top,
+                                    left: arrowMenuViewport.left,
+                                    width: arrowMenuViewport.width,
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <ArrowToolPresetMenuContent
+                                    arrowToolPreset={arrowToolPreset}
+                                    setArrowToolPreset={setArrowToolPreset}
+                                  />
+                                </div>,
+                                document.body
+                              )}
+                          </div>
+                        ) : tool.id === "draw" ? (
+                          <div key="drawing-tool-draw" ref={drawToolShellRef} className="relative z-[60]">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveTool("draw");
+                                setDrawMenuOpen((v) => !v);
+                                setArrowMenuOpen(false);
+                                setTextMenuOpen(false);
+                                setZoneMenuOpen(false);
+                              }}
+                              className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
+                                activeTool === "draw" || drawMenuOpen ? "border-[#FACC15] bg-[#FACC15]/20" : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                              }`}
+                            >
+                              <PencilLine size={20} />
+                              <span>Disegno</span>
+                            </button>
+                            {drawMenuOpen && drawMenuViewport && createPortal(
+                              <div className="fixed z-[10000] rounded-xl border border-white/10 bg-[#0F172A] p-2 shadow-2xl" style={drawMenuViewport} onClick={(e) => e.stopPropagation()}>
+                                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Spessore</div>
+                                <div className="mb-2 grid grid-cols-4 gap-1">
+                                  {[1.4, 2, 2.8, 3.6].map((size) => (
+                                    <button key={size} type="button" onClick={() => setDrawToolPreset((p) => ({ ...p, lineWidth: size }))} className={`h-8 rounded-lg text-xs font-bold ${drawToolPreset.lineWidth === size ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"}`}>{size}</button>
+                                  ))}
+                                </div>
+                                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Colore</div>
+                                <ColorSwatches value={drawToolPreset.color} onChange={(color) => setDrawToolPreset((p) => ({ ...p, color }))} ariaPrefix="Colore disegno" />
+                              </div>,
+                              document.body
+                            )}
+                          </div>
+                        ) : tool.id === "zones" ? (
+                          <div key="drawing-tool-zone" ref={zoneToolShellRef} className="relative z-[60]">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveTool("zones");
+                                setZoneMenuOpen((v) => !v);
+                                setArrowMenuOpen(false);
+                                setDrawMenuOpen(false);
+                                setTextMenuOpen(false);
+                              }}
+                              className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
+                                activeTool === "zones" || zoneMenuOpen ? "border-[#FACC15] bg-[#FACC15]/20" : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                              }`}
+                            >
+                              <Square size={20} />
+                              <span>Zona</span>
+                            </button>
+                            {zoneMenuOpen && zoneMenuViewport && createPortal(
+                              <div className="fixed z-[10000] rounded-xl border border-white/10 bg-[#0F172A] p-2 shadow-2xl" style={zoneMenuViewport} onClick={(e) => e.stopPropagation()}>
+                                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Forma</div>
+                                <div className="mb-2 grid grid-cols-2 gap-1">
+                                  {ZONE_SHAPE_OPTIONS.map((shape) => (
+                                    <button key={shape.id} type="button" onClick={() => setZoneToolPreset((p) => ({ ...p, shape: shape.id }))} className={`rounded-lg px-2 py-2 text-left text-xs font-semibold ${zoneToolPreset.shape === shape.id ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"}`}>{shape.label}</button>
+                                  ))}
+                                </div>
+                                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Colore</div>
+                                <ColorSwatches value={zoneToolPreset.color} onChange={(color) => setZoneToolPreset((p) => ({ ...p, color }))} ariaPrefix="Colore zona" />
+                              </div>,
+                              document.body
+                            )}
+                          </div>
+                        ) : tool.id === "text" ? (
+                          <div key="drawing-tool-text" ref={textToolShellRef} className="relative z-[60]">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveTool("text");
+                                setTextMenuOpen((v) => !v);
+                                setArrowMenuOpen(false);
+                                setDrawMenuOpen(false);
+                                setZoneMenuOpen(false);
+                              }}
+                              className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
+                                activeTool === "text" || textMenuOpen ? "border-[#FACC15] bg-[#FACC15]/20" : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                              }`}
+                            >
+                              <Type size={20} />
+                              <span>Testo</span>
+                            </button>
+                            {textMenuOpen && textMenuViewport && createPortal(
+                              <div className="fixed z-[10000] rounded-xl border border-white/10 bg-[#0F172A] p-2 shadow-2xl" style={textMenuViewport} onClick={(e) => e.stopPropagation()}>
+                                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Carattere</div>
+                                <div className="mb-2 grid gap-1">
+                                  {["Helvetica", "Arial", "Verdana"].map((font) => (
+                                    <button key={font} type="button" onClick={() => setTextToolPreset((p) => ({ ...p, fontFamily: font }))} className={`rounded-lg px-3 py-2 text-left text-sm ${textToolPreset.fontFamily === font ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"}`}>{font}</button>
+                                  ))}
+                                </div>
+                                <div className="mb-2 grid grid-cols-4 gap-1">
+                                  {[14, 16, 20, 24].map((size) => (
+                                    <button key={size} type="button" onClick={() => setTextToolPreset((p) => ({ ...p, fontSize: size }))} className={`h-8 rounded-lg text-xs font-bold ${textToolPreset.fontSize === size ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"}`}>{size}</button>
+                                  ))}
+                                </div>
+                                <button type="button" onClick={() => setTextToolPreset((p) => ({ ...p, bold: !p.bold }))} className={`mb-2 h-8 w-full rounded-lg text-xs font-bold ${textToolPreset.bold ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"}`}>Grassetto</button>
+                                <ColorSwatches value={textToolPreset.color} onChange={(color) => setTextToolPreset((p) => ({ ...p, color }))} ariaPrefix="Colore testo" />
+                              </div>,
+                              document.body
+                            )}
+                          </div>
+                        ) : tool.id === "measure" ? (
+                          <div key="drawing-tool-measure" ref={measureToolShellRef} className="relative z-[60]">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveTool("measure");
+                                setMeasureMenuOpen((v) => !v);
+                                setArrowMenuOpen(false);
+                                setDrawMenuOpen(false);
+                                setTextMenuOpen(false);
+                                setZoneMenuOpen(false);
+                              }}
+                              className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
+                                activeTool === "measure" || measureMenuOpen ? "border-[#FACC15] bg-[#FACC15]/20" : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                              }`}
+                            >
+                              <Ruler size={20} />
+                              <span>Misura</span>
+                            </button>
+                            {measureMenuOpen && measureMenuViewport && createPortal(
+                              <div className="fixed z-[10000] rounded-xl border border-white/10 bg-[#0F172A] p-2 shadow-2xl" style={measureMenuViewport} onClick={(e) => e.stopPropagation()}>
+                                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Testo misura</div>
+                                <div className="mb-2 grid grid-cols-4 gap-1">
+                                  {[1.8, 2.35, 3, 3.8].map((size) => (
+                                    <button key={size} type="button" onClick={() => setMeasureToolPreset((p) => ({ ...p, textSize: size }))} className={`h-8 rounded-lg text-xs font-bold ${measureToolPreset.textSize === size ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"}`}>{size}</button>
+                                  ))}
+                                </div>
+                                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Colore</div>
+                                <ColorSwatches value={measureToolPreset.color} onChange={(color) => setMeasureToolPreset((p) => ({ ...p, color }))} ariaPrefix="Colore misura" />
+                              </div>,
+                              document.body
+                            )}
+                          </div>
+                        ) : (
+                          <button
+                            key={`drawing-tool-${tool.id}`}
+                            type="button"
+                            onClick={() => {
+                              setActiveTool(tool.id);
+                              setArrowMenuOpen(false);
+                              setGoalMenuOpen(false);
+                            }}
+                            className={`flex h-12 items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
+                              activeTool === tool.id
+                                ? "border-[#FACC15] bg-[#FACC15]/20"
+                                : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                            }`}
+                          >
+                            <Icon size={18} />
+                            <span>{tool.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {bottomMenu === "equipment" && (
-                  <div className="mt-3 grid grid-cols-5 gap-2">
-                    {equipmentTools.map((tool) => (
-                      <button
-                        key={`bottom-equipment-${tool.id}`}
-                        type="button"
-                        title={tool.label}
-                        onClick={() => setActiveTool(tool.id)}
-                        className={`flex h-12 items-center justify-center rounded-2xl border transition ${
-                          activeTool === tool.id
-                            ? "border-[#FACC15] bg-[#FACC15]/20"
-                            : "border-white/10 bg-white/5 hover:bg-white/10"
-                        }`}
-                      >
-                        <EquipmentGlyph type={tool.id} />
-                      </button>
-                    ))}
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-5 gap-2">
+                      {equipmentTools.map((tool) =>
+                      tool.id === "goalMenu" ? (
+                        <div key="bottom-equipment-goal-menu" ref={goalToolShellRef} className="relative w-full">
+                          <button
+                            type="button"
+                            title={`${tool.label}: ${GOAL_TOOL_VARIANTS.find((g) => g.id === selectedGoalTool)?.label ?? "Porta"}`}
+                            className={`flex h-12 w-full overflow-hidden rounded-2xl border transition ${
+                              goalVariantForType(activeTool) || goalMenuOpen
+                                ? "border-[#FACC15] bg-[#FACC15]/20"
+                                : "border-white/10 bg-white/5 hover:bg-white/10"
+                            }`}
+                            aria-label="Scegli dimensione porta"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveTool(selectedGoalTool);
+                              setGoalMenuOpen((v) => !v);
+                              setArrowMenuOpen(false);
+                            }}
+                          >
+                            <span className="flex min-w-0 flex-1 items-center justify-center">
+                              <EquipmentGlyph type="goal9" color={equipmentColor === "default" ? undefined : equipmentColor} />
+                            </span>
+                          </button>
+                          {goalMenuOpen &&
+                            goalMenuViewport &&
+                            createPortal(
+                              <div
+                                className="fixed z-[10000] max-h-[min(70vh,360px)] overflow-y-auto rounded-xl border border-white/10 bg-[#0F172A] p-2 shadow-2xl"
+                                style={{
+                                  top: goalMenuViewport.top,
+                                  left: goalMenuViewport.left,
+                                  width: goalMenuViewport.width,
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="grid gap-1">
+                                  {GOAL_TOOL_VARIANTS.filter((variant) => variant.showInMenu).map((variant) => (
+                                    <button
+                                      key={variant.id}
+                                      type="button"
+                                      title={variant.label}
+                                      onClick={() => {
+                                        setSelectedGoalTool(variant.id);
+                                        setActiveTool(variant.id);
+                                        setGoalMenuOpen(false);
+                                      }}
+                                      className={`flex h-10 items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold transition ${
+                                        activeTool === variant.id
+                                          ? "bg-[#FACC15] text-black"
+                                          : "text-white/90 hover:bg-white/10"
+                                      }`}
+                                    >
+                                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/5">
+                                        <EquipmentGlyph type={variant.id} color={equipmentColor === "default" ? undefined : equipmentColor} />
+                                      </span>
+                                      <span className="min-w-0 text-sm font-black">{variant.shortLabel}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>,
+                              document.body
+                            )}
+                        </div>
+                      ) : (
+                        <button
+                          key={`bottom-equipment-${tool.id}`}
+                          type="button"
+                          title={tool.label}
+                          onClick={() => setActiveTool(tool.id)}
+                          className={`flex h-12 items-center justify-center rounded-2xl border transition ${
+                            activeTool === tool.id
+                              ? "border-[#FACC15] bg-[#FACC15]/20"
+                              : "border-white/10 bg-white/5 hover:bg-white/10"
+                          }`}
+                        >
+                          <EquipmentGlyph type={tool.id} color={equipmentColor === "default" ? undefined : equipmentColor} />
+                        </button>
+                      )
+                      )}
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-2">
+                      <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Colore</div>
+                      <div className="grid grid-cols-8 gap-1">
+                        {EQUIPMENT_COLOR_OPTIONS.map((c) => {
+                          const active = equipmentColor === c.value;
+                          return (
+                            <button
+                              key={c.value}
+                              type="button"
+                              onClick={() => setEquipmentColor(c.value)}
+                              className={`flex h-8 items-center justify-center rounded-lg border transition ${
+                                active ? "border-white bg-white/15" : "border-white/10 hover:bg-white/10"
+                              }`}
+                              title={c.label}
+                              aria-label={`Colore attrezzatura ${c.label}`}
+                            >
+                              {c.value === "default" ? (
+                                <span className="text-[10px] font-black text-white/80">D</span>
+                              ) : (
+                                <span
+                                  className="block h-4 w-4 rounded-full border border-white/40"
+                                  style={{ backgroundColor: c.value }}
+                                />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -2155,7 +3372,7 @@ const QuickPage = () => {
                         </div>
                       </div>
                     </div>
-                    {canAssignRealPlayer && (
+                    {canEditPlayerMarker && (
                       <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
                         <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Assegnazione</div>
                         <div className="text-sm text-white/80">

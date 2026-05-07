@@ -206,13 +206,19 @@ function looksLikeTournamentProgram(fullText: string): boolean {
 
 function parseItalianNamedDateIso(line: string, fallbackYear?: number | null): string | null {
   const n = normalizeName(line).replace(/\s+/g, " ").trim();
-  const m = n.match(/(?:^|\s)(?:lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)?\s*(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?(?:\s|$)/i);
-  if (!m) return null;
-  const day = Number(m[1]);
-  const month = ITALIAN_MONTHS[m[2] ?? ""];
-  const year = m[3] ? Number(m[3]) : fallbackYear;
-  if (!day || !month || !year) return null;
-  return isoFromDayMonthYear(day, month, year, 15, 0) || null;
+  /** Più occorrenze sulla stessa riga: usa l’ultima valida (testo spurio spesso prima della data). */
+  const re =
+    /(?:^|\s)(?:lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)?\s*(\d{1,2})\s+([a-z]{3,})(?:\s+(\d{4}))?(?=\s|$)/gi;
+  let best: string | null = null;
+  for (const m of n.matchAll(re)) {
+    const day = Number(m[1]);
+    const month = ITALIAN_MONTHS[m[2] ?? ""];
+    const year = m[3] ? Number(m[3]) : fallbackYear;
+    if (!day || !month || !year) continue;
+    const iso = isoFromDayMonthYear(day, month, year, 15, 0);
+    if (iso) best = iso;
+  }
+  return best;
 }
 
 function extractYearFromIso(value?: string | null): number | null {
@@ -379,7 +385,10 @@ function parseTournamentProgramLines(
     aliasNorms: string[];
     tournamentTitle: string | null;
     tournamentName: string;
+    /** Solo se l’utente la imposta esplicitamente: altrimenti non usare la data del file (lastModified). */
     fallbackDateIso?: string | null;
+    /** Anno da usare per “12 giugno” senza anno nel PDF (es. da anno del file). */
+    fallbackYearHint?: number | null;
   },
 ): { recognized: MatchImportRow[]; discarded: number; totalDateLines: number } {
   const recognized: MatchImportRow[] = [];
@@ -388,7 +397,7 @@ function parseTournamentProgramLines(
   let totalDateLines = 0;
   let currentDateIso: string | null = null;
   let currentPhase: string | null = null;
-  const fallbackYear = extractYearFromIso(options.fallbackDateIso);
+  const fallbackYear = extractYearFromIso(options.fallbackDateIso) ?? options.fallbackYearHint ?? null;
 
   for (const raw of allLines) {
     const line = raw.trim().replace(/\s+/g, " ");
@@ -1052,17 +1061,15 @@ export function parseMatchCalendarTextLines(
     .filter((t) => t.length >= 3);
   const societyDisplay = (options.societyHint?.trim() || options.clubName?.trim() || options.teamName?.trim() || "").trim();
   const societyNorm = normalizeName(societyDisplay);
-  const fallbackDateIso =
-    options.fallbackDateIso ||
-    (Number.isFinite(options.lastModified) && Number(options.lastModified) > 0
-      ? isoFromDayMonthYear(
-          new Date(Number(options.lastModified)).getDate(),
-          new Date(Number(options.lastModified)).getMonth() + 1,
-          new Date(Number(options.lastModified)).getFullYear(),
-          15,
-          0,
-        )
-      : null);
+  /** Non derivare mai la “data partita” dal lastModified del file: assegnerebbe tutte le gare allo stesso giorno. */
+  const explicitTournamentFallbackIso =
+    options.fallbackDateIso && String(options.fallbackDateIso).trim()
+      ? String(options.fallbackDateIso).trim()
+      : null;
+  const fallbackYearHint =
+    Number.isFinite(options.lastModified) && Number(options.lastModified) > 0
+      ? new Date(Number(options.lastModified)).getFullYear()
+      : null;
 
   const federal = documentMode !== "tournament" && looksLikeFederalCalendar(fullText) && societyNorm.length >= 2;
 
@@ -1095,7 +1102,8 @@ export function parseMatchCalendarTextLines(
           aliasNorms: tournamentAliases,
           tournamentTitle,
           tournamentName,
-          fallbackDateIso,
+          fallbackDateIso: explicitTournamentFallbackIso,
+          fallbackYearHint,
         })
       : { recognized: [], discarded: 0, totalDateLines: 0 };
   }
@@ -1105,7 +1113,8 @@ export function parseMatchCalendarTextLines(
       aliasNorms: tournamentAliases,
       tournamentTitle,
       tournamentName,
-      fallbackDateIso,
+      fallbackDateIso: explicitTournamentFallbackIso,
+      fallbackYearHint,
     });
   }
 

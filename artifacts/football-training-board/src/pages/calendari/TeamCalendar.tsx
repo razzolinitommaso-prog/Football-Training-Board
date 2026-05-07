@@ -45,8 +45,11 @@ import {
 } from "@/pages/calendari/tournament-grouped-cards";
 import {
   fileToDataUrl,
+  getTournamentPdfReferenceDate,
   normalizeTournamentKeyPart,
+  setTournamentPdfReferenceDate,
   type StoredTournamentAttachment,
+  ymdLocalNoonToIso,
 } from "@/pages/calendari/tournament-documents-storage";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
@@ -1608,6 +1611,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [pdfSectionPickerOpen, setPdfSectionPickerOpen] = useState(false);
   const [pdfSectionCandidates, setPdfSectionCandidates] = useState<string[]>([]);
   const [pdfSectionChoice, setPdfSectionChoice] = useState("");
+  const [pdfImportReferenceDate, setPdfImportReferenceDate] = useState("");
   const [phaseTab, setPhaseTab] = useState("autunnale");
   const [duplicateImportOpen, setDuplicateImportOpen] = useState(false);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
@@ -1615,6 +1619,8 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     originalCompetition: string;
     name: string;
     location: string;
+    /** YYYY-MM-DD per import PDF torneo senza date nel testo. */
+    pdfReferenceDate: string;
   }>(null);
   const [pendingImportRows, setPendingImportRows] = useState<MatchImportRow[] | null>(null);
   const [pendingImportConflictIds, setPendingImportConflictIds] = useState<number[]>([]);
@@ -1724,6 +1730,8 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       sectionTitleHints: string[];
       societyHint: string;
       pdfMode: "federation" | "tournament";
+      /** ISO: solo import torneo, se impostata in dialog o in Modifica torneo. */
+      fallbackDateIso?: string;
     }) => {
       if (!team) throw new Error("Squadra non valida");
       const parsed = await parseMatchCalendarPdfFile(input.file, {
@@ -1733,6 +1741,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         sectionTitleHints: input.sectionTitleHints,
         societyHint: input.societyHint,
         documentMode: input.pdfMode,
+        fallbackDateIso: input.fallbackDateIso,
       });
       return parsed;
     },
@@ -1821,6 +1830,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       originalCompetition: string;
       name: string;
       location: string;
+      pdfReferenceDate: string;
     }) => {
       const name = input.name.trim();
       if (!name) throw new Error("Inserisci il nome del torneo");
@@ -1834,6 +1844,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             location: input.location.trim() || null,
           }),
         });
+      }
+      if (teamId) {
+        if (input.originalCompetition.trim() !== name) {
+          setTournamentPdfReferenceDate(teamId, input.originalCompetition, null);
+        }
+        setTournamentPdfReferenceDate(teamId, name, input.pdfReferenceDate.trim() || null);
       }
       return group.matches.length;
     },
@@ -2025,10 +2041,13 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
   function openTournamentEdit(group: TournamentCardGroup) {
     const firstLoc = group.matches.map((m) => (m.location ?? "").trim()).find(Boolean) ?? "";
+    const pdfRef =
+      teamId ? (getTournamentPdfReferenceDate(teamId, group.competition) ?? "") : "";
     setEditingTournament({
       originalCompetition: group.competition,
       name: group.competition,
       location: firstLoc,
+      pdfReferenceDate: pdfRef,
     });
   }
 
@@ -2280,6 +2299,23 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               setPdfCategoryFilter(team.name);
             }
             setPdfClubFilter("");
+            if (pdfImportModeRef.current === "tournament" && teamId) {
+              setPdfImportReferenceDate("");
+              const filt = matchTournamentFilter.trim().toLowerCase();
+              if (filt) {
+                const g = tournamentGroups.find(
+                  (x) =>
+                    x.competition.toLowerCase().includes(filt) ||
+                    filt.includes(x.competition.toLowerCase()),
+                );
+                if (g) {
+                  const stored = getTournamentPdfReferenceDate(teamId, g.competition);
+                  if (stored) setPdfImportReferenceDate(stored);
+                }
+              }
+            } else {
+              setPdfImportReferenceDate("");
+            }
             setPdfFilterOpen(true);
           } catch (err: any) {
             toast({
@@ -2685,7 +2721,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           <DialogHeader>
             <DialogTitle>Modifica torneo</DialogTitle>
             <DialogDescription>
-              Aggiorna nome e luogo del torneo.
+              Aggiorna nome, luogo e data di riferimento per l&apos;import PDF (se il programma non ha date nel testo).
             </DialogDescription>
           </DialogHeader>
           {editingTournament ? (
@@ -2710,6 +2746,22 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   }
                   placeholder="da completare"
                 />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-tournament-pdf-ref">Data di riferimento PDF (facoltativa)</Label>
+                <Input
+                  id="edit-tournament-pdf-ref"
+                  type="date"
+                  value={editingTournament.pdfReferenceDate}
+                  onChange={(e) =>
+                    setEditingTournament((prev) =>
+                      prev ? { ...prev, pdfReferenceDate: e.target.value } : prev,
+                    )
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Usata come fallback quando il PDF torneo ha solo orari e accoppiamenti. Valida sul browser in uso (non sul server).
+                </p>
               </div>
             </div>
           ) : null}
@@ -2776,6 +2828,21 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                 placeholder={pdfImportMode === "tournament" ? "Come nel PDF" : "Nome come nel PDF federazione"}
               />
             </div>
+            {pdfImportMode === "tournament" && (
+              <div className="space-y-1">
+                <Label htmlFor="pdf-ref-date-import">Data di riferimento PDF (facoltativa)</Label>
+                <Input
+                  id="pdf-ref-date-import"
+                  type="date"
+                  value={pdfImportReferenceDate}
+                  onChange={(e) => setPdfImportReferenceDate(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Se il programma non espone le date nel testo, tutte le partite useranno questo giorno finché nel PDF non compare una riga data.
+                  Puoi impostarla anche in Modifica torneo (resta salvata per quel torneo su questo browser).
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => { setPendingPdfFile(null); setPdfFilterOpen(false); }}>
@@ -2806,6 +2873,10 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                     sectionTitleHints,
                     societyHint,
                     pdfMode: pdfImportModeRef.current,
+                    fallbackDateIso:
+                      pdfImportModeRef.current === "tournament"
+                        ? ymdLocalNoonToIso(pdfImportReferenceDate)
+                        : undefined,
                   });
                 };
                 if (isGenericPdfCategoryHint(pdfCategoryFilter)) {
@@ -2918,6 +2989,10 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   sectionTitleHints: [pdfSectionChoice],
                   societyHint: pdfClubFilter.trim() || CLUB_NAME,
                   pdfMode: pdfImportModeRef.current,
+                  fallbackDateIso:
+                    pdfImportModeRef.current === "tournament"
+                      ? ymdLocalNoonToIso(pdfImportReferenceDate)
+                      : undefined,
                 });
               }}
             >

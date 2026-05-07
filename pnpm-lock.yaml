@@ -419,6 +419,9 @@ importers:
       express-session:
         specifier: ^1.19.0
         version: 1.19.0
+      iconv-lite:
+        specifier: ^0.7.2
+        version: 0.7.2
       pg:
         specifier: ^8.20.0
         version: 8.20.0
