@@ -62,14 +62,26 @@ async function getTeamStaff(teamId: number) {
 }
 
 async function getAssignedTeamIds(userId: number, clubId: number): Promise<number[]> {
-  const rows = await db
+  const staffRows = await db
     .select({ teamId: teamStaffAssignmentsTable.teamId })
     .from(teamStaffAssignmentsTable)
     .where(and(
       eq(teamStaffAssignmentsTable.userId, userId),
       eq(teamStaffAssignmentsTable.clubId, clubId),
     ));
-  return rows.map(r => r.teamId);
+
+  const coachedRows = await db
+    .select({ teamId: teamsTable.id })
+    .from(teamsTable)
+    .where(and(
+      eq(teamsTable.coachId, userId),
+      eq(teamsTable.clubId, clubId),
+    ));
+
+  return Array.from(new Set([
+    ...staffRows.map(r => r.teamId),
+    ...coachedRows.map(r => r.teamId),
+  ]));
 }
 
 /** Risolve la squadra “corrente” per l’utente: coach_id → assegnazione staff → prima squadra del club (opz. filtro sezione sessione). */

@@ -7,6 +7,8 @@ export type TeamPlayer = {
   lastName: string;
   jerseyNumber?: number | null;
   position?: string | null;
+  teamId?: number | null;
+  teamName?: string | null;
   available?: boolean | null;
 };
 
@@ -28,6 +30,8 @@ function normalizePlayer(raw: any): TeamPlayer | null {
     jerseyNumber:
       typeof raw?.jerseyNumber === "number" ? raw.jerseyNumber : raw?.jerseyNumber == null ? null : Number(raw.jerseyNumber),
     position: (raw?.position ?? raw?.role ?? null) as string | null,
+    teamId: typeof raw?.teamId === "number" ? raw.teamId : raw?.teamId == null ? null : Number(raw.teamId),
+    teamName: (raw?.teamName ?? raw?.team_name ?? null) as string | null,
     available: typeof raw?.available === "boolean" ? raw.available : null,
   };
 }
@@ -105,4 +109,3 @@ export function useTeamPlayers(teamId: number | null) {
     isLoading,
   };
 }
-

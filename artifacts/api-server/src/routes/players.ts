@@ -53,6 +53,29 @@ function extractSupplementalTeamId(notes?: string | null): number | null {
   }
 }
 
+async function getAssignedTeamIds(userId: number, clubId: number): Promise<number[]> {
+  const staffRows = await db
+    .select({ teamId: teamStaffAssignmentsTable.teamId })
+    .from(teamStaffAssignmentsTable)
+    .where(and(
+      eq(teamStaffAssignmentsTable.userId, userId),
+      eq(teamStaffAssignmentsTable.clubId, clubId),
+    ));
+
+  const coachedRows = await db
+    .select({ teamId: teamsTable.id })
+    .from(teamsTable)
+    .where(and(
+      eq(teamsTable.coachId, userId),
+      eq(teamsTable.clubId, clubId),
+    ));
+
+  return Array.from(new Set([
+    ...staffRows.map((row) => row.teamId),
+    ...coachedRows.map((row) => row.teamId),
+  ]));
+}
+
 function stripMetaFromNotes(raw?: string | null): string {
   const full = String(raw ?? "").trim();
   if (!full.startsWith(PLAYER_META_MARKER)) return full;
@@ -123,20 +146,12 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   let assignedTeamIds: number[] = [];
   const needsAssignmentFiltering = !isClubWideListRole(role) && PLAYER_ASSIGNMENT_FILTER_ROLES_NORM.has(normalizeSessionRole(role));
   if (needsAssignmentFiltering) {
-    const assignments = await db
-      .select({ teamId: teamStaffAssignmentsTable.teamId })
-      .from(teamStaffAssignmentsTable)
-      .where(and(
-        eq(teamStaffAssignmentsTable.userId, userId),
-        eq(teamStaffAssignmentsTable.clubId, clubId),
-      ));
-
-    if (assignments.length === 0) {
+    assignedTeamIds = await getAssignedTeamIds(userId, clubId);
+    if (assignedTeamIds.length === 0) {
       res.json(ListPlayersResponse.parse([]));
       return;
     }
 
-    assignedTeamIds = assignments.map(a => a.teamId);
     if (requestedTeamId) {
       if (!assignedTeamIds.includes(requestedTeamId)) {
         res.json(ListPlayersResponse.parse([]));

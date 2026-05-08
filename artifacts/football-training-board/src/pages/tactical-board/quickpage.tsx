@@ -22,6 +22,9 @@ import {
   RotateCcw,
   Trash2,
   Users,
+  UserPlus,
+  Hash,
+  Palette,
   Package,
   PencilLine,
   Library,
@@ -35,6 +38,8 @@ import { FORMATIONS, isFormationPresetId } from "./formations";
 import type { ArrowToolPreset, TacticalBoardData, TacticalBoardElement, TacticalBoardFormat } from "./board-types";
 import { useTeamPlayers, type TeamPlayer } from "./use-team-players";
 import { assignPlayersToElements } from "./player-mapping";
+
+type FieldElementPanel = "assign" | "text" | "number" | "color" | "rotate" | "line" | "arrow" | "shape" | "format" | "font" | "measure";
 
 const deriveFormatFromCategory = (category?: string | null): TacticalBoardFormat => {
   const normalizedCategory = String(category ?? "").toLowerCase();
@@ -106,8 +111,37 @@ function normalizeBoardPlayer(raw: any): TeamPlayer | null {
     jerseyNumber:
       typeof raw?.jerseyNumber === "number" ? raw.jerseyNumber : raw?.jerseyNumber == null ? null : Number(raw.jerseyNumber),
     position: (raw?.position ?? raw?.role ?? null) as string | null,
+    teamId: typeof raw?.teamId === "number" ? raw.teamId : raw?.teamId == null ? null : Number(raw.teamId),
+    teamName: (raw?.teamName ?? raw?.team_name ?? null) as string | null,
     available: typeof raw?.available === "boolean" ? raw.available : null,
   };
+}
+
+function mergeRosterPlayers(base: TeamPlayer[], incoming: TeamPlayer[]) {
+  const merged = new Map<number, TeamPlayer>();
+  [...base, ...incoming].forEach((player) => {
+    const existing = merged.get(player.id);
+    merged.set(player.id, {
+      ...existing,
+      ...player,
+      firstName: player.firstName || existing?.firstName || "",
+      lastName: player.lastName || existing?.lastName || "",
+      jerseyNumber: player.jerseyNumber ?? existing?.jerseyNumber ?? null,
+      position: player.position ?? existing?.position ?? null,
+      teamId: player.teamId ?? existing?.teamId ?? null,
+      teamName: player.teamName ?? existing?.teamName ?? null,
+      available: player.available ?? existing?.available ?? null,
+    });
+  });
+
+  return Array.from(merged.values()).sort((a, b) => {
+    const teamCompare = String(a.teamName ?? "").localeCompare(String(b.teamName ?? ""), "it");
+    if (teamCompare !== 0) return teamCompare;
+    const numberA = a.jerseyNumber ?? 999;
+    const numberB = b.jerseyNumber ?? 999;
+    if (numberA !== numberB) return numberA - numberB;
+    return `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it");
+  });
 }
 
 const GOAL_TOOL_VARIANTS = [
@@ -166,6 +200,19 @@ function isEquipmentType(type?: string): boolean {
 
 function isDrawingType(type?: string): boolean {
   return DRAWING_TYPES.includes(type as (typeof DRAWING_TYPES)[number]);
+}
+
+function defaultMarkerColor(type?: string, rosterStatus?: unknown) {
+  if (type === "goalkeeper") return "#FACC15";
+  if (type === "opponent") return "#EF4444";
+  if (rosterStatus === "extra") return "#22C55E";
+  return "#2F9CF4";
+}
+
+function markerTextColor(backgroundColor: string) {
+  const normalized = backgroundColor.trim().toUpperCase();
+  if (normalized === "#FACC15" || normalized === "#F8FAFC" || normalized === "#FFFFFF") return "#111827";
+  return "#FFFFFF";
 }
 
 function getPitchPoint(event: React.PointerEvent<HTMLDivElement> | PointerEvent, pitch: HTMLDivElement) {
@@ -250,6 +297,17 @@ const DRAW_COLOR_OPTIONS = [
   { label: "Blu", value: "#38BDF8" },
   { label: "Verde", value: "#22C55E" },
   { label: "Nero", value: "#111827" },
+];
+
+const MARKER_COLOR_OPTIONS = [
+  { label: "Blu", value: "#2F9CF4" },
+  { label: "Rosso", value: "#EF4444" },
+  { label: "Giallo", value: "#FACC15" },
+  { label: "Verde", value: "#22C55E" },
+  { label: "Viola", value: "#8B5CF6" },
+  { label: "Nero", value: "#111827" },
+  { label: "Bianco", value: "#F8FAFC" },
+  { label: "Arancio", value: "#F97316" },
 ];
 
 const ZONE_SHAPE_OPTIONS = [
@@ -415,14 +473,18 @@ function ColorSwatches({
   value,
   onChange,
   ariaPrefix,
+  options = DRAW_COLOR_OPTIONS,
+  className = "grid grid-cols-6 gap-1 px-1",
 }: {
   value: string;
   onChange: (value: string) => void;
   ariaPrefix: string;
+  options?: readonly { label: string; value: string }[];
+  className?: string;
 }) {
   return (
-    <div className="grid grid-cols-6 gap-1 px-1">
-      {DRAW_COLOR_OPTIONS.map((c) => {
+    <div className={className}>
+      {options.map((c) => {
         const active = value === c.value;
         return (
           <button
@@ -783,6 +845,7 @@ const QuickPage = () => {
   const { club } = useAuth();
   const { data: allTeams } = useListTeams();
   const { data: allPlayersData } = useListPlayers();
+  const [assignmentTeamId, setAssignmentTeamId] = useState<string>("");
   const initialTeamIdFromQuery = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return parseNumericId(params.get("teamId"));
@@ -832,6 +895,7 @@ const QuickPage = () => {
   const [measureMenuOpen, setMeasureMenuOpen] = useState(false);
   const [goalMenuOpen, setGoalMenuOpen] = useState(false);
   const [fieldElementMenuOpen, setFieldElementMenuOpen] = useState(false);
+  const [markerPanel, setMarkerPanel] = useState<FieldElementPanel | null>(null);
   const [selectedGoalTool, setSelectedGoalTool] = useState<(typeof GOAL_TOOL_VARIANTS)[number]["id"]>("goal9");
   const [equipmentColor, setEquipmentColor] = useState("default");
   const [arrowToolPreset, setArrowToolPreset] = useState<ArrowToolPreset>(DEFAULT_ARROW_PRESET);
@@ -851,6 +915,16 @@ const QuickPage = () => {
   const [zoneMenuViewport, setZoneMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
   const [measureMenuViewport, setMeasureMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
   const [goalMenuViewport, setGoalMenuViewport] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const closeToolPopovers = React.useCallback(() => {
+    setFreeMenuOpen(false);
+    setArrowMenuOpen(false);
+    setDrawMenuOpen(false);
+    setTextMenuOpen(false);
+    setZoneMenuOpen(false);
+    setMeasureMenuOpen(false);
+    setGoalMenuOpen(false);
+  }, []);
 
   useLayoutEffect(() => {
     if (!arrowMenuOpen) {
@@ -958,6 +1032,7 @@ const QuickPage = () => {
   const effectiveTeamId = boardMode === "assigned" ? boardTeamId : null;
   const { players: fetchedTeamPlayers } = useTeamPlayers(effectiveTeamId);
   const [teamPlayers, setTeamPlayers] = useState<TeamPlayer[]>([]);
+  const [freeRosterPlayers, setFreeRosterPlayers] = useState<TeamPlayer[]>([]);
   const didHydrateBoardFromUrlRef = React.useRef(false);
 
   const setBoardIdInUrl = React.useCallback((boardId: number | null) => {
@@ -1038,14 +1113,13 @@ const QuickPage = () => {
   }, []);
 
   React.useEffect(() => {
-    if (!freeMenuOpen && !arrowMenuOpen) return;
+    if (!freeMenuOpen && !arrowMenuOpen && !drawMenuOpen && !textMenuOpen && !zoneMenuOpen && !measureMenuOpen && !goalMenuOpen) return;
     const close = () => {
-      setFreeMenuOpen(false);
-      setArrowMenuOpen(false);
+      closeToolPopovers();
     };
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
-  }, [freeMenuOpen, arrowMenuOpen]);
+  }, [arrowMenuOpen, closeToolPopovers, drawMenuOpen, freeMenuOpen, goalMenuOpen, measureMenuOpen, textMenuOpen, zoneMenuOpen]);
 
   React.useEffect(() => {
     if (didHydrateBoardFromUrlRef.current) return;
@@ -1113,13 +1187,104 @@ const QuickPage = () => {
   const isDraggingRef = React.useRef(false);
   const skipNextPitchClickRef = React.useRef(false);
 
-  const assignedTeams = Array.isArray(allTeams) ? allTeams : [];
+  const assignedTeams = React.useMemo(() => Array.isArray(allTeams) ? allTeams : [], [allTeams]);
   const fallbackAssignedTeam = assignedTeams[0] ?? null;
+  const assignedTeamIds = React.useMemo(
+    () => assignedTeams
+      .map((team: any) => parseNumericId(team?.id))
+      .filter((id): id is number => id !== null),
+    [assignedTeams]
+  );
   const allRosterPlayers = React.useMemo(
     () => (Array.isArray(allPlayersData) ? allPlayersData : []).map(normalizeBoardPlayer).filter((p): p is TeamPlayer => Boolean(p)),
     [allPlayersData]
   );
-  const playerAssignmentOptions = boardMode === "assigned" && teamPlayers.length ? teamPlayers : allRosterPlayers;
+  React.useEffect(() => {
+    let cancelled = false;
+
+    if (!assignedTeamIds.length) {
+      setFreeRosterPlayers(allRosterPlayers);
+      return;
+    }
+
+    const loadFreeRosterMembers = async () => {
+      try {
+        const teamMembers = await Promise.all(
+          assignedTeamIds.map(async (teamId) => {
+            const res = await fetch(withApi(`/api/teams/${teamId}/members`), { credentials: "include" });
+            if (!res.ok) return [] as TeamPlayer[];
+            const rows = await res.json();
+            const team = assignedTeams.find((item: any) => parseNumericId(item?.id) === teamId);
+            return (Array.isArray(rows) ? rows : [])
+              .map((row) => normalizeBoardPlayer({ ...row, teamId, teamName: team?.name ?? row?.teamName }))
+              .filter((p): p is TeamPlayer => Boolean(p));
+          })
+        );
+
+        if (!cancelled) {
+          setFreeRosterPlayers(mergeRosterPlayers(allRosterPlayers, teamMembers.flat()));
+        }
+      } catch (error) {
+        console.error("Errore caricamento rosa libera", error);
+        if (!cancelled) setFreeRosterPlayers(allRosterPlayers);
+      }
+    };
+
+    loadFreeRosterMembers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [allRosterPlayers, assignedTeamIds, assignedTeams]);
+
+  const playerAssignmentOptions = boardMode === "assigned" ? teamPlayers : freeRosterPlayers;
+  const freeAssignmentTeams = React.useMemo(() => {
+    const teamsById = new Map<string, { id: string; name: string; playerCount: number }>();
+
+    assignedTeams.forEach((team: any) => {
+      const id = parseNumericId(team?.id);
+      if (id === null) return;
+      teamsById.set(String(id), {
+        id: String(id),
+        name: String(team?.name ?? team?.displayName ?? `Squadra ${id}`),
+        playerCount: 0,
+      });
+    });
+
+    freeRosterPlayers.forEach((player) => {
+      if (player.teamId == null) return;
+      const id = String(player.teamId);
+      const current = teamsById.get(id);
+      teamsById.set(id, {
+        id,
+        name: String(player.teamName ?? current?.name ?? `Squadra ${id}`),
+        playerCount: (current?.playerCount ?? 0) + 1,
+      });
+    });
+
+    return Array.from(teamsById.values())
+      .filter((team) => team.playerCount > 0)
+      .sort((a, b) => a.name.localeCompare(b.name, "it"));
+  }, [assignedTeams, freeRosterPlayers]);
+  const shouldChooseAssignmentTeam = boardMode === "free" && freeAssignmentTeams.length > 1;
+  const activeAssignmentTeamId =
+    shouldChooseAssignmentTeam && freeAssignmentTeams.some((team) => team.id === assignmentTeamId)
+      ? assignmentTeamId
+      : freeAssignmentTeams[0]?.id ?? "";
+  const visiblePlayerAssignmentOptions = shouldChooseAssignmentTeam
+    ? playerAssignmentOptions.filter((player) => String(player.teamId ?? "") === activeAssignmentTeamId)
+    : playerAssignmentOptions;
+
+  React.useEffect(() => {
+    if (!shouldChooseAssignmentTeam) {
+      setAssignmentTeamId("");
+      return;
+    }
+    if (!freeAssignmentTeams.some((team) => team.id === assignmentTeamId)) {
+      setAssignmentTeamId(freeAssignmentTeams[0]?.id ?? "");
+    }
+  }, [assignmentTeamId, freeAssignmentTeams, shouldChooseAssignmentTeam]);
+
   const formationPresetOptions = Object.entries(FORMATIONS)
     .filter(([, formation]) => formation.formats.includes(boardFormat))
     .map(([formation]) => formation);
@@ -1137,6 +1302,7 @@ const QuickPage = () => {
     const team = (allTeams || []).find((item: any) => parseNumericId(item.id) === nextTeamId) ?? fallbackAssignedTeam;
     const category = team?.category ?? null;
     setBoardMode("assigned");
+    setAssignmentTeamId("");
     setBoardTeamId(nextTeamId);
     setBoardCategory(category);
     setBoardFormat(deriveFormatFromCategory(category));
@@ -1148,11 +1314,11 @@ const QuickPage = () => {
     setBoardTeamId(null);
     setBoardCategory(null);
     setBoardFormat(format);
+    setAssignmentTeamId("");
     setTeamPlayers([]);
     setSelectedPreset(null);
     setElements([]);
-    setFreeMenuOpen(false);
-    setArrowMenuOpen(false);
+    closeToolPopovers();
     setSaveState("Unsaved");
   };
 
@@ -1324,7 +1490,59 @@ const QuickPage = () => {
       .map((el) => el.playerId)
       .filter((id): id is string => typeof id === "string" && id.length > 0)
   );
-  const canEditPlayerMarker = selectedElement?.type === "player" || selectedElement?.type === "goalkeeper";
+  const canEditPlayerMarker = selectedElement ? isPlayerType(selectedElement.type) : false;
+  const canAssignRealPlayer = selectedElement?.type === "player" || selectedElement?.type === "goalkeeper";
+  const isSelectedMeasure = String(selectedElement?.drawShape ?? "") === "measure-line";
+  const isSelectedTextElement = selectedElement?.type === "text";
+  const selectedGoalVariant = goalVariantForType(selectedElement?.type);
+  const selectedEquipmentFormats = selectedElement ? equipmentFormatOptions(selectedElement.type) : [];
+  const compactElementToolItems = selectedElement
+    ? [
+        ...(canAssignRealPlayer ? [{ id: "assign" as const, label: "Giocatore", icon: UserPlus }] : []),
+        ...(canEditPlayerMarker ? [
+          { id: "text" as const, label: "Testo", icon: Type },
+          { id: "number" as const, label: "Numero", icon: Hash },
+          { id: "color" as const, label: "Colore", icon: Palette },
+        ] : []),
+        ...(isEquipmentType(selectedElement.type) && !isSelectedTextElement ? [{ id: "color" as const, label: "Colore", icon: Palette }] : []),
+        ...(selectedGoalVariant || selectedEquipmentFormats.length > 0 ? [{ id: "format" as const, label: "Formato", icon: Package }] : []),
+        ...(isDrawingType(selectedElement.type) && selectedElement.type !== "zone" && !isSelectedMeasure && !isSelectedTextElement ? [
+          { id: "line" as const, label: "Spessore", icon: PencilLine },
+          ...((selectedElement.type === "arrow" || selectedElement.type === "bezierarrow") ? [{ id: "arrow" as const, label: "Freccia", icon: ArrowRight }] : []),
+          { id: "color" as const, label: "Colore", icon: Palette },
+        ] : []),
+        ...(selectedElement.type === "zone" ? [
+          { id: "shape" as const, label: "Forma", icon: Square },
+          { id: "color" as const, label: "Colore", icon: Palette },
+        ] : []),
+        ...(isSelectedMeasure ? [
+          { id: "measure" as const, label: "Misura", icon: Ruler },
+          { id: "color" as const, label: "Colore", icon: Palette },
+        ] : []),
+        ...(isSelectedTextElement ? [
+          { id: "font" as const, label: "Font", icon: Type },
+          { id: "color" as const, label: "Colore", icon: Palette },
+        ] : []),
+        { id: "rotate" as const, label: "Ruota", icon: RotateCcw },
+      ]
+    : [];
+  const activePanelIndex = Math.max(0, compactElementToolItems.findIndex((item) => item.id === markerPanel));
+  const markerPanelOffsetClass =
+    activePanelIndex === 0 ? "mt-0" :
+    activePanelIndex === 1 ? "mt-[2.125rem]" :
+    activePanelIndex === 2 ? "mt-[4.25rem]" :
+    activePanelIndex === 3 ? "mt-[6.375rem]" :
+    activePanelIndex === 4 ? "mt-[8.5rem]" :
+    activePanelIndex === 5 ? "mt-[10.625rem]" :
+    "mt-[12.75rem]";
+  const markerPanelWidthClass =
+    markerPanel === "assign" ? "w-60" :
+    markerPanel === "color" ? "w-[12.5rem]" :
+    markerPanel === "rotate" ? "w-56" :
+    markerPanel === "number" ? "w-32" :
+    markerPanel === "format" || markerPanel === "font" ? "w-52" :
+    markerPanel ? "w-44" :
+    "";
   const selectedElementLabel =
     (typeof selectedElement?.displayName === "string" ? selectedElement.displayName : null) ??
     selectedElement?.name ??
@@ -1335,12 +1553,27 @@ const QuickPage = () => {
         selectedElement.x != null && selectedElement.y != null ? `${Math.round(selectedElement.x)}% / ${Math.round(selectedElement.y)}%` : null,
       ].filter(Boolean)
     : [];
+  const selectedElementAnchorX = Number(selectedElement?.x ?? selectedDrawingBounds?.cx ?? 50);
+  const selectedElementAnchorY = Number(selectedElement?.y ?? selectedDrawingBounds?.cy ?? 50);
+  const useCompactElementMenu = Boolean(selectedElement);
+  const selectedElementMenuLeft = useCompactElementMenu
+    ? Math.max(5, Math.min(95, selectedElementAnchorX))
+    : Math.max(12, Math.min(88, selectedElementAnchorX));
+  const selectedElementMenuTop = useCompactElementMenu
+    ? Math.max(18, Math.min(82, selectedElementAnchorY))
+    : Math.max(10, Math.min(90, selectedElementAnchorY));
   const selectedElementMenuStyle = selectedElement
     ? {
-        left: `${Math.max(12, Math.min(88, Number(selectedElement.x ?? selectedDrawingBounds?.cx ?? 50)))}%`,
-        top: `${Math.max(10, Math.min(90, Number(selectedElement.y ?? selectedDrawingBounds?.cy ?? 50)))}%`,
+        left: `${selectedElementMenuLeft}%`,
+        top: `${selectedElementMenuTop}%`,
       }
     : undefined;
+  const markerMenuSide = useCompactElementMenu && selectedElementAnchorX > 52 ? "left" : "right";
+  const selectedElementMenuClass = useCompactElementMenu
+    ? markerMenuSide === "left"
+      ? "translate-x-[calc(-100%_-_30px)] -translate-y-1/2"
+      : "translate-x-[30px] -translate-y-1/2"
+    : "-translate-x-1/2 -translate-y-[calc(100%+14px)]";
 
   const buildPlayerAssignment = (player: TeamPlayer) => ({
     playerId: String(player.id),
@@ -1405,6 +1638,7 @@ const QuickPage = () => {
   const selectElementAndOpenMenu = (index: number, event: React.PointerEvent | React.MouseEvent) => {
     selectElement(index, event);
     setFieldElementMenuOpen(true);
+    setMarkerPanel(null);
   };
 
   const deleteSelectedElements = () => {
@@ -1415,6 +1649,7 @@ const QuickPage = () => {
     setSelectedElementIndex(null);
     setSelectedElementIndexes([]);
     setFieldElementMenuOpen(false);
+    setMarkerPanel(null);
     setSaveState("Unsaved");
   };
 
@@ -1520,6 +1755,14 @@ const QuickPage = () => {
   const updateSelectedTextStyle = (patch: Record<string, unknown>) => updateSelectedElements((item) =>
     item.type === "text" ? { ...item, ...patch } : item
   );
+
+  const setSelectedMarkerColor = (markerColor: string) => updateSelectedElements((item) =>
+    isPlayerType(item.type) ? { ...item, markerColor } : item
+  );
+
+  const toggleMarkerPanel = (panel: FieldElementPanel) => {
+    setMarkerPanel((current) => current === panel ? null : panel);
+  };
 
   const clearDrawings = () => {
     setElements((prev) => prev.filter((item) => !isDrawingType(item.type)));
@@ -1813,8 +2056,9 @@ const QuickPage = () => {
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setArrowMenuOpen(false);
-                    setFreeMenuOpen((v) => !v);
+                    const nextOpen = !freeMenuOpen;
+                    closeToolPopovers();
+                    setFreeMenuOpen(nextOpen);
                   }}
                   className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
                     boardMode === "free" || freeMenuOpen
@@ -2374,13 +2618,22 @@ const QuickPage = () => {
                     : String(nameCandidates[0] ?? "");
 
                   const isSelected = selectedElementIndex === i || selectedElementIndexes.includes(i);
+                  const markerColor =
+                    typeof el.markerColor === "string"
+                      ? el.markerColor
+                      : defaultMarkerColor(el.type, el.rosterStatus);
+                  const markerStyle = {
+                    ...commonStyle,
+                    backgroundColor: markerColor,
+                    color: markerTextColor(markerColor),
+                  } as const;
 
                   const playerClassName =
                     el.type === "player"
-                      ? `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full ${el.rosterStatus === "extra" ? "bg-emerald-500" : "bg-[#2f9cf4]"} text-xs font-bold text-white shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
+                      ? `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full text-xs font-bold shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
                       : el.type === "opponent"
-                      ? `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full bg-[#ef4444] text-xs font-bold text-white shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
-                      : `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full bg-[#facc15] text-xs font-bold text-black shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`;
+                      ? `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full text-xs font-bold shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
+                      : `absolute z-[5] flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-full text-xs font-bold shadow-lg border-2 border-white/80 active:cursor-grabbing${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`;
 
                   if (isEquipmentType(el.type)) {
                     const elEquipColor = typeof el.equipColor === "string" ? el.equipColor : undefined;
@@ -2429,7 +2682,7 @@ const QuickPage = () => {
                     <div key={String(el.id ?? `el-${i}`)}>
                       <div
                         className={playerClassName}
-                        style={commonStyle}
+                        style={markerStyle}
                         onPointerDown={(e) => dragElement(e, i)}
                       >
                         {content}
@@ -2453,11 +2706,16 @@ const QuickPage = () => {
 
               {selectedElementIndex !== null && selectedElement && selectedElementMenuStyle && fieldElementMenuOpen && (
                 <div
-                  className="absolute z-30 w-64 -translate-x-1/2 -translate-y-[calc(100%+14px)] rounded-2xl border border-white/10 bg-[#0F172A]/95 p-3 shadow-2xl backdrop-blur"
+                  className={`absolute z-30 transition-[left,top,transform] duration-150 ease-out ${selectedElementMenuClass} ${
+                    useCompactElementMenu
+                      ? "w-auto rounded-xl border border-transparent bg-transparent p-0 shadow-none"
+                      : "w-64 rounded-2xl border border-white/10 bg-[#0F172A]/95 p-3 shadow-2xl backdrop-blur"
+                  }`}
                   style={selectedElementMenuStyle}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
+                  {!useCompactElementMenu && (
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-xs font-semibold text-white/90">{selectedElementLabel}</div>
@@ -2467,18 +2725,74 @@ const QuickPage = () => {
                     </div>
                     <button
                       type="button"
-                      className="rounded-lg bg-red-500 px-3 py-2 text-xs font-bold text-white transition hover:bg-red-600"
+                      className={`rounded-lg bg-red-500 px-3 py-2 text-xs font-bold text-white transition hover:bg-red-600 ${useCompactElementMenu ? "hidden" : ""}`}
                       onClick={deleteSelectedElements}
                     >
                       Elimina
                     </button>
                   </div>
+                  )}
 
-                  {canEditPlayerMarker && (
-                    <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
-                      <div className="text-xs text-white/70 mb-2">Assegna giocatore reale</div>
-                      {playerAssignmentOptions.length > 0 ? (
-                      <Select
+                  {useCompactElementMenu && (
+                    <div className={`flex items-start gap-1.5 ${markerMenuSide === "left" ? "flex-row-reverse" : ""}`}>
+                      <div className="flex flex-col gap-0.5 rounded-lg border border-white/10 bg-[#0B1220]/45 p-1 shadow-lg backdrop-blur-md">
+                        {compactElementToolItems.map((item) => {
+                          const Icon = item.icon;
+                          const active = markerPanel === item.id;
+                          return (
+                            <button
+                              key={`marker-panel-${item.id}`}
+                              type="button"
+                              title={item.label}
+                              aria-label={item.label}
+                              onClick={() => toggleMarkerPanel(item.id)}
+                              className={`flex h-8 w-8 items-center justify-center rounded-md border transition ${
+                                active ? "border-[#FACC15] bg-[#FACC15] text-black" : "border-white/10 bg-white/5 text-white/80 hover:bg-white/15"
+                              }`}
+                            >
+                              <Icon size={15} />
+                            </button>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          title="Elimina"
+                          aria-label="Elimina"
+                          onClick={deleteSelectedElements}
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-red-400/40 bg-red-500/15 text-red-100 transition hover:bg-red-500 hover:text-white"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                      {markerPanel && (
+                      <div className={`min-w-0 ${markerPanelWidthClass} ${markerPanelOffsetClass}`}>
+                      {markerPanel === "assign" && (
+                        <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
+{playerAssignmentOptions.length > 0 ? (
+                        <div className="space-y-2">
+                          {shouldChooseAssignmentTeam && (
+                            <Select
+                              value={activeAssignmentTeamId}
+                              onValueChange={(value) => {
+                                setAssignmentTeamId(value);
+                                clearPlayerAssignmentForSelectedElement();
+                              }}
+                            >
+                              <SelectTrigger className="h-8 bg-white/5 border-white/20 text-xs text-white">
+                                <SelectValue placeholder="Scegli squadra" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {freeAssignmentTeams.map((team) => (
+                                  <SelectItem key={team.id} value={team.id}>
+                                    {`${team.name} (${team.playerCount})`}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+
+                          {visiblePlayerAssignmentOptions.length > 0 ? (
+                            <Select
                         value={selectedElement?.playerId ? String(selectedElement.playerId) : "_none"}
                         onValueChange={(value) => {
                           if (value === "_none") {
@@ -2488,48 +2802,274 @@ const QuickPage = () => {
                           assignPlayerToSelectedElement(value);
                         }}
                       >
-                        <SelectTrigger className="h-9 bg-white/5 border-white/20 text-white">
+                        <SelectTrigger className="h-8 bg-white/5 border-white/20 text-xs text-white">
                           <SelectValue placeholder="Seleziona giocatore" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">Marker generico (nessun player)</SelectItem>
-                          {playerAssignmentOptions.map((p) => (
+                          {visiblePlayerAssignmentOptions.map((p) => (
                             <SelectItem key={p.id} value={String(p.id)}>
-                              {`${p.jerseyNumber ?? "-"} · ${p.firstName} ${p.lastName}`}
+                              {[
+                                p.jerseyNumber ?? "-",
+                                `${p.firstName} ${p.lastName}`.trim(),
+                                shouldChooseAssignmentTeam ? null : p.teamName,
+                              ].filter(Boolean).join(" · ")}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                          ) : (
+                            <div className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-xs text-white/50">
+                              Nessun giocatore in questa squadra
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <div className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-xs text-white/50">
                           Nessuna rosa disponibile
                         </div>
                       )}
-                      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_4.5rem] gap-2">
+                        </div>
+                      )}
+                      {markerPanel === "text" && (
+                        <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
                         <label className="min-w-0">
-                          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-white/45">Testo</span>
                           <input
                             value={String(selectedElement.displayName ?? selectedElement.name ?? "")}
                             onChange={(e) => updateSelectedPlayerText(e.target.value)}
                             placeholder="Nome o etichetta"
-                            className="h-9 w-full rounded-lg border border-white/10 bg-white/5 px-2 text-xs text-white outline-none placeholder:text-white/35"
+                            className="h-8 w-full rounded-lg border border-white/10 bg-white/5 px-2 text-xs text-white outline-none placeholder:text-white/35"
                           />
                         </label>
+                        </div>
+                      )}
+                      {markerPanel === "number" && (
+                        <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
                         <label>
-                          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-white/45">Numero</span>
                           <input
                             value={selectedElement.number != null ? String(selectedElement.number) : selectedElement.playerNumber != null ? String(selectedElement.playerNumber) : ""}
                             onChange={(e) => updateSelectedPlayerNumber(e.target.value)}
                             inputMode="numeric"
                             placeholder="#"
-                            className="h-9 w-full rounded-lg border border-white/10 bg-white/5 px-2 text-xs text-white outline-none placeholder:text-white/35"
+                            className="h-8 w-full rounded-lg border border-white/10 bg-white/5 px-2 text-xs text-white outline-none placeholder:text-white/35"
                           />
                         </label>
+                        </div>
+                      )}
+                      {markerPanel === "color" && (
+                      <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
+                        {canEditPlayerMarker ? (
+                          <ColorSwatches
+                            value={String(selectedElement.markerColor ?? defaultMarkerColor(selectedElement.type, selectedElement.rosterStatus))}
+                            onChange={setSelectedMarkerColor}
+                            ariaPrefix="Colore marker"
+                            options={MARKER_COLOR_OPTIONS}
+                            className="flex gap-1 px-1"
+                          />
+                        ) : isEquipmentType(selectedElement.type) && selectedElement.type !== "text" ? (
+                          <div className="flex gap-1 px-1">
+                            {EQUIPMENT_COLOR_OPTIONS.map((c) => {
+                              const current = typeof selectedElement.equipColor === "string" ? selectedElement.equipColor : "default";
+                              const active = current === c.value;
+                              return (
+                                <button
+                                  key={`compact-equipment-color-${c.value}`}
+                                  type="button"
+                                  onClick={() => setSelectedEquipmentColor(c.value)}
+                                  className={`flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+                                    active ? "border-white bg-white/15" : "border-white/10 hover:bg-white/10"
+                                  }`}
+                                  title={c.label}
+                                  aria-label={`Colore attrezzatura ${c.label}`}
+                                >
+                                  {c.value === "default" ? (
+                                    <span className="text-[10px] font-black text-white/80">D</span>
+                                  ) : (
+                                    <span className="block h-4 w-4 rounded-full border border-white/40" style={{ backgroundColor: c.value }} />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <ColorSwatches
+                            value={String(selectedElement.color ?? (selectedElement.type === "text" || isSelectedMeasure ? "#F8FAFC" : "#FACC15"))}
+                            onChange={setSelectedDrawingColor}
+                            ariaPrefix="Colore elemento"
+                            className="flex gap-1 px-1"
+                          />
+                        )}
                       </div>
+                      )}
+                      {markerPanel === "line" && (
+                        <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
+                          <div className="grid grid-cols-4 gap-1">
+                            {[1.4, 2, 2.8, 3.6].map((size) => (
+                              <button
+                                key={`compact-line-width-${size}`}
+                                type="button"
+                                onClick={() => setSelectedDrawingLineWidth(size)}
+                                className={`h-8 rounded-lg text-xs font-bold ${
+                                  Number(selectedElement.lineWidth ?? 1.8) === size ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                                }`}
+                              >
+                                {size}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {markerPanel === "arrow" && (
+                        <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
+                          <div className="grid grid-cols-4 gap-1">
+                            {(["none", "start", "end", "both"] as const).map((heads) => (
+                              <button
+                                key={`compact-arrow-heads-${heads}`}
+                                type="button"
+                                onClick={() => updateSelectedElements((item) => item.type === "arrow" || item.type === "bezierarrow" ? { ...item, arrowHeads: heads, arrowEnd: heads === "end" || heads === "both" ? "end" : "none" } : item)}
+                                className={`h-8 rounded-lg text-[10px] font-bold ${
+                                  resolveArrowHeads(selectedElement) === heads ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                                }`}
+                              >
+                                {heads === "none" ? "No" : heads === "start" ? "In" : heads === "end" ? "Fine" : "2"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {markerPanel === "shape" && (
+                        <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
+                          <div className="grid grid-cols-2 gap-1">
+                            {ZONE_SHAPE_OPTIONS.map((shape) => {
+                              const active = String(selectedElement.drawShape ?? "zone-square") === `zone-${shape.id}`;
+                              return (
+                                <button
+                                  key={`compact-zone-shape-${shape.id}`}
+                                  type="button"
+                                  onClick={() => setSelectedZoneShape(shape.id)}
+                                  className={`h-8 rounded-lg px-2 text-left text-xs font-semibold ${active ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"}`}
+                                >
+                                  {shape.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {markerPanel === "format" && (
+                        <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
+                          <div className="grid grid-cols-4 gap-1">
+                            {selectedGoalVariant ? GOAL_TOOL_VARIANTS.filter((variant) => variant.showInMenu).map((variant) => {
+                              const active = selectedElement.type === variant.id || ((selectedElement.type === "goal" || selectedElement.type === "goalLarge") && variant.id === "goal9");
+                              return (
+                                <button
+                                  key={`compact-goal-size-${variant.id}`}
+                                  type="button"
+                                  title={variant.label}
+                                  onClick={() => setSelectedGoalType(variant.id)}
+                                  className={`h-8 rounded-lg text-xs font-black transition ${
+                                    active ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                                  }`}
+                                >
+                                  {variant.shortLabel}
+                                </button>
+                              );
+                            }) : selectedEquipmentFormats.map((option) => {
+                              const currentFormat = typeof selectedElement.equipFormat === "string"
+                                ? selectedElement.equipFormat
+                                : defaultEquipmentFormat(selectedElement.type);
+                              const active = currentFormat === option.id;
+                              return (
+                                <button
+                                  key={`compact-equipment-format-${String(option.id)}`}
+                                  type="button"
+                                  title={option.label}
+                                  onClick={() => setSelectedEquipmentFormat(option.id)}
+                                  className={`h-8 rounded-lg text-xs font-black transition ${
+                                    active ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                                  }`}
+                                >
+                                  {option.shortLabel}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {markerPanel === "measure" && (
+                        <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
+                          <div className="grid grid-cols-4 gap-1">
+                            {[1.8, 2.35, 3, 3.8].map((size) => (
+                              <button
+                                key={`compact-measure-text-${size}`}
+                                type="button"
+                                onClick={() => setSelectedMeasureTextSize(size)}
+                                className={`h-8 rounded-lg text-xs font-bold ${
+                                  Number(selectedElement.measureTextSize ?? 2.35) === size ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"
+                                }`}
+                              >
+                                {size}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {markerPanel === "font" && (
+                        <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
+                          <div className="mb-1 grid grid-cols-3 gap-1">
+                            {["Arial", "Helvetica", "Verdana"].map((font) => (
+                              <button
+                                key={`compact-text-font-${font}`}
+                                type="button"
+                                onClick={() => updateSelectedTextStyle({ fontFamily: font })}
+                                className={`h-8 rounded-lg px-2 text-left text-[10px] font-semibold ${String(selectedElement.fontFamily ?? "Arial") === font ? "bg-[#FACC15] text-black" : "text-white/90 hover:bg-white/10"}`}
+                              >
+                                {font.slice(0, 4)}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="grid grid-cols-5 gap-1">
+                            {[14, 16, 20, 24].map((size) => (
+                              <button
+                                key={`compact-text-size-${size}`}
+                                type="button"
+                                onClick={() => updateSelectedTextStyle({ fontSize: size })}
+                                className={`h-8 rounded-lg text-xs font-bold ${Number(selectedElement.fontSize ?? 16) === size ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"}`}
+                              >
+                                {size}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => updateSelectedTextStyle({ fontWeight: String(selectedElement.fontWeight ?? "700") === "700" ? "400" : "700" })}
+                              className={`h-8 rounded-lg text-xs font-black ${String(selectedElement.fontWeight ?? "700") === "700" ? "bg-[#FACC15] text-black" : "bg-white/5 text-white/80 hover:bg-white/10"}`}
+                            >
+                              B
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {markerPanel === "rotate" && (
+                        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
+                          <input
+                            type="range"
+                            min="0"
+                            max="360"
+                            step="5"
+                            value={selectedRotation}
+                            onChange={(e) => setSelectedElementsRotation(Number(e.target.value))}
+                            className="h-2 min-w-0 flex-1 cursor-pointer accent-[#FACC15]"
+                            aria-label="Ruota marker"
+                          />
+                          <span className="w-9 shrink-0 text-right text-xs font-bold text-white/85">{selectedRotation}°</span>
+                        </div>
+                      )}
+                      </div>
+                      )}
                     </div>
                   )}
 
-                  {isDrawingType(selectedElement.type) && selectedElement.type !== "zone" && String(selectedElement.drawShape ?? "") !== "measure-line" && (
+                  {!useCompactElementMenu && isDrawingType(selectedElement.type) && selectedElement.type !== "zone" && String(selectedElement.drawShape ?? "") !== "measure-line" && (
                     <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
                       <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Disegno</div>
                       {(selectedElement.type === "arrow" || selectedElement.type === "bezierarrow") && (
@@ -2566,7 +3106,7 @@ const QuickPage = () => {
                     </div>
                   )}
 
-                  {selectedElement.type === "zone" && (
+                  {!useCompactElementMenu && selectedElement.type === "zone" && (
                     <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
                       <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Zona</div>
                       <div className="mb-2 grid grid-cols-2 gap-1">
@@ -2588,7 +3128,7 @@ const QuickPage = () => {
                     </div>
                   )}
 
-                  {String(selectedElement.drawShape ?? "") === "measure-line" && (
+                  {!useCompactElementMenu && String(selectedElement.drawShape ?? "") === "measure-line" && (
                     <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
                       <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Misura</div>
                       <div className="mb-2 grid grid-cols-4 gap-1">
@@ -2609,7 +3149,7 @@ const QuickPage = () => {
                     </div>
                   )}
 
-                  {selectedElement.type === "text" && (
+                  {!useCompactElementMenu && selectedElement.type === "text" && (
                     <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
                       <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Testo</div>
                       <div className="mb-2 grid gap-1">
@@ -2647,7 +3187,7 @@ const QuickPage = () => {
                     </div>
                   )}
 
-                  {goalVariantForType(selectedElement.type) && (
+                  {!useCompactElementMenu && goalVariantForType(selectedElement.type) && (
                     <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
                       <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Formato porta</div>
                       <div className="grid grid-cols-4 gap-1">
@@ -2671,7 +3211,7 @@ const QuickPage = () => {
                     </div>
                   )}
 
-                  {equipmentFormatOptions(selectedElement.type).length > 0 && (
+                  {!useCompactElementMenu && equipmentFormatOptions(selectedElement.type).length > 0 && (
                     <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
                       <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Formato</div>
                       <div className="grid grid-cols-3 gap-1">
@@ -2698,7 +3238,7 @@ const QuickPage = () => {
                     </div>
                   )}
 
-                  {isEquipmentType(selectedElement.type) && selectedElement.type !== "text" && (
+                  {!useCompactElementMenu && isEquipmentType(selectedElement.type) && selectedElement.type !== "text" && (
                     <div className="mb-3 rounded-xl border border-white/10 bg-white/5 p-2">
                       <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Colore</div>
                       <div className="grid grid-cols-8 gap-1">
@@ -2728,6 +3268,7 @@ const QuickPage = () => {
                     </div>
                   )}
 
+                  {!useCompactElementMenu && (
                   <div className="rounded-xl border border-white/10 bg-white/5 p-2">
                     <div className="mb-2 flex items-center justify-between gap-2 px-1">
                       <span className="text-[10px] font-semibold uppercase tracking-wide text-white/45">Ruota</span>
@@ -2766,6 +3307,7 @@ const QuickPage = () => {
                       </button>
                     </div>
                   </div>
+                  )}
                 </div>
               )}
 
@@ -2791,7 +3333,11 @@ const QuickPage = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setActiveTool("select")}
+                    onClick={() => {
+                      closeToolPopovers();
+                      setFieldElementMenuOpen(false);
+                      setActiveTool("select");
+                    }}
                     className={`flex h-9 w-full items-center justify-center gap-2 rounded-xl border text-xs font-semibold transition ${
                       activeTool === "select"
                         ? "border-[#FACC15] bg-[#FACC15] text-black"
@@ -2804,7 +3350,11 @@ const QuickPage = () => {
                   <div className="grid w-full grid-cols-4 gap-1">
                     <button
                       type="button"
-                      onClick={() => setBottomMenu("players")}
+                      onClick={() => {
+                        closeToolPopovers();
+                        setFieldElementMenuOpen(false);
+                        setBottomMenu("players");
+                      }}
                       className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "players" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
                       }`}
@@ -2814,7 +3364,11 @@ const QuickPage = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setBottomMenu("equipment")}
+                      onClick={() => {
+                        closeToolPopovers();
+                        setFieldElementMenuOpen(false);
+                        setBottomMenu("equipment");
+                      }}
                       className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "equipment" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
                       }`}
@@ -2824,7 +3378,11 @@ const QuickPage = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setBottomMenu("drawing")}
+                      onClick={() => {
+                        closeToolPopovers();
+                        setFieldElementMenuOpen(false);
+                        setBottomMenu("drawing");
+                      }}
                       className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "drawing" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
                       }`}
@@ -2834,7 +3392,11 @@ const QuickPage = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setBottomMenu("library")}
+                      onClick={() => {
+                        closeToolPopovers();
+                        setFieldElementMenuOpen(false);
+                        setBottomMenu("library");
+                      }}
                       className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "library" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
                       }`}
@@ -2853,7 +3415,10 @@ const QuickPage = () => {
                           key={`bottom-player-${tool.id}`}
                           type="button"
                           title={tool.label}
-                          onClick={() => setActiveTool(tool.id)}
+                          onClick={() => {
+                            closeToolPopovers();
+                            setActiveTool(tool.id);
+                          }}
                           className={`flex h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-2xl border px-2 transition ${
                             activeTool === tool.id
                               ? "border-[#FACC15] bg-[#FACC15]/20"
@@ -2884,6 +3449,7 @@ const QuickPage = () => {
                                 type="button"
                                 disabled={isUnavailable}
                                 onClick={() => {
+                                  closeToolPopovers();
                                   setPendingRosterPlayerId(player.id);
                                   setActiveTool(String(player.position ?? "").toLowerCase().includes("port") ? "goalkeeper" : "player");
                                 }}
@@ -2937,12 +3503,10 @@ const QuickPage = () => {
                               }`}
                               onClick={(e) => {
                                 e.stopPropagation();
+                                const nextOpen = !arrowMenuOpen;
+                                closeToolPopovers();
                                 setActiveTool("movement");
-                                setArrowMenuOpen((v) => !v);
-                                setDrawMenuOpen(false);
-                                setTextMenuOpen(false);
-                                setZoneMenuOpen(false);
-                                setGoalMenuOpen(false);
+                                setArrowMenuOpen(nextOpen);
                               }}
                             >
                               <Icon size={18} />
@@ -2974,11 +3538,10 @@ const QuickPage = () => {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                const nextOpen = !drawMenuOpen;
+                                closeToolPopovers();
                                 setActiveTool("draw");
-                                setDrawMenuOpen((v) => !v);
-                                setArrowMenuOpen(false);
-                                setTextMenuOpen(false);
-                                setZoneMenuOpen(false);
+                                setDrawMenuOpen(nextOpen);
                               }}
                               className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
                                 activeTool === "draw" || drawMenuOpen ? "border-[#FACC15] bg-[#FACC15]/20" : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
@@ -3007,11 +3570,10 @@ const QuickPage = () => {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                const nextOpen = !zoneMenuOpen;
+                                closeToolPopovers();
                                 setActiveTool("zones");
-                                setZoneMenuOpen((v) => !v);
-                                setArrowMenuOpen(false);
-                                setDrawMenuOpen(false);
-                                setTextMenuOpen(false);
+                                setZoneMenuOpen(nextOpen);
                               }}
                               className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
                                 activeTool === "zones" || zoneMenuOpen ? "border-[#FACC15] bg-[#FACC15]/20" : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
@@ -3040,11 +3602,10 @@ const QuickPage = () => {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                const nextOpen = !textMenuOpen;
+                                closeToolPopovers();
                                 setActiveTool("text");
-                                setTextMenuOpen((v) => !v);
-                                setArrowMenuOpen(false);
-                                setDrawMenuOpen(false);
-                                setZoneMenuOpen(false);
+                                setTextMenuOpen(nextOpen);
                               }}
                               className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
                                 activeTool === "text" || textMenuOpen ? "border-[#FACC15] bg-[#FACC15]/20" : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
@@ -3078,12 +3639,10 @@ const QuickPage = () => {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                const nextOpen = !measureMenuOpen;
+                                closeToolPopovers();
                                 setActiveTool("measure");
-                                setMeasureMenuOpen((v) => !v);
-                                setArrowMenuOpen(false);
-                                setDrawMenuOpen(false);
-                                setTextMenuOpen(false);
-                                setZoneMenuOpen(false);
+                                setMeasureMenuOpen(nextOpen);
                               }}
                               className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
                                 activeTool === "measure" || measureMenuOpen ? "border-[#FACC15] bg-[#FACC15]/20" : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
@@ -3111,9 +3670,8 @@ const QuickPage = () => {
                             key={`drawing-tool-${tool.id}`}
                             type="button"
                             onClick={() => {
+                              closeToolPopovers();
                               setActiveTool(tool.id);
-                              setArrowMenuOpen(false);
-                              setGoalMenuOpen(false);
                             }}
                             className={`flex h-12 items-center justify-center gap-2 rounded-2xl border text-xs font-semibold transition ${
                               activeTool === tool.id
@@ -3147,9 +3705,10 @@ const QuickPage = () => {
                             aria-label="Scegli dimensione porta"
                             onClick={(e) => {
                               e.stopPropagation();
+                              const nextOpen = !goalMenuOpen;
+                              closeToolPopovers();
                               setActiveTool(selectedGoalTool);
-                              setGoalMenuOpen((v) => !v);
-                              setArrowMenuOpen(false);
+                              setGoalMenuOpen(nextOpen);
                             }}
                           >
                             <span className="flex min-w-0 flex-1 items-center justify-center">
@@ -3175,9 +3734,9 @@ const QuickPage = () => {
                                       type="button"
                                       title={variant.label}
                                       onClick={() => {
+                                        closeToolPopovers();
                                         setSelectedGoalTool(variant.id);
                                         setActiveTool(variant.id);
-                                        setGoalMenuOpen(false);
                                       }}
                                       className={`flex h-10 items-center gap-2 rounded-lg px-2 text-left text-xs font-semibold transition ${
                                         activeTool === variant.id
@@ -3201,7 +3760,10 @@ const QuickPage = () => {
                           key={`bottom-equipment-${tool.id}`}
                           type="button"
                           title={tool.label}
-                          onClick={() => setActiveTool(tool.id)}
+                          onClick={() => {
+                            closeToolPopovers();
+                            setActiveTool(tool.id);
+                          }}
                           className={`flex h-12 items-center justify-center rounded-2xl border transition ${
                             activeTool === tool.id
                               ? "border-[#FACC15] bg-[#FACC15]/20"
@@ -3454,3 +4016,4 @@ const QuickPage = () => {
 };
 
 export default QuickPage;
+
