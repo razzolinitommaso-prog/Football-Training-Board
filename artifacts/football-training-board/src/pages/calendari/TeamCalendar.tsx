@@ -180,14 +180,53 @@ function toTimeInputValue(value?: string | null): string {
   return `${hours}:${minutes}`;
 }
 
+/** Durante la digitazione: inserisce «:» senza tastiera (mobile). Es. 1000 → 10:00, 930 → 9:30. */
+function formatTimeInputLive(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 4);
+  if (digits.length === 0) return "";
+  if (digits.length <= 2) return digits;
+  if (digits.length === 3) {
+    const hh = Number(digits.slice(0, 2));
+    if (hh <= 23) return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+    return `${digits[0]}:${digits.slice(1)}`;
+  }
+  return `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+}
+
 function normalizeTime24(value: string): string | null {
   const clean = value.trim();
-  const m = clean.match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const hh = Number(m[1]);
-  const mm = Number(m[2]);
-  if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  const colon = clean.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (colon) {
+    const hh = Number(colon[1]);
+    const mm = Number(colon[2]);
+    if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  const d = clean.replace(/\D/g, "");
+  if (d.length === 4) {
+    const hh = Number(d.slice(0, 2));
+    const mm = Number(d.slice(2, 4));
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  if (d.length === 3) {
+    const hh2 = Number(d.slice(0, 2));
+    if (hh2 <= 23) {
+      const mm = Number(d.slice(2));
+      if (mm < 0 || mm > 9) return null;
+      return `${String(hh2).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+    const hh = Number(d[0] ?? "0");
+    const mm = Number(d.slice(1));
+    if (hh < 0 || hh > 9 || mm < 0 || mm > 59) return null;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  if (d.length === 2) {
+    const hh = Number(d);
+    if (hh < 0 || hh > 23) return null;
+    return `${String(hh).padStart(2, "0")}:00`;
+  }
+  return null;
 }
 
 function combineDateAndTimeToIso(dateValue: string, timeValue: string): string | null {
@@ -958,11 +997,11 @@ function MatchCard({
                 <Input
                   type="text"
                   value={newDateTime}
-                  onChange={(e) => setNewDateTime(e.target.value)}
+                  onChange={(e) => setNewDateTime(formatTimeInputLive(e.target.value))}
                   className="h-8 text-sm"
-                  placeholder="HH:mm"
+                  placeholder="10:00 o 1000"
                   inputMode="numeric"
-                  pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
+                  autoComplete="off"
                 />
               </div>
             </div>
@@ -1001,11 +1040,11 @@ function MatchCard({
                       <Input
                         type="text"
                         value={rescheduleDateTime}
-                        onChange={(e) => setRescheduleDateTime(e.target.value)}
+                        onChange={(e) => setRescheduleDateTime(formatTimeInputLive(e.target.value))}
                         className="h-8 text-sm"
-                        placeholder="HH:mm"
+                        placeholder="10:00 o 1000"
                         inputMode="numeric"
-                        pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
+                        autoComplete="off"
                       />
                     </div>
                   </div>
@@ -2650,10 +2689,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   id="new-match-time"
                   type="text"
                   value={newMatchForm.time}
-                  onChange={(e) => setNewMatchForm((p) => ({ ...p, time: e.target.value }))}
-                  placeholder="HH:mm"
+                  onChange={(e) =>
+                    setNewMatchForm((p) => ({ ...p, time: formatTimeInputLive(e.target.value) }))
+                  }
+                  placeholder="10:00 o 1000"
                   inputMode="numeric"
-                  pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
+                  autoComplete="off"
                 />
               </div>
               <div className="space-y-1 sm:col-span-2">
