@@ -11,8 +11,20 @@ function formatRosterLastName(player: TeamPlayer) {
     .join(" ");
 }
 
+/** Allineato a roleMacroKey in quickpage: ruoli API abbreviati o in inglese. */
+export function isGoalkeeperPlayer(player: Pick<TeamPlayer, "position">): boolean {
+  const p = String(player.position ?? "").trim().toLowerCase();
+  return (
+    p.includes("port") ||
+    p === "gk" ||
+    p === "por" ||
+    p === "gkp" ||
+    p.includes("goalkeep")
+  );
+}
+
 function isGoalkeeper(player: TeamPlayer) {
-  return String(player.position ?? "").toLowerCase().includes("port");
+  return isGoalkeeperPlayer(player);
 }
 
 function isAvailable(player: TeamPlayer) {

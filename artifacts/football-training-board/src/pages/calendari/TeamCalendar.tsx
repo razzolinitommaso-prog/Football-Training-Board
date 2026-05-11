@@ -120,6 +120,7 @@ type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   boardTitle?: string | null;
   boardUrl?: string | null;
   boardSnapshotAt?: string | null;
+  boardConfirmed?: boolean | null;
 };
 type MatchPlanData = {
   boardLink?: string;
@@ -390,6 +391,9 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
       boardTitle: map.get(d.key)?.boardTitle ?? null,
       boardUrl: map.get(d.key)?.boardUrl ?? null,
       boardSnapshotAt: map.get(d.key)?.boardSnapshotAt ?? null,
+      boardConfirmed:
+        map.get(d.key)?.boardConfirmed ??
+        Boolean(map.get(d.key)?.boardId || map.get(d.key)?.boardUrl || map.get(d.key)?.boardSnapshotAt),
     })),
   };
 }
@@ -814,7 +818,10 @@ function MatchCard({
             if (missing.length > 0) lineup = [...lineup, ...missing];
           }
         }
-        return { ...period, lineupPlayerIds: lineup };
+        const prevLineup = period.lineupPlayerIds ?? [];
+        const lineupChanged =
+          prevLineup.length !== lineup.length || prevLineup.some((id, ix) => id !== lineup[ix]);
+        return lineupChanged ? { ...period, lineupPlayerIds: lineup, boardConfirmed: false } : { ...period, lineupPlayerIds: lineup };
       });
 
       // 2nd period starters auto-populate from 1st period reserves (except 11v11 flows).
@@ -1281,7 +1288,7 @@ function MatchCard({
                                         if (ix !== i) return x;
                                         const valid = moduleOptionsForFormat(nextFormat);
                                         const currentModule = valid.includes(x.module ?? "") ? x.module ?? "" : "";
-                                        return { ...x, format: nextFormat, module: currentModule };
+                                        return { ...x, format: nextFormat, module: currentModule, boardConfirmed: false };
                                       });
                                       const adjusted =
                                         autoReserveRuleEnabled && i === 0
@@ -1299,7 +1306,7 @@ function MatchCard({
                               onChange={(e) =>
                                 setPlanDraft((prev) => {
                                   const nextPeriods = prev.periods.map((x, ix) =>
-                                    ix === i ? { ...x, module: e.target.value } : x,
+                                    ix === i ? { ...x, module: e.target.value, boardConfirmed: false } : x,
                                   );
                                   const adjusted =
                                     autoReserveRuleEnabled && i === 0
@@ -1322,6 +1329,11 @@ function MatchCard({
                               <div className="min-w-0">
                                 <p className="font-semibold text-emerald-900">Lavagna impostata {p.label}</p>
                                 <p className="truncate text-[11px] text-emerald-700">{p.boardTitle ?? "Preparazione tattica"}</p>
+                                <p className={`mt-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                  p.boardConfirmed === false ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                                }`}>
+                                  {p.boardConfirmed === false ? "Da confermare" : "Confermato"}
+                                </p>
                               </div>
                               <button
                                 type="button"
@@ -1345,7 +1357,7 @@ function MatchCard({
                               onClick={() =>
                                 setPlanDraft((prev) => {
                                   const nextPeriods = prev.periods.map((x, ix) =>
-                                    ix === i ? { ...x, lineupPlayerIds: [...selectedPlayersOrdered] } : x,
+                                    ix === i ? { ...x, lineupPlayerIds: [...selectedPlayersOrdered], boardConfirmed: false } : x,
                                   );
                                   const adjusted =
                                     autoReserveRuleEnabled && i === 0

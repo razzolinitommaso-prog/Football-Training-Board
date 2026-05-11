@@ -35,13 +35,34 @@ import {
   Square,
 } from "lucide-react";
 import { withApi } from "@/lib/api-base";
-import { FORMATIONS, isFormationPresetId } from "./formations";
+import { FORMATIONS, isFormationPresetId, type FormationPresetId } from "./formations";
 import type { ArrowToolPreset, TacticalBoardData, TacticalBoardElement, TacticalBoardFormat } from "./board-types";
 import { useTeamPlayers, type TeamPlayer } from "./use-team-players";
-import { assignPlayersToElements } from "./player-mapping";
+import { assignPlayersToElements, isGoalkeeperPlayer } from "./player-mapping";
 
 type FieldElementPanel = "assign" | "text" | "number" | "color" | "rotate" | "line" | "arrow" | "shape" | "format" | "font" | "measure";
-type BoardActionPanel = "load" | "create" | "exercise" | "tactics" | "match";
+type BoardActionPanel = "load" | "create" | "exercise" | "tactics" | "match" | "none";
+
+/**
+ * Panchina riserve: fila centrata sul fondo (y alto), lontano dalla formazione,
+ * così non risultano “in mezzo” al rettangolo di gioco come in angolo a x basso.
+ */
+function benchSpotForReserve(benchIndex: number): { x: number; y: number } {
+  const col = benchIndex % 12;
+  const row = Math.floor(benchIndex / 12);
+  const x = 16 + col * 6.1;
+  const y = 97 + row * 3.5;
+  return { x: Math.min(88, x), y: Math.min(99.5, y) };
+}
+type MatchPlanPeriodLite = {
+  key: string;
+  module?: string;
+  format?: TacticalBoardFormat;
+  lineupPlayerIds?: number[];
+};
+
+type MatchPlanFieldRow = { player: TeamPlayer; index: number; isReserve: boolean };
+
 type MatchOption = {
   id: number;
   teamId?: number | null;
@@ -50,6 +71,12 @@ type MatchOption = {
   date?: string | null;
   homeAway?: string | null;
   teamName?: string | null;
+  matchPlan?: { periods?: MatchPlanPeriodLite[] } | null;
+};
+type MatchCallupItem = {
+  id: number;
+  playerId: number;
+  status?: string | null;
 };
 
 const deriveFormatFromCategory = (category?: string | null): TacticalBoardFormat => {
@@ -85,8 +112,8 @@ const fullPlayerName = (player: Pick<TeamPlayer, "firstName" | "lastName">) =>
 const isPlayerAvailable = (player?: Pick<TeamPlayer, "available"> | null) => player?.available !== false;
 
 function playerRoleRank(position?: string | null): number {
-  const p = String(position ?? "").toLowerCase();
-  if (p.includes("port") || p === "gk") return 0;
+  const p = String(position ?? "").trim().toLowerCase();
+  if (p.includes("port") || p === "gk" || p === "por" || p === "gkp" || p.includes("goalkeep")) return 0;
   if (p.includes("dif") || p.includes("terzin") || p.includes("centrale") || p.includes("dc")) return 1;
   if (p.includes("cent") || p.includes("med") || p.includes("mezz") || p.includes("cc")) return 2;
   if (p.includes("estern") || p.includes("ala") || p.includes("trequart")) return 3;
@@ -102,6 +129,84 @@ function compareTeamPlayersByRole(a: TeamPlayer, b: TeamPlayer): number {
   return `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it");
 }
 
+/** Ordine titolari/riserve come in scheda: prima lineup del tempo, poi altri per ruolo (no ordine di click). */
+function orderMatchPlanRosterPlayers(
+  players: TeamPlayer[],
+  period: { lineupPlayerIds?: number[] } | null | undefined,
+): TeamPlayer[] {
+  const byId = new Map(players.map((p) => [String(p.id), p]));
+  const onFieldIdSet = new Set(players.map((p) => String(p.id)));
+  const lineupIdsRaw = period?.lineupPlayerIds ?? [];
+  const orderedFromLineup = lineupIdsRaw
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && onFieldIdSet.has(String(id)));
+  const inLineup = new Set(orderedFromLineup.map(String));
+  const extras = players
+    .filter((p) => !inLineup.has(String(p.id)))
+    .sort(compareTeamPlayersByRole);
+  const ordered: TeamPlayer[] = [];
+  for (const id of orderedFromLineup) {
+    const p = byId.get(String(id));
+    if (p) ordered.push(p);
+  }
+  ordered.push(...extras);
+  return ordered;
+}
+
+function roleMacroKey(position?: string | null): "GK" | "DEF" | "MID" | "FWD" {
+  const p = String(position ?? "").trim().toLowerCase();
+  if (p.includes("port") || p === "gk" || p === "por" || p === "gkp" || p.includes("goalkeep")) return "GK";
+  if (p.includes("dif") || p.includes("terzin") || p.includes("centrale") || p.includes("dc")) return "DEF";
+  if (p.includes("att") || p.includes("punta") || p.includes("fw") || p.includes("wing")) return "FWD";
+  return "MID";
+}
+
+function playerLimitForFormat(format: TacticalBoardFormat): number {
+  if (format === "3v3") return 3;
+  if (format === "5v5") return 5;
+  if (format === "7v7") return 7;
+  if (format === "9v9") return 9;
+  return 11;
+}
+
+function moduleOptionsForFormat(format: TacticalBoardFormat): string[] {
+  if (format === "3v3") return ["1-1-1", "2-1"];
+  if (format === "5v5") return ["2-2", "1-2-1", "2-1-1"];
+  if (format === "7v7") return ["2-3-1", "3-2-1", "3-1-2"];
+  if (format === "9v9") return ["3-3-2", "3-2-3", "4-3-1"];
+  return ["4-3-3", "4-2-3-1", "3-5-2", "4-4-2", "3-4-3"];
+}
+
+function detectFormatByModule(moduleValue: string): TacticalBoardFormat | null {
+  const clean = moduleValue.trim();
+  if (!clean) return null;
+  const formats: TacticalBoardFormat[] = ["3v3", "5v5", "7v7", "9v9", "11v11"];
+  for (const f of formats) {
+    if (moduleOptionsForFormat(f).includes(clean)) return f;
+  }
+  return null;
+}
+
+function startersLimitForPeriod(period: MatchPlanPeriodLite | null | undefined, defaultFormat: TacticalBoardFormat): number {
+  const defaultLimit = playerLimitForFormat(period?.format ?? defaultFormat);
+  const raw = (period?.module ?? "").trim();
+  if (!raw) return defaultLimit;
+  const byKnownModule = detectFormatByModule(raw);
+  if (byKnownModule) return playerLimitForFormat(byKnownModule);
+  const nums = raw
+    .split("-")
+    .map((x) => Number(x.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (nums.length === 0) return defaultLimit;
+  const sum = nums.reduce((acc, n) => acc + n, 0);
+  if ([3, 5, 7, 9, 11].includes(sum)) return sum;
+  if ([3, 5, 7, 9, 11].includes(sum + 1)) return sum + 1;
+  if (sum === defaultLimit || sum === defaultLimit - 1) return defaultLimit;
+  return defaultLimit;
+}
+
+const MATCH_PLAN_RESERVE_MARKER_HEX = "#F59E0B";
+
 function matchOptionPhase(match: MatchOption): "autunnale" | "primaverile" | "tornei" | "amichevoli" {
   const comp = String(match.competition ?? "").toLowerCase();
   if (comp.includes("amichev") || comp.includes("friendly")) return "amichevoli";
@@ -116,9 +221,23 @@ function formatMatchOptionLabel(match: MatchOption) {
   const dateLabel = when && !Number.isNaN(when.getTime())
     ? when.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })
     : "";
-  const team = match.teamName ? `${match.teamName} - ` : "";
   const opponent = match.opponent ?? "Avversario";
-  return `${dateLabel ? `${dateLabel} · ` : ""}${team}${opponent}`;
+  return `${dateLabel ? `${dateLabel} - ` : ""}${opponent}`;
+}
+
+function extractMatchAnnataLabel(match: MatchOption): string {
+  return String(match.teamName ?? "").trim();
+}
+
+function formatMatchPhaseGroupLabel(phaseLabel: string, items: MatchOption[]) {
+  const annate = Array.from(
+    new Set(
+      items
+        .map(extractMatchAnnataLabel)
+        .filter((value) => value.length > 0)
+    )
+  );
+  return annate.length > 0 ? `${phaseLabel} - ${annate.join(" · ")}` : phaseLabel;
 }
 
 const BOARD_TYPES = ["Training", "Exercise", "Match", "Match Plan", "Set Piece", "Quick Idea"] as const;
@@ -260,6 +379,7 @@ function defaultMarkerColor(type?: string, rosterStatus?: unknown) {
 function markerTextColor(backgroundColor: string) {
   const normalized = backgroundColor.trim().toUpperCase();
   if (normalized === "#FACC15" || normalized === "#F8FAFC" || normalized === "#FFFFFF") return "#111827";
+  if (normalized === "#F59E0B" || normalized === "#D97706") return "#111827";
   return "#FFFFFF";
 }
 
@@ -1072,7 +1192,7 @@ function DrawingToolGlyph({ type }: { type: string }) {
 }
 
 const QuickPage = () => {
-  const { club } = useAuth();
+  const { club, user } = useAuth();
   const { data: allTeams } = useListTeams();
   const { data: allPlayersData } = useListPlayers();
   const [assignmentTeamId, setAssignmentTeamId] = useState<string>("");
@@ -1169,8 +1289,10 @@ const QuickPage = () => {
   const [matchPeriodKey, setMatchPeriodKey] = useState<"t1" | "t2" | "t3" | "t4">(initialPeriodKeyFromQuery);
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(initialMatchIdFromQuery);
   const [matchPlanPlayerId, setMatchPlanPlayerId] = useState<string>("");
+  const [matchSheetSaveHint, setMatchSheetSaveHint] = useState<string | null>(null);
   const [replacingElementIndex, setReplacingElementIndex] = useState<number | null>(null);
   const [matchOptions, setMatchOptions] = useState<MatchOption[]>([]);
+  const [matchCallups, setMatchCallups] = useState<MatchCallupItem[]>([]);
   const [librarySearch, setLibrarySearch] = useState("");
   const [bottomMenu, setBottomMenu] = useState<"players" | "equipment" | "drawing" | "library">("players");
   const [showMetricGrid, setShowMetricGrid] = useState(true);
@@ -1323,6 +1445,8 @@ const QuickPage = () => {
   const [teamPlayers, setTeamPlayers] = useState<TeamPlayer[]>([]);
   const [freeRosterPlayers, setFreeRosterPlayers] = useState<TeamPlayer[]>([]);
   const didHydrateBoardFromUrlRef = React.useRef(false);
+  /** Per lavagna non salvata: finché è false, all'apertura di «Prepara partita» la partita resta «nessuna»; dopo la prima scelta nel menu resta fino a nuova lavagna / sessione o caricamento da libreria. */
+  const matchPrepBindingCommittedRef = React.useRef(Boolean(initialMatchIdFromQuery || isMatchPlanBoard));
 
   const setBoardIdInUrl = React.useCallback((boardId: number | null) => {
     const url = new URL(window.location.href);
@@ -1351,7 +1475,8 @@ const QuickPage = () => {
       );
       setBoardType(BOARD_TYPES.includes(data.boardType as any) ? data.boardType as (typeof BOARD_TYPES)[number] : "Training");
       setBoardNotes(typeof data.notes === "string" ? data.notes : "");
-      setSelectedMatchId(parseNumericId(data.matchId) ?? initialMatchIdFromQuery);
+      setSelectedMatchId(parseNumericId(data.matchId) ?? null);
+      matchPrepBindingCommittedRef.current = true;
       if (data.matchPeriodKey === "t1" || data.matchPeriodKey === "t2" || data.matchPeriodKey === "t3" || data.matchPeriodKey === "t4") {
         setMatchPeriodKey(data.matchPeriodKey);
       }
@@ -1415,10 +1540,40 @@ const QuickPage = () => {
     let cancelled = false;
     const loadMatches = async () => {
       try {
-        const res = await fetch(withApi("/api/matches"), { credentials: "include" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setMatchOptions(Array.isArray(data) ? data : []);
+        const allTeamsSafe = Array.isArray(allTeams) ? allTeams : [];
+        const currentUserId = parseNumericId((user as any)?.id);
+        const assignedForMember = currentUserId
+          ? allTeamsSafe.filter((team: any) =>
+              Array.isArray(team?.assignedStaff) &&
+              team.assignedStaff.some((member: any) => parseNumericId(member?.userId) === currentUserId)
+            )
+          : [];
+        const visibleTeams = assignedForMember.length > 0 ? assignedForMember : allTeamsSafe;
+        const visibleTeamIds = visibleTeams
+          .map((team: any) => parseNumericId(team?.id))
+          .filter((id): id is number => id !== null);
+
+        if (visibleTeamIds.length === 0) {
+          if (!cancelled) setMatchOptions([]);
+          return;
+        }
+
+        const rows = await Promise.all(
+          visibleTeamIds.map(async (teamId) => {
+            const res = await fetch(withApi(`/api/matches?teamId=${teamId}`), { credentials: "include" });
+            if (!res.ok) return [] as MatchOption[];
+            const data = await res.json();
+            return Array.isArray(data) ? data : [];
+          })
+        );
+
+        const merged = new Map<number, MatchOption>();
+        rows.flat().forEach((match) => {
+          const id = parseNumericId((match as any)?.id);
+          if (!id) return;
+          merged.set(id, match);
+        });
+        if (!cancelled) setMatchOptions(Array.from(merged.values()));
       } catch {
         if (!cancelled) setMatchOptions([]);
       }
@@ -1427,7 +1582,38 @@ const QuickPage = () => {
     return () => {
       cancelled = true;
     };
+  }, [allTeams, user]);
+
+  const loadMatchCallups = React.useCallback(async (matchId: number) => {
+    try {
+      const res = await fetch(withApi(`/api/matches/${matchId}/callups`), { credentials: "include" });
+      if (!res.ok) {
+        setMatchCallups([]);
+        return;
+      }
+      const data = await res.json();
+      setMatchCallups(Array.isArray(data) ? data : []);
+    } catch {
+      setMatchCallups([]);
+    }
   }, []);
+
+  React.useEffect(() => {
+    if (!selectedMatchId) {
+      setMatchCallups([]);
+      return;
+    }
+    loadMatchCallups(selectedMatchId);
+  }, [loadMatchCallups, selectedMatchId]);
+
+  React.useEffect(() => {
+    if (!selectedMatchId) return;
+    const refresh = () => {
+      loadMatchCallups(selectedMatchId);
+    };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [loadMatchCallups, selectedMatchId]);
 
   React.useEffect(() => {
     if (!freeMenuOpen && !arrowMenuOpen && !drawMenuOpen && !textMenuOpen && !zoneMenuOpen && !measureMenuOpen && !goalMenuOpen) return;
@@ -1469,15 +1655,15 @@ const QuickPage = () => {
   }, [allTeams, boardMode, boardTeamId]);
 
   React.useEffect(() => {
-    if (isMatchPlanBoard && initialConvocatiIds.length) return;
     setTeamPlayers([...fetchedTeamPlayers].sort(compareTeamPlayersByRole));
-  }, [fetchedTeamPlayers, initialConvocatiIds.length, isMatchPlanBoard]);
+  }, [fetchedTeamPlayers]);
 
   React.useEffect(() => {
     if (boardMode === "free") return;
     if (!teamPlayers.length) return;
+    if (isMatchPlanBoard) return;
     setElements((prev) => assignPlayersToElements(prev, teamPlayers));
-  }, [boardMode, teamPlayers]);
+  }, [boardMode, isMatchPlanBoard, teamPlayers]);
 
   React.useEffect(() => {
     if (!initialPresetFromQuery) return;
@@ -1495,7 +1681,7 @@ const QuickPage = () => {
       ...convoked,
       ...fetchedTeamPlayers.filter((p) => !convSet.has(p.id)).sort(compareTeamPlayersByRole),
     ];
-    setTeamPlayers(isMatchPlanBoard ? convoked : prioritized);
+    setTeamPlayers(prioritized);
   }, [initialConvocatiIds, fetchedTeamPlayers, isMatchPlanBoard]);
 
   React.useEffect(() => {
@@ -1642,39 +1828,6 @@ const QuickPage = () => {
     closeToolPopovers();
     setSaveState("Unsaved");
   };
-
-  const detectedModule = React.useMemo(() => {
-    const ownPlayers = elements.filter((el) => isPlayerType(el?.type) && el.type !== "opponent");
-    const goalkeepers = ownPlayers.filter((el) => el.type === "goalkeeper").length;
-    const movementPlayers = ownPlayers
-      .filter((el) => el.type !== "goalkeeper" && typeof el.x === "number")
-      .sort((a, b) => Number(a.x ?? 0) - Number(b.x ?? 0));
-
-    if (!ownPlayers.length) return "";
-
-    const lineCounts: number[] = [];
-    let currentLineX: number | null = null;
-
-    movementPlayers.forEach((player) => {
-      const x = Number(player.x ?? 0);
-      if (currentLineX === null || Math.abs(x - currentLineX) > 8) {
-        lineCounts.push(1);
-        currentLineX = x;
-        return;
-      }
-      lineCounts[lineCounts.length - 1] += 1;
-      currentLineX = (currentLineX + x) / 2;
-    });
-
-    const goalkeeperPart = `(${goalkeepers || 0})`;
-    return [goalkeeperPart, ...lineCounts.map(String)].join("-");
-  }, [elements]);
-
-  const moduleLabel = selectedPreset && isFormationPresetId(selectedPreset)
-    ? detectedModule && detectedModule !== `(1)-${selectedPreset}`
-      ? `${selectedPreset} · rilevato ${detectedModule}`
-      : detectedModule || `(1)-${selectedPreset}`
-    : detectedModule || "Lavagna libera";
 
   const applyPreset = (presetName: string) => {
     setSelectedPreset(presetName);
@@ -1927,53 +2080,416 @@ const QuickPage = () => {
     () => new Set(matchPlanPlayersOnField.map((entry) => String(entry.player.id))),
     [matchPlanPlayersOnField]
   );
+  const callupByPlayerId = React.useMemo(() => {
+    const map = new Map<string, MatchCallupItem>();
+    matchCallups.forEach((item) => {
+      const playerId = parseNumericId((item as any)?.playerId);
+      if (!playerId) return;
+      map.set(String(playerId), item);
+    });
+    return map;
+  }, [matchCallups]);
+  const matchCallupPlayerIds = React.useMemo(
+    () => new Set(Array.from(callupByPlayerId.keys())),
+    [callupByPlayerId]
+  );
+  const matchPlanCalledPlayers = React.useMemo(
+    () =>
+      teamPlayers
+        .filter((player) => matchCallupPlayerIds.has(String(player.id)))
+        .sort(compareTeamPlayersByRole),
+    [matchCallupPlayerIds, teamPlayers]
+  );
+  const matchPlanAvailablePlayers = React.useMemo(
+    () => teamPlayers.filter((player) => isPlayerAvailable(player)),
+    [teamPlayers]
+  );
+  const matchPlanSelectablePlayers = React.useMemo(() => {
+    const currentReplacingPlayerId = replacingElementIndex !== null ? elements[replacingElementIndex]?.playerId : null;
+    return matchPlanAvailablePlayers.filter((player) =>
+      String(player.id) === String(currentReplacingPlayerId) || !usedMatchPlanPlayerIds.has(String(player.id))
+    );
+  }, [elements, matchPlanAvailablePlayers, replacingElementIndex, usedMatchPlanPlayerIds]);
+  const matchPlanSelectableGrouped = React.useMemo(() => {
+    const groups: Record<"GK" | "DEF" | "MID" | "FWD", TeamPlayer[]> = {
+      GK: [],
+      DEF: [],
+      MID: [],
+      FWD: [],
+    };
+    matchPlanSelectablePlayers.forEach((player) => {
+      groups[roleMacroKey(player.position)].push(player);
+    });
+    return groups;
+  }, [matchPlanSelectablePlayers]);
 
-  const replaceMatchPlanPlayer = (elementIndex: number, playerIdRaw: string) => {
-    const player = teamPlayers.find((item) => String(item.id) === playerIdRaw);
+  /** Prepara partita (sidebar o URL match-plan): rosa = solo convocati, non tutta l'annata. */
+  const isMatchPreparationUi = React.useMemo(
+    () => boardMode === "assigned" && (isMatchPlanBoard || activeBoardAction === "match"),
+    [activeBoardAction, boardMode, isMatchPlanBoard],
+  );
+
+  const selectedMatchOption = React.useMemo(
+    () => (selectedMatchId ? matchOptions.find((m) => m.id === selectedMatchId) ?? null : null),
+    [matchOptions, selectedMatchId],
+  );
+
+  const activeMatchPlanPeriod = React.useMemo(() => {
+    const plan = selectedMatchOption?.matchPlan;
+    if (!plan || typeof plan !== "object") return null;
+    const periods = (plan as { periods?: MatchPlanPeriodLite[] }).periods;
+    if (!Array.isArray(periods)) return null;
+    return periods.find((p) => p.key === matchPeriodKey) ?? null;
+  }, [matchPeriodKey, selectedMatchOption]);
+
+  const matchPlanStartersLimit = React.useMemo(
+    () => startersLimitForPeriod(activeMatchPlanPeriod, boardFormat),
+    [activeMatchPlanPeriod, boardFormat],
+  );
+
+  const rebuildMatchPlanLayout = React.useCallback(
+    (prev: TacticalBoardElement[], formationPresetOverride?: string | null): TacticalBoardElement[] => {
+      if (!isMatchPreparationUi) return prev;
+
+      const tryPreset = formationPresetOverride ?? selectedPreset;
+      let layoutPresetId: FormationPresetId | null =
+        tryPreset && isFormationPresetId(tryPreset) && FORMATIONS[tryPreset].formats.includes(boardFormat)
+          ? tryPreset
+          : null;
+      if (!layoutPresetId) {
+        const fromMenu = moduleOptionsForFormat(boardFormat).find(
+          (id): id is FormationPresetId =>
+            isFormationPresetId(id) && FORMATIONS[id].formats.includes(boardFormat),
+        );
+        layoutPresetId =
+          fromMenu ??
+          ((Object.keys(FORMATIONS) as FormationPresetId[]).find((id) =>
+            FORMATIONS[id].formats.includes(boardFormat),
+          ) ?? null);
+      }
+      if (!layoutPresetId) return prev;
+
+      const formation = FORMATIONS[layoutPresetId];
+      if (!formation.formats.includes(boardFormat)) return prev;
+
+      const rest = prev.filter((el) => {
+        if (!isPlayerType(el?.type) || el.type === "opponent") return true;
+        if (!el.playerId) return true;
+        return false;
+      });
+
+      const uniqueIds = [
+        ...new Set(
+          prev
+            .filter((el) => isPlayerType(el.type) && el.type !== "opponent" && el.playerId)
+            .map((el) => String(el.playerId)),
+        ),
+      ];
+      const roster: TeamPlayer[] = uniqueIds
+        .map((id) => teamPlayers.find((p) => String(p.id) === id))
+        .filter((p): p is TeamPlayer => Boolean(p));
+
+      if (!roster.length) return prev;
+
+      const orderedAll = orderMatchPlanRosterPlayers(roster, activeMatchPlanPeriod);
+      const startersCap = matchPlanStartersLimit;
+      const officialStarters = orderedAll.slice(0, startersCap);
+      const officialReserves = orderedAll.slice(startersCap);
+
+      const presetElements = formation.slots.map((slot) => ({
+        type: slot.role,
+        x: slot.x,
+        y: slot.y,
+        label: slot.role === "goalkeeper" ? "GK" : "P",
+        markerColor: slot.role === "goalkeeper" ? "#FACC15" : "#2f9cf4",
+      }));
+
+      const maxOnFormation = Math.min(formation.slots.length, officialStarters.length);
+      const startersForAssign = officialStarters.slice(0, maxOnFormation);
+      const filled =
+        startersForAssign.length > 0
+          ? assignPlayersToElements(presetElements, startersForAssign)
+          : presetElements.map((p) => ({ ...p }));
+
+      const placed = new Set(filled.map((e) => e.playerId).filter(Boolean).map(String));
+      const startersNotOnFormation = officialStarters.filter((p) => !placed.has(String(p.id)));
+      const benchPlayers = [...startersNotOnFormation, ...officialReserves];
+      const benchEls: TacticalBoardElement[] = benchPlayers.map((p, idx) => {
+        const pos = benchSpotForReserve(idx);
+        const isGk = isGoalkeeperPlayer(p);
+        return {
+          type: isGk ? "goalkeeper" : "player",
+          x: pos.x,
+          y: 50,
+          playerId: String(p.id),
+          name: fullPlayerName(p),
+          displayName: formatRosterLastName(p),
+          number: p.jerseyNumber ?? undefined,
+        };
+      });
+
+      return [...rest, ...filled, ...benchEls];
+    },
+    [
+      activeMatchPlanPeriod,
+      boardFormat,
+      isMatchPreparationUi,
+      matchPlanStartersLimit,
+      selectedPreset,
+      teamPlayers,
+    ],
+  );
+
+  const matchPlanPitchPlacement = React.useMemo(() => {
+    const empty: { limit: number; ordered: MatchPlanFieldRow[]; reserveIds: Set<string> } = {
+      limit: 11,
+      ordered: [],
+      reserveIds: new Set(),
+    };
+    if (!isMatchPreparationUi) return empty;
+    const limit = matchPlanStartersLimit;
+    const onField = matchPlanPlayersOnField;
+    if (!onField.length) {
+      return { limit, ordered: [], reserveIds: new Set<string>() };
+    }
+    const onFieldIdSet = new Set(onField.map((e) => String(e.player.id)));
+    const lineupIdsRaw = activeMatchPlanPeriod?.lineupPlayerIds ?? [];
+    const orderedFromLineup = lineupIdsRaw
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && onFieldIdSet.has(String(id)));
+    const inLineup = new Set(orderedFromLineup.map(String));
+    const extras = onField
+      .filter((e) => !inLineup.has(String(e.player.id)))
+      .sort((a, b) => compareTeamPlayersByRole(a.player, b.player));
+    const orderedEntries = [
+      ...orderedFromLineup
+        .map((id) => onField.find((e) => String(e.player.id) === String(id)))
+        .filter((e): e is NonNullable<typeof e> => Boolean(e)),
+      ...extras,
+    ];
+    const reserveIds = new Set<string>();
+    const ordered: MatchPlanFieldRow[] = orderedEntries.map((entry, idx) => {
+      const isReserve = idx >= limit;
+      if (isReserve) reserveIds.add(String(entry.player.id));
+      return { player: entry.player, index: entry.index, isReserve };
+    });
+    return { limit, ordered, reserveIds };
+  }, [activeMatchPlanPeriod, isMatchPreparationUi, matchPlanPlayersOnField, matchPlanStartersLimit]);
+
+  const detectedModule = React.useMemo(() => {
+    const reserveIds =
+      isMatchPreparationUi && boardMode === "assigned" ? matchPlanPitchPlacement.reserveIds : new Set<string>();
+    const ownPlayers = elements.filter(
+      (el) =>
+        isPlayerType(el?.type) &&
+        el.type !== "opponent" &&
+        !(el.playerId && reserveIds.has(String(el.playerId))),
+    );
+    const goalkeepers = ownPlayers.filter((el) => el.type === "goalkeeper").length;
+    const movementPlayers = ownPlayers
+      .filter((el) => el.type !== "goalkeeper" && typeof el.x === "number")
+      .sort((a, b) => Number(a.x ?? 0) - Number(b.x ?? 0));
+
+    if (!ownPlayers.length) return "";
+
+    const lineCounts: number[] = [];
+    let currentLineX: number | null = null;
+
+    movementPlayers.forEach((player) => {
+      const x = Number(player.x ?? 0);
+      if (currentLineX === null || Math.abs(x - currentLineX) > 8) {
+        lineCounts.push(1);
+        currentLineX = x;
+        return;
+      }
+      lineCounts[lineCounts.length - 1] += 1;
+      currentLineX = (currentLineX + x) / 2;
+    });
+
+    const goalkeeperPart = `(${goalkeepers || 0})`;
+    return [goalkeeperPart, ...lineCounts.map(String)].join("-");
+  }, [boardMode, elements, isMatchPreparationUi, matchPlanPitchPlacement]);
+
+  const moduleLabelFull =
+    selectedPreset && isFormationPresetId(selectedPreset)
+      ? detectedModule
+        ? `Scelto: ${selectedPreset} — Rilevato: ${detectedModule}`
+        : `Scelto: ${selectedPreset}${detectedModule ? "" : " — (posiziona i titolari sul campo)"}`
+      : detectedModule || "Lavagna libera";
+
+  const moduleLabel = detectedModule || "—";
+
+  const getLineupPlayerIdsForMatchPlan = React.useCallback(() => {
+    if (isMatchPreparationUi && matchPlanPitchPlacement.ordered.length > 0) {
+      return matchPlanPitchPlacement.ordered.map((row) => Number(row.player.id)).filter((id) => Number.isFinite(id));
+    }
+    return elements
+      .filter((item) => isPlayerType(item.type) && item.type !== "opponent" && item.playerId)
+      .map((item) => Number(item.playerId))
+      .filter((id) => Number.isFinite(id));
+  }, [elements, isMatchPreparationUi, matchPlanPitchPlacement.ordered]);
+
+  const boardPlayerIdsForCallupSync = React.useMemo(() => {
+    if (!isMatchPreparationUi || boardMode !== "assigned") return "";
+    const ids = [
+      ...new Set(
+        elements
+          .filter((el) => isPlayerType(el.type) && el.type !== "opponent" && el.playerId)
+          .map((el) => {
+            const n = parseNumericId(el.playerId);
+            return n != null ? String(n) : String(el.playerId);
+          }),
+      ),
+    ].sort();
+    return ids.join(",");
+  }, [boardMode, elements, isMatchPreparationUi]);
+
+  const ensureMatchCallup = React.useCallback(async (playerIdRaw: string | number) => {
+    if (!selectedMatchId) return;
+    const playerId = parseNumericId(playerIdRaw);
+    if (!playerId) return;
+    try {
+      await fetch(withApi(`/api/matches/${selectedMatchId}/callups`), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId, status: "called" }),
+      });
+      await loadMatchCallups(selectedMatchId);
+    } catch {
+      // keep board usable even if callup sync fails temporarily
+    }
+  }, [loadMatchCallups, selectedMatchId]);
+
+  const removeMatchCallup = React.useCallback(async (playerIdRaw: string | number) => {
+    if (!selectedMatchId) return;
+    const playerId = parseNumericId(playerIdRaw);
+    if (!playerId) return;
+    const callup = callupByPlayerId.get(String(playerId));
+    const callupId = parseNumericId((callup as any)?.id);
+    if (!callupId) return;
+    try {
+      await fetch(withApi(`/api/callups/${callupId}`), {
+        method: "DELETE",
+        credentials: "include",
+      });
+      await loadMatchCallups(selectedMatchId);
+    } catch {
+      // keep board usable even if callup sync fails temporarily
+    }
+  }, [callupByPlayerId, loadMatchCallups, selectedMatchId]);
+
+  React.useEffect(() => {
+    if (!selectedMatchId || !boardPlayerIdsForCallupSync) return;
+    const ids = boardPlayerIdsForCallupSync.split(",").filter(Boolean);
+    const missing = ids.filter((id) => !matchCallupPlayerIds.has(id));
+    if (!missing.length) return;
+    let cancelled = false;
+    void (async () => {
+      for (const id of missing) {
+        if (cancelled) return;
+        await ensureMatchCallup(id);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [boardPlayerIdsForCallupSync, ensureMatchCallup, matchCallupPlayerIds, selectedMatchId]);
+
+  React.useEffect(() => {
+    if (!isMatchPreparationUi || boardMode !== "assigned" || !selectedMatchId) return;
+    setElements((prev) => {
+      const keep = prev.filter((item) => {
+        if (!isPlayerType(item.type) || item.type === "opponent") return true;
+        if (!item.playerId) return false;
+        const pid = String(item.playerId);
+        if (matchCallupPlayerIds.has(pid)) return true;
+        return matchPlanPitchPlacement.ordered.some((row) => String(row.player.id) === pid);
+      });
+      const placedIds = new Set(
+        keep
+          .map((item) => (item.playerId ? String(item.playerId) : ""))
+          .filter((id) => id.length > 0),
+      );
+      const missing = matchPlanCalledPlayers.filter((player) => !placedIds.has(String(player.id)));
+      if (!missing.length) return keep;
+      const stubs = missing.map((player) => {
+        const isGoalkeeper = isGoalkeeperPlayer(player);
+        return {
+          type: isGoalkeeper ? "goalkeeper" : "player",
+          x: 50,
+          y: 50,
+          ...buildPlayerAssignment(player),
+        } as TacticalBoardElement;
+      });
+      return rebuildMatchPlanLayout([...keep, ...stubs]);
+    });
+  }, [
+    boardFormat,
+    boardMode,
+    isMatchPreparationUi,
+    matchCallupPlayerIds,
+    matchPlanCalledPlayers,
+    matchPlanPitchPlacement.ordered,
+    rebuildMatchPlanLayout,
+    selectedMatchId,
+    selectedPreset,
+  ]);
+
+  const replaceMatchPlanPlayer = async (elementIndex: number, playerIdRaw: string) => {
+    const player = matchPlanAvailablePlayers.find((item) => String(item.id) === playerIdRaw);
     if (!player) return;
-    const isGoalkeeper = String(player.position ?? "").toLowerCase().includes("port");
-    setElements((prev) => prev.map((item, index) => (
-      index === elementIndex
-        ? { ...item, type: isGoalkeeper ? "goalkeeper" : "player", ...buildPlayerAssignment(player) }
-        : item
-    )));
+    const previousPlayerIdRaw = elements[elementIndex]?.playerId ?? null;
+    const isGoalkeeper = isGoalkeeperPlayer(player);
+    setElements((prev) =>
+      rebuildMatchPlanLayout(
+        prev.map((item, index) =>
+          index === elementIndex
+            ? { ...item, type: isGoalkeeper ? "goalkeeper" : "player", ...buildPlayerAssignment(player) }
+            : item,
+        ),
+      ),
+    );
     setReplacingElementIndex(null);
     setMatchPlanPlayerId("");
     setSaveState("Unsaved");
+    await ensureMatchCallup(player.id);
+    if (previousPlayerIdRaw && String(previousPlayerIdRaw) !== String(player.id)) {
+      await removeMatchCallup(previousPlayerIdRaw);
+    }
   };
 
-  const removeMatchPlanPlayer = (elementIndex: number) => {
-    setElements((prev) => prev.filter((_, index) => index !== elementIndex));
+  const removeMatchPlanPlayer = async (elementIndex: number) => {
+    const playerIdRaw = elements[elementIndex]?.playerId ?? null;
+    setElements((prev) => rebuildMatchPlanLayout(prev.filter((_, index) => index !== elementIndex)));
     setReplacingElementIndex(null);
     setSaveState("Unsaved");
+    if (playerIdRaw) {
+      await removeMatchCallup(playerIdRaw);
+    }
   };
 
-  const addMatchPlanPlayerToPitch = (playerIdRaw: string) => {
+  const addMatchPlanPlayerToPitch = async (playerIdRaw: string) => {
     if (replacingElementIndex !== null) {
-      replaceMatchPlanPlayer(replacingElementIndex, playerIdRaw);
+      await replaceMatchPlanPlayer(replacingElementIndex, playerIdRaw);
       return;
     }
-    const player = teamPlayers.find((item) => String(item.id) === playerIdRaw);
+    const player = matchPlanAvailablePlayers.find((item) => String(item.id) === playerIdRaw);
     if (!player || usedPlayerIds.has(String(player.id))) return;
-    const ownPlayers = elements.filter((item) => isPlayerType(item.type) && item.type !== "opponent");
-    const slot = selectedPreset && isFormationPresetId(selectedPreset)
-      ? FORMATIONS[selectedPreset].slots[ownPlayers.length]
-      : null;
-    const isGoalkeeper = String(player.position ?? "").toLowerCase().includes("port");
-    const fallbackX = 18 + (ownPlayers.length % 4) * 14;
-    const fallbackY = 22 + Math.floor(ownPlayers.length / 4) * 16;
-    const newElement: TacticalBoardElement = {
+    const isGoalkeeper = isGoalkeeperPlayer(player);
+    const stub: TacticalBoardElement = {
       type: isGoalkeeper ? "goalkeeper" : "player",
-      x: Number(slot?.x ?? fallbackX),
-      y: Number(slot?.y ?? Math.min(fallbackY, 82)),
+      x: 50,
+      y: 50,
       ...buildPlayerAssignment(player),
     };
-    setElements((prev) => [...prev, newElement]);
-    setSelectedElementIndex(elements.length);
+    setElements((prev) => rebuildMatchPlanLayout([...prev, stub]));
+    setSelectedElementIndex(null);
     setSelectedElementIndexes([]);
     setActiveTool("select");
     setMatchPlanPlayerId("");
     setSaveState("Unsaved");
+    await ensureMatchCallup(player.id);
   };
 
   const applyMatchPlanFormation = (presetName: string) => {
@@ -1981,15 +2497,7 @@ const QuickPage = () => {
     if (!isFormationPresetId(presetName)) return;
     const formation = FORMATIONS[presetName];
     if (!formation.formats.includes(boardFormat)) return;
-    const selectedPlayers = matchPlanPlayersOnField.map((entry) => entry.player);
-    const presetElements = formation.slots.map((slot) => ({
-      type: slot.role,
-      x: slot.x,
-      y: slot.y,
-      label: slot.role === "goalkeeper" ? "GK" : "P",
-      markerColor: slot.role === "goalkeeper" ? "#FACC15" : "#2f9cf4",
-    }));
-    setElements(selectedPlayers.length ? assignPlayersToElements(presetElements, selectedPlayers) : presetElements);
+    setElements((prev) => rebuildMatchPlanLayout(prev, presetName));
     setSelectedElementIndex(null);
     setSelectedElementIndexes([]);
     setSaveState("Unsaved");
@@ -1997,8 +2505,15 @@ const QuickPage = () => {
 
   const selectMatchForBoard = (matchIdRaw: string) => {
     const matchId = parseNumericId(matchIdRaw);
+    if (!matchId) {
+      setSelectedMatchId(null);
+      matchPrepBindingCommittedRef.current = false;
+      setSaveState("Unsaved");
+      return;
+    }
     const match = matchOptions.find((item) => item.id === matchId);
     if (!match || !match.id) return;
+    matchPrepBindingCommittedRef.current = true;
     setSelectedMatchId(match.id);
     setBoardType("Match Plan");
     setActiveBoardAction("match");
@@ -2020,10 +2535,7 @@ const QuickPage = () => {
     const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
     const periodLabels: Record<typeof matchPeriodKey, string> = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" };
     const boardUrl = `/tactical-board?boardId=${savedBoardId}&teamId=${boardTeamId}&matchId=${selectedMatchId}&periodKey=${matchPeriodKey}&returnTo=${encodeURIComponent(`/calendari/${boardTeamId}?openMatchId=${selectedMatchId}`)}`;
-    const lineupPlayerIds = elements
-      .filter((item) => isPlayerType(item.type) && item.type !== "opponent" && item.playerId)
-      .map((item) => Number(item.playerId))
-      .filter((id) => Number.isFinite(id));
+    const lineupPlayerIds = getLineupPlayerIdsForMatchPlan();
     await Promise.all(lineupPlayerIds.map((playerId) =>
       fetch(withApi(`/api/matches/${selectedMatchId}/callups`), {
         method: "POST",
@@ -2042,6 +2554,7 @@ const QuickPage = () => {
             boardTitle: savedBoardTitle,
             boardUrl,
             boardSnapshotAt: new Date().toISOString(),
+            boardConfirmed: true,
           }
         : period
     );
@@ -2051,6 +2564,53 @@ const QuickPage = () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ matchPlan: { ...existingPlan, periods } }),
     });
+  };
+
+  const saveMatchSheetFromBoard = async () => {
+    if (!selectedMatchId || !boardTeamId) {
+      setMatchSheetSaveHint("Seleziona una partita con squadra collegata.");
+      return;
+    }
+    setMatchSheetSaveHint(null);
+    try {
+      const matchesRes = await fetch(withApi(`/api/matches?teamId=${boardTeamId}`), { credentials: "include" });
+      if (!matchesRes.ok) throw new Error("matches");
+      const matches = await matchesRes.json();
+      const match = Array.isArray(matches) ? matches.find((item) => parseNumericId(item?.id) === selectedMatchId) : null;
+      if (!match) throw new Error("match");
+      const existingPlan = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
+      const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
+      const lineupPlayerIds = getLineupPlayerIdsForMatchPlan();
+      await Promise.all(
+        lineupPlayerIds.map((playerId) =>
+          fetch(withApi(`/api/matches/${selectedMatchId}/callups`), {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ playerId, status: "called" }),
+          })
+        )
+      );
+      const periodLabels: Record<typeof matchPeriodKey, string> = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" };
+      const hasPeriod = currentPeriods.some((period: any) => period?.key === matchPeriodKey);
+      const periods = (hasPeriod ? currentPeriods : [...currentPeriods, { key: matchPeriodKey, label: periodLabels[matchPeriodKey], minutes: "" }]).map((period: any) =>
+        period?.key === matchPeriodKey
+          ? { ...period, lineupPlayerIds, boardConfirmed: false }
+          : period
+      );
+      const patchRes = await fetch(withApi(`/api/matches/${selectedMatchId}`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchPlan: { ...existingPlan, periods } }),
+      });
+      if (!patchRes.ok) throw new Error("patch");
+      setMatchSheetSaveHint("Scheda partita salvata (da confermare in calendario).");
+      window.setTimeout(() => setMatchSheetSaveHint(null), 5000);
+    } catch {
+      setMatchSheetSaveHint("Errore nel salvataggio della scheda.");
+      window.setTimeout(() => setMatchSheetSaveHint(null), 6000);
+    }
   };
 
   const getNextAvailableRosterPlayer = (type?: string) => {
@@ -2067,9 +2627,7 @@ const QuickPage = () => {
     const available = teamPlayers.filter((player) => !usedPlayerIds.has(String(player.id)) && isPlayerAvailable(player));
     if (!available.length) return null;
     const matchingRole = available.find((player) =>
-      isGoalkeeperSlot
-        ? String(player.position ?? "").toLowerCase().includes("port")
-        : !String(player.position ?? "").toLowerCase().includes("port")
+      isGoalkeeperSlot ? isGoalkeeperPlayer(player) : !isGoalkeeperPlayer(player)
     );
     return matchingRole ?? available[0] ?? null;
   };
@@ -2525,6 +3083,8 @@ const QuickPage = () => {
     setCurrentBoardId(null);
     setBoardIdInUrl(null);
     setBoardTitle("Nuova lavagna");
+    setSelectedMatchId(null);
+    matchPrepBindingCommittedRef.current = false;
     setSelectedPreset(null);
     setActiveTool("player");
     setFocusMode(false);
@@ -2559,7 +3119,7 @@ const QuickPage = () => {
       format: boardFormat,
       boardType,
       matchId: selectedMatchId,
-      matchPeriodKey: isMatchPlanBoard ? matchPeriodKey : null,
+      matchPeriodKey: selectedMatchId && (isMatchPreparationUi || isMatchPlanBoard) ? matchPeriodKey : null,
       preset: selectedPreset,
       activeTool,
       focusMode,
@@ -2720,9 +3280,12 @@ const QuickPage = () => {
                 <span className="font-semibold text-white">Strumento</span>
                 <span>{activeToolLabelMap[activeTool] ?? activeTool}</span>
               </div>
-              <div className="hidden lg:flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
-                <span className="font-semibold text-white">Modulo</span>
-                <span>{moduleLabel}</span>
+              <div
+                className="hidden lg:flex min-w-0 max-w-[18rem] items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70"
+                title={moduleLabelFull}
+              >
+                <span className="shrink-0 font-semibold text-white">Modulo</span>
+                <span className="min-w-0 truncate">{moduleLabel}</span>
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -2778,7 +3341,7 @@ const QuickPage = () => {
           {/* CANVAS */}
           <div className="relative flex-1 overflow-auto px-3 py-4 sm:px-4 md:py-5">
             <div className="grid w-full grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
-              <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
             <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-2 text-xs text-white/60">
               <div className="font-medium text-white/75">
                 Tavola metrica: {pitchMeasurement.canvasLength}m x {pitchMeasurement.canvasWidth}m
@@ -3250,6 +3813,17 @@ const QuickPage = () => {
               {hasRenderableElements ? (
                 elements.map((el: TacticalBoardElement, i: number) => {
                   if (!isPlayerType(el?.type) && !isEquipmentType(el?.type)) return null;
+
+                  if (
+                    isMatchPreparationUi &&
+                    boardMode === "assigned" &&
+                    isPlayerType(el?.type) &&
+                    el.type !== "opponent" &&
+                    el.playerId &&
+                    matchPlanPitchPlacement.reserveIds.has(String(el.playerId))
+                  ) {
+                    return null;
+                  }
 
                   const commonStyle = {
                     left: `${el.x ?? 50}%`,
@@ -4139,8 +4713,95 @@ const QuickPage = () => {
 
             </div>
 
+            {isMatchPreparationUi && boardMode === "assigned" && matchPlanPitchPlacement.ordered.some((o) => o.isReserve) ? (
+              <div className="relative w-full rounded-xl border border-white/10 bg-[#0F172A]/70 px-2 py-1.5 shadow-lg backdrop-blur-sm">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">Panchina</div>
+                <div className="relative min-h-[48px] w-full">
+                  {matchPlanPitchPlacement.ordered
+                    .filter((o) => o.isReserve)
+                    .map((row) => {
+                      const i = row.index;
+                      const el = elements[i];
+                      if (!el || !isPlayerType(el.type) || el.type === "opponent") return null;
+
+                      const linkedPlayer = el.playerId
+                        ? teamPlayers.find((p) => String(p.id) === String(el.playerId))
+                        : null;
+                      const rawLabel = typeof el.label === "string" ? el.label.trim() : "";
+                      const rawName = typeof el.name === "string" ? el.name.trim() : "";
+                      const rawDisplayName =
+                        typeof (el as { displayName?: unknown }).displayName === "string"
+                          ? String((el as { displayName?: string }).displayName).trim()
+                          : "";
+                      const toNumeric = (value: unknown): number | null => {
+                        if (typeof value === "number" && Number.isFinite(value)) return value;
+                        if (typeof value === "string" && /^\d+$/.test(value.trim())) return Number(value.trim());
+                        return null;
+                      };
+                      const numberFromNumber = toNumeric(el.number);
+                      const numberFromPlayerNumber = toNumeric(el.playerNumber);
+                      const numberFromLabel = toNumeric(rawLabel);
+                      const rawNumber = el.number as unknown;
+                      const rawPlayerNumber = el.playerNumber as unknown;
+                      const nameCandidates = [
+                        rawDisplayName,
+                        rawName,
+                        typeof rawNumber === "string" && !/^\d+$/.test(rawNumber.trim()) ? rawNumber.trim() : "",
+                        typeof rawPlayerNumber === "string" && !/^\d+$/.test(rawPlayerNumber.trim())
+                          ? rawPlayerNumber.trim()
+                          : "",
+                        rawLabel && !/^\d+$/.test(rawLabel) ? rawLabel : "",
+                      ].filter(Boolean);
+                      const markerNumber = el.playerId
+                        ? (numberFromNumber ?? linkedPlayer?.jerseyNumber ?? null)
+                        : (numberFromPlayerNumber ?? numberFromLabel ?? null);
+                      const content = markerNumber ?? (el.type === "goalkeeper" ? "GK" : i + 1);
+                      const playerSurname = el.playerId
+                        ? String(el.displayName ?? formatRosterLastName(linkedPlayer) ?? nameCandidates[0] ?? "")
+                        : String(nameCandidates[0] ?? "");
+
+                      const isSelected = selectedElementIndex === i || selectedElementIndexes.includes(i);
+                      const markerColor = MATCH_PLAN_RESERVE_MARKER_HEX;
+                      const markerStyle = {
+                        backgroundColor: markerColor,
+                        color: markerTextColor(markerColor),
+                      } as const;
+                      const benchMarkerClass =
+                        el.type === "player" || el.type === "goalkeeper"
+                          ? `relative z-[5] flex h-8 w-8 touch-none select-none items-center justify-center rounded-full text-xs font-bold shadow-lg border-2 border-white/80${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`
+                          : `relative z-[5] flex h-8 w-8 touch-none select-none items-center justify-center rounded-full text-xs font-bold shadow-lg border-2 border-white/80${isSelected ? " ring-2 ring-[#FACC15] z-10" : ""}`;
+
+                      return (
+                        <div
+                          key={`bench-${String(el.id ?? i)}`}
+                          className="absolute flex flex-col items-center"
+                          style={{
+                            left: `${Number(el.x ?? 50)}%`,
+                            top: "50%",
+                            transform: "translate(-50%, -50%)",
+                          }}
+                        >
+                          <div
+                            className={benchMarkerClass}
+                            style={markerStyle}
+                            title="Riserva"
+                          >
+                            {content}
+                          </div>
+                          {playerSurname ? (
+                            <div className="pointer-events-none mt-0.5 max-w-[5.5rem] truncate px-0.5 text-center text-[11px] font-semibold leading-none text-white/90 [text-shadow:0_1px_2px_rgba(0,0,0,0.95)]">
+                              {playerSurname}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                </div>
               </div>
-              <aside className="w-full shrink-0 rounded-2xl border border-white/10 bg-[#08142b]/90 px-3 py-3 shadow-xl backdrop-blur-md sm:px-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
+            ) : null}
+
+              </div>
+              <aside className="w-full shrink-0 rounded-2xl border border-white/10 bg-[#08142b]/90 px-3 py-3 shadow-xl backdrop-blur-md sm:px-4 xl:sticky xl:top-4">
                 <div className="mb-4 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                   {boardActionTools.map((tool) => {
@@ -4150,7 +4811,20 @@ const QuickPage = () => {
                     <button
                       key={`board-action-${tool.id}`}
                       type="button"
-                      onClick={() => setActiveBoardAction(tool.id)}
+                      onClick={() => {
+                        if (activeBoardAction === tool.id && tool.id === "match") {
+                          setActiveBoardAction("none");
+                          return;
+                        }
+                        if (tool.id === "match") {
+                          if (!currentBoardId && !isMatchPlanBoard && !matchPrepBindingCommittedRef.current) {
+                            setSelectedMatchId(null);
+                          }
+                          setActiveBoardAction(tool.id);
+                          return;
+                        }
+                        setActiveBoardAction(tool.id);
+                      }}
                       className={`min-h-10 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
                         active
                           ? "border-[#FACC15] bg-[#FACC15] text-black"
@@ -4166,28 +4840,12 @@ const QuickPage = () => {
                   })}
                   </div>
 
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-2">
-                    {activeBoardAction === "load" && (
-                      <div className="space-y-2">
-                        <div className="text-[11px] font-semibold text-white/55">Sessioni salvate</div>
-                        <div className="grid max-h-36 gap-1 overflow-y-auto pr-1">
-                          {boards.slice(0, 4).map((board) => (
-                            <button
-                              key={`action-load-board-${board.id}`}
-                              type="button"
-                              onClick={() => applyBoardState(board)}
-                              className="rounded-lg border border-white/10 bg-[#0F172A] px-2 py-2 text-left text-[11px] font-semibold text-white/80 transition hover:bg-white/10"
-                            >
-                              <span className="block truncate">{board.title ?? "Lavagna senza titolo"}</span>
-                            </button>
-                          ))}
-                          {!boards.length && (
-                            <span className="rounded-lg border border-dashed border-white/10 px-2 py-2 text-[11px] text-white/45">Nessuna sessione salvata</span>
-                          )}
-                        </div>
+                  <div className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-2">
+                    {activeBoardAction === "none" && (
+                      <div className="px-1 py-2 text-[11px] text-white/50">
+                        Seleziona un&apos;azione qui sopra. «Prepara partita» si richiude con un secondo clic.
                       </div>
                     )}
-
                     {activeBoardAction === "create" && (
                       <div className="grid gap-2">
                         <button
@@ -4197,6 +4855,8 @@ const QuickPage = () => {
                             setBoardIdInUrl(null);
                             setBoardType("Training");
                             setBoardTitle("Nuova sessione lavagna");
+                            setSelectedMatchId(null);
+                            matchPrepBindingCommittedRef.current = false;
                             setElements([]);
                             setSelectedElementIndex(null);
                             setSelectedElementIndexes([]);
@@ -4263,13 +4923,13 @@ const QuickPage = () => {
                     )}
 
                     {activeBoardAction === "match" && (
-                      <div className="grid gap-2">
-                        <label className="grid gap-1">
+                      <div className="grid min-w-0 gap-2">
+                        <label className="grid min-w-0 gap-1">
                           <span className="text-[11px] font-semibold text-white/55">Partita</span>
                           <select
                             value={selectedMatchId ? String(selectedMatchId) : ""}
                             onChange={(e) => selectMatchForBoard(e.target.value)}
-                            className="h-8 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
+                            className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                           >
                             <option value="">Seleziona partita</option>
                             {[
@@ -4281,7 +4941,10 @@ const QuickPage = () => {
                               const items = matchOptions.filter((match) => matchOptionPhase(match) === phase);
                               if (!items.length) return null;
                               return (
-                                <optgroup key={`match-phase-${phase}`} label={label}>
+                                <optgroup
+                                  key={`match-phase-${phase}`}
+                                  label={formatMatchPhaseGroupLabel(label, items)}
+                                >
                                   {items.map((match) => (
                                     <option key={`match-option-${match.id}`} value={String(match.id)}>
                                       {formatMatchOptionLabel(match)}
@@ -4292,12 +4955,21 @@ const QuickPage = () => {
                             })}
                           </select>
                         </label>
-                        <label className="grid gap-1">
+                        <label className="grid min-w-0 gap-1">
                           <span className="text-[11px] font-semibold text-white/55">Modulo di partenza</span>
+                          <div
+                            className="flex h-8 min-h-8 w-full min-w-0 items-center rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white/90"
+                            title={detectedModule ? `Modulo rilevato: ${detectedModule}` : "Nessun modulo rilevato sul campo"}
+                          >
+                            <span className="min-w-0 truncate font-medium">{detectedModule || "—"}</span>
+                          </div>
+                        </label>
+                        <label className="grid min-w-0 gap-1">
+                          <span className="text-[11px] font-semibold text-white/55">Preset tattico</span>
                           <select
                             value={selectedPreset && isFormationPresetId(selectedPreset) ? selectedPreset : ""}
                             onChange={(e) => applyMatchPlanFormation(e.target.value)}
-                            className="h-8 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
+                            className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                           >
                             <option value="">Seleziona modulo</option>
                             {formationPresetOptions.map((formation) => (
@@ -4307,12 +4979,12 @@ const QuickPage = () => {
                             ))}
                           </select>
                         </label>
-                        <label className="grid gap-1">
+                        <label className="grid min-w-0 gap-1">
                           <span className="text-[11px] font-semibold text-white/55">Tempo lavagna</span>
                           <select
                             value={matchPeriodKey}
                             onChange={(e) => setMatchPeriodKey(e.target.value as "t1" | "t2" | "t3" | "t4")}
-                            className="h-8 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
+                            className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                           >
                             <option value="t1">1° tempo</option>
                             <option value="t2">2° tempo</option>
@@ -4320,7 +4992,7 @@ const QuickPage = () => {
                             <option value="t4">4° tempo</option>
                           </select>
                         </label>
-                        <label className="grid gap-1">
+                        <label className="grid min-w-0 gap-1">
                           <span className="text-[11px] font-semibold text-white/55">{replacingElementIndex !== null ? "Sostituisci con" : "Aggiungi titolare"}</span>
                           <select
                             value={matchPlanPlayerId}
@@ -4328,34 +5000,55 @@ const QuickPage = () => {
                               setMatchPlanPlayerId(e.target.value);
                               addMatchPlanPlayerToPitch(e.target.value);
                             }}
-                            className="h-8 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
-                            disabled={!teamPlayers.length}
+                            className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
+                            disabled={!teamPlayers.length || !selectedMatchId}
                           >
                             <option value="">Seleziona giocatore</option>
-                            {teamPlayers
-                              .filter((player) => {
-                                const currentReplacingPlayerId = replacingElementIndex !== null ? elements[replacingElementIndex]?.playerId : null;
-                                return (String(player.id) === String(currentReplacingPlayerId) || !usedMatchPlanPlayerIds.has(String(player.id))) && isPlayerAvailable(player);
-                              })
-                              .map((player) => (
-                                <option key={`match-plan-player-${player.id}`} value={String(player.id)}>
-                                  {player.jerseyNumber ? `${player.jerseyNumber} · ` : ""}{fullPlayerName(player)}
-                                </option>
-                              ))}
+                            {(["GK", "DEF", "MID", "FWD"] as const).map((macro) => {
+                              const players = matchPlanSelectableGrouped[macro];
+                              if (!players.length) return null;
+                              return (
+                                <optgroup key={`match-plan-group-${macro}`} label={macro}>
+                                  {players.map((player) => (
+                                    <option key={`match-plan-player-${player.id}`} value={String(player.id)}>
+                                      {player.jerseyNumber ? `${player.jerseyNumber} · ` : ""}{fullPlayerName(player)}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })}
                           </select>
                         </label>
                         <div className="rounded-lg border border-white/10 bg-[#0F172A] p-2">
-                          <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-white/55">
+                          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-semibold text-white/55">
                             <span>Convocati da lavagna</span>
-                            <span>{matchPlanPlayersOnField.length}</span>
+                            <span className="shrink-0 text-right">
+                              {matchPlanPitchPlacement.ordered.filter((r) => !r.isReserve).length}/{matchPlanPitchPlacement.limit} · {matchPlanCalledPlayers.length}
+                            </span>
                           </div>
-                          <div className="grid max-h-28 gap-1 overflow-y-auto pr-1">
-                            {matchPlanPlayersOnField.map(({ player, index }) => (
-                              <div key={`match-plan-field-player-${player.id}`} className="flex items-center gap-2 rounded-md bg-white/5 px-2 py-1 text-[11px] text-white/80">
-                                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#2f9cf4] text-[10px] font-bold text-white">
-                                  {player.jerseyNumber ?? "-"}
+                          <div className="grid max-h-40 min-h-24 content-start gap-1 overflow-x-hidden overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            {matchPlanPitchPlacement.ordered.map(({ player, index, isReserve }) => {
+                              const isGk = roleMacroKey(player.position) === "GK";
+                              const starterBadgeClass = isGk ? "bg-[#FACC15] text-black" : "bg-[#2f9cf4] text-white";
+                              const reserveBadgeClass = isGk ? "bg-[#FACC15] text-black" : "bg-amber-500 text-black";
+                              return (
+                              <div
+                                key={`match-plan-field-player-${player.id}`}
+                                className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-[11px] ${
+                                  isReserve ? "bg-amber-500/15 text-amber-100 ring-1 ring-amber-400/35" : "bg-white/5 text-white/80"
+                                }`}
+                              >
+                                <span
+                                  className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                                    isReserve ? reserveBadgeClass : starterBadgeClass
+                                  }`}
+                                >
+                                  {isGk ? "GK" : player.jerseyNumber ?? "-"}
                                 </span>
-                                <span className="truncate">{fullPlayerName(player)}</span>
+                                <span className="min-w-0 flex-1 truncate">{fullPlayerName(player)}</span>
+                                {isReserve && (
+                                  <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase text-amber-200/90">Riserva</span>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => setReplacingElementIndex(index)}
@@ -4373,12 +5066,24 @@ const QuickPage = () => {
                                   <Trash2 size={12} />
                                 </button>
                               </div>
-                            ))}
-                            {!matchPlanPlayersOnField.length && (
-                              <span className="text-[11px] text-white/40">Nessun titolare in campo</span>
+                            );
+                            })}
+                            {!matchPlanPitchPlacement.ordered.length && (
+                              <span className="self-center text-[11px] text-white/40">Nessun giocatore schierato</span>
                             )}
                           </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => void saveMatchSheetFromBoard()}
+                          disabled={!selectedMatchId || !boardTeamId}
+                          className="rounded-lg bg-emerald-600 px-2 py-2 text-left text-[11px] font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Salva partita (convocati e formazione)
+                        </button>
+                        {matchSheetSaveHint && (
+                          <p className="text-[10px] leading-snug text-white/70">{matchSheetSaveHint}</p>
+                        )}
                         <button
                           type="button"
                           onClick={() => {
@@ -4516,54 +5221,117 @@ const QuickPage = () => {
                     {boardMode === "assigned" && teamPlayers.length > 0 && (
                       <div className="rounded-2xl border border-white/10 bg-white/5 p-2">
                         <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-white/55">
-                          <span>{isMatchPlanBoard ? "Convocati schierati" : "Rosa caricata"}</span>
-                          <span>{elements.filter((item) => item.playerId).length}/{teamPlayers.length}</span>
+                          <span>{isMatchPreparationUi ? "Rosa convocazioni" : "Rosa caricata"}</span>
+                          <span>
+                            {isMatchPreparationUi
+                              ? `${matchPlanPitchPlacement.ordered.filter((r) => !r.isReserve).length}/${matchPlanPitchPlacement.limit} · ${matchPlanCalledPlayers.length}`
+                              : `${elements.filter((item) => item.playerId).length}/${teamPlayers.length}`}
+                          </span>
                         </div>
-                        <div className="grid max-h-80 grid-cols-1 gap-2 overflow-y-auto pr-1">
-                          {teamPlayers.map((player) => {
-                            const inBoard = usedPlayerIds.has(String(player.id));
-                            const isPending = pendingRosterPlayerId === player.id;
-                            const isUnavailable = !isPlayerAvailable(player);
-                            return (
-                              <button
-                                key={player.id}
-                                type="button"
-                                disabled={isUnavailable}
-                                onClick={() => {
-                                  closeToolPopovers();
-                                  setPendingRosterPlayerId(player.id);
-                                  setActiveTool(String(player.position ?? "").toLowerCase().includes("port") ? "goalkeeper" : "player");
-                                }}
-                                className={`rounded-xl border px-2 py-2 text-left transition ${
-                                  isUnavailable
-                                    ? "border-red-400/45 bg-red-500/20 text-red-100"
-                                    : isPending
-                                    ? "border-[#FACC15] bg-[#FACC15] text-black"
-                                    : inBoard
-                                    ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-100"
-                                    : "border-white/10 bg-[#0F172A] text-white/80 hover:bg-white/10"
-                                }`}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                                    isUnavailable
-                                      ? "bg-red-500 text-white"
-                                      : inBoard
-                                      ? "bg-emerald-500 text-white"
-                                      : "bg-[#2f9cf4] text-white"
-                                  }`}>
-                                    {player.jerseyNumber ?? "-"}
-                                  </span>
-                                  <span className="min-w-0 truncate text-[11px] font-semibold">{formatRosterLastName(player)}</span>
+                        <div className="grid max-h-80 grid-cols-1 gap-2 overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                          {isMatchPreparationUi ? (
+                            <>
+                              {!selectedMatchId ? (
+                                <div className="rounded-xl border border-dashed border-white/15 px-2 py-3 text-center text-[11px] text-white/45">
+                                  Seleziona una partita per gestire le convocazioni.
                                 </div>
-                                <div className="mt-1 text-[10px] opacity-70">
-                                  {isUnavailable ? "Non disponibile" : inBoard ? "In campo" : "Da schierare"}
+                              ) : !matchPlanCalledPlayers.length ? (
+                                <div className="rounded-xl border border-dashed border-white/15 px-2 py-3 text-center text-[11px] text-white/45">
+                                  Nessun convocato. Aggiungi titolari dal menu «Prepara partita».
                                 </div>
-                              </button>
-                            );
-                          })}
+                              ) : (
+                                matchPlanCalledPlayers.map((player) => {
+                                  const isGk = roleMacroKey(player.position) === "GK";
+                                  const inBoard = usedMatchPlanPlayerIds.has(String(player.id));
+                                  const isReserve = matchPlanPitchPlacement.reserveIds.has(String(player.id));
+                                  let rowClass: string;
+                                  let badgeClass: string;
+                                  let status: string;
+                                  if (!inBoard) {
+                                    rowClass = "rounded-xl border border-white/10 bg-[#0F172A] px-2 py-2 text-left text-white/80";
+                                    badgeClass = isGk ? "bg-[#FACC15] text-black" : "bg-[#2f9cf4] text-white";
+                                    status = "Convocato · da schierare";
+                                  } else if (isReserve) {
+                                    rowClass =
+                                      "rounded-xl border border-amber-400/40 bg-amber-500/15 px-2 py-2 text-left text-amber-100";
+                                    badgeClass = isGk ? "bg-[#FACC15] text-black" : "bg-amber-500 text-black";
+                                    status = "Riserva";
+                                  } else {
+                                    rowClass =
+                                      "rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-2 py-2 text-left text-emerald-100";
+                                    badgeClass = isGk ? "bg-[#FACC15] text-black" : "bg-emerald-500 text-white";
+                                    status = "In campo";
+                                  }
+                                  return (
+                                    <div key={`match-prep-roster-${player.id}`} className={rowClass}>
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${badgeClass}`}
+                                        >
+                                          {isGk ? "GK" : player.jerseyNumber ?? "-"}
+                                        </span>
+                                        <span className="min-w-0 truncate text-[11px] font-semibold">
+                                          {formatRosterLastName(player)}
+                                        </span>
+                                      </div>
+                                      <div className="mt-1 text-[10px] opacity-70">{status}</div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </>
+                          ) : (
+                            teamPlayers.map((player) => {
+                                const isGk = roleMacroKey(player.position) === "GK";
+                                const inBoard = usedPlayerIds.has(String(player.id));
+                                const isPending = pendingRosterPlayerId === player.id;
+                                const isUnavailable = !isPlayerAvailable(player);
+                                const rosterBadgeClass = isUnavailable
+                                  ? "bg-red-500 text-white"
+                                  : inBoard
+                                    ? isGk
+                                      ? "bg-[#FACC15] text-black"
+                                      : "bg-emerald-500 text-white"
+                                    : isGk
+                                      ? "bg-[#FACC15] text-black"
+                                      : "bg-[#2f9cf4] text-white";
+                                return (
+                                  <button
+                                    key={player.id}
+                                    type="button"
+                                    disabled={isUnavailable}
+                                    onClick={() => {
+                                      closeToolPopovers();
+                                      setPendingRosterPlayerId(player.id);
+                                      setActiveTool(isGoalkeeperPlayer(player) ? "goalkeeper" : "player");
+                                    }}
+                                    className={`rounded-xl border px-2 py-2 text-left transition ${
+                                      isUnavailable
+                                        ? "border-red-400/45 bg-red-500/20 text-red-100"
+                                        : isPending
+                                        ? "border-[#FACC15] bg-[#FACC15] text-black"
+                                        : inBoard
+                                        ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-100"
+                                        : "border-white/10 bg-[#0F172A] text-white/80 hover:bg-white/10"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${rosterBadgeClass}`}
+                                      >
+                                        {isGk ? "GK" : player.jerseyNumber ?? "-"}
+                                      </span>
+                                      <span className="min-w-0 truncate text-[11px] font-semibold">{formatRosterLastName(player)}</span>
+                                    </div>
+                                    <div className="mt-1 text-[10px] opacity-70">
+                                      {isUnavailable ? "Non disponibile" : inBoard ? "In campo" : "Da schierare"}
+                                    </div>
+                                  </button>
+                                );
+                              })
+                          )}
                         </div>
-                        {isMatchPlanBoard && (
+                        {isMatchPreparationUi && (
                           <button
                             type="button"
                             onClick={focusPlayersOnPitch}
