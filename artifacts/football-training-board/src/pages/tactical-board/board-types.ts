@@ -104,7 +104,7 @@ export type SerializedDrawingElement = {
  */
 /** Preset for the arrow / movement drawing tool (stored with board data). */
 export type ArrowToolPreset = {
-  geometry: "freehand" | "straight";
+  geometry: "freehand" | "straight" | "conduzione";
   heads: "none" | "end" | "start" | "both";
   lineStyle: "solid" | "dashed";
   color?: string;
