@@ -106,6 +106,7 @@ interface Player {
   firstName: string;
   lastName: string;
   jerseyNumber?: number | null;
+  position?: string | null;
   available?: boolean;
   unavailabilityReason?: string | null;
 }
@@ -113,7 +114,13 @@ interface MatchCallUp { id: number; playerId: number; status: string; playerName
 type MatchSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 type MatchPlanPeriod = { key: string; label: string; minutes: string; formation?: string; module?: string; format?: MatchFormat; };
 type MatchFormat = "3v3" | "5v5" | "7v7" | "9v9" | "11v11";
-type MatchPlanPeriodRuntime = MatchPlanPeriod & { lineupPlayerIds?: number[] };
+type MatchPlanPeriodRuntime = MatchPlanPeriod & {
+  lineupPlayerIds?: number[];
+  boardId?: number | null;
+  boardTitle?: string | null;
+  boardUrl?: string | null;
+  boardSnapshotAt?: string | null;
+};
 type MatchPlanData = {
   boardLink?: string;
   fourthTime?: boolean;
@@ -379,6 +386,10 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
       module: map.get(d.key)?.module ?? "",
       format: map.get(d.key)?.format ?? undefined,
       lineupPlayerIds: Array.isArray(map.get(d.key)?.lineupPlayerIds) ? map.get(d.key)!.lineupPlayerIds : [],
+      boardId: map.get(d.key)?.boardId ?? null,
+      boardTitle: map.get(d.key)?.boardTitle ?? null,
+      boardUrl: map.get(d.key)?.boardUrl ?? null,
+      boardSnapshotAt: map.get(d.key)?.boardSnapshotAt ?? null,
     })),
   };
 }
@@ -396,6 +407,24 @@ function matchPhase(m: Match): "autunnale" | "primaverile" | "tornei" | "amichev
   if (["torneo", "coppa", "trofeo", "cup"].some(k => comp.includes(k))) return "tornei";
   const month = new Date(m.date).getMonth();
   return month >= 7 ? "autunnale" : "primaverile";
+}
+
+function playerRoleRank(position?: string | null): number {
+  const p = String(position ?? "").toLowerCase();
+  if (p.includes("port") || p === "gk") return 0;
+  if (p.includes("dif") || p.includes("terzin") || p.includes("centrale") || p.includes("dc")) return 1;
+  if (p.includes("cent") || p.includes("med") || p.includes("mezz") || p.includes("cc")) return 2;
+  if (p.includes("estern") || p.includes("ala") || p.includes("trequart")) return 3;
+  if (p.includes("att") || p.includes("punta") || p.includes("fw")) return 4;
+  return 5;
+}
+
+function comparePlayersByRole(a: Player, b: Player): number {
+  const byRole = playerRoleRank(a.position) - playerRoleRank(b.position);
+  if (byRole !== 0) return byRole;
+  const byNumber = (a.jerseyNumber ?? 999) - (b.jerseyNumber ?? 999);
+  if (byNumber !== 0) return byNumber;
+  return `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it");
 }
 
 type MatchVenueFilter = "all" | "home" | "away";
@@ -535,7 +564,13 @@ function MatchCard({
   const [postNoteValue, setPostNoteValue] = useState(() => splitPostNotesAndAttachments(match.postMatchNotes).note);
   const [postResultValue, setPostResultValue] = useState(match.result ?? "");
   const [postAttachments, setPostAttachments] = useState<string[]>(() => splitPostNotesAndAttachments(match.postMatchNotes).attachments);
-  const [planOpen, setPlanOpen] = useState(false);
+  const shouldOpenPlanFromQuery = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return Number(params.get("openMatchId")) === match.id;
+  }, [match.id]);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [planOpen, setPlanOpen] = useState(shouldOpenPlanFromQuery);
+  const [previewBoard, setPreviewBoard] = useState<MatchPlanPeriodRuntime | null>(null);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set());
   const [callupSearch, setCallupSearch] = useState("");
   const [planDraft, setPlanDraft] = useState<MatchPlanData>(() =>
@@ -550,14 +585,7 @@ function MatchCard({
     [isFriendlyMatch, autoReserveRuleEnabled, matchFormat],
   );
   const sortedTeamPlayers = useMemo(() => {
-    const collator = new Intl.Collator("it", { sensitivity: "base", numeric: true });
-    return [...teamPlayers].sort((a, b) => {
-      const byLast = collator.compare((a.lastName ?? "").trim(), (b.lastName ?? "").trim());
-      if (byLast !== 0) return byLast;
-      const byFirst = collator.compare((a.firstName ?? "").trim(), (b.firstName ?? "").trim());
-      if (byFirst !== 0) return byFirst;
-      return (a.jerseyNumber ?? 999) - (b.jerseyNumber ?? 999);
-    });
+    return [...teamPlayers].sort(comparePlayersByRole);
   }, [teamPlayers]);
   const filteredTeamPlayers = useMemo(() => {
     const needle = callupSearch.trim().toLowerCase();
@@ -593,6 +621,14 @@ function MatchCard({
   const preTextareaRef = useRef<HTMLTextAreaElement>(null);
   const postFileInputRef = useRef<HTMLInputElement>(null);
   const postCameraInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!shouldOpenPlanFromQuery) return;
+    setPlanOpen(true);
+    window.setTimeout(() => {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  }, [shouldOpenPlanFromQuery]);
 
   const patch = useMutation({
     mutationFn: (body: object) =>
@@ -715,7 +751,14 @@ function MatchCard({
   const convokedPlayers = selectableTeamPlayers.filter((p) => selectedPlayerIds.has(p.id));
   const convokedById = useMemo(() => new Map(convokedPlayers.map((p) => [p.id, p])), [convokedPlayers]);
   const tacticalPreset = planDraft.periods[0]?.module || moduleOptions[0];
-  const tacticalUrl = `/tactical-board?teamId=${match.teamId ?? ""}&preset=${encodeURIComponent(tacticalPreset)}&convocati=${encodeURIComponent(Array.from(selectedPlayerIds).join(","))}`;
+  const matchKindLabel =
+    matchPhase(match) === "amichevoli"
+      ? "Amichevole"
+      : (match.competition ?? "").trim() || "Partita";
+  const boardTitleForMatch = `${matchKindLabel} ${homeLabel} vs ${awayLabel} schieramenti e tattiche`;
+  const returnToMatchUrl = `/calendari/${match.teamId ?? ""}?openMatchId=${match.id}&phase=${matchPhase(match)}`;
+  const tacticalBaseUrl = `/tactical-board?teamId=${match.teamId ?? ""}&matchId=${match.id}&source=match-plan&phase=${matchPhase(match)}&preset=${encodeURIComponent(tacticalPreset)}&convocati=${encodeURIComponent(Array.from(selectedPlayerIds).join(","))}&matchTitle=${encodeURIComponent(boardTitleForMatch)}&returnTo=${encodeURIComponent(returnToMatchUrl)}`;
+  const tacticalUrl = `${tacticalBaseUrl}&periodKey=t1`;
   const canOpenBoard =
     selectedPlayerIds.size > 0 &&
     !!tacticalPreset &&
@@ -859,7 +902,10 @@ function MatchCard({
   }
 
   return (
+    <>
     <Card
+      ref={cardRef}
+      id={`match-${match.id}`}
       className={cn(
         "min-w-0 max-w-full overflow-hidden transition-shadow hover:shadow-md border-l-4",
         statusColor,
@@ -1208,7 +1254,15 @@ function MatchCard({
                   {planDraft.periods.map((p, i) => {
                     const periodFormat = p.format ?? matchFormat;
                     const periodModuleOptions = moduleOptionsForFormat(periodFormat);
-                    const lineupIds = (p.lineupPlayerIds ?? []).filter((id) => selectedPlayerIds.has(id));
+                    const periodBoardUrl = p.boardUrl || (p.boardId ? `/tactical-board?boardId=${p.boardId}&teamId=${match.teamId ?? ""}&matchId=${match.id}&periodKey=${p.key}&returnTo=${encodeURIComponent(returnToMatchUrl)}` : "");
+                    const lineupIds = (p.lineupPlayerIds ?? [])
+                      .filter((id) => selectedPlayerIds.has(id))
+                      .sort((a, b) => {
+                        const playerA = convokedById.get(a);
+                        const playerB = convokedById.get(b);
+                        if (!playerA || !playerB) return 0;
+                        return comparePlayersByRole(playerA, playerB);
+                      });
                     const startersLimit = startersLimitForPeriod(p, matchFormat);
                     const starters = lineupIds.slice(0, startersLimit).length;
                     return (
@@ -1261,6 +1315,24 @@ function MatchCard({
                             </select>
                           </div>
                         </div>
+
+                        {p.boardId && periodBoardUrl && (
+                          <div className="rounded-lg border border-emerald-300 bg-emerald-50/70 p-2 text-xs sm:ml-[158px]">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-emerald-900">Lavagna impostata {p.label}</p>
+                                <p className="truncate text-[11px] text-emerald-700">{p.boardTitle ?? "Preparazione tattica"}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setPreviewBoard({ ...p, boardUrl: periodBoardUrl })}
+                                className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                              >
+                                Apri anteprima
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                           <span>Titolari: {starters}/{startersLimit} · Totale: {lineupIds.length}</span>
@@ -1623,6 +1695,22 @@ function MatchCard({
         )}
       </CardContent>
     </Card>
+    <Dialog open={!!previewBoard} onOpenChange={(open) => !open && setPreviewBoard(null)}>
+      <DialogContent className="max-w-6xl p-0 overflow-hidden">
+        <DialogHeader className="px-4 pt-4">
+          <DialogTitle>{previewBoard?.boardTitle ?? "Lavagna partita"}</DialogTitle>
+          <DialogDescription>Anteprima collegata a {previewBoard?.label ?? "tempo partita"}.</DialogDescription>
+        </DialogHeader>
+        {previewBoard?.boardUrl && (
+          <iframe
+            title={previewBoard.boardTitle ?? "Anteprima lavagna"}
+            src={previewBoard.boardUrl}
+            className="h-[72vh] w-full border-0"
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 
@@ -1651,7 +1739,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [pdfSectionCandidates, setPdfSectionCandidates] = useState<string[]>([]);
   const [pdfSectionChoice, setPdfSectionChoice] = useState("");
   const [pdfImportReferenceDate, setPdfImportReferenceDate] = useState("");
-  const [phaseTab, setPhaseTab] = useState("autunnale");
+  const openMatchIdFromQuery = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = Number(params.get("openMatchId"));
+    return Number.isFinite(id) && id > 0 ? id : null;
+  }, []);
+  const initialPhaseTab = useMemo(() => {
+    const phase = new URLSearchParams(window.location.search).get("phase");
+    return phase === "autunnale" || phase === "primaverile" || phase === "tornei" || phase === "amichevoli"
+      ? phase
+      : "autunnale";
+  }, []);
+  const [phaseTab, setPhaseTab] = useState(initialPhaseTab);
   const [duplicateImportOpen, setDuplicateImportOpen] = useState(false);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
   const [editingTournament, setEditingTournament] = useState<null | {
@@ -1941,6 +2040,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     () => [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
     [matches],
   );
+  useEffect(() => {
+    if (!openMatchIdFromQuery) return;
+    const targetMatch = sorted.find((m) => m.id === openMatchIdFromQuery);
+    if (!targetMatch) return;
+    setPhaseTab(matchPhase(targetMatch));
+    setMatchSearchText("");
+    setMatchTournamentFilter("");
+    setMatchVenueFilter("all");
+    setMatchSquadFilter("all");
+    setScheduleFilter({ ...EMPTY_SCHEDULE_FILTER });
+  }, [openMatchIdFromQuery, sorted]);
+
   const autunnale = useMemo(() => sorted.filter((m) => matchPhase(m) === "autunnale"), [sorted]);
   const primaverile = useMemo(() => sorted.filter((m) => matchPhase(m) === "primaverile"), [sorted]);
   const tornei = useMemo(() => sorted.filter((m) => matchPhase(m) === "tornei"), [sorted]);
