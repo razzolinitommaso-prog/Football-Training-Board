@@ -5,6 +5,15 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
+export type OcrProgressEvent =
+  | { phase: "skipped"; reason: string }
+  | { phase: "loading" }
+  | { phase: "processing"; page: number; totalPages: number }
+  | { phase: "done"; addedDateLines: number }
+  | { phase: "error"; reason: string };
+
+export type OcrProgressCallback = (event: OcrProgressEvent) => void;
+
 type ParsePdfOptions = {
   teamName?: string;
   clubName?: string;
@@ -20,6 +29,13 @@ type ParsePdfOptions = {
   documentMode?: "auto" | "federation" | "tournament";
   /** Data da usare per programmi torneo che riportano solo orari e accoppiamenti. */
   fallbackDateIso?: string;
+  /**
+   * OCR fallback (tesseract.js) per pagine torneo dove le date sono vettoriali / immagine.
+   * Default: true. Mai attivo in modalità "federation".
+   */
+  ocrEnabled?: boolean;
+  /** Callback per stato OCR (caricamento, pagina in lavorazione, completato, errore). */
+  ocrProgress?: OcrProgressCallback;
 };
 
 export type MatchPdfImportResult = {
@@ -219,6 +235,35 @@ function parseItalianNamedDateIso(line: string, fallbackYear?: number | null): s
     if (iso) best = iso;
   }
   return best;
+}
+
+function parseCompactItalianDateIsos(line: string, fallbackYear?: number | null): string[] {
+  if (!fallbackYear) return [];
+  const n = normalizeName(line).replace(/\s+/g, " ").trim();
+  const out: string[] = [];
+  const re = /\b(\d{1,2}(?:\s*(?:[\/-]|\s)\s*\d{1,2}){1,4})\s+([a-z]{3,})\b/gi;
+  for (const m of n.matchAll(re)) {
+    const month = ITALIAN_MONTHS[m[2] ?? ""];
+    if (!month) continue;
+    const days = String(m[1] ?? "")
+      .split(/(?:[\/-]|\s)+/)
+      .map((part) => Number(part.trim()))
+      .filter((day) => day >= 1 && day <= 31);
+    for (const day of days) {
+      const iso = isoFromDayMonthYear(day, month, fallbackYear, 15, 0);
+      if (iso) out.push(iso);
+    }
+  }
+  return out;
+}
+
+function formatIsoDateForPdfLine(iso: string): string {
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return iso;
+  const day = String(dt.getDate()).padStart(2, "0");
+  const month = String(dt.getMonth() + 1).padStart(2, "0");
+  const year = String(dt.getFullYear());
+  return `${day}/${month}/${year}`;
 }
 
 function extractYearFromIso(value?: string | null): number | null {
@@ -529,6 +574,15 @@ function splitIntoDateChunks(pageText: string): string[] {
 
 /** Ricostruisce righe leggibili dal PDF (ordine top→bottom, left→right). */
 async function pageToLines(page: PDFPageProxy): Promise<string[]> {
+  const { lines } = await pageToLinesWithYs(page);
+  return lines;
+}
+
+/**
+ * Variante di {@link pageToLines} che restituisce anche la y (in coordinate PDF, origine basso-sinistra)
+ * di ciascuna riga: serve per fondere righe OCR rispettando l’ordine verticale della pagina.
+ */
+async function pageToLinesWithYs(page: PDFPageProxy): Promise<{ lines: string[]; ys: number[] }> {
   const content = await page.getTextContent();
   const items: { str: string; x: number; y: number }[] = [];
   for (const item of content.items) {
@@ -546,6 +600,7 @@ async function pageToLines(page: PDFPageProxy): Promise<string[]> {
 
   const yTol = 4;
   const lines: string[] = [];
+  const ys: number[] = [];
   let rowBuf: { str: string; x: number }[] = [];
   let curY = NaN;
 
@@ -561,7 +616,10 @@ async function pageToLines(page: PDFPageProxy): Promise<string[]> {
       parts.push(rowBuf[i].str);
     }
     const line = parts.join("").replace(/ +/g, " ").trim();
-    if (line) lines.push(line);
+    if (line) {
+      lines.push(line);
+      ys.push(curY);
+    }
   };
 
   for (const it of items) {
@@ -574,7 +632,7 @@ async function pageToLines(page: PDFPageProxy): Promise<string[]> {
     }
   }
   flushRow();
-  return lines.filter((l) => l.length > 0);
+  return { lines, ys };
 }
 
 function isPageFooterOrNoise(line: string): boolean {
@@ -1022,6 +1080,229 @@ function looksLikeFederalCalendar(fullText: string): boolean {
   return GIORNATA_INLINE_RE.test(fullText);
 }
 
+const NUMERIC_DATE_RE = /\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\b/;
+const NAMED_DATE_RE =
+  /(?:lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)?\s*\d{1,2}\s+(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\b/i;
+
+function textHasAnyDate(text: string): boolean {
+  if (NUMERIC_DATE_RE.test(text)) return true;
+  const normalized = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return NAMED_DATE_RE.test(normalized);
+}
+
+function lineLooksLikeDate(line: string): boolean {
+  return textHasAnyDate(line);
+}
+
+type OcrLine = { text: string; pdfY: number; source: "lines" | "text" };
+
+function extractTesseractLines(
+  result: { data: { lines?: unknown[]; text?: unknown } },
+  pageHeight: number,
+  scale: number,
+): OcrLine[] {
+  const out: OcrLine[] = [];
+  const rawLines = Array.isArray(result?.data?.lines) ? result.data.lines : [];
+  for (const ln of rawLines) {
+    const obj = ln as { text?: unknown; bbox?: { y0?: unknown; y1?: unknown } };
+    const text = String(obj?.text ?? "").trim();
+    if (!text) continue;
+    const y0 = Number(obj?.bbox?.y0 ?? 0);
+    const y1 = Number(obj?.bbox?.y1 ?? y0);
+    const cyMid = (y0 + y1) / 2;
+    const pdfY = pageHeight - cyMid / scale;
+    out.push({ text, pdfY, source: "lines" });
+  }
+  if (out.length === 0 && typeof result?.data?.text === "string") {
+    const textLines = result.data.text
+      .split(/\r?\n/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    textLines.forEach((text, index) => {
+      out.push({
+        text,
+        pdfY: pageHeight - index,
+        source: "text",
+      });
+    });
+  }
+  return out;
+}
+
+function createHighContrastOcrImage(canvas: HTMLCanvasElement): string {
+  const processed = document.createElement("canvas");
+  processed.width = canvas.width;
+  processed.height = canvas.height;
+  const ctx = processed.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return canvas.toDataURL("image/png");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, processed.width, processed.height);
+  ctx.drawImage(canvas, 0, 0);
+
+  const image = ctx.getImageData(0, 0, processed.width, processed.height);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    const v = gray < 190 ? 0 : 255;
+    data[i] = v;
+    data[i + 1] = v;
+    data[i + 2] = v;
+    data[i + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  return processed.toDataURL("image/png");
+}
+
+/**
+ * Esegue OCR (tesseract.js, lingua italiana) su una singola pagina PDF rasterizzata.
+ * Ritorna le righe lette con la y in coordinate PDF (origine basso-sinistra), così da poterle
+ * fondere correttamente con le righe native estratte da pdfjs.
+ */
+async function ocrPageWithWorker(
+  page: PDFPageProxy,
+  worker: { recognize: (image: unknown) => Promise<{ data: { lines?: unknown[]; text?: unknown } }> },
+  scale: number,
+): Promise<OcrLine[]> {
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D non disponibile per OCR");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport, canvas } as never).promise;
+
+  const enhancedImageDataUrl = createHighContrastOcrImage(canvas);
+  const imageDataUrl = canvas.toDataURL("image/png");
+
+  const pageHeight = page.getViewport({ scale: 1 }).height;
+  const enhancedResult = await worker.recognize(enhancedImageDataUrl);
+  const enhancedLines = extractTesseractLines(enhancedResult, pageHeight, scale);
+  if (enhancedLines.length > 0) return enhancedLines;
+
+  const originalResult = await worker.recognize(imageDataUrl);
+  return extractTesseractLines(originalResult, pageHeight, scale);
+}
+
+async function createOcrWorker(
+  createWorker: (lang: string) => Promise<{
+    recognize: (image: unknown) => Promise<{ data: { lines?: unknown[]; text?: string } }>;
+    terminate: () => Promise<void>;
+  }>,
+  lang: "ita" | "eng",
+) {
+  const worker = await createWorker(lang);
+  return worker;
+}
+
+/** Inserisce le righe OCR portatrici di data nello stream nativo, mantenendo l’ordine verticale. */
+function mergeOcrDateLines(
+  nativeLines: string[],
+  nativeYs: number[],
+  ocrDateLines: OcrLine[],
+): { lines: string[]; ys: number[] } {
+  const entries: { line: string; y: number }[] = [];
+  for (let i = 0; i < nativeLines.length; i++) {
+    entries.push({ line: nativeLines[i], y: nativeYs[i] ?? 0 });
+  }
+  for (const o of ocrDateLines) {
+    entries.push({ line: o.text, y: o.pdfY });
+  }
+  entries.sort((a, b) => b.y - a.y);
+  return {
+    lines: entries.map((e) => e.line),
+    ys: entries.map((e) => e.y),
+  };
+}
+
+function alignNativeTournamentLinesWithOcrDates(
+  nativeLines: string[],
+  nativeYs: number[],
+  ocrLines: OcrLine[],
+  fallbackYear?: number | null,
+): { lines: string[]; ys: number[] } {
+  const dateSequence: string[] = [];
+  const seenDates = new Set<string>();
+  for (const ocrLine of ocrLines) {
+    const compactDates = parseCompactItalianDateIsos(ocrLine.text, fallbackYear);
+    const namedDate = parseItalianNamedDateIso(ocrLine.text, fallbackYear);
+    for (const iso of [...compactDates, ...(namedDate ? [namedDate] : [])]) {
+      const key = iso.slice(0, 10);
+      if (seenDates.has(key)) continue;
+      seenDates.add(key);
+      dateSequence.push(iso);
+    }
+  }
+  if (dateSequence.length > 0) {
+    const lines: string[] = [];
+    const ys: number[] = [];
+    let timedRowIndex = 0;
+    let lastInsertedDate: string | null = null;
+
+    for (let i = 0; i < nativeLines.length; i++) {
+      const line = nativeLines[i];
+      const y = nativeYs[i] ?? 0;
+      if (/(?:\bORE\s*)?\d{1,2}[:.]\d{2}\b/i.test(line)) {
+        const dateIndex = Math.min(Math.floor(timedRowIndex / 2), dateSequence.length - 1);
+        const dateIso = dateSequence[Math.min(dateIndex, dateSequence.length - 1)];
+        timedRowIndex++;
+        if (dateIso && dateIso !== lastInsertedDate) {
+          lines.push(formatIsoDateForPdfLine(dateIso));
+          ys.push(y + 0.1);
+          lastInsertedDate = dateIso;
+        }
+      }
+      lines.push(line);
+      ys.push(y);
+    }
+    return { lines, ys };
+  }
+
+  const dateByTimedRow: string[] = [];
+  let currentDateLine: string | null = null;
+  for (const ocrLine of ocrLines) {
+    if (lineLooksLikeDate(ocrLine.text)) {
+      currentDateLine = ocrLine.text;
+      continue;
+    }
+    if (currentDateLine && /(?:\bORE\s*)?\d{1,2}[:.]\d{2}\b/i.test(ocrLine.text)) {
+      dateByTimedRow.push(currentDateLine);
+    }
+  }
+
+  if (dateByTimedRow.length === 0) {
+    return { lines: nativeLines, ys: nativeYs };
+  }
+
+  const lines: string[] = [];
+  const ys: number[] = [];
+  let timedRowIndex = 0;
+  let lastInsertedDate: string | null = null;
+
+  for (let i = 0; i < nativeLines.length; i++) {
+    const line = nativeLines[i];
+    const y = nativeYs[i] ?? 0;
+    if (/(?:\bORE\s*)?\d{1,2}[:.]\d{2}\b/i.test(line)) {
+      const dateLine = dateByTimedRow[timedRowIndex] ?? lastInsertedDate;
+      timedRowIndex++;
+      if (dateLine && dateLine !== lastInsertedDate) {
+        lines.push(dateLine);
+        ys.push(y + 0.1);
+        lastInsertedDate = dateLine;
+      }
+    }
+    lines.push(line);
+    ys.push(y);
+  }
+
+  return { lines, ys };
+}
+
 export async function parseMatchCalendarPdfFile(
   file: File,
   options: ParsePdfOptions = {},
@@ -1030,13 +1311,88 @@ export async function parseMatchCalendarPdfFile(
   const loadingTask = getDocument({ data: raw });
   const pdf = await loadingTask.promise;
 
-  const allPageLines: string[] = [];
-  const pageBlobs: string[] = [];
+  const documentMode = options.documentMode ?? "auto";
+  const ocrEnabled = options.ocrEnabled !== false;
+  const onOcr = options.ocrProgress;
+  const ocrFallbackYear =
+    extractYearFromIso(options.fallbackDateIso) ??
+    (Number.isFinite(file.lastModified) && Number(file.lastModified) > 0
+      ? new Date(Number(file.lastModified)).getFullYear()
+      : null);
+
+  /** Estrazione testo nativa (pdfjs) per ogni pagina. */
+  const perPage: { lines: string[]; ys: number[] }[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const lines = await pageToLines(page);
-    allPageLines.push(...lines);
-    pageBlobs.push(lines.join(" "));
+    perPage.push(await pageToLinesWithYs(page));
+  }
+
+  const nativeFullText = perPage.map((p) => p.lines.join(" ")).join("\n");
+  const nativeHasDate = textHasAnyDate(nativeFullText);
+  const ocrCandidate = ocrEnabled && documentMode !== "federation" && !nativeHasDate;
+
+  if (!ocrCandidate) {
+    if (!ocrEnabled) {
+      onOcr?.({ phase: "skipped", reason: "OCR disabilitato." });
+    } else if (documentMode === "federation") {
+      onOcr?.({ phase: "skipped", reason: "Modalità federazione: OCR non necessario." });
+    } else if (nativeHasDate) {
+      onOcr?.({ phase: "skipped", reason: "Date già presenti nel testo del PDF." });
+    }
+  } else {
+    onOcr?.({ phase: "loading" });
+    try {
+      const tess = (await import("tesseract.js")) as {
+        createWorker: (lang: string) => Promise<{
+          recognize: (image: unknown) => Promise<{ data: { lines?: unknown[]; text?: string } }>;
+          terminate: () => Promise<void>;
+        }>;
+      };
+      const worker = await createOcrWorker(tess.createWorker, "ita");
+      try {
+        let totalAddedDates = 0;
+        for (let i = 0; i < perPage.length; i++) {
+          onOcr?.({ phase: "processing", page: i + 1, totalPages: perPage.length });
+          const page = await pdf.getPage(i + 1);
+          let ocrLines = await ocrPageWithWorker(page, worker, 2);
+          if (ocrLines.length === 0) {
+            const englishWorker = await createOcrWorker(tess.createWorker, "eng");
+            try {
+              ocrLines = await ocrPageWithWorker(page, englishWorker, 2);
+            } finally {
+              await englishWorker.terminate();
+            }
+          }
+          const dateLines = ocrLines.filter((o) => lineLooksLikeDate(o.text));
+          if (dateLines.length === 0) continue;
+          const hasOnlyTextOrder = ocrLines.length > 0 && ocrLines.every((o) => o.source === "text");
+          if (documentMode === "tournament" && hasOnlyTextOrder) {
+            perPage[i] = alignNativeTournamentLinesWithOcrDates(perPage[i].lines, perPage[i].ys, ocrLines, ocrFallbackYear);
+          } else {
+            const merged = mergeOcrDateLines(perPage[i].lines, perPage[i].ys, dateLines);
+            perPage[i] = merged;
+          }
+          totalAddedDates += dateLines.length;
+        }
+        onOcr?.({ phase: "done", addedDateLines: totalAddedDates });
+      } finally {
+        try {
+          await worker.terminate();
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err) {
+      console.error("[pdf-ocr] error", err);
+      onOcr?.({ phase: "error", reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  const allPageLines: string[] = [];
+  const pageBlobs: string[] = [];
+  for (const p of perPage) {
+    allPageLines.push(...p.lines);
+    pageBlobs.push(p.lines.join(" "));
   }
 
   return parseMatchCalendarTextLines(allPageLines, pageBlobs, {

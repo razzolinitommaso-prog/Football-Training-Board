@@ -30,6 +30,7 @@ import {
   discoverPdfSectionTitles,
   isGenericPdfCategoryHint,
 } from "@/lib/match-calendar-pdf";
+import { useGetMyClub } from "@workspace/api-client-react";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
   EMPTY_SCHEDULE_FILTER,
@@ -563,6 +564,8 @@ function MatchCard({
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { data: myClub } = useGetMyClub();
+  const clubLabel = myClub?.name?.trim() || CLUB_NAME;
 
   const [postMenuOpen, setPostMenuOpen] = useState(false);
   const [postNoteValue, setPostNoteValue] = useState(() => splitPostNotesAndAttachments(match.postMatchNotes).note);
@@ -662,8 +665,8 @@ function MatchCard({
   const isPast = matchDate < new Date();
   const isHome = match.homeAway === "home";
 
-  const homeLabel = isHome ? CLUB_NAME : match.opponent;
-  const awayLabel = isHome ? match.opponent : CLUB_NAME;
+  const homeLabel = isHome ? clubLabel : match.opponent;
+  const awayLabel = isHome ? match.opponent : clubLabel;
   const postView = splitPostNotesAndAttachments(match.postMatchNotes);
   const hasPostNotes = postView.note.length > 0 || postView.attachments.length > 0;
 
@@ -1733,6 +1736,8 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const { role, user, section } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { data: myClub } = useGetMyClub();
+  const clubLabel = myClub?.name?.trim() || CLUB_NAME;
   const importFileRef = useRef<HTMLInputElement>(null);
   const importPdfFileRef = useRef<HTMLInputElement>(null);
   /** Evita di azzerare il file PDF quando si passa dal filtro al dialog scelta sezione. */
@@ -1751,6 +1756,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [pdfSectionCandidates, setPdfSectionCandidates] = useState<string[]>([]);
   const [pdfSectionChoice, setPdfSectionChoice] = useState("");
   const [pdfImportReferenceDate, setPdfImportReferenceDate] = useState("");
+  const [pdfOcrStatus, setPdfOcrStatus] = useState<string | null>(null);
   const openMatchIdFromQuery = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const id = Number(params.get("openMatchId"));
@@ -1884,14 +1890,41 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       fallbackDateIso?: string;
     }) => {
       if (!team) throw new Error("Squadra non valida");
+      setPdfOcrStatus(null);
       const parsed = await parseMatchCalendarPdfFile(input.file, {
         teamName: team.name,
-        clubName: input.clubHint.trim() || CLUB_NAME,
+        clubName: input.clubHint.trim() || clubLabel,
         searchTerms: input.searchTerms,
         sectionTitleHints: input.sectionTitleHints,
         societyHint: input.societyHint,
         documentMode: input.pdfMode,
         fallbackDateIso: input.fallbackDateIso,
+        ocrProgress: (event) => {
+          console.info("[pdf-ocr]", event);
+          switch (event.phase) {
+            case "loading":
+              setPdfOcrStatus("Preparazione OCR in corso…");
+              break;
+            case "processing":
+              setPdfOcrStatus(
+                `Lettura OCR pagina ${event.page}/${event.totalPages}…`,
+              );
+              break;
+            case "done":
+              setPdfOcrStatus(
+                event.addedDateLines > 0
+                  ? `OCR completato: ${event.addedDateLines} righe data aggiunte.`
+                  : "OCR completato: nessuna data aggiuntiva trovata.",
+              );
+              break;
+            case "skipped":
+              setPdfOcrStatus(`OCR non eseguito: ${event.reason}`);
+              break;
+            case "error":
+              setPdfOcrStatus(`OCR non disponibile: ${event.reason}`);
+              break;
+          }
+        },
       });
       return parsed;
     },
@@ -1915,6 +1948,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       setPdfSectionPickerOpen(false);
       setPdfSectionCandidates([]);
       setPdfSectionChoice("");
+      setPdfOcrStatus(null);
     },
   });
 
@@ -2410,6 +2444,17 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
   return (
     <div className="relative min-w-0 w-full overflow-x-clip">
+    {(pdfOcrStatus || importPdfMutation.isPending) && (
+      <div
+        className="fixed bottom-4 right-4 z-[1000] max-w-sm rounded-md border border-border bg-background/95 px-4 py-3 shadow-lg backdrop-blur"
+        role="status"
+        aria-live="polite"
+      >
+        <p className="text-xs font-medium text-foreground">
+          {pdfOcrStatus ?? "Analisi PDF in corso…"}
+        </p>
+      </div>
+    )}
     <div className="w-full max-w-full min-w-0 sm:max-w-6xl mx-auto">
       <div className="flex items-center gap-3 mb-5 sm:mb-6">
         {isStandalone && (
@@ -2572,7 +2617,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             <TournamentGroupedCards
               groups={tournamentGroups}
               teamDisplayName={team.name}
-              clubLabel={CLUB_NAME}
+              clubLabel={clubLabel}
               programSelection={tournamentProgramSelection}
               onProgramChange={(competition, value) =>
                 setTournamentProgramSelection((prev) => ({ ...prev, [competition]: value }))
@@ -3008,6 +3053,15 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               </div>
             )}
           </div>
+          {pdfOcrStatus && (
+            <p
+              className="text-xs text-muted-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              {pdfOcrStatus}
+            </p>
+          )}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => { setPendingPdfFile(null); setPdfFilterOpen(false); }}>
               Annulla
@@ -3021,13 +3075,13 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   categoryLine: pdfCategoryFilter,
                   clubLine: pdfClubFilter,
                   teamName: team.name,
-                  clubName: CLUB_NAME,
+                  clubName: clubLabel,
                 });
                 if (searchTerms.length === 0) {
                   toast({ title: "Inserisci almeno un termine di ricerca", variant: "destructive" });
                   return;
                 }
-                const societyHint = pdfClubFilter.trim() || CLUB_NAME;
+                const societyHint = pdfClubFilter.trim() || clubLabel;
                 const runImport = (sectionTitleHints: string[]) => {
                   setPdfFilterOpen(false);
                   importPdfMutation.mutate({
@@ -3122,6 +3176,15 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               </div>
             ))}
           </RadioGroup>
+          {pdfOcrStatus && (
+            <p
+              className="text-xs text-muted-foreground shrink-0"
+              role="status"
+              aria-live="polite"
+            >
+              {pdfOcrStatus}
+            </p>
+          )}
           <DialogFooter className="shrink-0 gap-2 sm:gap-0">
             <Button
               type="button"
@@ -3143,7 +3206,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   categoryLine: pdfSectionChoice,
                   clubLine: pdfClubFilter,
                   teamName: team.name,
-                  clubName: CLUB_NAME,
+                  clubName: clubLabel,
                 });
                 setPdfSectionPickerOpen(false);
                 importPdfMutation.mutate({
@@ -3151,7 +3214,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   searchTerms,
                   clubHint: pdfClubFilter,
                   sectionTitleHints: [pdfSectionChoice],
-                  societyHint: pdfClubFilter.trim() || CLUB_NAME,
+                  societyHint: pdfClubFilter.trim() || clubLabel,
                   pdfMode: pdfImportModeRef.current,
                   fallbackDateIso:
                     pdfImportModeRef.current === "tournament"
