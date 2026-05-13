@@ -50,6 +50,19 @@ type ParseTextOptions = ParsePdfOptions & {
   sourceLabel?: string;
 };
 
+const MISSING_IMAGE_DATE_PREFIX = "__IMAGE_TOURNAMENT_TIME__:";
+
+export function getImageTournamentMissingTime(row: MatchImportRow): string | null {
+  const note = row.notes ?? "";
+  const match = note.match(/__IMAGE_TOURNAMENT_TIME__:(\d{2}:\d{2})/);
+  return match?.[1] ?? null;
+}
+
+export function cleanImageTournamentImportNotes(notes?: string | null): string | null {
+  const cleaned = (notes ?? "").replace(/\s*__IMAGE_TOURNAMENT_TIME__:\d{2}:\d{2}\s*/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned || null;
+}
+
 export function normalizeName(value: string): string {
   return value
     .toLowerCase()
@@ -359,6 +372,45 @@ function cleanTournamentPlacementFinalLabel(value: string): string {
   return /\bfinale\b/i.test(compact) ? compact : `Finale ${compact}`;
 }
 
+function cleanOcrTournamentOpponentName(value: string): string {
+  return cleanTournamentTeamName(
+    value
+      .replace(/^[|¦=\-\s]+|[|¦=\-\s]+$/g, "")
+      .replace(/\s*=+\]?\s*.*$/g, "")
+      .replace(/\bDD\s*-?\s*O\b.*$/i, "")
+      .replace(/\bO\b\s*$/i, "")
+      .replace(/\s+/g, " "),
+  );
+}
+
+function parseTournamentImageEmptySlotLine(
+  line: string,
+  currentDateIso: string | null,
+): MatchImportRow | null {
+  const m = line.match(/\b(\d{1,2})[:.](\d{2})\b/);
+  if (!m) return null;
+  if (/[a-z]{3,}/i.test(line.replace(m[0], ""))) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  let date = "";
+  if (currentDateIso) {
+    const base = new Date(currentDateIso);
+    if (!Number.isNaN(base.getTime())) {
+      base.setHours(hour, minute, 0, 0);
+      date = base.toISOString();
+    }
+  }
+  return {
+    opponent: "Evento torneo da completare",
+    homeAway: "home",
+    date,
+    competition: "Torneo",
+    location: null,
+    notes: date ? "Import automatico da immagine torneo" : `Import automatico da immagine torneo ${MISSING_IMAGE_DATE_PREFIX}${time}`,
+  };
+}
+
 function parseTournamentMatchLine(
   line: string,
   currentDateIso: string,
@@ -483,6 +535,114 @@ function parseTournamentProgramLines(
       competition: `Torneo: ${options.tournamentName}`,
       location: null,
       notes: noteParts.length > 0 ? ('PDF torneo - ' + noteParts.join(' - ')).slice(0, 500) : "PDF torneo",
+    });
+  }
+
+  return { recognized, discarded, totalDateLines };
+}
+
+function parseTournamentImageMatchLine(
+  line: string,
+  currentDateIso: string | null,
+  aliasNorms: string[],
+): MatchImportRow | null {
+  let cleanedLine = line
+    .replace(/[|¦]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const m = cleanedLine.match(/\b(\d{1,2})[:.](\d{2})\b\s*(.+)$/i);
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const rest = cleanTournamentTeamName(m[3] ?? "");
+  const chunks = rest
+    .split(/\s{2,}|(?:\s+\d+\s*[-:]\s*\d+\s+)|(?=\b[A-Z][A-Z\s]{3,}\s*[-–—]\s*[A-Z])/i)
+    .map((chunk) => cleanTournamentTeamName(chunk))
+    .filter(Boolean);
+  const candidates = chunks.length > 0 ? chunks : [rest];
+
+  let pair: RegExpMatchArray | null = null;
+  for (const candidate of candidates) {
+    const p = candidate.match(/^(.+?)\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>)\s*(.+?)\s*(?:\d+\s*[-:]\s*\d+)?$/i);
+    if (!p) continue;
+    const leftN = normalizeName(p[1] ?? "");
+    const rightN = normalizeName(p[2] ?? "");
+    if (tournamentAliasMatchesSide(leftN, aliasNorms) || tournamentAliasMatchesSide(rightN, aliasNorms)) {
+      pair = p;
+      break;
+    }
+  }
+  if (!pair) return null;
+
+  const left = cleanOcrTournamentOpponentName(pair[1] ?? "");
+  const right = cleanOcrTournamentOpponentName(pair[2] ?? "");
+  if (!left || !right) return null;
+
+  const leftOwn = tournamentAliasMatchesSide(normalizeName(left), aliasNorms);
+  const rightOwn = tournamentAliasMatchesSide(normalizeName(right), aliasNorms);
+  if (leftOwn === rightOwn) return null;
+
+  const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  let date = "";
+  if (currentDateIso) {
+    const base = new Date(currentDateIso);
+    if (!Number.isNaN(base.getTime())) {
+      base.setHours(hour, minute, 0, 0);
+      date = base.toISOString();
+    }
+  }
+
+  return {
+    opponent: (leftOwn ? right : left).slice(0, 200),
+    homeAway: leftOwn ? "home" : "away",
+    date,
+    competition: "Torneo",
+    location: null,
+    notes: date ? "Import automatico da immagine torneo" : `Import automatico da immagine torneo ${MISSING_IMAGE_DATE_PREFIX}${time}`,
+  };
+}
+
+function parseTournamentImageTextLines(
+  allLines: string[],
+  options: {
+    aliasNorms: string[];
+    tournamentName: string;
+    fallbackYearHint?: number | null;
+  },
+): MatchPdfImportResult {
+  const recognized: MatchImportRow[] = [];
+  const seen = new Set<string>();
+  let currentDateIso: string | null = null;
+  let totalDateLines = 0;
+  let discarded = 0;
+
+  for (const raw of allLines) {
+    const line = raw.trim().replace(/\s+/g, " ");
+    if (!line || isPageFooterOrNoise(line)) continue;
+
+    const numericDateIso = parseDateTimeIso(line);
+    const namedDateIso = parseItalianNamedDateIso(line, options.fallbackYearHint);
+    if (numericDateIso || namedDateIso) {
+      currentDateIso = numericDateIso ?? namedDateIso;
+      continue;
+    }
+
+    if (!/\b\d{1,2}[:.]\d{2}\b/.test(line)) continue;
+    totalDateLines++;
+    const parsed =
+      parseTournamentImageMatchLine(line, currentDateIso, options.aliasNorms) ??
+      parseTournamentImageEmptySlotLine(line, currentDateIso);
+    if (!parsed) {
+      discarded++;
+      continue;
+    }
+
+    const key = `${parsed.date || getImageTournamentMissingTime(parsed) || ""}|${normalizeName(parsed.opponent)}|${parsed.homeAway}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recognized.push({
+      ...parsed,
+      competition: `Torneo: ${options.tournamentName}`,
     });
   }
 
@@ -1401,6 +1561,50 @@ export async function parseMatchCalendarPdfFile(
     lastModified: file.lastModified,
     sourceLabel: "PDF",
   });
+}
+
+export async function parseTournamentImageFile(
+  file: File,
+  options: ParsePdfOptions = {},
+): Promise<MatchPdfImportResult> {
+  const tess = (await import("tesseract.js")) as {
+    createWorker: (lang: string) => Promise<{
+      recognize: (image: unknown) => Promise<{ data: { lines?: unknown[]; text?: string } }>;
+      terminate: () => Promise<void>;
+    }>;
+  };
+
+  const imageDataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("Impossibile leggere l'immagine"));
+    reader.readAsDataURL(file);
+  });
+
+  const worker = await createOcrWorker(tess.createWorker, "ita");
+  try {
+    const result = await worker.recognize(imageDataUrl);
+    const rawLines = Array.isArray(result.data.lines) && result.data.lines.length > 0
+      ? result.data.lines.map((line) => String((line as { text?: unknown }).text ?? ""))
+      : String(result.data.text ?? "").split(/\r?\n/);
+    const lines = rawLines.map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const societyDisplay = (options.societyHint?.trim() || options.clubName?.trim() || options.teamName?.trim() || "").trim();
+    const aliasNorms = [...new Set([options.societyHint, options.clubName, societyDisplay].filter(Boolean).map((value) => normalizeName(String(value))))].filter(
+      (value) => value.length >= 3,
+    );
+    const tournamentName = inferTournamentName(file.name, lines);
+    const fallbackYearHint =
+      extractYearFromIso(options.fallbackDateIso) ??
+      (Number.isFinite(file.lastModified) && Number(file.lastModified) > 0 ? new Date(Number(file.lastModified)).getFullYear() : null);
+
+    return parseTournamentImageTextLines(lines, {
+      aliasNorms,
+      tournamentName,
+      fallbackYearHint,
+    });
+  } finally {
+    await worker.terminate();
+  }
 }
 
 export function parseMatchCalendarTextLines(

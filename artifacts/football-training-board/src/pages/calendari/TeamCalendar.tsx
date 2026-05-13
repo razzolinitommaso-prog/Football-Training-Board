@@ -26,8 +26,11 @@ import {
 } from "@/lib/match-calendar-excel";
 import {
   parseMatchCalendarPdfFile,
+  parseTournamentImageFile,
   buildPdfImportSearchTerms,
+  cleanImageTournamentImportNotes,
   discoverPdfSectionTitles,
+  getImageTournamentMissingTime,
   isGenericPdfCategoryHint,
 } from "@/lib/match-calendar-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
@@ -242,9 +245,20 @@ function combineDateAndTimeToIso(dateValue: string, timeValue: string): string |
   if (!dateValue) return null;
   const normalized = normalizeTime24(timeValue);
   if (!normalized) return null;
-  const parsed = new Date(`${dateValue}T${normalized}:00`);
+  let normalizedDate = dateValue.trim();
+  const italianDate = normalizedDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (italianDate) {
+    normalizedDate = `${italianDate[3]}-${String(italianDate[2]).padStart(2, "0")}-${String(italianDate[1]).padStart(2, "0")}`;
+  }
+  const parsed = new Date(`${normalizedDate}T${normalized}:00`);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function importRowHasValidDate(row: MatchImportRow): boolean {
+  if (!row.date) return false;
+  const parsed = new Date(row.date);
+  return !Number.isNaN(parsed.getTime());
 }
 
 function detectFormatByModule(moduleValue: string): MatchFormat | null {
@@ -1740,13 +1754,15 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const clubLabel = myClub?.name?.trim() || CLUB_NAME;
   const importFileRef = useRef<HTMLInputElement>(null);
   const importPdfFileRef = useRef<HTMLInputElement>(null);
+  const importTournamentImageRef = useRef<HTMLInputElement>(null);
   /** Evita di azzerare il file PDF quando si passa dal filtro al dialog scelta sezione. */
   const pdfKeepPendingWhilePickerRef = useRef(false);
   const pdfImportModeRef = useRef<"federation" | "tournament">("federation");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewRows, setPreviewRows] = useState<MatchImportRow[]>([]);
   const [selectedRows, setSelectedRows] = useState<boolean[]>([]);
-  const [previewSource, setPreviewSource] = useState<"excel" | "pdf">("excel");
+  const [previewSource, setPreviewSource] = useState<"excel" | "pdf" | "immagine">("excel");
+  const [previewBulkDate, setPreviewBulkDate] = useState("");
   const [pdfFilterOpen, setPdfFilterOpen] = useState(false);
   const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null);
   const [pdfCategoryFilter, setPdfCategoryFilter] = useState("");
@@ -1757,6 +1773,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [pdfSectionChoice, setPdfSectionChoice] = useState("");
   const [pdfImportReferenceDate, setPdfImportReferenceDate] = useState("");
   const [pdfOcrStatus, setPdfOcrStatus] = useState<string | null>(null);
+  const [imageOcrStatus, setImageOcrStatus] = useState<string | null>(null);
   const openMatchIdFromQuery = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const id = Number(params.get("openMatchId"));
@@ -1952,6 +1969,40 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     },
   });
 
+  const importTournamentImageMutation = useMutation({
+    mutationFn: async (file: File) => {
+      if (!team) throw new Error("Squadra non valida");
+      setImageOcrStatus("Lettura OCR immagine in corso...");
+      toast({
+        title: "Analisi immagine torneo",
+        description: "Lettura OCR in corso...",
+      });
+      return parseTournamentImageFile(file, {
+        teamName: team.name,
+        clubName: clubLabel,
+        societyHint: clubLabel,
+        documentMode: "tournament",
+      });
+    },
+    onSuccess: (parsed) => {
+      if (parsed.recognized.length === 0) {
+        toast({
+          title: "Nessuna partita riconosciuta nell'immagine",
+          description: `Righe con orario analizzate: ${parsed.totalDateLines}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      setPreviewSource("immagine");
+      setPreviewRows(parsed.recognized);
+      setPreviewBulkDate("");
+      setSelectedRows(parsed.recognized.map(() => true));
+      setPreviewOpen(true);
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore analisi immagine", variant: "destructive" }),
+    onSettled: () => setImageOcrStatus(null),
+  });
+
   const applyImportMutation = useMutation({
     mutationFn: async (input: { rows: MatchImportRow[]; replaceConflictIds?: number[] }) => {
       if (!teamId) throw new Error("Squadra non valida");
@@ -1972,7 +2023,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             homeAway: m.homeAway,
             competition: m.competition ?? undefined,
             location: m.location ?? undefined,
-            notes: m.notes ?? undefined,
+            notes: cleanImageTournamentImportNotes(m.notes) ?? undefined,
           }),
         });
         ok++;
@@ -2201,6 +2252,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const importActionsBusy =
     importMutation.isPending ||
     importPdfMutation.isPending ||
+    importTournamentImageMutation.isPending ||
     applyImportMutation.isPending ||
     bulkDeleteMutation.isPending;
 
@@ -2305,22 +2357,35 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             Carica PDF federazione
           </Button>
           {phaseTab === "tornei" && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs gap-1.5"
-              disabled={importActionsBusy}
-              onClick={() => {
-                pdfImportModeRef.current = "tournament";
-                setPdfImportMode("tournament");
-                setPdfCategoryFilter(team.name);
-                importPdfFileRef.current?.click();
-              }}
-            >
-              <Trophy className="w-3.5 h-3.5" />
-              Carica PDF torneo
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                disabled={importActionsBusy}
+                onClick={() => {
+                  pdfImportModeRef.current = "tournament";
+                  setPdfImportMode("tournament");
+                  setPdfCategoryFilter(team.name);
+                  importPdfFileRef.current?.click();
+                }}
+              >
+                <Trophy className="w-3.5 h-3.5" />
+                Carica PDF torneo
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                disabled={importActionsBusy || importTournamentImageMutation.isPending}
+                onClick={() => importTournamentImageRef.current?.click()}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                {importTournamentImageMutation.isPending ? "Analisi immagine..." : "Carica immagine torneo"}
+              </Button>
+            </>
           )}
           <Button
             type="button"
@@ -2535,7 +2600,24 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           }
         }}
       />
+      <input
+        ref={importTournamentImageRef}
+        type="file"
+        accept=".jpg,.jpeg,.png,.webp,image/*"
+        className="hidden"
+        onChange={async (e) => {
+          const picked = e.target.files?.[0];
+          e.target.value = "";
+          if (!picked) return;
+          importTournamentImageMutation.mutate(picked);
+        }}
+      />
       <div className="mt-5 sm:mt-6 min-w-0">
+      {imageOcrStatus && (
+        <div className="mb-3 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+          {imageOcrStatus}
+        </div>
+      )}
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground">Caricamento...</div>
       ) : (
@@ -3236,6 +3318,40 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               Seleziona le partite da importare. La spunta include la riga; il cestino la rimuove dall&apos;anteprima.
             </DialogDescription>
           </DialogHeader>
+          {previewSource === "immagine" && previewRows.some((row) => !importRowHasValidDate(row)) && (
+            <div className="flex flex-wrap items-end gap-2 rounded-md border bg-muted/20 p-3">
+              <div className="space-y-1">
+                <Label htmlFor="preview-bulk-date" className="text-xs">
+                  Data unica eventi
+                </Label>
+                <Input
+                  id="preview-bulk-date"
+                  type="date"
+                  className="h-9 w-44"
+                  value={previewBulkDate}
+                  onChange={(e) => setPreviewBulkDate(e.target.value)}
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!previewBulkDate}
+                onClick={() => {
+                  setPreviewRows((rows) =>
+                    rows.map((row, idx) => {
+                      if (!selectedRows[idx] || importRowHasValidDate(row)) return row;
+                      const time = getImageTournamentMissingTime(row) ?? "15:00";
+                      const iso = combineDateAndTimeToIso(previewBulkDate, time);
+                      return iso ? { ...row, date: iso } : row;
+                    }),
+                  );
+                }}
+              >
+                Applica alle selezionate
+              </Button>
+            </div>
+          )}
           <div className="flex items-center gap-2 text-sm">
             <Button type="button" size="sm" variant="outline" onClick={() => setSelectedRows(previewRows.map(() => true))}>
               Seleziona tutte
@@ -3293,7 +3409,30 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </td>
-                    <td className="p-2 whitespace-nowrap">{format(new Date(row.date), "dd/MM/yyyy HH:mm")}</td>
+                    <td className="p-2 whitespace-nowrap">
+                      {importRowHasValidDate(row) ? (
+                        format(new Date(row.date), "dd/MM/yyyy HH:mm")
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="date"
+                            className="h-8 w-36"
+                            aria-label="Data partita"
+                            onChange={(e) => {
+                              const time = getImageTournamentMissingTime(row) ?? "15:00";
+                              const iso = combineDateAndTimeToIso(e.target.value, time);
+                              if (!iso) return;
+                              setPreviewRows((rows) =>
+                                rows.map((r, i) => (i === idx ? { ...r, date: iso } : r)),
+                              );
+                            }}
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {getImageTournamentMissingTime(row) ?? "orario da verificare"}
+                          </span>
+                        </div>
+                      )}
+                    </td>
                     <td className="p-2">{row.opponent}</td>
                     <td className="p-2">{row.homeAway === "home" ? "Casa" : "Trasferta"}</td>
                     <td className="p-2">{row.competition ?? "-"}</td>
@@ -3308,7 +3447,11 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             </Button>
             <Button
               type="button"
-              disabled={selectedRows.filter(Boolean).length === 0 || applyImportMutation.isPending}
+              disabled={
+                selectedRows.filter(Boolean).length === 0 ||
+                previewRows.some((row, idx) => selectedRows[idx] && !importRowHasValidDate(row)) ||
+                applyImportMutation.isPending
+              }
               onClick={() => {
                 const rows = previewRows.filter((_, idx) => selectedRows[idx]);
                 const { conflictIds, examples } = findImportDuplicateConflicts(rows, matches);
