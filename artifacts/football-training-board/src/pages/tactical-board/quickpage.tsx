@@ -2090,8 +2090,12 @@ const QuickPage = () => {
     return map;
   }, [matchCallups]);
   const matchCallupPlayerIds = React.useMemo(
-    () => new Set(Array.from(callupByPlayerId.keys())),
-    [callupByPlayerId]
+    () => {
+      const ids = new Set(Array.from(callupByPlayerId.keys()));
+      initialConvocatiIds.forEach((id) => ids.add(String(id)));
+      return ids;
+    },
+    [callupByPlayerId, initialConvocatiIds]
   );
   const matchPlanCalledPlayers = React.useMemo(
     () =>
@@ -2133,6 +2137,10 @@ const QuickPage = () => {
     () => (selectedMatchId ? matchOptions.find((m) => m.id === selectedMatchId) ?? null : null),
     [matchOptions, selectedMatchId],
   );
+  const selectedMatchSheetUrl = React.useMemo(() => {
+    if (!selectedMatchId || !boardTeamId) return null;
+    return `/calendari/${boardTeamId}?openMatchId=${selectedMatchId}`;
+  }, [boardTeamId, selectedMatchId]);
 
   const activeMatchPlanPeriod = React.useMemo(() => {
     const plan = selectedMatchOption?.matchPlan;
@@ -2399,6 +2407,8 @@ const QuickPage = () => {
   React.useEffect(() => {
     if (!isMatchPreparationUi || boardMode !== "assigned" || !selectedMatchId) return;
     setElements((prev) => {
+      const alreadyHasMatchPlayers = prev.some((item) => isPlayerType(item.type) && item.type !== "opponent" && item.playerId);
+      if (alreadyHasMatchPlayers) return prev;
       const keep = prev.filter((item) => {
         if (!isPlayerType(item.type) || item.type === "opponent") return true;
         if (!item.playerId) return false;
@@ -2422,7 +2432,10 @@ const QuickPage = () => {
           ...buildPlayerAssignment(player),
         } as TacticalBoardElement;
       });
-      return rebuildMatchPlanLayout([...keep, ...stubs]);
+      const next = rebuildMatchPlanLayout([...keep, ...stubs]);
+      const prevKey = prev.map((item) => `${item.type}:${item.playerId ?? ""}:${Math.round(Number(item.x ?? 0) * 10) / 10}:${Math.round(Number(item.y ?? 0) * 10) / 10}`).join("|");
+      const nextKey = next.map((item) => `${item.type}:${item.playerId ?? ""}:${Math.round(Number(item.x ?? 0) * 10) / 10}:${Math.round(Number(item.y ?? 0) * 10) / 10}`).join("|");
+      return prevKey === nextKey ? prev : next;
     });
   }, [
     boardFormat,
@@ -2430,7 +2443,6 @@ const QuickPage = () => {
     isMatchPreparationUi,
     matchCallupPlayerIds,
     matchPlanCalledPlayers,
-    matchPlanPitchPlacement.ordered,
     rebuildMatchPlanLayout,
     selectedMatchId,
     selectedPreset,
@@ -2483,7 +2495,31 @@ const QuickPage = () => {
       y: 50,
       ...buildPlayerAssignment(player),
     };
-    setElements((prev) => rebuildMatchPlanLayout([...prev, stub]));
+    setElements((prev) => {
+      const preferredEmptyIndex = prev.findIndex(
+        (item) =>
+          isPlayerType(item.type) &&
+          item.type !== "opponent" &&
+          !item.playerId &&
+          (isGoalkeeper ? item.type === "goalkeeper" : item.type === "player"),
+      );
+      const anyEmptyIndex =
+        preferredEmptyIndex >= 0
+          ? preferredEmptyIndex
+          : prev.findIndex((item) => isPlayerType(item.type) && item.type !== "opponent" && !item.playerId);
+      if (anyEmptyIndex >= 0) {
+        return prev.map((item, index) =>
+          index === anyEmptyIndex
+            ? {
+                ...item,
+                type: isGoalkeeper ? "goalkeeper" : "player",
+                ...buildPlayerAssignment(player),
+              }
+            : item,
+        );
+      }
+      return prev;
+    });
     setSelectedElementIndex(null);
     setSelectedElementIndexes([]);
     setActiveTool("select");
@@ -5091,11 +5127,11 @@ const QuickPage = () => {
                               goBackFromBoard();
                               return;
                             }
-                            window.location.href = boardTeamId ? `/calendari/${boardTeamId}` : "/matches";
+                            window.location.href = selectedMatchSheetUrl ?? (boardTeamId ? `/calendari/${boardTeamId}` : "/matches");
                           }}
                           className="rounded-lg bg-[#FACC15] px-2 py-2 text-left text-[11px] font-bold text-black transition hover:opacity-90"
                         >
-                          {returnToMatchUrl ? "Torna alla scheda partita" : "Apri partite in programma"}
+                          {returnToMatchUrl ? "Torna alla scheda partita" : selectedMatchSheetUrl ? "Apri scheda partita" : "Apri partite in programma"}
                         </button>
                         <button
                           type="button"
@@ -5881,4 +5917,3 @@ const QuickPage = () => {
 };
 
 export default QuickPage;
-
