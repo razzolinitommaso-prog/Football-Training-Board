@@ -47,6 +47,8 @@ import {
   groupTorneoMatchesByCompetition,
   type TournamentCardGroup,
 } from "@/pages/calendari/tournament-grouped-cards";
+import { FORMATIONS, isFormationPresetId } from "@/pages/tactical-board/formations";
+import { isGoalkeeperPlayer } from "@/pages/tactical-board/player-mapping";
 import {
   fileToDataUrl,
   getTournamentPdfReferenceDate,
@@ -104,7 +106,9 @@ interface Team {
   name: string;
   category?: string;
   assignedStaff?: { userId: number }[];
+  trainingSchedule?: TrainingSlot[] | null;
 }
+interface TrainingSlot { day: string; startTime?: string | null; endTime?: string | null; }
 interface Player {
   id: number;
   firstName: string;
@@ -115,11 +119,37 @@ interface Player {
   unavailabilityReason?: string | null;
 }
 interface MatchCallUp { id: number; playerId: number; status: string; playerName?: string | null; }
+interface TrainingSessionLite { id: number; teamId?: number | null; scheduledAt: string; }
+interface AttendanceLite { id: number; playerId: number; status: string; }
+interface MatchWeekTrainingDay { key: string; date: Date; sessionId?: number; }
+type LineupPositionMap = Record<string, { x: number; y: number }>;
+type LineupPoint = { x: number; y: number };
+type LineupDrawing = { id: string; tool: "pen" | "arrow"; color: string; width: number; lineStyle: "solid" | "dashed"; arrowHeads: "end" | "start" | "both" | "none"; geometry: "freehand" | "straight" | "conduzione"; points: LineupPoint[] };
+type LineupDialogState = {
+  periodIndex: number;
+  mode: "view" | "edit";
+  module: string;
+  lineupPlayerIds: number[];
+  positions: LineupPositionMap;
+  drawings: LineupDrawing[];
+  tool: "select" | "pen" | "arrow";
+  color: string;
+  lineWidth: number;
+  lineStyle: "solid" | "dashed";
+  arrowHeads: "end" | "start" | "both" | "none";
+  geometry: "freehand" | "straight" | "conduzione";
+  selectedPlayerId?: number | null;
+  selectedDrawingId?: string | null;
+  activeDrawing?: LineupDrawing | null;
+  drawingDrag?: { id: string; last: LineupPoint } | null;
+};
 type MatchSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 type MatchPlanPeriod = { key: string; label: string; minutes: string; formation?: string; module?: string; format?: MatchFormat; };
 type MatchFormat = "3v3" | "5v5" | "7v7" | "9v9" | "11v11";
 type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   lineupPlayerIds?: number[];
+  lineupPositions?: LineupPositionMap;
+  lineupDrawings?: LineupDrawing[];
   boardId?: number | null;
   boardTitle?: string | null;
   boardUrl?: string | null;
@@ -190,6 +220,44 @@ function toTimeInputValue(value?: string | null): string {
   const hours = `${parsed.getHours()}`.padStart(2, "0");
   const minutes = `${parsed.getMinutes()}`.padStart(2, "0");
   return `${hours}:${minutes}`;
+}
+
+function startOfLocalDay(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function addLocalDays(value: Date, days: number): Date {
+  const next = new Date(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function trainingAttendanceTone(status?: string | null): "present" | "absent" | "requested" | "injured" | "unknown" {
+  const normalized = (status ?? "").toLowerCase();
+  if (normalized === "present" || normalized.includes("presente")) return "present";
+  if (normalized === "absent" || normalized.includes("assente")) return "absent";
+  if (normalized === "requested" || normalized.includes("richiest")) return "requested";
+  if (normalized === "injured" || normalized.includes("infortun")) return "injured";
+  return "unknown";
+}
+
+function localDateKey(value: Date): string {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function italianTrainingDayNumber(day: string): number | null {
+  const normalized = day.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  if (normalized.startsWith("lun")) return 1;
+  if (normalized.startsWith("mar")) return 2;
+  if (normalized.startsWith("mer")) return 3;
+  if (normalized.startsWith("gio")) return 4;
+  if (normalized.startsWith("ven")) return 5;
+  if (normalized.startsWith("sab")) return 6;
+  if (normalized.startsWith("dom")) return 0;
+  return null;
 }
 
 /** Durante la digitazione: inserisce «:» senza tastiera (mobile). Es. 1000 → 10:00, 930 → 9:30. */
@@ -348,6 +416,128 @@ function movePlayerBetweenPeriods(
   });
 }
 
+function formationSlotsForLineup(module: string | null | undefined, format: MatchFormat, limit: number) {
+  if (module && isFormationPresetId(module) && FORMATIONS[module].formats.includes(format)) {
+    return FORMATIONS[module].slots.slice(0, limit);
+  }
+  const slots = [{ x: 10, y: 50, role: "goalkeeper" as const }];
+  const outfield = Math.max(0, limit - 1);
+  for (let i = 0; i < outfield; i += 1) {
+    const band = Math.floor(i / 3);
+    const inBand = i % 3;
+    slots.push({
+      x: Math.min(78, 30 + band * 18),
+      y: outfield <= 2 ? 35 + i * 30 : 25 + inBand * 25,
+      role: "player" as const,
+    });
+  }
+  return slots;
+}
+
+function buildAutomaticLineup(players: Player[], limit: number): number[] {
+  const goalkeepers = players.filter((player) => isGoalkeeperPlayer(player));
+  const outfield = players
+    .filter((player) => !isGoalkeeperPlayer(player))
+    .sort(comparePlayersByRole);
+  const starters = [
+    ...(goalkeepers[0] ? [goalkeepers[0]] : []),
+    ...outfield.slice(0, Math.max(0, limit - (goalkeepers[0] ? 1 : 0))),
+  ];
+  const starterIds = new Set(starters.map((player) => player.id));
+  const reserves = players.filter((player) => !starterIds.has(player.id));
+  return [...starters, ...reserves].map((player) => player.id);
+}
+
+function shortPlayerLabel(player: Player): string {
+  const last = String(player.lastName || player.firstName || "").trim();
+  if (!last) return player.jerseyNumber ? String(player.jerseyNumber) : "P";
+  return last.length > 10 ? `${last.slice(0, 9)}.` : last;
+}
+
+function normalizeLineupGoalkeepers(ids: number[], playersById: Map<number, Player>, limit: number): number[] {
+  const valid = ids.filter((id) => playersById.has(id));
+  const starters = valid.slice(0, limit);
+  const reserves = valid.slice(limit);
+  const firstStarterGkIndex = starters.findIndex((id) => isGoalkeeperPlayer(playersById.get(id)!));
+  const reserveGks: number[] = [];
+  const normalizedStarters = starters.filter((id, index) => {
+    const player = playersById.get(id);
+    if (!player || !isGoalkeeperPlayer(player)) return true;
+    if (index === firstStarterGkIndex) return true;
+    reserveGks.push(id);
+    return false;
+  });
+
+  if (firstStarterGkIndex < 0) {
+    const reserveGkIndex = reserves.findIndex((id) => isGoalkeeperPlayer(playersById.get(id)!));
+    if (reserveGkIndex >= 0) {
+      const [gk] = reserves.splice(reserveGkIndex, 1);
+      normalizedStarters.unshift(gk);
+    }
+  }
+
+  const outfieldReserves = [...reserveGks, ...reserves];
+  while (normalizedStarters.length < limit && outfieldReserves.length > 0) {
+    const nextIndex = outfieldReserves.findIndex((id) => !isGoalkeeperPlayer(playersById.get(id)!));
+    if (nextIndex < 0) break;
+    const [next] = outfieldReserves.splice(nextIndex, 1);
+    normalizedStarters.push(next);
+  }
+
+  return [...normalizedStarters, ...outfieldReserves];
+}
+
+function replaceLineupPlayerAtSlot(ids: number[], slotIndex: number, currentId: number | null, nextId: number | null): number[] {
+  const next = [...ids];
+  const existingIndex = nextId ? next.indexOf(nextId) : -1;
+  if (!nextId) {
+    if (currentId) next.splice(slotIndex, 1);
+    return next;
+  }
+  if (existingIndex >= 0) {
+    if (currentId) {
+      next[existingIndex] = currentId;
+      next[slotIndex] = nextId;
+    } else {
+      next.splice(existingIndex, 1);
+      next.splice(Math.min(slotIndex, next.length), 0, nextId);
+    }
+  } else if (slotIndex < next.length) {
+    next[slotIndex] = nextId;
+  } else {
+    next.push(nextId);
+  }
+  return next;
+}
+
+function lineupDrawingPath(points: LineupPoint[], straight: boolean): string {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  if (straight) {
+    const first = points[0];
+    const last = points[points.length - 1];
+    return `M ${first.x} ${first.y} L ${last.x} ${last.y}`;
+  }
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const mid = {
+      x: (points[i].x + points[i + 1].x) / 2,
+      y: (points[i].y + points[i + 1].y) / 2,
+    };
+    d += ` Q ${points[i].x} ${points[i].y} ${mid.x} ${mid.y}`;
+  }
+  const last = points[points.length - 1];
+  d += ` L ${last.x} ${last.y}`;
+  return d;
+}
+
+function lineupArrowHeadPath(tip: LineupPoint, from: LineupPoint, size = 2.8): string {
+  const angle = Math.atan2(tip.y - from.y, tip.x - from.x);
+  const left = { x: tip.x - Math.cos(angle - Math.PI / 6) * size, y: tip.y - Math.sin(angle - Math.PI / 6) * size };
+  const right = { x: tip.x - Math.cos(angle + Math.PI / 6) * size, y: tip.y - Math.sin(angle + Math.PI / 6) * size };
+  return `M ${left.x} ${left.y} L ${tip.x} ${tip.y} L ${right.x} ${right.y}`;
+}
+
 function defaultPeriodsForTeam(section: MatchSection, teamName: string, teamCategory?: string): MatchPlanPeriodRuntime[] {
   const n = `${teamName} ${teamCategory ?? ""}`.toLowerCase();
   if (section === "scuola_calcio") {
@@ -490,6 +680,8 @@ function composePostNotes(note: string, attachments: string[]): string {
 }
 
 const EMPTY_CALLUPS: MatchCallUp[] = [];
+const EMPTY_TRAINING_SESSIONS: TrainingSessionLite[] = [];
+const EMPTY_ATTENDANCE_BY_SESSION: Record<number, AttendanceLite[]> = {};
 
 function matchPassesListFilters(
   m: Match,
@@ -554,6 +746,7 @@ function MatchCard({
   canManageMatchPlan,
   canViewMatchPlan,
   teamPlayers,
+  teamTrainingSchedule,
   matchSection,
   teamName,
   teamCategory,
@@ -569,6 +762,7 @@ function MatchCard({
   canManageMatchPlan: boolean;
   canViewMatchPlan: boolean;
   teamPlayers: Player[];
+  teamTrainingSchedule?: TrainingSlot[] | null;
   matchSection: MatchSection;
   teamName: string;
   teamCategory?: string;
@@ -592,6 +786,7 @@ function MatchCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const [planOpen, setPlanOpen] = useState(shouldOpenPlanFromQuery);
   const [previewBoard, setPreviewBoard] = useState<MatchPlanPeriodRuntime | null>(null);
+  const [lineupDialog, setLineupDialog] = useState<LineupDialogState | null>(null);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set());
   const [callupSearch, setCallupSearch] = useState("");
   const [planDraft, setPlanDraft] = useState<MatchPlanData>(() =>
@@ -678,6 +873,93 @@ function MatchCard({
   const matchDate = new Date(match.date);
   const isPast = matchDate < new Date();
   const isHome = match.homeAway === "home";
+  const attendanceWeekRange = useMemo(() => {
+    if (Number.isNaN(matchDate.getTime())) return null;
+    const matchDay = startOfLocalDay(matchDate);
+    const dayOfWeek = matchDay.getDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    return {
+      start: addLocalDays(matchDay, mondayOffset),
+      end: matchDay,
+    };
+  }, [match.date]);
+  const { data: trainingSessions = EMPTY_TRAINING_SESSIONS } = useQuery<TrainingSessionLite[]>({
+    queryKey: ["/api/training-sessions", "match-week", match.teamId],
+    queryFn: () => apiFetch(match.teamId ? `/api/training-sessions?teamId=${match.teamId}` : "/api/training-sessions"),
+    enabled: canViewMatchPlan && !!match.teamId && planOpen,
+  });
+  const matchWeekTrainingSessions = useMemo(() => {
+    if (!attendanceWeekRange || !match.teamId) return [];
+    return trainingSessions
+      .filter((session) => {
+        if (session.teamId !== match.teamId) return false;
+        const scheduledAt = new Date(session.scheduledAt);
+        if (Number.isNaN(scheduledAt.getTime())) return false;
+        return scheduledAt >= attendanceWeekRange.start && scheduledAt < attendanceWeekRange.end;
+      })
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  }, [attendanceWeekRange, match.teamId, trainingSessions]);
+  const matchWeekTrainingDays = useMemo<MatchWeekTrainingDay[]>(() => {
+    if (!attendanceWeekRange) return [];
+    const actualSessionByDate = new Map<string, TrainingSessionLite>();
+    for (const session of matchWeekTrainingSessions) {
+      const scheduledAt = new Date(session.scheduledAt);
+      if (!Number.isNaN(scheduledAt.getTime())) {
+        actualSessionByDate.set(localDateKey(scheduledAt), session);
+      }
+    }
+
+    const plannedDays = new Map<string, MatchWeekTrainingDay>();
+    for (const slot of teamTrainingSchedule ?? []) {
+      const dayNumber = italianTrainingDayNumber(slot.day);
+      if (dayNumber == null) continue;
+      for (let day = new Date(attendanceWeekRange.start); day < attendanceWeekRange.end; day = addLocalDays(day, 1)) {
+        if (day.getDay() !== dayNumber) continue;
+        const key = localDateKey(day);
+        plannedDays.set(key, {
+          key,
+          date: new Date(day),
+          sessionId: actualSessionByDate.get(key)?.id,
+        });
+      }
+    }
+
+    for (const session of matchWeekTrainingSessions) {
+      const scheduledAt = new Date(session.scheduledAt);
+      const key = localDateKey(scheduledAt);
+      if (!plannedDays.has(key)) {
+        plannedDays.set(key, { key, date: startOfLocalDay(scheduledAt), sessionId: session.id });
+      }
+    }
+
+    return Array.from(plannedDays.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [attendanceWeekRange, matchWeekTrainingSessions, teamTrainingSchedule]);
+  const matchWeekTrainingSessionIds = useMemo(
+    () => matchWeekTrainingSessions.map((session) => session.id).join(","),
+    [matchWeekTrainingSessions],
+  );
+  const { data: matchWeekAttendance = EMPTY_ATTENDANCE_BY_SESSION } = useQuery<Record<number, AttendanceLite[]>>({
+    queryKey: ["/api/attendance", "match-week", matchWeekTrainingSessionIds],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        matchWeekTrainingSessions.map(async (session) => {
+          const records = await apiFetch(`/api/attendance?sessionId=${session.id}`);
+          return [session.id, records] as const;
+        }),
+      );
+      return Object.fromEntries(entries);
+    },
+    enabled: canViewMatchPlan && planOpen && matchWeekTrainingSessions.length > 0,
+  });
+  const matchWeekAttendanceByPlayer = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [sessionId, records] of Object.entries(matchWeekAttendance)) {
+      for (const record of records) {
+        map.set(`${record.playerId}:${sessionId}`, record.status);
+      }
+    }
+    return map;
+  }, [matchWeekAttendance]);
 
   const homeLabel = isHome ? clubLabel : match.opponent;
   const awayLabel = isHome ? match.opponent : clubLabel;
@@ -786,6 +1068,61 @@ function MatchCard({
     !!planDraft.convocationAt &&
     !!planDraft.convocationPlace;
 
+  function openLineupDialog(periodIndex: number, mode: "view" | "edit") {
+    const period = planDraft.periods[periodIndex];
+    if (!period) return;
+    const selected = new Set(selectedPlayerIds);
+    const existing = (period.lineupPlayerIds ?? []).filter((id) => selected.has(id));
+    const periodFormat = period.format ?? matchFormat;
+    const periodModule = period.module ?? "";
+    const periodLimit = startersLimitForPeriod(period, matchFormat);
+    const initialLineup = existing.length > 0
+      ? normalizeLineupGoalkeepers(existing, convokedById, periodLimit)
+      : buildAutomaticLineup(convokedPlayers, periodLimit);
+    setLineupDialog({
+      periodIndex,
+      mode,
+      module: periodModule || moduleOptionsForFormat(periodFormat)[0] || "",
+      lineupPlayerIds: initialLineup,
+      positions: { ...(period.lineupPositions ?? {}) },
+      drawings: [...(period.lineupDrawings ?? [])],
+      tool: "select",
+      color: "#facc15",
+      lineWidth: 3,
+      lineStyle: "solid",
+      arrowHeads: "end",
+      geometry: "freehand",
+      selectedPlayerId: null,
+      selectedDrawingId: null,
+      activeDrawing: null,
+      drawingDrag: null,
+    });
+  }
+
+  function saveLineupDialog() {
+    if (!lineupDialog) return;
+    setPlanDraft((prev) => ({
+      ...prev,
+      periods: prev.periods.map((period, idx) =>
+        idx === lineupDialog.periodIndex
+          ? {
+              ...period,
+              module: lineupDialog.module,
+              lineupPlayerIds: normalizeLineupGoalkeepers(
+                lineupDialog.lineupPlayerIds.filter((id) => selectedPlayerIds.has(id)),
+                convokedById,
+                startersLimitForPeriod({ ...period, module: lineupDialog.module }, matchFormat),
+              ),
+              lineupPositions: lineupDialog.positions,
+              lineupDrawings: lineupDialog.drawings,
+              boardConfirmed: false,
+            }
+          : period,
+      ),
+    }));
+    setLineupDialog(null);
+  }
+
   useEffect(() => {
     if (!canViewMatchPlan) return;
     const allowedIds = new Set(selectableTeamPlayers.map((p) => p.id));
@@ -876,12 +1213,24 @@ function MatchCard({
         await apiFetch(`/api/callups/${id}`, { method: "DELETE" });
       }
       const selected = new Set(selectedPlayerIds);
+      const selectedKeys = new Set(Array.from(selected).map(String));
       const normalizedPlan: MatchPlanData = {
         ...planDraft,
-        periods: planDraft.periods.map((p) => ({
-          ...p,
-          lineupPlayerIds: (p.lineupPlayerIds ?? []).filter((id) => selected.has(id)),
-        })),
+        periods: planDraft.periods.map((p) => {
+          const lineupPlayerIds = normalizeLineupGoalkeepers(
+            (p.lineupPlayerIds ?? []).filter((id) => selected.has(id)),
+            convokedById,
+            startersLimitForPeriod(p, matchFormat),
+          );
+          const lineupPositions = Object.fromEntries(
+            Object.entries(p.lineupPositions ?? {}).filter(([id]) => selectedKeys.has(id)),
+          );
+          return {
+            ...p,
+            lineupPlayerIds,
+            lineupPositions,
+          };
+        }),
       };
       await apiFetch(`/api/matches/${match.id}`, {
         method: "PATCH",
@@ -924,6 +1273,27 @@ function MatchCard({
       toast({ title: err?.message ?? "Errore pubblicazione convocazione", variant: "destructive" });
     }
   }
+
+  const lineupPeriod = lineupDialog ? planDraft.periods[lineupDialog.periodIndex] : null;
+  const lineupFormat = lineupPeriod ? lineupPeriod.format ?? matchFormat : matchFormat;
+  const lineupLimit = lineupPeriod ? startersLimitForPeriod({ ...lineupPeriod, module: lineupDialog?.module ?? lineupPeriod.module }, matchFormat) : 0;
+  const lineupSlots = lineupDialog ? formationSlotsForLineup(lineupDialog.module, lineupFormat, lineupLimit) : [];
+  const lineupStarters = lineupDialog ? lineupDialog.lineupPlayerIds.slice(0, lineupLimit) : [];
+  const lineupReserves = lineupDialog ? lineupDialog.lineupPlayerIds.slice(lineupLimit) : [];
+  const lineupSelected = new Set(lineupDialog?.lineupPlayerIds ?? []);
+  const lineupStarterPlayers = lineupStarters.map((id) => convokedById.get(id)).filter((p): p is Player => Boolean(p));
+  const lineupAvailablePlayers = convokedPlayers.filter((player) => selectedPlayerIds.has(player.id));
+  const lineupModuleOptions = moduleOptionsForFormat(lineupFormat);
+  const lineupReadOnly = lineupDialog?.mode === "view";
+  const lineupColors = ["#facc15", "#ffffff", "#38bdf8", "#22c55e", "#ef4444", "#111827"];
+  const lineupPitchPoint = (event: { currentTarget: EventTarget & Element; clientX: number; clientY: number }) => {
+    const target = event.currentTarget;
+    const rect = (target.closest("[data-lineup-pitch]") as HTMLElement | null)?.getBoundingClientRect() ?? target.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
+      y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)),
+    };
+  };
 
   return (
     <>
@@ -1166,9 +1536,9 @@ function MatchCard({
                       placeholder="Ricerca rapida giocatore (cognome o nome)"
                     />
                   </div>
-                  <div className="max-h-32 overflow-auto rounded border bg-background p-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  <div className="max-h-72 overflow-auto rounded border bg-background p-2 grid grid-cols-1 xl:grid-cols-2 gap-1.5">
                     {filteredTeamPlayers.map((p) => (
-                      <label key={p.id} className={cn("flex items-center gap-2 text-xs", p.available === false && "opacity-50")}>
+                      <label key={p.id} className={cn("flex items-center gap-2 rounded px-1 py-1 text-xs", p.available === false && "opacity-50")}>
                         <Checkbox
                           checked={selectedPlayerIds.has(p.id)}
                           disabled={p.available === false}
@@ -1181,10 +1551,47 @@ function MatchCard({
                             })
                           }
                         />
-                        <span>
+                        <span className="min-w-0 flex-1 truncate">
                           {p.jerseyNumber ? `${p.jerseyNumber} · ` : ""}{p.firstName} {p.lastName}
                           {p.available === false ? " (non disponibile)" : ""}
                         </span>
+                        {matchWeekTrainingDays.length > 0 && (
+                          <span className="ml-auto flex shrink-0 items-center gap-1" aria-label="Presenze allenamenti settimana partita">
+                            {matchWeekTrainingDays.map((day) => {
+                              const status = day.sessionId ? matchWeekAttendanceByPlayer.get(`${p.id}:${day.sessionId}`) : null;
+                              const tone = trainingAttendanceTone(status);
+                              return (
+                                <span
+                                  key={day.key}
+                                  title={`${format(day.date, "EEE dd/MM", { locale: itLocale })}: ${
+                                    tone === "present"
+                                      ? "presente"
+                                      : tone === "absent"
+                                      ? "assente"
+                                      : tone === "requested"
+                                      ? "giustificato"
+                                      : tone === "injured"
+                                      ? "infortunato"
+                                      : day.sessionId
+                                      ? "non segnato"
+                                      : "allenamento previsto, presenze non registrate"
+                                  }`}
+                                  className={cn(
+                                    "inline-flex h-5 min-w-9 items-center justify-center rounded-full border px-1 text-[10px] leading-none",
+                                    tone === "present" && "border-emerald-300 bg-emerald-50 text-emerald-700",
+                                    tone === "absent" && "border-red-300 bg-red-50 text-red-700",
+                                    tone === "requested" && "border-sky-300 bg-sky-50 text-sky-700",
+                                    tone === "injured" && "border-amber-300 bg-amber-50 text-amber-700",
+                                    tone === "unknown" && "border-muted bg-muted/40 text-muted-foreground",
+                                  )}
+                                >
+                                  {format(day.date, "EEE d", { locale: itLocale })}
+                                  <span className="ml-0.5 font-semibold">{tone === "present" ? "✓" : tone === "unknown" ? "·" : "–"}</span>
+                                </span>
+                              );
+                            })}
+                          </span>
+                        )}
                       </label>
                     ))}
                     {filteredTeamPlayers.length === 0 && (
@@ -1289,6 +1696,7 @@ function MatchCard({
                       });
                     const startersLimit = startersLimitForPeriod(p, matchFormat);
                     const starters = lineupIds.slice(0, startersLimit).length;
+                    const hasLineup = lineupIds.length > 0;
                     return (
                       <div key={p.key} className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">
                         <div className="grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-2 items-end">
@@ -1339,29 +1747,6 @@ function MatchCard({
                             </select>
                           </div>
                         </div>
-
-                        {p.boardId && periodBoardUrl && (
-                          <div className="rounded-lg border border-emerald-300 bg-emerald-50/70 p-2 text-xs sm:ml-[158px]">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="font-semibold text-emerald-900">Lavagna impostata {p.label}</p>
-                                <p className="truncate text-[11px] text-emerald-700">{p.boardTitle ?? "Preparazione tattica"}</p>
-                                <p className={`mt-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                                  p.boardConfirmed === false ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
-                                }`}>
-                                  {p.boardConfirmed === false ? "Da confermare" : "Confermato"}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setPreviewBoard({ ...p, boardUrl: periodBoardUrl })}
-                                className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
-                              >
-                                Apri anteprima
-                              </button>
-                            </div>
-                          </div>
-                        )}
 
                         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                           <span>Titolari: {starters}/{startersLimit} · Totale: {lineupIds.length}</span>
@@ -1525,6 +1910,63 @@ function MatchCard({
                             }}
                           >
                             Nessun giocatore nel riquadro di questo tempo. Trascina qui da un altro tempo.
+                          </div>
+                        )}
+
+                        {hasLineup && (
+                          <div className="rounded-lg border border-emerald-300 bg-emerald-50/70 p-2 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-emerald-900">Schieramento impostato {p.label}</p>
+                                <p className="truncate text-[11px] text-emerald-700">{p.boardTitle ?? "Preparazione tattica"}</p>
+                                {p.boardId && (
+                                  <p className={`mt-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                    p.boardConfirmed === false ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                                  }`}>
+                                    {p.boardConfirmed === false ? "Da confermare" : "Confermato"}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => openLineupDialog(i, "view")}
+                                  className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                                >
+                                  Anteprima
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openLineupDialog(i, "edit")}
+                                  className="rounded-md border border-emerald-500 bg-white px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-50"
+                                >
+                                  Prepara schieramento
+                                </button>
+                                {p.boardId && periodBoardUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewBoard({ ...p, boardUrl: periodBoardUrl })}
+                                    className="rounded-md border border-emerald-500 bg-white px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-50"
+                                  >
+                                    Lavagna completa
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {!hasLineup && (
+                          <div className="flex justify-end">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-[11px]"
+                              disabled={selectedPlayerIds.size === 0}
+                              onClick={() => openLineupDialog(i, "edit")}
+                            >
+                              Imposta schieramento
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -1724,6 +2166,435 @@ function MatchCard({
         )}
       </CardContent>
     </Card>
+    <Dialog open={!!lineupDialog} onOpenChange={(open) => !open && setLineupDialog(null)}>
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {lineupReadOnly ? "Anteprima schieramento" : "Prepara schieramento"}
+            {lineupPeriod ? ` - ${lineupPeriod.label}` : ""}
+          </DialogTitle>
+          <DialogDescription>
+            Lavagna essenziale per modulo, titolari e riserve del tempo selezionato.
+          </DialogDescription>
+        </DialogHeader>
+        {lineupDialog && lineupPeriod && (
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={lineupDialog.module}
+                  disabled={lineupReadOnly}
+                  onChange={(e) => {
+                    const module = e.target.value;
+                    setLineupDialog((prev) => {
+                      if (!prev) return prev;
+                      const nextPeriod = planDraft.periods[prev.periodIndex];
+                      const nextLimit = nextPeriod
+                        ? startersLimitForPeriod({ ...nextPeriod, module }, matchFormat)
+                        : lineupLimit;
+                      return {
+                        ...prev,
+                        module,
+                        lineupPlayerIds: buildAutomaticLineup(lineupAvailablePlayers, nextLimit),
+                        positions: {},
+                        selectedPlayerId: null,
+                      };
+                    });
+                  }}
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  <option value="">Seleziona modulo ({lineupFormat})</option>
+                  {lineupModuleOptions.map((module) => (
+                    <option key={module} value={module}>{module}</option>
+                  ))}
+                </select>
+                <div className="ml-auto flex flex-wrap items-center gap-1 rounded-md border bg-background p-1">
+                  {(["select", "pen", "arrow"] as const).map((tool) => (
+                    <Button
+                      key={tool}
+                      type="button"
+                      variant={lineupDialog.tool === tool ? "default" : "ghost"}
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={lineupReadOnly}
+                      onClick={() => setLineupDialog((prev) => prev ? { ...prev, tool, activeDrawing: null, selectedPlayerId: null } : prev)}
+                    >
+                      {tool === "select" ? "Seleziona" : tool === "pen" ? "Disegna" : "Freccia"}
+                    </Button>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    disabled={lineupReadOnly || lineupDialog.drawings.length === 0}
+                    onClick={() => setLineupDialog((prev) => prev ? { ...prev, drawings: [], activeDrawing: null, selectedDrawingId: null } : prev)}
+                  >
+                    Pulisci
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    disabled={lineupReadOnly || !lineupDialog.selectedDrawingId}
+                    onClick={() => setLineupDialog((prev) => prev ? {
+                      ...prev,
+                      drawings: prev.drawings.filter((drawing) => drawing.id !== prev.selectedDrawingId),
+                      selectedDrawingId: null,
+                    } : prev)}
+                  >
+                    Elimina
+                  </Button>
+                  <span className="mx-1 h-5 w-px bg-border" />
+                  {lineupColors.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      aria-label={`Colore ${color}`}
+                      disabled={lineupReadOnly}
+                      onClick={() => setLineupDialog((prev) => prev ? { ...prev, color } : prev)}
+                      className={cn(
+                        "h-5 w-5 rounded-full border shadow-sm",
+                        lineupDialog.color === color ? "ring-2 ring-primary ring-offset-1" : "border-muted-foreground/30",
+                      )}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+              {!lineupReadOnly && lineupDialog.tool !== "select" && (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 text-xs">
+                  {lineupDialog.tool === "arrow" && (
+                    <>
+                      <span className="font-semibold">Tracciato</span>
+                      {(["freehand", "straight", "conduzione"] as const).map((geometry) => (
+                        <Button key={geometry} type="button" size="sm" variant={lineupDialog.geometry === geometry ? "default" : "outline"} className="h-7 text-xs" onClick={() => setLineupDialog((prev) => prev ? { ...prev, geometry } : prev)}>
+                          {geometry === "freehand" ? "Mano libera" : geometry === "straight" ? "Retta" : "Conduzione"}
+                        </Button>
+                      ))}
+                      <span className="ml-2 font-semibold">Punte</span>
+                      {(["end", "start", "both", "none"] as const).map((heads) => (
+                        <Button key={heads} type="button" size="sm" variant={lineupDialog.arrowHeads === heads ? "default" : "outline"} className="h-7 text-xs" onClick={() => setLineupDialog((prev) => prev ? { ...prev, arrowHeads: heads } : prev)}>
+                          {heads === "end" ? "Fine" : heads === "start" ? "Inizio" : heads === "both" ? "Entrambe" : "Nessuna"}
+                        </Button>
+                      ))}
+                    </>
+                  )}
+                  <span className="font-semibold">Linea</span>
+                  {(["solid", "dashed"] as const).map((style) => (
+                    <Button key={style} type="button" size="sm" variant={lineupDialog.lineStyle === style ? "default" : "outline"} className="h-7 text-xs" disabled={lineupDialog.geometry === "conduzione" && style === "dashed"} onClick={() => setLineupDialog((prev) => prev ? { ...prev, lineStyle: style } : prev)}>
+                      {style === "solid" ? "Continua" : "Tratteggio"}
+                    </Button>
+                  ))}
+                  <span className="font-semibold">Spessore</span>
+                  {[2, 3, 4, 5].map((width) => (
+                    <Button key={width} type="button" size="sm" variant={lineupDialog.lineWidth === width ? "default" : "outline"} className="h-7 w-8 text-xs" onClick={() => setLineupDialog((prev) => prev ? { ...prev, lineWidth: width } : prev)}>
+                      {width}
+                    </Button>
+                  ))}
+                </div>
+              )}
+
+              <div
+                data-lineup-pitch
+                className="relative aspect-[16/10] min-h-[360px] overflow-hidden rounded-lg border-4 border-green-300 bg-green-700"
+                onPointerDown={(event) => {
+                  if (lineupDialog.tool === "select") {
+                    setLineupDialog((prev) => prev ? { ...prev, selectedPlayerId: null, selectedDrawingId: null } : prev);
+                  }
+                  if (lineupReadOnly || lineupDialog.tool === "select") return;
+                  const point = lineupPitchPoint(event);
+                  const drawing: LineupDrawing = {
+                    id: `draw-${Date.now()}`,
+                    tool: lineupDialog.tool,
+                    color: lineupDialog.color,
+                    width: lineupDialog.lineWidth,
+                    lineStyle: lineupDialog.geometry === "conduzione" ? "solid" : lineupDialog.lineStyle,
+                    arrowHeads: lineupDialog.tool === "arrow" ? lineupDialog.arrowHeads : "none",
+                    geometry: lineupDialog.tool === "arrow" ? lineupDialog.geometry : "freehand",
+                    points: [point],
+                  };
+                  setLineupDialog((prev) => prev ? { ...prev, activeDrawing: drawing, selectedDrawingId: null, selectedPlayerId: null } : prev);
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                }}
+                onPointerMove={(event) => {
+                  if (lineupReadOnly || !lineupDialog.activeDrawing) return;
+                  const point = lineupPitchPoint(event);
+                  setLineupDialog((prev) => {
+                    if (!prev?.activeDrawing) return prev;
+                    const points = prev.activeDrawing.tool === "arrow"
+                      ? (prev.activeDrawing.geometry === "straight"
+                        ? [prev.activeDrawing.points[0], point]
+                        : [...prev.activeDrawing.points, point])
+                      : [...prev.activeDrawing.points, point];
+                    return { ...prev, activeDrawing: { ...prev.activeDrawing, points } };
+                  });
+                }}
+                onPointerUp={(event) => {
+                  if (lineupReadOnly || !lineupDialog.activeDrawing) return;
+                  setLineupDialog((prev) => {
+                    if (!prev?.activeDrawing) return prev;
+                    return {
+                      ...prev,
+                      drawings: [...prev.drawings, prev.activeDrawing],
+                      activeDrawing: null,
+                    };
+                  });
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }}
+              >
+                <div className="absolute inset-[4%] rounded-lg border-2 border-white/70" />
+                <div className="absolute left-1/2 top-[4%] h-[92%] w-0.5 bg-white/60" />
+                <div className="absolute left-1/2 top-1/2 h-[22%] w-[13%] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/60" />
+                <div className="absolute left-[4%] top-[30%] h-[40%] w-[17%] border-2 border-l-0 border-white/60" />
+                <div className="absolute right-[4%] top-[30%] h-[40%] w-[17%] border-2 border-r-0 border-white/60" />
+                <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <defs>
+                    <marker id="lineup-arrow-head" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+                      <path d="M 0 0 L 5 2.5 L 0 5 z" fill="context-stroke" />
+                    </marker>
+                  </defs>
+                  {[...lineupDialog.drawings, ...(lineupDialog.activeDrawing ? [lineupDialog.activeDrawing] : [])].map((drawing) => {
+                    if (drawing.points.length < 2) return null;
+                    const d = lineupDrawingPath(drawing.points, drawing.tool === "arrow" && drawing.geometry === "straight");
+                    const selected = lineupDialog.selectedDrawingId === drawing.id;
+                    const arrowFrom = drawing.points.length > 1 ? drawing.points[drawing.points.length - 2] : drawing.points[0];
+                    const arrowTip = drawing.points[drawing.points.length - 1];
+                    return (
+                      <g key={drawing.id}>
+                        <path d={d} fill="none" stroke="rgba(15,23,42,0.24)" strokeWidth={(drawing.width ?? 3) * 0.72} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" strokeDasharray={drawing.lineStyle === "dashed" ? "2 2" : undefined} />
+                        <path
+                          d={d}
+                          fill="none"
+                          stroke={drawing.color}
+                          strokeWidth={(drawing.width ?? 3) * (selected ? 0.42 : 0.34)}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          vectorEffect="non-scaling-stroke"
+                          className={cn(!lineupReadOnly && lineupDialog.tool === "select" && "pointer-events-auto cursor-move")}
+                          opacity={selected ? 1 : 0.96}
+                          strokeDasharray={drawing.lineStyle === "dashed" ? "2 2" : undefined}
+                          onPointerDown={(event) => {
+                            if (lineupReadOnly || lineupDialog.tool !== "select") return;
+                            event.stopPropagation();
+                            const point = lineupPitchPoint(event as any);
+                            setLineupDialog((prev) => prev ? {
+                              ...prev,
+                              selectedDrawingId: drawing.id,
+                              selectedPlayerId: null,
+                              drawingDrag: { id: drawing.id, last: point },
+                            } : prev);
+                            (event.currentTarget as SVGPathElement).setPointerCapture(event.pointerId);
+                          }}
+                          onPointerMove={(event) => {
+                            if (lineupReadOnly || lineupDialog.tool !== "select" || lineupDialog.drawingDrag?.id !== drawing.id) return;
+                            event.stopPropagation();
+                            const point = lineupPitchPoint(event as any);
+                            const dx = point.x - lineupDialog.drawingDrag.last.x;
+                            const dy = point.y - lineupDialog.drawingDrag.last.y;
+                            setLineupDialog((prev) => {
+                              if (!prev?.drawingDrag || prev.drawingDrag.id !== drawing.id) return prev;
+                              return {
+                                ...prev,
+                                drawingDrag: { id: drawing.id, last: point },
+                                drawings: prev.drawings.map((item) =>
+                                  item.id === drawing.id
+                                    ? { ...item, points: item.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) }
+                                    : item,
+                                ),
+                              };
+                            });
+                          }}
+                          onPointerUp={(event) => {
+                            if (lineupReadOnly) return;
+                            event.stopPropagation();
+                            setLineupDialog((prev) => prev ? { ...prev, drawingDrag: null } : prev);
+                            (event.currentTarget as SVGPathElement).releasePointerCapture(event.pointerId);
+                          }}
+                        />
+                        {drawing.tool === "arrow" && (drawing.arrowHeads === "end" || drawing.arrowHeads === "both") && (
+                          <path d={lineupArrowHeadPath(arrowTip, arrowFrom)} fill="none" stroke={drawing.color} strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                        )}
+                        {drawing.tool === "arrow" && (drawing.arrowHeads === "start" || drawing.arrowHeads === "both") && (
+                          <path d={lineupArrowHeadPath(drawing.points[0], drawing.points[1] ?? arrowTip)} fill="none" stroke={drawing.color} strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                        )}
+                      </g>
+                    );
+                  })}
+                </svg>
+                {lineupSlots.map((slot, idx) => {
+                  const playerId = lineupStarters[idx];
+                  const player = playerId ? convokedById.get(playerId) : null;
+                  const position = playerId ? lineupDialog.positions[String(playerId)] ?? slot : slot;
+                  return (
+                    <div
+                      key={`lineup-slot-${idx}`}
+                      className={cn(
+                        "absolute flex w-28 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1",
+                        !lineupReadOnly && lineupDialog.tool === "select" && playerId && "cursor-grab active:cursor-grabbing",
+                      )}
+                      style={{ left: `${position.x}%`, top: `${position.y}%` }}
+                      draggable={!lineupReadOnly && lineupDialog.tool === "select" && !!playerId}
+                      onDragStart={(event) => {
+                        if (!playerId) return;
+                        event.dataTransfer.setData("application/x-lineup-player", String(playerId));
+                      }}
+                      onDragEnd={(event) => {
+                        if (!playerId || lineupReadOnly) return;
+                        const rect = event.currentTarget.parentElement?.getBoundingClientRect();
+                        if (!rect) return;
+                        const x = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+                        const y = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+                        setLineupDialog((prev) => prev ? {
+                          ...prev,
+                          positions: { ...prev.positions, [String(playerId)]: { x, y } },
+                        } : prev);
+                      }}
+                      onClick={(event) => {
+                        if (!playerId || lineupReadOnly || lineupDialog.tool !== "select") return;
+                        event.stopPropagation();
+                        setLineupDialog((prev) => prev ? { ...prev, selectedPlayerId: playerId, selectedDrawingId: null } : prev);
+                      }}
+                    >
+                      <div className={cn(
+                        "flex h-9 w-9 items-center justify-center rounded-full border-2 border-white text-xs font-bold text-white shadow",
+                        slot.role === "goalkeeper" ? "bg-yellow-500" : "bg-blue-500",
+                      )}>
+                        {player?.jerseyNumber ?? (slot.role === "goalkeeper" ? "GK" : idx + 1)}
+                      </div>
+                      {player && (
+                        <span className="max-w-20 truncate rounded bg-black/45 px-1 py-0.5 text-[10px] font-semibold text-white">
+                          {shortPlayerLabel(player)}
+                        </span>
+                      )}
+                      {lineupDialog.selectedPlayerId === playerId && player && !lineupReadOnly && (
+                        <div className="absolute left-1/2 top-10 z-20 w-48 -translate-x-1/2 rounded-lg border bg-white p-2 text-[11px] shadow-xl">
+                          <p className="mb-1 truncate font-semibold text-slate-900">{player.firstName} {player.lastName}</p>
+                          <select
+                            className="h-7 w-full rounded border bg-white px-1 text-[11px]"
+                            value={String(playerId)}
+                            onChange={(e) => {
+                              const nextId = e.target.value ? Number(e.target.value) : null;
+                              setLineupDialog((prev) => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  selectedPlayerId: nextId,
+                                  lineupPlayerIds: replaceLineupPlayerAtSlot(prev.lineupPlayerIds, idx, playerId, nextId),
+                                };
+                              });
+                            }}
+                          >
+                            {lineupAvailablePlayers
+                              .filter((p) => slot.role === "goalkeeper" ? isGoalkeeperPlayer(p) : (!isGoalkeeperPlayer(p) || p.id === playerId))
+                              .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className="mt-1 w-full rounded bg-red-50 px-2 py-1 font-semibold text-red-700 hover:bg-red-100"
+                            onClick={() => setLineupDialog((prev) => prev ? {
+                              ...prev,
+                              selectedPlayerId: null,
+                              lineupPlayerIds: replaceLineupPlayerAtSlot(prev.lineupPlayerIds, idx, playerId, null),
+                            } : prev)}
+                          >
+                            Rimuovi dallo slot
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <p className="text-sm font-semibold">Titolari</p>
+                <div className="mt-2 max-h-48 space-y-1 overflow-auto">
+                  {lineupStarterPlayers.length > 0 ? lineupStarterPlayers.map((player) => (
+                    <div key={`lineup-starter-${player.id}`} className="flex items-center justify-between rounded border bg-background px-2 py-1 text-xs">
+                      <span className="truncate">{player.jerseyNumber ? `${player.jerseyNumber} - ` : ""}{player.firstName} {player.lastName}</span>
+                      <span className={cn(
+                        "ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                        isGoalkeeperPlayer(player) ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800",
+                      )}>
+                        {isGoalkeeperPlayer(player) ? "GK" : "Titolare"}
+                      </span>
+                    </div>
+                  )) : (
+                    <p className="text-xs text-muted-foreground">Nessun titolare selezionato.</p>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <p className="text-sm font-semibold">Riserve</p>
+                <div className="mt-2 max-h-48 space-y-1 overflow-auto">
+                  {lineupReserves.length > 0 ? lineupReserves.map((id) => {
+                    const player = convokedById.get(id);
+                    if (!player) return null;
+                    return (
+                      <div key={`lineup-reserve-${id}`} className="flex items-center justify-between rounded border bg-background px-2 py-1 text-xs">
+                        <span className="truncate">{player.jerseyNumber ? `${player.jerseyNumber} - ` : ""}{player.firstName} {player.lastName}</span>
+                        {!lineupReadOnly && (
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-destructive"
+                            onClick={() => setLineupDialog((prev) => prev ? { ...prev, lineupPlayerIds: prev.lineupPlayerIds.filter((pid) => pid !== id) } : prev)}
+                          >
+                            Rimuovi
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }) : (
+                    <p className="text-xs text-muted-foreground">Nessuna riserva selezionata.</p>
+                  )}
+                </div>
+              </div>
+              {!lineupReadOnly && (
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-sm font-semibold">Aggiungi convocato</p>
+                  <div className="mt-2 max-h-56 space-y-1 overflow-auto">
+                    {lineupAvailablePlayers.filter((p) => !lineupSelected.has(p.id)).map((player) => (
+                      <button
+                        key={`lineup-add-${player.id}`}
+                        type="button"
+                        className="flex w-full items-center justify-between rounded border bg-background px-2 py-1 text-left text-xs hover:bg-muted"
+                        onClick={() => setLineupDialog((prev) => prev ? { ...prev, lineupPlayerIds: [...prev.lineupPlayerIds, player.id] } : prev)}
+                      >
+                        <span>{player.jerseyNumber ? `${player.jerseyNumber} - ` : ""}{player.firstName} {player.lastName}</span>
+                        <span className="text-muted-foreground">aggiungi</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {lineupPeriod.boardUrl && (
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <a href={lineupPeriod.boardUrl}>Apri lavagna tattica completa</a>
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setLineupDialog(null)}>
+            Chiudi
+          </Button>
+          {!lineupReadOnly && (
+            <Button type="button" onClick={saveLineupDialog}>
+              Salva schieramento
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={!!previewBoard} onOpenChange={(open) => !open && setPreviewBoard(null)}>
       <DialogContent className="max-w-6xl p-0 overflow-hidden">
         <DialogHeader className="px-4 pt-4">
@@ -2890,6 +3761,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               canManageMatchPlan={canManageMatchPlan}
               canViewMatchPlan={canViewMatchPlan}
               teamPlayers={teamPlayers}
+              teamTrainingSchedule={team?.trainingSchedule ?? null}
               matchSection={currentSection}
               teamName={team?.name ?? ""}
               teamCategory={team?.category ?? undefined}
