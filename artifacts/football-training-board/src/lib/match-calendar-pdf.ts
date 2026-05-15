@@ -42,6 +42,16 @@ export type MatchPdfImportResult = {
   recognized: MatchImportRow[];
   discarded: number;
   totalDateLines: number;
+  tournamentProgram?: TournamentProgramEntry[];
+};
+
+export type TournamentProgramEntry = {
+  id: string;
+  date: string;
+  homeTeam: string;
+  awayTeam: string;
+  phase?: string | null;
+  group?: string | null;
 };
 
 type ParseTextOptions = ParsePdfOptions & {
@@ -487,16 +497,21 @@ function parseTournamentProgramLines(
     /** Anno da usare per “12 giugno” senza anno nel PDF (es. da anno del file). */
     fallbackYearHint?: number | null;
   },
-): { recognized: MatchImportRow[]; discarded: number; totalDateLines: number } {
+): MatchPdfImportResult {
   const recognized: MatchImportRow[] = [];
+  const tournamentProgram: TournamentProgramEntry[] = [];
   const seen = new Set<string>();
+  const seenProgram = new Set<string>();
   let discarded = 0;
   let totalDateLines = 0;
   let currentDateIso: string | null = null;
   let currentPhase: string | null = null;
   const fallbackYear = extractYearFromIso(options.fallbackDateIso) ?? options.fallbackYearHint ?? null;
 
-  for (const raw of allLines) {
+  const normalizedLines = allLines.map((raw) => raw.trim().replace(/\s+/g, " "));
+
+  for (let i = 0; i < normalizedLines.length; i++) {
+    const raw = normalizedLines[i] ?? "";
     const line = raw.trim().replace(/\s+/g, " ");
     if (!line || isPageFooterOrNoise(line)) continue;
 
@@ -517,6 +532,15 @@ function parseTournamentProgramLines(
     if (!currentDateIso) continue;
 
     totalDateLines++;
+    const programEntry = parseAnyTournamentProgramLineNear(normalizedLines, i, currentDateIso, currentPhase);
+    if (programEntry) {
+      const key = `${programEntry.date}|${normalizeName(programEntry.homeTeam)}|${normalizeName(programEntry.awayTeam)}`;
+      if (!seenProgram.has(key)) {
+        seenProgram.add(key);
+        tournamentProgram.push({ ...programEntry, id: key });
+      }
+    }
+
     const parsed = parseTournamentMatchLine(line, currentDateIso, options.aliasNorms);
     if (!parsed) {
       discarded++;
@@ -538,7 +562,65 @@ function parseTournamentProgramLines(
     });
   }
 
-  return { recognized, discarded, totalDateLines };
+  return { recognized, discarded, totalDateLines, tournamentProgram };
+}
+
+function parseAnyTournamentProgramLine(
+  line: string,
+  currentDateIso: string,
+  currentPhase: string | null,
+): TournamentProgramEntry | null {
+  const m = line.match(/\b(?:ORE\s*)?(\d{1,2})[:.](\d{2})\b\s*(.+)$/i);
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const rest = cleanTournamentTeamName(m[3] ?? "");
+  const pair = rest.match(/^(.+?)\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>)\s*(.+?)\s*(?:\d+\s*[-:]\s*\d+)?$/i);
+  if (!pair) return null;
+  const homeTeam = cleanOcrTournamentOpponentName(pair[1] ?? "");
+  const awayTeam = cleanOcrTournamentOpponentName(pair[2] ?? "");
+  if (!homeTeam || !awayTeam) return null;
+  const base = new Date(currentDateIso);
+  if (Number.isNaN(base.getTime())) return null;
+  base.setHours(hour, minute, 0, 0);
+  const phase = currentPhase?.trim() || null;
+  const group = phase?.match(/\bgirone\s+[a-z0-9]+/i)?.[0] ?? null;
+  return {
+    id: "",
+    date: base.toISOString(),
+    homeTeam: homeTeam.slice(0, 120),
+    awayTeam: awayTeam.slice(0, 120),
+    phase,
+    group,
+  };
+}
+
+function tournamentProgramCandidateLines(lines: string[], index: number): string[] {
+  const current = lines[index]?.trim().replace(/\s+/g, " ") ?? "";
+  if (!current) return [];
+  const previous = lines[index - 1]?.trim().replace(/\s+/g, " ") ?? "";
+  const next = lines[index + 1]?.trim().replace(/\s+/g, " ") ?? "";
+  const next2 = lines[index + 2]?.trim().replace(/\s+/g, " ") ?? "";
+  const candidates = [
+    current,
+    [current, next].filter(Boolean).join(" "),
+    [current, next, next2].filter(Boolean).join(" "),
+    [previous, current].filter(Boolean).join(" "),
+  ];
+  return [...new Set(candidates.map((line) => line.trim()).filter(Boolean))];
+}
+
+function parseAnyTournamentProgramLineNear(
+  lines: string[],
+  index: number,
+  currentDateIso: string,
+  currentPhase: string | null,
+): TournamentProgramEntry | null {
+  for (const candidate of tournamentProgramCandidateLines(lines, index)) {
+    const parsed = parseAnyTournamentProgramLine(candidate, currentDateIso, currentPhase);
+    if (parsed) return parsed;
+  }
+  return null;
 }
 
 function parseTournamentImageMatchLine(
@@ -611,12 +693,17 @@ function parseTournamentImageTextLines(
   },
 ): MatchPdfImportResult {
   const recognized: MatchImportRow[] = [];
+  const tournamentProgram: TournamentProgramEntry[] = [];
   const seen = new Set<string>();
+  const seenProgram = new Set<string>();
   let currentDateIso: string | null = null;
   let totalDateLines = 0;
   let discarded = 0;
 
-  for (const raw of allLines) {
+  const normalizedLines = allLines.map((raw) => raw.trim().replace(/\s+/g, " "));
+
+  for (let i = 0; i < normalizedLines.length; i++) {
+    const raw = normalizedLines[i] ?? "";
     const line = raw.trim().replace(/\s+/g, " ");
     if (!line || isPageFooterOrNoise(line)) continue;
 
@@ -629,6 +716,16 @@ function parseTournamentImageTextLines(
 
     if (!/\b\d{1,2}[:.]\d{2}\b/.test(line)) continue;
     totalDateLines++;
+    if (currentDateIso) {
+      const programEntry = parseAnyTournamentProgramLineNear(normalizedLines, i, currentDateIso, null);
+      if (programEntry) {
+        const key = `${programEntry.date}|${normalizeName(programEntry.homeTeam)}|${normalizeName(programEntry.awayTeam)}`;
+        if (!seenProgram.has(key)) {
+          seenProgram.add(key);
+          tournamentProgram.push({ ...programEntry, id: key });
+        }
+      }
+    }
     const parsed =
       parseTournamentImageMatchLine(line, currentDateIso, options.aliasNorms) ??
       parseTournamentImageEmptySlotLine(line, currentDateIso);
@@ -646,7 +743,7 @@ function parseTournamentImageTextLines(
     });
   }
 
-  return { recognized, discarded, totalDateLines };
+  return { recognized, discarded, totalDateLines, tournamentProgram };
 }
 
 function extractOpponent(line: string, aliases: string[]): { opponent: string | null; homeAway: "home" | "away" } {

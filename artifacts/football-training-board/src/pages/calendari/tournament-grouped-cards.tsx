@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,10 +19,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { StoredTournamentAttachment } from "@/pages/calendari/tournament-documents-storage";
-import {
-  filterMatchesByProgramView,
-  type TournamentProgramView,
-} from "@/pages/calendari/tournament-program-filter";
+import type { TournamentProgramEntry, TournamentProgramScore } from "@/pages/calendari/tournament-documents-storage";
+import { isFinalsRow, isKnockoutRow, isQualifyingRow, type TournamentProgramView } from "@/pages/calendari/tournament-program-filter";
 
 export interface TournamentCardMatch {
   id: number;
@@ -32,6 +30,7 @@ export interface TournamentCardMatch {
   competition?: string | null;
   location?: string | null;
   notes?: string | null;
+  result?: string | null;
 }
 
 export interface TournamentCardGroup {
@@ -106,11 +105,158 @@ export function groupTorneoMatchesByCompetition(matches: TournamentCardMatch[]):
   return rows;
 }
 
-function matchRowLabels(m: TournamentCardMatch, clubLabel: string) {
-  const isHome = m.homeAway === "home";
-  const homeSide = isHome ? clubLabel : m.opponent;
-  const awaySide = isHome ? m.opponent : clubLabel;
-  return { homeSide, awaySide };
+function scorePart(value: number | null | undefined): string {
+  return value == null ? "" : String(value);
+}
+
+function scoreFromParts(homeRaw: string, awayRaw: string): TournamentProgramScore {
+  const cleanHome = homeRaw.replace(/[^\d]/g, "").slice(0, 2);
+  const cleanAway = awayRaw.replace(/[^\d]/g, "").slice(0, 2);
+  const home = cleanHome === "" ? null : Number(cleanHome);
+  const away = cleanAway === "" ? null : Number(cleanAway);
+  return {
+    homeScore: Number.isFinite(home) ? home : null,
+    awayScore: Number.isFinite(away) ? away : null,
+  };
+}
+
+function ScoreInputPair({
+  home,
+  away,
+  onChange,
+}: {
+  home: number | null | undefined;
+  away: number | null | undefined;
+  onChange: (score: TournamentProgramScore) => void;
+}) {
+  const [homeDraft, setHomeDraft] = useState(scorePart(home));
+  const [awayDraft, setAwayDraft] = useState(scorePart(away));
+
+  useEffect(() => {
+    setHomeDraft(scorePart(home));
+    setAwayDraft(scorePart(away));
+  }, [home, away]);
+
+  const commit = (nextHome = homeDraft, nextAway = awayDraft) => {
+    onChange(scoreFromParts(nextHome, nextAway));
+  };
+
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        aria-label="Gol squadra casa"
+        title="Gol squadra casa"
+        placeholder="0"
+        className="h-8 w-11 rounded-md border bg-background px-1 text-center text-xs tabular-nums focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        value={homeDraft}
+        onChange={(e) => setHomeDraft(e.target.value.replace(/[^\d]/g, "").slice(0, 2))}
+        onBlur={() => commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+      <span className="text-xs text-muted-foreground">-</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        aria-label="Gol squadra trasferta"
+        title="Gol squadra trasferta"
+        placeholder="0"
+        className="h-8 w-11 rounded-md border bg-background px-1 text-center text-xs tabular-nums focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        value={awayDraft}
+        onChange={(e) => setAwayDraft(e.target.value.replace(/[^\d]/g, "").slice(0, 2))}
+        onBlur={() => commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+    </div>
+  );
+}
+
+function normalizeSide(value: string): string {
+  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function standingsFor(entries: TournamentProgramEntry[], scores: Record<string, TournamentProgramScore>) {
+  const table = new Map<string, { team: string; pg: number; v: number; n: number; p: number; gf: number; gs: number; pts: number }>();
+  const ensure = (team: string) => {
+    const key = normalizeSide(team);
+    if (!table.has(key)) table.set(key, { team, pg: 0, v: 0, n: 0, p: 0, gf: 0, gs: 0, pts: 0 });
+    return table.get(key)!;
+  };
+  for (const entry of entries) {
+    const home = ensure(entry.homeTeam);
+    const away = ensure(entry.awayTeam);
+    const score = scores[entry.id];
+    if (score?.homeScore == null || score?.awayScore == null) continue;
+    home.pg += 1; away.pg += 1;
+    home.gf += score.homeScore; home.gs += score.awayScore;
+    away.gf += score.awayScore; away.gs += score.homeScore;
+    if (score.homeScore > score.awayScore) { home.v += 1; home.pts += 3; away.p += 1; }
+    else if (score.homeScore < score.awayScore) { away.v += 1; away.pts += 3; home.p += 1; }
+    else { home.n += 1; away.n += 1; home.pts += 1; away.pts += 1; }
+  }
+  return [...table.values()].sort(
+    (a, b) =>
+      b.pts - a.pts ||
+      b.pg - a.pg ||
+      (b.gf - b.gs) - (a.gf - a.gs) ||
+      b.gf - a.gf ||
+      a.team.localeCompare(b.team),
+  );
+}
+
+type StandingRow = ReturnType<typeof standingsFor>[number];
+
+function programEntrySearchText(entry: TournamentProgramEntry): string {
+  return [entry.homeTeam, entry.awayTeam, entry.phase ?? "", entry.group ?? ""].join(" ");
+}
+
+function filterProgramEntriesByView(entries: TournamentProgramEntry[], view: TournamentProgramView): TournamentProgramEntry[] {
+  if (view === "full") return entries;
+  return entries.filter((entry) => {
+    const text = programEntrySearchText(entry);
+    if (view === "finals") return isFinalsRow(text);
+    if (view === "knockout") return isKnockoutRow(text);
+    if (view === "qualifying") return isQualifyingRow(text);
+    return true;
+  });
+}
+
+function sideMatchesClub(side: string, clubLabel: string): boolean {
+  const sideNorm = normalizeSide(side);
+  const clubNorm = normalizeSide(clubLabel);
+  if (!sideNorm || !clubNorm) return false;
+  if (sideNorm.includes(clubNorm) || clubNorm.includes(sideNorm)) return true;
+  const sideTokens = sideNorm.split(" ").filter((token) => token.length >= 4 && !["asd", "ssd", "sportiva", "calcio"].includes(token));
+  const clubTokens = new Set(clubNorm.split(" ").filter((token) => token.length >= 4));
+  return sideTokens.some((token) => clubTokens.has(token));
+}
+
+function finalPairLabel(index: number): string {
+  const first = index * 2 + 1;
+  const second = first + 1;
+  return `Finale ${first}° - ${second}° posto`;
+}
+
+function generatedFinalsFromStandings(rows: StandingRow[]) {
+  const finals: { label: string; homeTeam: string; awayTeam: string }[] = [];
+  for (let i = 0; i < rows.length; i += 2) {
+    const home = rows[i];
+    const away = rows[i + 1];
+    if (!home && !away) continue;
+    finals.push({
+      label: finalPairLabel(i / 2),
+      homeTeam: home?.team ?? "da completare",
+      awayTeam: away?.team ?? "da completare",
+    });
+  }
+  return finals;
 }
 
 const PROGRAM_LABELS: Record<TournamentProgramView, string> = {
@@ -122,30 +268,35 @@ const PROGRAM_LABELS: Record<TournamentProgramView, string> = {
 
 export function TournamentGroupedCards({
   groups,
-  teamDisplayName,
   clubLabel,
   programSelection,
   onProgramChange,
   canUploadDocuments,
   canManageTournament,
   attachmentsByCompetition,
+  programsByCompetition,
+  scoresByCompetition,
   onEditTournament,
   onDeleteTournament,
   onLocalDocumentSelected,
+  onTournamentScoreChange,
 }: {
   groups: TournamentCardGroup[];
-  teamDisplayName: string;
   clubLabel: string;
   programSelection: Record<string, string>;
   onProgramChange: (competition: string, value: string) => void;
   canUploadDocuments: boolean;
   canManageTournament: boolean;
   attachmentsByCompetition: Record<string, StoredTournamentAttachment[]>;
+  programsByCompetition: Record<string, TournamentProgramEntry[]>;
+  scoresByCompetition: Record<string, Record<string, TournamentProgramScore>>;
   onEditTournament: (group: TournamentCardGroup) => void;
   onDeleteTournament: (group: TournamentCardGroup) => void;
   onLocalDocumentSelected: (competition: string, file: File) => void;
+  onTournamentScoreChange: (competition: string, entryId: string, score: TournamentProgramScore) => void;
 }) {
   const docInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [clubOnlyByCompetition, setClubOnlyByCompetition] = useState<Record<string, boolean>>({});
 
   return (
     <div className="space-y-4 min-w-0">
@@ -163,13 +314,15 @@ export function TournamentGroupedCards({
         const locLine = firstLoc ? firstLoc : "da completare";
         const progVal = (programSelection[g.competition] ?? "full") as TournamentProgramView;
         const docs = attachmentsByCompetition[g.competition] ?? [];
-
-        const displayedMatches = filterMatchesByProgramView(
-          sorted,
-          progVal,
-          teamDisplayName,
-          clubLabel,
-        );
+        const program = programsByCompetition[g.competition] ?? [];
+        const scores = scoresByCompetition[g.competition] ?? {};
+        const programByView = filterProgramEntriesByView(program, progVal);
+        const clubOnly = !!clubOnlyByCompetition[g.competition];
+        const visibleProgram = clubOnly
+          ? programByView.filter((entry) => sideMatchesClub(entry.homeTeam, clubLabel) || sideMatchesClub(entry.awayTeam, clubLabel))
+          : programByView;
+        const standingsRows = standingsFor(programByView, scores);
+        const generatedFinals = generatedFinalsFromStandings(standingsRows);
 
         return (
           <Card key={g.competition} className="min-w-0 overflow-hidden border-violet-500/20 shadow-sm">
@@ -288,33 +441,87 @@ export function TournamentGroupedCards({
                 ) : null}
               </div>
 
-              <div className="rounded-lg border border-border/80 bg-muted/10 p-3 space-y-2">
-                <p className="text-xs font-semibold text-foreground">Partite ed eventi del torneo</p>
-                {displayedMatches.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-2">Nessuna partita in questa sezione.</p>
-                ) : (
-                  <div className="divide-y divide-border/60 max-h-[280px] overflow-y-auto">
-                    {displayedMatches.map((m) => {
-                      const { homeSide, awaySide } = matchRowLabels(m, clubLabel);
-                      return (
-                        <div key={m.id} className="py-2.5 text-sm leading-snug first:pt-0 last:pb-0">
-                          <div className="font-medium">
-                            {homeSide} <span className="text-muted-foreground font-normal">vs</span> {awaySide}
+              {program.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-border/80 bg-muted/10 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-foreground">Partite del torneo</p>
+                      <Button
+                        type="button"
+                        variant={clubOnly ? "default" : "outline"}
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() =>
+                          setClubOnlyByCompetition((prev) => ({
+                            ...prev,
+                            [g.competition]: !prev[g.competition],
+                          }))
+                        }
+                      >
+                        Solo società
+                      </Button>
+                    </div>
+                    <div className="divide-y divide-border/60 max-h-[520px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      {visibleProgram.length === 0 ? (
+                        <p className="py-3 text-xs text-muted-foreground">Nessuna partita in questa vista.</p>
+                      ) : visibleProgram.map((entry) => (
+                        <div key={entry.id} className="py-2 text-xs flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{entry.homeTeam} <span className="text-muted-foreground font-normal">-</span> {entry.awayTeam}</p>
+                            <p className="text-muted-foreground">{format(new Date(entry.date), "dd/MM HH:mm", { locale: itLocale })}{entry.group ? ` · ${entry.group}` : ""}</p>
                           </div>
-                          <div className="text-xs text-muted-foreground mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
-                            <span>
-                              {format(new Date(m.date), "EEEE d MMMM yyyy 'alle ore' HH:mm", {
-                                locale: itLocale,
-                              })}
-                            </span>
-                            <span>{m.homeAway === "home" ? "Casa" : "Trasferta"}</span>
-                          </div>
+                          <input
+                            className="hidden"
+                            readOnly
+                          />
+                          <ScoreInputPair
+                            home={scores[entry.id]?.homeScore}
+                            away={scores[entry.id]?.awayScore}
+                            onChange={(score) => onTournamentScoreChange(g.competition, entry.id, score)}
+                          />
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                )}
-              </div>
+                  <div className="rounded-lg border border-border/80 bg-muted/10 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-foreground">Classifica girone</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="text-muted-foreground">
+                          <tr><th className="text-left py-1">Squadra</th><th>PG</th><th>GF</th><th>GS</th><th>DR</th><th>Pt</th></tr>
+                        </thead>
+                        <tbody>
+                          {standingsRows.map((row) => (
+                            <tr key={row.team} className="border-t">
+                              <td className="py-1 pr-2 font-medium">{row.team}</td>
+                              <td className="text-center">{row.pg}</td>
+                              <td className="text-center">{row.gf}</td>
+                              <td className="text-center">{row.gs}</td>
+                              <td className="text-center">{row.gf - row.gs}</td>
+                              <td className="text-center font-semibold">{row.pts}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="border-t pt-2">
+                      <p className="text-xs font-semibold text-foreground">Finali generate</p>
+                      {generatedFinals.length === 0 ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Inserisci i risultati del girone per generare gli accoppiamenti.</p>
+                      ) : (
+                        <div className="mt-1 divide-y divide-border/60">
+                          {generatedFinals.map((finale) => (
+                            <div key={finale.label} className="py-1.5 text-xs">
+                              <div className="font-medium">{finale.label}</div>
+                              <div className="text-muted-foreground">{finale.homeTeam} - {finale.awayTeam}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="rounded-lg border border-dashed border-border/70 bg-card p-3">
                 <p className="text-xs font-semibold text-foreground mb-2">Documenti del torneo</p>

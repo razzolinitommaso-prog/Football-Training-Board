@@ -11,6 +11,20 @@ export type StoredTournamentAttachment = {
   dataUrl: string;
 };
 
+export type TournamentProgramEntry = {
+  id: string;
+  date: string;
+  homeTeam: string;
+  awayTeam: string;
+  phase?: string | null;
+  group?: string | null;
+};
+
+export type TournamentProgramScore = {
+  homeScore: number | null;
+  awayScore: number | null;
+};
+
 /** Normalizza la competizione per confronto con `normalizedCompetition` lato API. */
 export function normalizeTournamentKeyPart(value: unknown): string {
   let s = String(value ?? "").trim().toLowerCase();
@@ -35,9 +49,60 @@ export function fileToDataUrl(file: File): Promise<string> {
 }
 
 const PDF_REF_PREFIX = "ftb-pdf-ref";
+const PROGRAM_PREFIX = "ftb-tournament-program";
+const SCORE_PREFIX = "ftb-tournament-score";
 
 function pdfRefStorageKey(teamId: number, competition: string): string {
   return `${PDF_REF_PREFIX}:${teamId}:${normalizeTournamentKeyPart(competition)}`;
+}
+
+function tournamentProgramStorageKey(teamId: number, competition: string): string {
+  return `${PROGRAM_PREFIX}:${teamId}:${normalizeTournamentKeyPart(competition)}`;
+}
+
+function tournamentScoreStorageKey(teamId: number, competition: string): string {
+  return `${SCORE_PREFIX}:${teamId}:${normalizeTournamentKeyPart(competition)}`;
+}
+
+export function getTournamentProgram(teamId: number, competition: string): TournamentProgramEntry[] {
+  try {
+    const raw = localStorage.getItem(tournamentProgramStorageKey(teamId, competition));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((item) => item?.id && item?.date && item?.homeTeam && item?.awayTeam) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setTournamentProgram(teamId: number, competition: string, entries: TournamentProgramEntry[]): void {
+  try {
+    const clean = entries.filter((item) => item.id && item.date && item.homeTeam && item.awayTeam);
+    if (clean.length === 0) {
+      localStorage.removeItem(tournamentProgramStorageKey(teamId, competition));
+      return;
+    }
+    localStorage.setItem(tournamentProgramStorageKey(teamId, competition), JSON.stringify(clean));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function getTournamentScores(teamId: number, competition: string): Record<string, TournamentProgramScore> {
+  try {
+    const raw = localStorage.getItem(tournamentScoreStorageKey(teamId, competition));
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function setTournamentScores(teamId: number, competition: string, scores: Record<string, TournamentProgramScore>): void {
+  try {
+    localStorage.setItem(tournamentScoreStorageKey(teamId, competition), JSON.stringify(scores));
+  } catch {
+    /* ignore quota / private mode */
+  }
 }
 
 /** Data locale YYYY-MM-DD salvata per squadra + competizione (import PDF torneo senza date nel testo). */

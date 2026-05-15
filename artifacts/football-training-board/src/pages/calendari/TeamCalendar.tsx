@@ -47,14 +47,20 @@ import {
   groupTorneoMatchesByCompetition,
   type TournamentCardGroup,
 } from "@/pages/calendari/tournament-grouped-cards";
-import { FORMATIONS, isFormationPresetId } from "@/pages/tactical-board/formations";
+import { FORMATIONS, isFormationPresetId, type FormationSlot } from "@/pages/tactical-board/formations";
 import { isGoalkeeperPlayer } from "@/pages/tactical-board/player-mapping";
 import {
   fileToDataUrl,
+  getTournamentProgram,
+  getTournamentScores,
   getTournamentPdfReferenceDate,
   normalizeTournamentKeyPart,
+  setTournamentProgram,
+  setTournamentScores,
   setTournamentPdfReferenceDate,
   type StoredTournamentAttachment,
+  type TournamentProgramEntry,
+  type TournamentProgramScore,
   ymdLocalNoonToIso,
 } from "@/pages/calendari/tournament-documents-storage";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -124,7 +130,7 @@ interface AttendanceLite { id: number; playerId: number; status: string; }
 interface MatchWeekTrainingDay { key: string; date: Date; sessionId?: number; }
 type LineupPositionMap = Record<string, { x: number; y: number }>;
 type LineupPoint = { x: number; y: number };
-type LineupDrawing = { id: string; tool: "pen" | "arrow"; color: string; width: number; lineStyle: "solid" | "dashed"; arrowHeads: "end" | "start" | "both" | "none"; geometry: "freehand" | "straight" | "conduzione"; points: LineupPoint[] };
+type LineupDrawing = { id: string; tool: "pen" | "arrow"; color: string; width: number; lineStyle: "solid" | "dashed"; arrowHeads: "end" | "start" | "both" | "none"; geometry: "freehand" | "straight" | "conduzione-freehand" | "conduzione-straight"; points: LineupPoint[] };
 type LineupDialogState = {
   periodIndex: number;
   mode: "view" | "edit";
@@ -137,7 +143,8 @@ type LineupDialogState = {
   lineWidth: number;
   lineStyle: "solid" | "dashed";
   arrowHeads: "end" | "start" | "both" | "none";
-  geometry: "freehand" | "straight" | "conduzione";
+  geometry: "freehand" | "straight" | "conduzione-freehand" | "conduzione-straight";
+  optionsOpen?: boolean;
   selectedPlayerId?: number | null;
   selectedDrawingId?: string | null;
   activeDrawing?: LineupDrawing | null;
@@ -150,6 +157,7 @@ type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   lineupPlayerIds?: number[];
   lineupPositions?: LineupPositionMap;
   lineupDrawings?: LineupDrawing[];
+  lineupDetectedModule?: string | null;
   boardId?: number | null;
   boardTitle?: string | null;
   boardUrl?: string | null;
@@ -416,11 +424,11 @@ function movePlayerBetweenPeriods(
   });
 }
 
-function formationSlotsForLineup(module: string | null | undefined, format: MatchFormat, limit: number) {
+function formationSlotsForLineup(module: string | null | undefined, format: MatchFormat, limit: number): FormationSlot[] {
   if (module && isFormationPresetId(module) && FORMATIONS[module].formats.includes(format)) {
     return FORMATIONS[module].slots.slice(0, limit);
   }
-  const slots = [{ x: 10, y: 50, role: "goalkeeper" as const }];
+  const slots: FormationSlot[] = [{ x: 10, y: 50, role: "goalkeeper" }];
   const outfield = Math.max(0, limit - 1);
   for (let i = 0; i < outfield; i += 1) {
     const band = Math.floor(i / 3);
@@ -432,6 +440,45 @@ function formationSlotsForLineup(module: string | null | undefined, format: Matc
     });
   }
   return slots;
+}
+
+function detectLineupModuleLabel(
+  lineupIds: number[],
+  positions: LineupPositionMap | null | undefined,
+  module: string | null | undefined,
+  format: MatchFormat,
+  limit: number,
+  playersById: Map<number, Player>,
+): string {
+  const starters = lineupIds.slice(0, limit);
+  if (starters.length === 0) return "";
+  const slots = formationSlotsForLineup(module, format, limit);
+  let goalkeepers = 0;
+  const outfield = starters
+    .map((id, index) => {
+      const player = playersById.get(id);
+      const fallback = slots[index] ?? { x: 50, y: 50, role: "player" as const };
+      const position = positions?.[String(id)] ?? fallback;
+      const isGoalkeeper = player ? isGoalkeeperPlayer(player) : fallback.role === "goalkeeper";
+      if (isGoalkeeper) goalkeepers += 1;
+      return isGoalkeeper ? null : { x: Number(position.x ?? fallback.x) };
+    })
+    .filter((item): item is { x: number } => Boolean(item))
+    .sort((a, b) => a.x - b.x);
+
+  const lines: number[] = [];
+  let currentX: number | null = null;
+  for (const player of outfield) {
+    if (currentX === null || Math.abs(player.x - currentX) > 9) {
+      lines.push(1);
+      currentX = player.x;
+    } else {
+      lines[lines.length - 1] += 1;
+      currentX = (currentX + player.x) / 2;
+    }
+  }
+
+  return [`(${goalkeepers || 0})`, ...lines.map(String)].join("-");
 }
 
 function buildAutomaticLineup(players: Player[], limit: number): number[] {
@@ -511,24 +558,92 @@ function replaceLineupPlayerAtSlot(ids: number[], slotIndex: number, currentId: 
 }
 
 function lineupDrawingPath(points: LineupPoint[], straight: boolean): string {
-  if (points.length === 0) return "";
-  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  const simplified = simplifyLineupPoints(points);
+  if (simplified.length === 0) return "";
+  if (simplified.length === 1) return `M ${simplified[0].x} ${simplified[0].y}`;
   if (straight) {
-    const first = points[0];
-    const last = points[points.length - 1];
+    const first = simplified[0];
+    const last = simplified[simplified.length - 1];
     return `M ${first.x} ${first.y} L ${last.x} ${last.y}`;
   }
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length - 1; i += 1) {
+  let d = `M ${simplified[0].x} ${simplified[0].y}`;
+  for (let i = 1; i < simplified.length - 1; i += 1) {
     const mid = {
-      x: (points[i].x + points[i + 1].x) / 2,
-      y: (points[i].y + points[i + 1].y) / 2,
+      x: (simplified[i].x + simplified[i + 1].x) / 2,
+      y: (simplified[i].y + simplified[i + 1].y) / 2,
     };
-    d += ` Q ${points[i].x} ${points[i].y} ${mid.x} ${mid.y}`;
+    d += ` Q ${simplified[i].x} ${simplified[i].y} ${mid.x} ${mid.y}`;
   }
-  const last = points[points.length - 1];
+  const last = simplified[simplified.length - 1];
   d += ` L ${last.x} ${last.y}`;
   return d;
+}
+
+function isLineupStraightGeometry(geometry: LineupDrawing["geometry"]): boolean {
+  return geometry === "straight" || geometry === "conduzione-straight";
+}
+
+function isLineupConduzioneGeometry(geometry: LineupDrawing["geometry"]): boolean {
+  return geometry === "conduzione-freehand" || geometry === "conduzione-straight";
+}
+
+function simplifyLineupPoints(points: LineupPoint[], minDistance = 1.8): LineupPoint[] {
+  if (points.length <= 2) return points;
+  const out: LineupPoint[] = [points[0]];
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const prev = out[out.length - 1];
+    const current = points[i];
+    const distance = Math.hypot(current.x - prev.x, current.y - prev.y);
+    if (distance >= minDistance) out.push(current);
+  }
+  out.push(points[points.length - 1]);
+  return out;
+}
+
+function lineupConduzionePath(points: LineupPoint[], straight: boolean, amplitude = 1.6): string {
+  const base = straight ? [points[0], points[points.length - 1]] : smoothLineupPoints(simplifyLineupPoints(points, 3));
+  if (base.length < 2) return lineupDrawingPath(base, straight);
+  const wave: LineupPoint[] = [base[0]];
+  for (let i = 1; i < base.length; i += 1) {
+    const from = base[i - 1];
+    const to = base[i];
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const nx = -dy / distance;
+    const ny = dx / distance;
+    const steps = Math.max(2, Math.round(distance / 6));
+    for (let step = 1; step <= steps; step += 1) {
+      const t = step / steps;
+      const offset = Math.sin(t * Math.PI * 2) * amplitude;
+      wave.push({
+        x: from.x + dx * t + nx * offset,
+        y: from.y + dy * t + ny * offset,
+      });
+    }
+  }
+  return lineupDrawingPath(wave, false);
+}
+
+function smoothLineupPoints(points: LineupPoint[]): LineupPoint[] {
+  if (points.length <= 3) return points;
+  return points.map((point, index) => {
+    if (index === 0 || index === points.length - 1) return point;
+    const prev = points[index - 1];
+    const next = points[index + 1];
+    return {
+      x: point.x * 0.5 + (prev.x + next.x) * 0.25,
+      y: point.y * 0.5 + (prev.y + next.y) * 0.25,
+    };
+  });
+}
+
+function finishLineupDrawing(drawing: LineupDrawing): LineupDrawing {
+  const straight = drawing.tool === "arrow" && isLineupStraightGeometry(drawing.geometry);
+  const points = straight
+    ? [drawing.points[0], drawing.points[drawing.points.length - 1]]
+    : smoothLineupPoints(simplifyLineupPoints(drawing.points, isLineupConduzioneGeometry(drawing.geometry) ? 2.6 : 1.8));
+  return { ...drawing, points };
 }
 
 function lineupArrowHeadPath(tip: LineupPoint, from: LineupPoint, size = 2.8): string {
@@ -592,6 +707,9 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
       module: map.get(d.key)?.module ?? "",
       format: map.get(d.key)?.format ?? undefined,
       lineupPlayerIds: Array.isArray(map.get(d.key)?.lineupPlayerIds) ? map.get(d.key)!.lineupPlayerIds : [],
+      lineupPositions: map.get(d.key)?.lineupPositions && typeof map.get(d.key)?.lineupPositions === "object" ? map.get(d.key)!.lineupPositions : {},
+      lineupDrawings: Array.isArray(map.get(d.key)?.lineupDrawings) ? map.get(d.key)!.lineupDrawings : [],
+      lineupDetectedModule: map.get(d.key)?.lineupDetectedModule ?? null,
       boardId: map.get(d.key)?.boardId ?? null,
       boardTitle: map.get(d.key)?.boardTitle ?? null,
       boardUrl: map.get(d.key)?.boardUrl ?? null,
@@ -1092,6 +1210,7 @@ function MatchCard({
       lineStyle: "solid",
       arrowHeads: "end",
       geometry: "freehand",
+      optionsOpen: false,
       selectedPlayerId: null,
       selectedDrawingId: null,
       activeDrawing: null,
@@ -1101,25 +1220,41 @@ function MatchCard({
 
   function saveLineupDialog() {
     if (!lineupDialog) return;
-    setPlanDraft((prev) => ({
-      ...prev,
-      periods: prev.periods.map((period, idx) =>
+    setPlanDraft((prev) => {
+      const periods = prev.periods.map((period, idx) =>
         idx === lineupDialog.periodIndex
-          ? {
-              ...period,
-              module: lineupDialog.module,
-              lineupPlayerIds: normalizeLineupGoalkeepers(
+          ? (() => {
+              const limit = startersLimitForPeriod({ ...period, module: lineupDialog.module }, matchFormat);
+              const lineupPlayerIds = normalizeLineupGoalkeepers(
                 lineupDialog.lineupPlayerIds.filter((id) => selectedPlayerIds.has(id)),
                 convokedById,
-                startersLimitForPeriod({ ...period, module: lineupDialog.module }, matchFormat),
-              ),
+                limit,
+              );
+              return {
+              ...period,
+              module: lineupDialog.module,
+              lineupPlayerIds,
               lineupPositions: lineupDialog.positions,
               lineupDrawings: lineupDialog.drawings,
+              lineupDetectedModule: detectLineupModuleLabel(
+                lineupPlayerIds,
+                lineupDialog.positions,
+                lineupDialog.module,
+                period.format ?? matchFormat,
+                limit,
+                convokedById,
+              ),
               boardConfirmed: false,
-            }
+              };
+            })()
           : period,
-      ),
-    }));
+      );
+      const adjusted =
+        autoReserveRuleEnabled && lineupDialog.periodIndex === 0
+          ? applyScuolaCalcioSecondPeriodAuto(periods, selectedPlayerIds, matchFormat)
+          : periods;
+      return { ...prev, periods: adjusted };
+    });
     setLineupDialog(null);
   }
 
@@ -1229,6 +1364,14 @@ function MatchCard({
             ...p,
             lineupPlayerIds,
             lineupPositions,
+            lineupDetectedModule: detectLineupModuleLabel(
+              lineupPlayerIds,
+              lineupPositions,
+              p.module,
+              p.format ?? matchFormat,
+              startersLimitForPeriod(p, matchFormat),
+              convokedById,
+            ),
           };
         }),
       };
@@ -1285,6 +1428,9 @@ function MatchCard({
   const lineupAvailablePlayers = convokedPlayers.filter((player) => selectedPlayerIds.has(player.id));
   const lineupModuleOptions = moduleOptionsForFormat(lineupFormat);
   const lineupReadOnly = lineupDialog?.mode === "view";
+  const lineupDetectedModule = lineupDialog
+    ? detectLineupModuleLabel(lineupDialog.lineupPlayerIds, lineupDialog.positions, lineupDialog.module, lineupFormat, lineupLimit, convokedById)
+    : "";
   const lineupColors = ["#facc15", "#ffffff", "#38bdf8", "#22c55e", "#ef4444", "#111827"];
   const lineupPitchPoint = (event: { currentTarget: EventTarget & Element; clientX: number; clientY: number }) => {
     const target = event.currentTarget;
@@ -1684,19 +1830,15 @@ function MatchCard({
                 <div className="space-y-2">
                   {planDraft.periods.map((p, i) => {
                     const periodFormat = p.format ?? matchFormat;
-                    const periodModuleOptions = moduleOptionsForFormat(periodFormat);
                     const periodBoardUrl = p.boardUrl || (p.boardId ? `/tactical-board?boardId=${p.boardId}&teamId=${match.teamId ?? ""}&matchId=${match.id}&periodKey=${p.key}&returnTo=${encodeURIComponent(returnToMatchUrl)}` : "");
                     const lineupIds = (p.lineupPlayerIds ?? [])
-                      .filter((id) => selectedPlayerIds.has(id))
-                      .sort((a, b) => {
-                        const playerA = convokedById.get(a);
-                        const playerB = convokedById.get(b);
-                        if (!playerA || !playerB) return 0;
-                        return comparePlayersByRole(playerA, playerB);
-                      });
+                      .filter((id) => selectedPlayerIds.has(id));
                     const startersLimit = startersLimitForPeriod(p, matchFormat);
                     const starters = lineupIds.slice(0, startersLimit).length;
                     const hasLineup = lineupIds.length > 0;
+                    const detectedPeriodModule = hasLineup
+                      ? detectLineupModuleLabel(lineupIds, p.lineupPositions, p.module, periodFormat, startersLimit, convokedById)
+                      : "";
                     return (
                       <div key={p.key} className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">
                         <div className="grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-2 items-end">
@@ -1726,25 +1868,9 @@ function MatchCard({
                                 Usa formato annata successiva ({friendlyNextFormat})
                               </label>
                             )}
-                            <select
-                              value={p.module ?? ""}
-                              onChange={(e) =>
-                                setPlanDraft((prev) => {
-                                  const nextPeriods = prev.periods.map((x, ix) =>
-                                    ix === i ? { ...x, module: e.target.value, boardConfirmed: false } : x,
-                                  );
-                                  const adjusted =
-                                    autoReserveRuleEnabled && i === 0
-                                      ? applyScuolaCalcioSecondPeriodAuto(nextPeriods, selectedPlayerIds, matchFormat)
-                                      : nextPeriods;
-                                  return { ...prev, periods: adjusted };
-                                })
-                              }
-                              className="h-8 rounded-md border border-input bg-background px-2 text-xs w-full"
-                            >
-                              <option value="">Seleziona modulo ({periodFormat})</option>
-                              {periodModuleOptions.map((m) => <option key={m} value={m}>{m}</option>)}
-                            </select>
+                            <div className="h-8 rounded-md border border-input bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground w-full">
+                              Modulo rilevato: <span className="font-semibold text-foreground">{detectedPeriodModule || p.lineupDetectedModule || p.module || `Formato ${periodFormat}`}</span>
+                            </div>
                           </div>
                         </div>
 
@@ -2183,31 +2309,17 @@ function MatchCard({
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={lineupDialog.module}
-                  disabled={lineupReadOnly}
-                  onChange={(e) => {
-                    const module = e.target.value;
-                    setLineupDialog((prev) => {
-                      if (!prev) return prev;
-                      const nextPeriod = planDraft.periods[prev.periodIndex];
-                      const nextLimit = nextPeriod
-                        ? startersLimitForPeriod({ ...nextPeriod, module }, matchFormat)
-                        : lineupLimit;
-                      return {
-                        ...prev,
-                        module,
-                        lineupPlayerIds: buildAutomaticLineup(lineupAvailablePlayers, nextLimit),
-                        positions: {},
-                        selectedPlayerId: null,
-                      };
-                    });
-                  }}
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  disabled
+                  className="h-9 rounded-md border border-input bg-muted/30 px-2 text-sm text-muted-foreground"
                 >
-                  <option value="">Seleziona modulo ({lineupFormat})</option>
+                  <option value="">Modulo base ({lineupFormat})</option>
                   {lineupModuleOptions.map((module) => (
                     <option key={module} value={module}>{module}</option>
                   ))}
                 </select>
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
+                  Rilevato: <span className="font-semibold">{lineupDetectedModule || "posiziona i titolari"}</span>
+                </div>
                 <div className="ml-auto flex flex-wrap items-center gap-1 rounded-md border bg-background p-1">
                   {(["select", "pen", "arrow"] as const).map((tool) => (
                     <Button
@@ -2217,7 +2329,7 @@ function MatchCard({
                       size="sm"
                       className="h-7 px-2 text-xs"
                       disabled={lineupReadOnly}
-                      onClick={() => setLineupDialog((prev) => prev ? { ...prev, tool, activeDrawing: null, selectedPlayerId: null } : prev)}
+                      onClick={() => setLineupDialog((prev) => prev ? { ...prev, tool, activeDrawing: null, selectedPlayerId: null, optionsOpen: tool !== "select" } : prev)}
                     >
                       {tool === "select" ? "Seleziona" : tool === "pen" ? "Disegna" : "Freccia"}
                     </Button>
@@ -2263,36 +2375,63 @@ function MatchCard({
                   ))}
                 </div>
               </div>
-              {!lineupReadOnly && lineupDialog.tool !== "select" && (
-                <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 text-xs">
+              {!lineupReadOnly && lineupDialog.tool !== "select" && lineupDialog.optionsOpen && (
+                <div className="absolute z-30 mt-[-6px] w-[280px] rounded-lg border bg-white p-3 text-xs shadow-xl">
                   {lineupDialog.tool === "arrow" && (
-                    <>
-                      <span className="font-semibold">Tracciato</span>
-                      {(["freehand", "straight", "conduzione"] as const).map((geometry) => (
-                        <Button key={geometry} type="button" size="sm" variant={lineupDialog.geometry === geometry ? "default" : "outline"} className="h-7 text-xs" onClick={() => setLineupDialog((prev) => prev ? { ...prev, geometry } : prev)}>
-                          {geometry === "freehand" ? "Mano libera" : geometry === "straight" ? "Retta" : "Conduzione"}
-                        </Button>
-                      ))}
-                      <span className="ml-2 font-semibold">Punte</span>
-                      {(["end", "start", "both", "none"] as const).map((heads) => (
-                        <Button key={heads} type="button" size="sm" variant={lineupDialog.arrowHeads === heads ? "default" : "outline"} className="h-7 text-xs" onClick={() => setLineupDialog((prev) => prev ? { ...prev, arrowHeads: heads } : prev)}>
-                          {heads === "end" ? "Fine" : heads === "start" ? "Inizio" : heads === "both" ? "Entrambe" : "Nessuna"}
-                        </Button>
-                      ))}
-                    </>
+                    <div className="space-y-2">
+                      <label className="block font-semibold text-slate-700">
+                        Tracciato
+                        <select
+                          value={lineupDialog.geometry}
+                          className="mt-1 h-8 w-full rounded-md border bg-white px-2 text-xs"
+                          onChange={(e) => setLineupDialog((prev) => prev ? { ...prev, geometry: e.target.value as LineupDrawing["geometry"] } : prev)}
+                        >
+                          <option value="freehand">Mano libera</option>
+                          <option value="straight">Retta</option>
+                          <option value="conduzione-freehand">Conduzione libera</option>
+                          <option value="conduzione-straight">Conduzione retta</option>
+                        </select>
+                      </label>
+                      <label className="block font-semibold text-slate-700">
+                        Punte
+                        <select
+                          value={lineupDialog.arrowHeads}
+                          className="mt-1 h-8 w-full rounded-md border bg-white px-2 text-xs"
+                          onChange={(e) => setLineupDialog((prev) => prev ? { ...prev, arrowHeads: e.target.value as LineupDrawing["arrowHeads"] } : prev)}
+                        >
+                          <option value="end">Verso la fine</option>
+                          <option value="start">Verso l'inizio</option>
+                          <option value="both">Entrambe le estremita</option>
+                          <option value="none">Senza punta</option>
+                        </select>
+                      </label>
+                    </div>
                   )}
-                  <span className="font-semibold">Linea</span>
-                  {(["solid", "dashed"] as const).map((style) => (
-                    <Button key={style} type="button" size="sm" variant={lineupDialog.lineStyle === style ? "default" : "outline"} className="h-7 text-xs" disabled={lineupDialog.geometry === "conduzione" && style === "dashed"} onClick={() => setLineupDialog((prev) => prev ? { ...prev, lineStyle: style } : prev)}>
-                      {style === "solid" ? "Continua" : "Tratteggio"}
-                    </Button>
-                  ))}
-                  <span className="font-semibold">Spessore</span>
-                  {[2, 3, 4, 5].map((width) => (
-                    <Button key={width} type="button" size="sm" variant={lineupDialog.lineWidth === width ? "default" : "outline"} className="h-7 w-8 text-xs" onClick={() => setLineupDialog((prev) => prev ? { ...prev, lineWidth: width } : prev)}>
-                      {width}
-                    </Button>
-                  ))}
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="font-semibold text-slate-700">
+                      Linea
+                      <select
+                        value={lineupDialog.lineStyle}
+                        className="mt-1 h-8 w-full rounded-md border bg-white px-2 text-xs"
+                        onChange={(e) => setLineupDialog((prev) => prev ? { ...prev, lineStyle: e.target.value as LineupDrawing["lineStyle"] } : prev)}
+                      >
+                        <option value="solid">Continua</option>
+                        <option value="dashed" disabled={isLineupConduzioneGeometry(lineupDialog.geometry)}>Tratteggio</option>
+                      </select>
+                    </label>
+                    <label className="font-semibold text-slate-700">
+                      Spessore
+                      <select
+                        value={lineupDialog.lineWidth}
+                        className="mt-1 h-8 w-full rounded-md border bg-white px-2 text-xs"
+                        onChange={(e) => setLineupDialog((prev) => prev ? { ...prev, lineWidth: Number(e.target.value) } : prev)}
+                      >
+                        {[2, 3, 4, 5].map((width) => (
+                          <option key={width} value={width}>{width}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 </div>
               )}
 
@@ -2310,7 +2449,7 @@ function MatchCard({
                     tool: lineupDialog.tool,
                     color: lineupDialog.color,
                     width: lineupDialog.lineWidth,
-                    lineStyle: lineupDialog.geometry === "conduzione" ? "solid" : lineupDialog.lineStyle,
+                    lineStyle: isLineupConduzioneGeometry(lineupDialog.geometry) ? "solid" : lineupDialog.lineStyle,
                     arrowHeads: lineupDialog.tool === "arrow" ? lineupDialog.arrowHeads : "none",
                     geometry: lineupDialog.tool === "arrow" ? lineupDialog.geometry : "freehand",
                     points: [point],
@@ -2324,7 +2463,7 @@ function MatchCard({
                   setLineupDialog((prev) => {
                     if (!prev?.activeDrawing) return prev;
                     const points = prev.activeDrawing.tool === "arrow"
-                      ? (prev.activeDrawing.geometry === "straight"
+                      ? (isLineupStraightGeometry(prev.activeDrawing.geometry)
                         ? [prev.activeDrawing.points[0], point]
                         : [...prev.activeDrawing.points, point])
                       : [...prev.activeDrawing.points, point];
@@ -2335,9 +2474,10 @@ function MatchCard({
                   if (lineupReadOnly || !lineupDialog.activeDrawing) return;
                   setLineupDialog((prev) => {
                     if (!prev?.activeDrawing) return prev;
+                    const drawing = finishLineupDrawing(prev.activeDrawing);
                     return {
                       ...prev,
-                      drawings: [...prev.drawings, prev.activeDrawing],
+                      drawings: drawing.points.length >= 2 ? [...prev.drawings, drawing] : prev.drawings,
                       activeDrawing: null,
                     };
                   });
@@ -2357,24 +2497,27 @@ function MatchCard({
                   </defs>
                   {[...lineupDialog.drawings, ...(lineupDialog.activeDrawing ? [lineupDialog.activeDrawing] : [])].map((drawing) => {
                     if (drawing.points.length < 2) return null;
-                    const d = lineupDrawingPath(drawing.points, drawing.tool === "arrow" && drawing.geometry === "straight");
+                    const straightDrawing = drawing.tool === "arrow" && isLineupStraightGeometry(drawing.geometry);
+                    const d = isLineupConduzioneGeometry(drawing.geometry)
+                      ? lineupConduzionePath(drawing.points, straightDrawing, Math.max(1.2, (drawing.width ?? 3) * 0.45))
+                      : lineupDrawingPath(drawing.points, straightDrawing);
                     const selected = lineupDialog.selectedDrawingId === drawing.id;
                     const arrowFrom = drawing.points.length > 1 ? drawing.points[drawing.points.length - 2] : drawing.points[0];
                     const arrowTip = drawing.points[drawing.points.length - 1];
                     return (
                       <g key={drawing.id}>
-                        <path d={d} fill="none" stroke="rgba(15,23,42,0.24)" strokeWidth={(drawing.width ?? 3) * 0.72} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" strokeDasharray={drawing.lineStyle === "dashed" ? "2 2" : undefined} />
+                        <path d={d} fill="none" stroke="rgba(15,23,42,0.24)" strokeWidth={(drawing.width ?? 3) * 1.15} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" strokeDasharray={drawing.lineStyle === "dashed" ? "8 6" : undefined} />
                         <path
                           d={d}
                           fill="none"
                           stroke={drawing.color}
-                          strokeWidth={(drawing.width ?? 3) * (selected ? 0.42 : 0.34)}
+                          strokeWidth={(drawing.width ?? 3) * (selected ? 0.72 : 0.6)}
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           vectorEffect="non-scaling-stroke"
                           className={cn(!lineupReadOnly && lineupDialog.tool === "select" && "pointer-events-auto cursor-move")}
                           opacity={selected ? 1 : 0.96}
-                          strokeDasharray={drawing.lineStyle === "dashed" ? "2 2" : undefined}
+                          strokeDasharray={drawing.lineStyle === "dashed" ? "8 6" : undefined}
                           onPointerDown={(event) => {
                             if (lineupReadOnly || lineupDialog.tool !== "select") return;
                             event.stopPropagation();
@@ -2414,10 +2557,10 @@ function MatchCard({
                           }}
                         />
                         {drawing.tool === "arrow" && (drawing.arrowHeads === "end" || drawing.arrowHeads === "both") && (
-                          <path d={lineupArrowHeadPath(arrowTip, arrowFrom)} fill="none" stroke={drawing.color} strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                          <path d={lineupArrowHeadPath(arrowTip, arrowFrom, Math.max(2.5, (drawing.width ?? 3) * 0.95))} fill="none" stroke={drawing.color} strokeWidth={(drawing.width ?? 3) * 0.42} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                         )}
                         {drawing.tool === "arrow" && (drawing.arrowHeads === "start" || drawing.arrowHeads === "both") && (
-                          <path d={lineupArrowHeadPath(drawing.points[0], drawing.points[1] ?? arrowTip)} fill="none" stroke={drawing.color} strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                          <path d={lineupArrowHeadPath(drawing.points[0], drawing.points[1] ?? arrowTip, Math.max(2.5, (drawing.width ?? 3) * 0.95))} fill="none" stroke={drawing.color} strokeWidth={(drawing.width ?? 3) * 0.42} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                         )}
                       </g>
                     );
@@ -2469,11 +2612,21 @@ function MatchCard({
                         </span>
                       )}
                       {lineupDialog.selectedPlayerId === playerId && player && !lineupReadOnly && (
-                        <div className="absolute left-1/2 top-10 z-20 w-48 -translate-x-1/2 rounded-lg border bg-white p-2 text-[11px] shadow-xl">
+                        <div
+                          className="absolute left-1/2 top-10 z-20 w-48 -translate-x-1/2 rounded-lg border bg-white p-2 text-[11px] shadow-xl"
+                          onClick={(event) => event.stopPropagation()}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onPointerUp={(event) => event.stopPropagation()}
+                        >
                           <p className="mb-1 truncate font-semibold text-slate-900">{player.firstName} {player.lastName}</p>
                           <select
                             className="h-7 w-full rounded border bg-white px-1 text-[11px]"
                             value={String(playerId)}
+                            onClick={(event) => event.stopPropagation()}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onPointerUp={(event) => event.stopPropagation()}
                             onChange={(e) => {
                               const nextId = e.target.value ? Number(e.target.value) : null;
                               setLineupDialog((prev) => {
@@ -2673,6 +2826,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [matchTournamentFilter, setMatchTournamentFilter] = useState("");
   const [pdfImportMode, setPdfImportMode] = useState<"federation" | "tournament">("federation");
   const [tournamentProgramSelection, setTournamentProgramSelection] = useState<Record<string, string>>({});
+  const [pendingTournamentProgram, setPendingTournamentProgram] = useState<TournamentProgramEntry[]>([]);
+  const [tournamentProgramVersion, setTournamentProgramVersion] = useState(0);
+  const [tournamentScoreVersion, setTournamentScoreVersion] = useState(0);
   const [matchVenueFilter, setMatchVenueFilter] = useState<MatchVenueFilter>("all");
   const [matchSquadFilter, setMatchSquadFilter] = useState<SquadLetterFilter>("all");
   const [matchFiltersOpen, setMatchFiltersOpen] = useState(false);
@@ -2817,6 +2973,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       return parsed;
     },
     onSuccess: (parsed) => {
+      setPendingTournamentProgram(parsed.tournamentProgram ?? []);
       if (parsed.recognized.length === 0) {
         toast({
           title: "Nessuna partita riconosciuta nel PDF",
@@ -2856,6 +3013,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       });
     },
     onSuccess: (parsed) => {
+      setPendingTournamentProgram(parsed.tournamentProgram ?? []);
       if (parsed.recognized.length === 0) {
         toast({
           title: "Nessuna partita riconosciuta nell'immagine",
@@ -2899,6 +3057,13 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         });
         ok++;
       }
+      if (pdfImportModeRef.current === "tournament" && pendingTournamentProgram.length > 0) {
+        const competition = rows.find((row) => (row.competition ?? "").trim())?.competition ?? "";
+        if (competition.trim()) {
+          setTournamentProgram(teamId, competition, pendingTournamentProgram);
+          setTournamentProgramVersion((v) => v + 1);
+        }
+      }
       return ok;
     },
     onSuccess: (ok) => {
@@ -2906,6 +3071,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       setPreviewOpen(false);
       setDuplicateImportOpen(false);
       setPendingImportRows(null);
+      setPendingTournamentProgram([]);
       setPendingImportConflictIds([]);
       setDuplicateImportExamples([]);
       toast({
@@ -2966,6 +3132,19 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     },
     onError: (e: Error) => toast({ title: e.message || "Errore aggiornamento torneo", variant: "destructive" }),
   });
+
+  function updateTournamentProgramScore(competition: string, entryId: string, score: TournamentProgramScore) {
+    if (!teamId) return;
+    const next = {
+      ...getTournamentScores(teamId, competition),
+      [entryId]: score,
+    };
+    if (score.homeScore == null || score.awayScore == null) {
+      delete next[entryId];
+    }
+    setTournamentScores(teamId, competition, next);
+    setTournamentScoreVersion((v) => v + 1);
+  }
 
   const createMatchMutation = useMutation({
     mutationFn: async () => {
@@ -3108,6 +3287,24 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     }
     return map;
   }, [tournamentDocsResponse?.documents, tournamentGroups]);
+
+  const tournamentProgramsByCompetition = useMemo(() => {
+    if (!teamId) return {};
+    const map: Record<string, TournamentProgramEntry[]> = {};
+    for (const g of tournamentGroups) {
+      map[g.competition] = getTournamentProgram(teamId, g.competition);
+    }
+    return map;
+  }, [teamId, tournamentGroups, tournamentProgramVersion]);
+
+  const tournamentScoresByCompetition = useMemo(() => {
+    if (!teamId) return {};
+    const map: Record<string, Record<string, TournamentProgramScore>> = {};
+    for (const g of tournamentGroups) {
+      map[g.competition] = getTournamentScores(teamId, g.competition);
+    }
+    return map;
+  }, [teamId, tournamentGroups, tournamentScoreVersion]);
 
   const matchFiltersActive =
     matchSearchText.trim() !== "" ||
@@ -3569,7 +3766,6 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           {phaseTab === "tornei" && tournamentGroups.length > 0 && team && (
             <TournamentGroupedCards
               groups={tournamentGroups}
-              teamDisplayName={team.name}
               clubLabel={clubLabel}
               programSelection={tournamentProgramSelection}
               onProgramChange={(competition, value) =>
@@ -3578,9 +3774,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               canUploadDocuments={canImportExport}
               canManageTournament={canManageTournament}
               attachmentsByCompetition={tournamentAttachmentsByCompetition}
+              programsByCompetition={tournamentProgramsByCompetition}
+              scoresByCompetition={tournamentScoresByCompetition}
               onEditTournament={openTournamentEdit}
               onDeleteTournament={deleteTournament}
               onLocalDocumentSelected={appendLocalTournamentDocument}
+              onTournamentScoreChange={updateTournamentProgramScore}
             />
           )}
 
@@ -4222,6 +4421,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               >
                 Applica alle selezionate
               </Button>
+            </div>
+          )}
+          {pdfImportModeRef.current === "tournament" && (
+            <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
+              <span className="font-medium">Programma completo torneo riconosciuto: </span>
+              <span className="tabular-nums">{pendingTournamentProgram.length}</span>
+              <span className="text-muted-foreground"> gare</span>
+              {pendingTournamentProgram.length === 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Nessuna altra gara del torneo riconosciuta: la scheda mostrerÃ  solo le partite della societÃ .
+                </p>
+              )}
             </div>
           )}
           <div className="flex items-center gap-2 text-sm">
