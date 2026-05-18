@@ -20,7 +20,8 @@ function rowSearchText(m: ProgramFilterMatch, teamDisplayName: string, clubLabel
 export function isFinalsRow(text: string): boolean {
   const t = text.toLowerCase();
   if (/\bsemifinale\b|\bsemi[\s-]*finale\b/.test(t)) return false;
-  if (/\bfinale\b/.test(t)) return true;
+  if (/\bfinali?\b/.test(t)) return true;
+  if (/\d+\s*[ªa]?\s*classificata\s+girone\s+[a-z]\s*(?:vs|[-–—])\s*\d+\s*[ªa]?\s*classificata\s+girone\s+[a-z]/i.test(text)) return true;
   if (/\d+\s*°\s*-?\s*\d+\s*°\s*posto/i.test(text)) return true;
   if (/\d+\s*°\s*-\s*\d+\s*°/i.test(text) && /\bposto\b/i.test(text)) return true;
   if (/finale\s+\d+\s*°\s*-?\s*\d+\s*°\s*posto/i.test(text)) return true;

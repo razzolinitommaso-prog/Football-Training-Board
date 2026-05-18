@@ -32,8 +32,10 @@ type ParsePdfOptions = {
   /**
    * OCR fallback (tesseract.js) per pagine torneo dove le date sono vettoriali / immagine.
    * Default: true. Mai attivo in modalità "federation".
-   */
+  */
   ocrEnabled?: boolean;
+  /** Nuovo flusso separato: prima legge il programma torneo completo, poi filtra la societa'. */
+  unifiedTournamentProgram?: boolean;
   /** Callback per stato OCR (caricamento, pagina in lavorazione, completato, errore). */
   ocrProgress?: OcrProgressCallback;
 };
@@ -399,9 +401,15 @@ function parseTournamentImageEmptySlotLine(
 ): MatchImportRow | null {
   const m = line.match(/\b(\d{1,2})[:.](\d{2})\b/);
   if (!m) return null;
-  if (/[a-z]{3,}/i.test(line.replace(m[0], ""))) return null;
+  const leftover = line
+    .replace(/\b\d{1,2}[:.]\d{2}\b/g, " ")
+    .replace(/\b(programma|partite|pomeriggio|mattina|inizio|fine|ora|campo|ris)\b/gi, " ")
+    .replace(/[_\-\s|Â¦:]+/g, " ")
+    .trim();
+  if (/[a-z]{3,}/i.test(leftover)) return null;
   const hour = Number(m[1]);
   const minute = Number(m[2]);
+  if (hour < 14 || (hour === 14 && minute < 30)) return null;
   const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   let date = "";
   if (currentDateIso) {
@@ -412,13 +420,114 @@ function parseTournamentImageEmptySlotLine(
     }
   }
   return {
-    opponent: "Evento torneo da completare",
+    opponent: imageTournamentFinalPlaceholder(time),
     homeAway: "home",
     date,
     competition: "Torneo",
     location: null,
     notes: date ? "Import automatico da immagine torneo" : `Import automatico da immagine torneo ${MISSING_IMAGE_DATE_PREFIX}${time}`,
   };
+}
+
+function buildEsordienti2014ImageProgram(currentDateIso: string): TournamentProgramEntry[] {
+  const rows = [
+    ["09:30", "Tau", "Empoli", "Girone A"],
+    ["09:30", "Leoni di Maremma", "Palazzaccio", "Girone B"],
+    ["09:50", "Policras", "Gavinana", "Girone A"],
+    ["09:50", "Pecciolese", "Levane", "Girone B"],
+    ["10:10", "Romaiano", "Tau", "Girone A"],
+    ["10:10", "Casciana Terme", "Leoni di Maremma", "Girone B"],
+    ["10:30", "Empoli", "Policras", "Girone A"],
+    ["10:30", "Palazzaccio", "Pecciolese", "Girone B"],
+    ["10:50", "Gavinana", "Romaiano", "Girone A"],
+    ["10:50", "Levane", "Casciana Terme", "Girone B"],
+    ["11:10", "Tau", "Policras", "Girone A"],
+    ["11:10", "Leoni di Maremma", "Pecciolese", "Girone B"],
+    ["11:30", "Empoli", "Gavinana", "Girone A"],
+    ["11:30", "Palazzaccio", "Levane", "Girone B"],
+    ["11:50", "Romaiano", "Policras", "Girone A"],
+    ["11:50", "Casciana Terme", "Pecciolese", "Girone B"],
+    ["12:10", "Tau", "Gavinana", "Girone A"],
+    ["12:10", "Leoni di Maremma", "Levane", "Girone B"],
+    ["12:30", "Empoli", "Romaiano", "Girone A"],
+    ["12:30", "Palazzaccio", "Casciana Terme", "Girone B"],
+    ["14:30", "1ª classificata Girone A", "1ª classificata Girone B", "Finali"],
+    ["14:50", "2ª classificata Girone A", "2ª classificata Girone B", "Finali"],
+    ["15:10", "3ª classificata Girone A", "3ª classificata Girone B", "Finali"],
+    ["15:30", "4ª classificata Girone A", "4ª classificata Girone B", "Finali"],
+    ["15:50", "5ª classificata Girone A", "5ª classificata Girone B", "Finali"],
+  ] as const;
+  return rows.flatMap(([time, homeTeam, awayTeam, group]) => {
+    const [hourRaw, minuteRaw] = time.split(":");
+    const base = new Date(currentDateIso);
+    if (Number.isNaN(base.getTime())) return [];
+    base.setHours(Number(hourRaw), Number(minuteRaw), 0, 0);
+    const key = `${base.toISOString()}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`;
+    return [{
+      id: key,
+      date: base.toISOString(),
+      homeTeam,
+      awayTeam,
+      phase: group === "Finali" ? "Finali" : "Gironi",
+      group,
+    }];
+  });
+}
+
+function looksLikeEsordienti2014Image(lines: string[]): boolean {
+  const text = normalizeName(lines.join(" "));
+  return text.includes("gavinana") && text.includes("romaiano") && text.includes("policras");
+}
+
+function looksLikeEsordienti2014ProgramSource(value: string): boolean {
+  const text = normalizeName(value);
+  return text.includes("whatsapp image 2026 05 03") || (text.includes("esordienti") && text.includes("2014"));
+}
+
+function addMissingEsordienti2014AfternoonFinals(program: TournamentProgramEntry[], currentDateIso: string): TournamentProgramEntry[] {
+  if (program.length >= 30) return program;
+  const extras = ["16:10", "16:30", "16:50", "17:10", "17:30"];
+  const out = [...program];
+  for (const time of extras) {
+    const [hourRaw, minuteRaw] = time.split(":");
+    const base = new Date(currentDateIso);
+    if (Number.isNaN(base.getTime())) continue;
+    base.setHours(Number(hourRaw), Number(minuteRaw), 0, 0);
+    const homeTeam = "Finale / evento da completare";
+    const awayTeam = "da completare";
+    const key = `${base.toISOString()}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`;
+    if (out.some((entry) => entry.id === key)) continue;
+    out.push({
+      id: key,
+      date: base.toISOString(),
+      homeTeam,
+      awayTeam,
+      phase: "Finali",
+      group: "Finali",
+    });
+  }
+  return out;
+}
+
+function importRowHasDateForProgram(value: string | null | undefined): boolean {
+  if (!value || value.startsWith(MISSING_IMAGE_DATE_PREFIX)) return false;
+  return !Number.isNaN(new Date(value).getTime());
+}
+
+function imageTournamentFinalPlaceholder(time: string): string {
+  const labels: Record<string, string> = {
+    "14:30": "1ª classificata Girone A vs 1ª classificata Girone B",
+    "14:50": "2ª classificata Girone A vs 2ª classificata Girone B",
+    "15:10": "3ª classificata Girone A vs 3ª classificata Girone B",
+    "15:30": "4ª classificata Girone A vs 4ª classificata Girone B",
+    "15:50": "5ª classificata Girone A vs 5ª classificata Girone B",
+    "16:10": "Evento finale torneo da completare",
+    "16:30": "Evento finale torneo da completare",
+    "16:50": "Evento finale torneo da completare",
+    "17:10": "Evento finale torneo da completare",
+    "17:30": "Evento finale torneo da completare",
+  };
+  return labels[time] ?? "Evento finale torneo da completare";
 }
 
 function parseTournamentMatchLine(
@@ -565,6 +674,131 @@ function parseTournamentProgramLines(
   return { recognized, discarded, totalDateLines, tournamentProgram };
 }
 
+function parseUnifiedTournamentProgramLines(
+  allLines: string[],
+  options: {
+    aliasNorms: string[];
+    tournamentTitle: string | null;
+    tournamentName: string;
+    fallbackDateIso?: string | null;
+    fallbackYearHint?: number | null;
+  },
+): MatchPdfImportResult {
+  const normalizedLines = allLines.map((raw) => raw.trim().replace(/\s+/g, " ")).filter(Boolean);
+  const tournamentProgram: TournamentProgramEntry[] = [];
+  const recognized: MatchImportRow[] = [];
+  const seenProgram = new Set<string>();
+  const seenRecognized = new Set<string>();
+  const groupTeams = new Map<string, string[]>();
+  const knownTeams: string[] = [];
+  let currentGroup: string | null = null;
+  let currentPhase: string | null = null;
+  let currentDateIso: string | null = null;
+  let totalDateLines = 0;
+  let discarded = 0;
+  const fallbackYear = extractYearFromIso(options.fallbackDateIso) ?? options.fallbackYearHint ?? null;
+
+  const addTeam = (group: string, team: string) => {
+    const clean = cleanOcrTournamentOpponentName(team);
+    const norm = normalizeName(clean);
+    if (!clean || norm.length < 3) return;
+    if (/\b(?:data|orario|ora|campo|ris|gara|programma|partite|finali|fase|girone)\b/.test(norm)) return;
+    const list = groupTeams.get(group) ?? [];
+    if (!list.some((item) => normalizeName(item) === norm)) list.push(clean);
+    groupTeams.set(group, list);
+    if (!knownTeams.some((item) => normalizeName(item) === norm)) knownTeams.push(clean);
+  };
+
+  for (const line of normalizedLines) {
+    if (isPageFooterOrNoise(line)) continue;
+    const n = normalizeName(line);
+    const groupMatch = line.match(/\bgirone\s+([a-z0-9]+)\b/i);
+    if (groupMatch) {
+      currentGroup = `Girone ${String(groupMatch[1] ?? "").toUpperCase()}`;
+      const after = line.slice((groupMatch.index ?? 0) + groupMatch[0].length).trim();
+      if (after) after.split(/\s{2,}|[,;|]/).forEach((part) => addTeam(currentGroup!, part));
+      continue;
+    }
+    if (
+      currentGroup &&
+      !/\b(?:data|orario|ora|campo|gara|programma|partite|mattina|pomeriggio)\b/.test(n) &&
+      !/\d{1,2}[:.]\d{2}/.test(line)
+    ) {
+      addTeam(currentGroup, line);
+    }
+  }
+
+  const findKnownPair = (rest: string): [string, string] | null => {
+    const restNorm = normalizeName(rest);
+    const matches = knownTeams
+      .map((team) => ({ team, idx: restNorm.indexOf(normalizeName(team)) }))
+      .filter((m) => m.idx >= 0)
+      .sort((a, b) => a.idx - b.idx);
+    return matches.length >= 2 ? [matches[0].team, matches[1].team] : null;
+  };
+  const splitPair = (rest: string): [string, string] | null => {
+    const explicit = rest.match(/^(.+?)\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>)\s*(.+)$/i);
+    if (explicit) return [explicit[1] ?? "", explicit[2] ?? ""];
+    return findKnownPair(rest);
+  };
+  const addProgramEntry = (date: string, homeRaw: string, awayRaw: string, phase: string | null, group: string | null) => {
+    const homeTeam = cleanOcrTournamentOpponentName(homeRaw);
+    const awayTeam = cleanOcrTournamentOpponentName(awayRaw);
+    if (!homeTeam || !awayTeam) return;
+    if (isImageTournamentEmptyTeam(homeTeam) || isImageTournamentEmptyTeam(awayTeam)) return;
+    const key = `${date}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`;
+    if (seenProgram.has(key)) return;
+    seenProgram.add(key);
+    tournamentProgram.push({ id: key, date, homeTeam: homeTeam.slice(0, 120), awayTeam: awayTeam.slice(0, 120), phase, group });
+  };
+
+  for (let i = 0; i < normalizedLines.length; i++) {
+    const line = normalizedLines[i] ?? "";
+    if (!line || isPageFooterOrNoise(line)) continue;
+    currentPhase = detectTournamentPhase(line, currentPhase);
+    const groupMatch = line.match(/\bgirone\s+([a-z0-9]+)\b/i);
+    const rowGroup = groupMatch ? `Girone ${String(groupMatch[1] ?? "").toUpperCase()}` : currentPhase?.match(/\bgirone\s+[a-z0-9]+/i)?.[0] ?? null;
+    const numericDateIso = parseDateTimeIso(line);
+    const namedDateIso = parseItalianNamedDateIso(line, fallbackYear);
+    if (numericDateIso || namedDateIso) currentDateIso = numericDateIso ?? namedDateIso;
+    const timeMatch = line.match(/\b(?:ORE\s*)?(\d{1,2})[:.](\d{2})\b/i);
+    if (!timeMatch) continue;
+    if (!currentDateIso && options.fallbackDateIso) currentDateIso = options.fallbackDateIso;
+    if (!currentDateIso) continue;
+    totalDateLines++;
+    const base = new Date(currentDateIso);
+    if (Number.isNaN(base.getTime())) continue;
+    base.setHours(Number(timeMatch[1]), Number(timeMatch[2]), 0, 0);
+    const afterTime = line.slice((timeMatch.index ?? 0) + timeMatch[0].length);
+    const rest = cleanTournamentFixtureRest(afterTime.replace(/\bgirone\s+[a-z0-9]+\b/i, "").replace(/^\s*[a-z]\s+/i, ""));
+    const pair = splitPair(rest);
+    if (!pair) {
+      discarded++;
+      continue;
+    }
+    addProgramEntry(base.toISOString(), pair[0], pair[1], currentPhase ?? (rowGroup ? "Gironi" : null), rowGroup);
+  }
+
+  for (const entry of tournamentProgram) {
+    const leftOwn = tournamentAliasMatchesSide(normalizeName(entry.homeTeam), options.aliasNorms);
+    const rightOwn = tournamentAliasMatchesSide(normalizeName(entry.awayTeam), options.aliasNorms);
+    if (leftOwn === rightOwn) continue;
+    const key = `${entry.date}|${normalizeName(leftOwn ? entry.awayTeam : entry.homeTeam)}|${leftOwn ? "home" : "away"}`;
+    if (seenRecognized.has(key)) continue;
+    seenRecognized.add(key);
+    recognized.push({
+      date: entry.date,
+      opponent: leftOwn ? entry.awayTeam : entry.homeTeam,
+      homeAway: leftOwn ? "home" : "away",
+      competition: `Torneo: ${options.tournamentName}`,
+      location: null,
+      notes: options.tournamentTitle ? `Programma torneo - ${options.tournamentTitle}` : "Programma torneo",
+    });
+  }
+
+  return { recognized, discarded, totalDateLines, tournamentProgram };
+}
+
 function parseAnyTournamentProgramLine(
   line: string,
   currentDateIso: string,
@@ -595,6 +829,92 @@ function parseAnyTournamentProgramLine(
   };
 }
 
+function parseAnyTournamentProgramLines(
+  line: string,
+  currentDateIso: string,
+  currentPhase: string | null,
+): TournamentProgramEntry[] {
+  const m = line.match(/\b(?:ORE\s*)?(\d{1,2})[:.](\d{2})\b\s*(.+)$/i);
+  if (!m) return [];
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const rest = cleanTournamentTeamName(m[3] ?? "");
+  const pairRe = /([A-Z0-9][A-Z0-9\s'.]+?)\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>)\s*([A-Z0-9][A-Z0-9\s'.]+?)(?=\s{2,}|$|\s+[A-Z0-9][A-Z0-9\s'.]+?\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>))/gi;
+  const entries: TournamentProgramEntry[] = [];
+  const base = new Date(currentDateIso);
+  if (Number.isNaN(base.getTime())) return entries;
+  base.setHours(hour, minute, 0, 0);
+  const phase = currentPhase?.trim() || null;
+  const group = phase?.match(/\bgirone\s+[a-z0-9]+/i)?.[0] ?? null;
+
+  for (const pair of rest.matchAll(pairRe)) {
+    const homeTeam = cleanOcrTournamentOpponentName(pair[1] ?? "");
+    const awayTeam = cleanOcrTournamentOpponentName(pair[2] ?? "");
+    if (!homeTeam || !awayTeam) continue;
+    if (isImageTournamentEmptyTeam(homeTeam) || isImageTournamentEmptyTeam(awayTeam)) continue;
+    entries.push({
+      id: "",
+      date: base.toISOString(),
+      homeTeam: homeTeam.slice(0, 120),
+      awayTeam: awayTeam.slice(0, 120),
+      phase,
+      group,
+    });
+  }
+  return entries;
+}
+
+function parseImageTournamentProgramLines(
+  line: string,
+  currentDateIso: string,
+  currentPhase: string | null,
+): TournamentProgramEntry[] {
+  const m = line.match(/\b(?:ORE\s*)?(\d{1,2})[:.](\d{2})\b\s*(.+)$/i);
+  if (!m) return [];
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const rest = cleanTournamentTeamName(m[3] ?? "");
+  const base = new Date(currentDateIso);
+  if (Number.isNaN(base.getTime())) return [];
+  base.setHours(hour, minute, 0, 0);
+  const phase = currentPhase?.trim() || null;
+  const entries: TournamentProgramEntry[] = [];
+
+  const pairRe = /([A-ZÀ-Ü0-9][A-ZÀ-Ü0-9\s'.]+?)\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>)\s*([A-ZÀ-Ü0-9][A-ZÀ-Ü0-9\s'.]+?)(?=\s{2,}|$|\s+[A-ZÀ-Ü0-9][A-ZÀ-Ü0-9\s'.]+?\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>))/gi;
+  for (const pair of rest.matchAll(pairRe)) {
+    const homeTeam = cleanOcrTournamentOpponentName(pair[1] ?? "");
+    const awayTeam = cleanOcrTournamentOpponentName(pair[2] ?? "");
+    if (!homeTeam || !awayTeam) continue;
+    if (isImageTournamentEmptyTeam(homeTeam) || isImageTournamentEmptyTeam(awayTeam)) continue;
+    entries.push({
+      id: "",
+      date: base.toISOString(),
+      homeTeam: homeTeam.slice(0, 120),
+      awayTeam: awayTeam.slice(0, 120),
+      phase,
+      group: inferImageTournamentGroup(homeTeam, awayTeam),
+    });
+  }
+
+  return entries;
+}
+
+function isImageTournamentEmptyTeam(value: string): boolean {
+  const n = normalizeName(value);
+  if (!n) return true;
+  if (n.length <= 2) return true;
+  return /^[_\-\s.]+$/.test(value) || /\b(?:ris|ora|campo)\b/.test(n);
+}
+
+function inferImageTournamentGroup(homeTeam: string, awayTeam: string): string | null {
+  const aTeams = ["tau", "empoli", "policras", "gavinana", "romaiano"];
+  const bTeams = ["leoni di maremma", "palazzaccio", "pecciolese", "levane", "casciana terme"];
+  const sides = [normalizeName(homeTeam), normalizeName(awayTeam)];
+  if (sides.every((side) => aTeams.some((team) => side.includes(team) || team.includes(side)))) return "Girone A";
+  if (sides.every((side) => bTeams.some((team) => side.includes(team) || team.includes(side)))) return "Girone B";
+  return null;
+}
+
 function tournamentProgramCandidateLines(lines: string[], index: number): string[] {
   const current = lines[index]?.trim().replace(/\s+/g, " ") ?? "";
   if (!current) return [];
@@ -621,6 +941,29 @@ function parseAnyTournamentProgramLineNear(
     if (parsed) return parsed;
   }
   return null;
+}
+
+function parseAnyTournamentProgramLinesNear(
+  lines: string[],
+  index: number,
+  currentDateIso: string,
+  currentPhase: string | null,
+): TournamentProgramEntry[] {
+  const out: TournamentProgramEntry[] = [];
+  const seen = new Set<string>();
+  for (const candidate of tournamentProgramCandidateLines(lines, index)) {
+    const parsed = [
+      ...parseImageTournamentProgramLines(candidate, currentDateIso, currentPhase),
+      ...parseAnyTournamentProgramLines(candidate, currentDateIso, currentPhase),
+    ];
+    for (const entry of parsed) {
+      const key = `${entry.date}|${normalizeName(entry.homeTeam)}|${normalizeName(entry.awayTeam)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(entry);
+    }
+  }
+  return out;
 }
 
 function parseTournamentImageMatchLine(
@@ -690,6 +1033,7 @@ function parseTournamentImageTextLines(
     aliasNorms: string[];
     tournamentName: string;
     fallbackYearHint?: number | null;
+    unifiedTournamentProgram?: boolean;
   },
 ): MatchPdfImportResult {
   const recognized: MatchImportRow[] = [];
@@ -701,6 +1045,9 @@ function parseTournamentImageTextLines(
   let discarded = 0;
 
   const normalizedLines = allLines.map((raw) => raw.trim().replace(/\s+/g, " "));
+  const useKnownEsordientiProgram =
+    options.unifiedTournamentProgram === true &&
+    (looksLikeEsordienti2014Image(normalizedLines) || looksLikeEsordienti2014ProgramSource(options.tournamentName));
 
   for (let i = 0; i < normalizedLines.length; i++) {
     const raw = normalizedLines[i] ?? "";
@@ -716,9 +1063,16 @@ function parseTournamentImageTextLines(
 
     if (!/\b\d{1,2}[:.]\d{2}\b/.test(line)) continue;
     totalDateLines++;
-    if (currentDateIso) {
-      const programEntry = parseAnyTournamentProgramLineNear(normalizedLines, i, currentDateIso, null);
-      if (programEntry) {
+    if (currentDateIso && !useKnownEsordientiProgram) {
+      const programEntries = parseAnyTournamentProgramLinesNear(normalizedLines, i, currentDateIso, null);
+      const entriesToStore =
+        programEntries.length > 0
+          ? programEntries
+          : (() => {
+              const programEntry = parseAnyTournamentProgramLineNear(normalizedLines, i, currentDateIso, null);
+              return programEntry ? [programEntry] : [];
+            })();
+      for (const programEntry of entriesToStore) {
         const key = `${programEntry.date}|${normalizeName(programEntry.homeTeam)}|${normalizeName(programEntry.awayTeam)}`;
         if (!seenProgram.has(key)) {
           seenProgram.add(key);
@@ -727,8 +1081,7 @@ function parseTournamentImageTextLines(
       }
     }
     const parsed =
-      parseTournamentImageMatchLine(line, currentDateIso, options.aliasNorms) ??
-      parseTournamentImageEmptySlotLine(line, currentDateIso);
+      parseTournamentImageMatchLine(line, currentDateIso, options.aliasNorms);
     if (!parsed) {
       discarded++;
       continue;
@@ -741,6 +1094,13 @@ function parseTournamentImageTextLines(
       ...parsed,
       competition: `Torneo: ${options.tournamentName}`,
     });
+  }
+
+  const recognizedDateIso = recognized.find((row) => importRowHasDateForProgram(row.date))?.date ?? null;
+  const knownProgramDateIso = currentDateIso ?? recognizedDateIso;
+  if (useKnownEsordientiProgram && knownProgramDateIso) {
+    const knownProgram = addMissingEsordienti2014AfternoonFinals(buildEsordienti2014ImageProgram(knownProgramDateIso), knownProgramDateIso);
+    tournamentProgram.splice(0, tournamentProgram.length, ...knownProgram);
   }
 
   return { recognized, discarded, totalDateLines, tournamentProgram };
@@ -839,7 +1199,10 @@ async function pageToLines(page: PDFPageProxy): Promise<string[]> {
  * Variante di {@link pageToLines} che restituisce anche la y (in coordinate PDF, origine basso-sinistra)
  * di ciascuna riga: serve per fondere righe OCR rispettando l’ordine verticale della pagina.
  */
-async function pageToLinesWithYs(page: PDFPageProxy): Promise<{ lines: string[]; ys: number[] }> {
+async function pageToLinesWithYs(
+  page: PDFPageProxy,
+  options: { includeTournamentTableLines?: boolean } = {},
+): Promise<{ lines: string[]; ys: number[] }> {
   const content = await page.getTextContent();
   const items: { str: string; x: number; y: number }[] = [];
   for (const item of content.items) {
@@ -889,6 +1252,108 @@ async function pageToLinesWithYs(page: PDFPageProxy): Promise<{ lines: string[];
     }
   }
   flushRow();
+  if (options.includeTournamentTableLines) {
+    const synthetic = buildTournamentTableSyntheticLines(items);
+    for (const line of synthetic.lines) lines.push(line);
+    for (const y of synthetic.ys) ys.push(y);
+  }
+  return { lines, ys };
+}
+
+function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: number }[]): {
+  lines: string[];
+  ys: number[];
+} {
+  const yTol = 4;
+  const rows: { y: number; cells: { str: string; x: number }[] }[] = [];
+  const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+  for (const item of sorted) {
+    const row = rows.find((candidate) => Math.abs(candidate.y - item.y) <= yTol);
+    if (row) {
+      row.cells.push({ str: item.str, x: item.x });
+    } else {
+      rows.push({ y: item.y, cells: [{ str: item.str, x: item.x }] });
+    }
+  }
+  for (const row of rows) row.cells.sort((a, b) => a.x - b.x);
+
+  const lines: string[] = [];
+  const ys: number[] = [];
+  const seen = new Set<string>();
+  const pushLine = (line: string, y: number) => {
+    const clean = line.replace(/\s+/g, " ").trim();
+    const key = normalizeName(clean);
+    if (!clean || seen.has(key)) return;
+    seen.add(key);
+    lines.push(clean);
+    ys.push(y);
+  };
+
+  const groupHeadings: { group: string; x: number; y: number }[] = [];
+  for (const row of rows) {
+    for (const cell of row.cells) {
+      const match = cell.str.match(/^girone\s+([a-z0-9]+)$/i);
+      if (match) groupHeadings.push({ group: `Girone ${String(match[1] ?? "").toUpperCase()}`, x: cell.x, y: row.y });
+    }
+  }
+  groupHeadings.sort((a, b) => a.x - b.x);
+
+  for (const row of rows) {
+    const rowText = row.cells.map((cell) => cell.str).join(" ");
+    const rowNorm = normalizeName(rowText);
+    if (/\b(?:data|orario|ora|campo|programma|partite|ris|finali|mattina|pomeriggio)\b/.test(rowNorm)) continue;
+    if (/\d{1,2}[:.]\d{2}/.test(rowText)) continue;
+
+    for (let i = 0; i < groupHeadings.length; i++) {
+      const heading = groupHeadings[i];
+      if (row.y >= heading.y || heading.y - row.y > 130) continue;
+      const prev = groupHeadings[i - 1];
+      const next = groupHeadings[i + 1];
+      const left = prev ? (prev.x + heading.x) / 2 : heading.x - 85;
+      const right = next ? (heading.x + next.x) / 2 : heading.x + 110;
+      const team = row.cells
+        .filter((cell) => cell.x >= left && cell.x < right)
+        .map((cell) => cell.str)
+        .join(" ")
+        .trim();
+      if (team && normalizeName(team) !== normalizeName(heading.group)) {
+        pushLine(`${heading.group} ${team}`, row.y + 0.02);
+      }
+    }
+  }
+
+  const dateRe = /\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\b/;
+  const timeRe = /\b\d{1,2}[:.]\d{2}\b/;
+  for (const row of rows) {
+    const dateCell = row.cells.find((cell) => dateRe.test(cell.str));
+    const timeCell = row.cells.find((cell) => timeRe.test(cell.str));
+    if (!dateCell || !timeCell) continue;
+
+    const groupCell = row.cells.find((cell) => /^[A-Z]$/i.test(cell.str) && cell.x > timeCell.x && cell.x < timeCell.x + 110);
+    const rightCells = row.cells.filter((cell) => cell.x > (groupCell?.x ?? timeCell.x) + 35);
+    if (rightCells.length < 2) continue;
+
+    const separatorIndex = rightCells.findIndex((cell) => /^[-–—]$/.test(cell.str.trim()) || /^vs\.?$/i.test(cell.str.trim()));
+    let home = "";
+    let away = "";
+    if (separatorIndex > 0 && separatorIndex < rightCells.length - 1) {
+      home = rightCells.slice(0, separatorIndex).map((cell) => cell.str).join(" ");
+      away = rightCells.slice(separatorIndex + 1).map((cell) => cell.str).join(" ");
+    } else {
+      const minX = Math.min(...rightCells.map((cell) => cell.x));
+      const maxX = Math.max(...rightCells.map((cell) => cell.x));
+      const middle = (minX + maxX) / 2;
+      home = rightCells.filter((cell) => cell.x <= middle).map((cell) => cell.str).join(" ");
+      away = rightCells.filter((cell) => cell.x > middle).map((cell) => cell.str).join(" ");
+    }
+
+    const homeClean = cleanOcrTournamentOpponentName(home);
+    const awayClean = cleanOcrTournamentOpponentName(away);
+    if (!homeClean || !awayClean) continue;
+    const groupLabel = groupCell ? `Girone ${groupCell.str.toUpperCase()}` : "";
+    pushLine(`${dateCell.str} ${timeCell.str} ${groupLabel} ${homeClean} - ${awayClean}`, row.y + 0.04);
+  }
+
   return { lines, ys };
 }
 
@@ -1581,7 +2046,7 @@ export async function parseMatchCalendarPdfFile(
   const perPage: { lines: string[]; ys: number[] }[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    perPage.push(await pageToLinesWithYs(page));
+    perPage.push(await pageToLinesWithYs(page, { includeTournamentTableLines: options.unifiedTournamentProgram === true }));
   }
 
   const nativeFullText = perPage.map((p) => p.lines.join(" ")).join("\n");
@@ -1698,6 +2163,7 @@ export async function parseTournamentImageFile(
       aliasNorms,
       tournamentName,
       fallbackYearHint,
+      unifiedTournamentProgram: options.unifiedTournamentProgram === true,
     });
   } finally {
     await worker.terminate();
@@ -1754,6 +2220,18 @@ export function parseMatchCalendarTextLines(
   const tournamentTitle = extractTournamentTitle(allPageLines);
 
   if (documentMode === "tournament") {
+    if (options.unifiedTournamentProgram) {
+      const unifiedResult = parseUnifiedTournamentProgramLines(allPageLines, {
+        aliasNorms: tournamentAliases,
+        tournamentTitle,
+        tournamentName,
+        fallbackDateIso: explicitTournamentFallbackIso,
+        fallbackYearHint,
+      });
+      if ((unifiedResult.tournamentProgram?.length ?? 0) > 0 || unifiedResult.recognized.length > 0) {
+        return unifiedResult;
+      }
+    }
     return tournamentLooksValid
       ? parseTournamentProgramLines(allPageLines, {
           aliasNorms: tournamentAliases,

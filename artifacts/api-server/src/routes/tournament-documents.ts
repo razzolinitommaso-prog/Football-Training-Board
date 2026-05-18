@@ -226,4 +226,58 @@ router.post("/tournament-documents", requireAuth, async (req, res): Promise<void
   }
 });
 
+router.patch("/tournament-documents/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!UPLOAD_ROLES.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Solo segreteria o ruoli equivalenti possono rinominare allegati torneo" });
+    return;
+  }
+  const id = Number.parseInt(String(req.params.id ?? ""), 10);
+  const fileName = String((req.body as { fileName?: unknown }).fileName ?? "").trim();
+  if (!Number.isFinite(id) || id <= 0 || !fileName) {
+    res.status(400).json({ error: "id e fileName sono obbligatori" });
+    return;
+  }
+
+  const clubId = req.session.clubId!;
+  const [existing] = await db
+    .select({ id: tournamentDocumentsTable.id, teamId: tournamentDocumentsTable.teamId, clubId: tournamentDocumentsTable.clubId })
+    .from(tournamentDocumentsTable)
+    .where(eq(tournamentDocumentsTable.id, id))
+    .limit(1);
+
+  if (!existing || existing.clubId !== clubId) {
+    res.status(404).json({ error: "Documento non trovato" });
+    return;
+  }
+  const teamOk = await assertTeamAccessibleInSession(req, existing.teamId);
+  if (!teamOk) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+
+  const safeName = fileName.replace(/[/\\]/g, "_").slice(0, 255);
+  const [row] = await db
+    .update(tournamentDocumentsTable)
+    .set({ fileName: safeName })
+    .where(eq(tournamentDocumentsTable.id, id))
+    .returning();
+
+  if (!row) {
+    res.status(500).json({ error: "Rinomina fallita" });
+    return;
+  }
+
+  res.json({
+    id: row.id,
+    teamId: row.teamId,
+    competition: row.competition,
+    normalizedCompetition: row.normalizedCompetition,
+    fileName: row.fileName,
+    fileType: row.fileType,
+    fileSize: row.fileSize,
+    dataUrl: row.dataUrl,
+    createdAt: row.createdAt?.toISOString?.() ?? String(row.createdAt),
+  });
+});
+
 export default router;
