@@ -106,6 +106,33 @@ interface Match {
   matchPlan?: MatchPlanData | null;
 }
 
+type MatchTimelineView = "standard" | "postponed-original" | "recovery";
+type MatchTimelineItem = Match & {
+  __timelineView?: MatchTimelineView;
+  __originalDate?: string;
+};
+
+function buildMatchTimelineItems(matches: Match[]): MatchTimelineItem[] {
+  const items: MatchTimelineItem[] = [];
+  for (const match of matches) {
+    const hasRecovery = !!match.isPostponed && !!match.rescheduleDate && !match.rescheduleTbd;
+    if (!hasRecovery) {
+      items.push({ ...match, __timelineView: "standard" });
+      continue;
+    }
+    items.push({ ...match, __timelineView: "postponed-original" });
+    items.push({
+      ...match,
+      date: match.rescheduleDate as string,
+      isPostponed: false,
+      rescheduleDate: match.date,
+      __timelineView: "recovery",
+      __originalDate: match.date,
+    });
+  }
+  return items.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
 interface Team {
   id: number;
   clubId?: number;
@@ -944,7 +971,7 @@ function MatchCard({
   bulkSelected,
   onBulkToggle,
 }: {
-  match: Match;
+  match: MatchTimelineItem;
   canEditPreNotes: boolean;
   canEditPostNotes: boolean;
   canEditSchedule: boolean;
@@ -985,6 +1012,9 @@ function MatchCard({
   const matchFormat = matchFormatForTeam(matchSection, teamName, teamCategory);
   const isFriendlyMatch = matchPhase(match) === "amichevoli";
   const autoReserveRuleEnabled = matchFormat !== "11v11";
+  const timelineView = match.__timelineView ?? "standard";
+  const isPostponedOriginalView = timelineView === "postponed-original";
+  const isRecoveryView = timelineView === "recovery";
   const moduleOptions = useMemo(() => moduleOptionsForFormat(matchFormat), [matchFormat]);
   const friendlyNextFormat = useMemo(
     () => (isFriendlyMatch && autoReserveRuleEnabled ? nextFriendlyFormat(matchFormat) : null),
@@ -1156,7 +1186,11 @@ function MatchCard({
   const postView = splitPostNotesAndAttachments(match.postMatchNotes);
   const hasPostNotes = postView.note.length > 0 || postView.attachments.length > 0;
 
-  const statusColor = match.isPostponed
+  const statusColor = isPostponedOriginalView
+    ? "border-l-muted-foreground/40 bg-muted/30 opacity-75"
+    : isRecoveryView
+    ? "border-l-emerald-500"
+    : match.isPostponed
     ? "border-l-amber-400"
     : isPast
     ? "border-l-muted-foreground/30"
@@ -1555,6 +1589,11 @@ function MatchCard({
                   <AlertTriangle className="w-3 h-3 mr-1" /> Rinviata
                 </Badge>
               )}
+              {isRecoveryView && (
+                <Badge variant="outline" className="text-xs text-emerald-700 border-emerald-400 shrink-0">
+                  <RotateCcw className="w-3 h-3 mr-1" /> Recupero
+                </Badge>
+              )}
               {!isPast && !match.isPostponed && (
                 <span className="flex items-center gap-1 text-xs text-primary font-medium">
                   <Clock className="w-3 h-3" /> In programma
@@ -1586,6 +1625,12 @@ function MatchCard({
                   : match.rescheduleDate
                   ? `Recupero previsto: ${format(new Date(match.rescheduleDate), "d MMMM yyyy • HH:mm", { locale: itLocale })}`
                   : "Data recupero non definita"}
+              </div>
+            )}
+            {isRecoveryView && match.__originalDate && (
+              <div className="mt-1.5 flex items-center gap-2 text-xs text-emerald-700">
+                <RotateCcw className="w-3 h-3" />
+                Recupero della partita rinviata del {format(new Date(match.__originalDate), "d MMMM yyyy", { locale: itLocale })}
               </div>
             )}
             </div>
@@ -1839,9 +1884,16 @@ function MatchCard({
                         type="text"
                         value={convocationTimeInput}
                         onChange={(e) => {
-                          const nextTime = e.target.value;
+                          const nextTime = formatTimeInputLive(e.target.value);
                           setConvocationTimeInput(nextTime);
                           const nextIso = combineDateAndTimeToIso(convocationDateInput, nextTime);
+                          setPlanDraft((prev) => ({ ...prev, convocationAt: nextIso ?? "" }));
+                        }}
+                        onBlur={(e) => {
+                          const normalized = normalizeTime24(e.target.value);
+                          if (!normalized) return;
+                          setConvocationTimeInput(normalized);
+                          const nextIso = combineDateAndTimeToIso(convocationDateInput, normalized);
                           setPlanDraft((prev) => ({ ...prev, convocationAt: nextIso ?? "" }));
                         }}
                         placeholder="HH:mm"
@@ -3776,10 +3828,10 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     ) : null;
 
   const activePhase = useMemo(() => {
-    if (phaseTab === "primaverile") return { items: primaverileFiltered, rawCount: primaverile.length };
-    if (phaseTab === "tornei") return { items: torneiFiltered, rawCount: tornei.length };
-    if (phaseTab === "amichevoli") return { items: amichevoliFiltered, rawCount: amichevoli.length };
-    return { items: autunnaleFiltered, rawCount: autunnale.length };
+    if (phaseTab === "primaverile") return { items: buildMatchTimelineItems(primaverileFiltered), rawCount: primaverile.length };
+    if (phaseTab === "tornei") return { items: buildMatchTimelineItems(torneiFiltered), rawCount: tornei.length };
+    if (phaseTab === "amichevoli") return { items: buildMatchTimelineItems(amichevoliFiltered), rawCount: amichevoli.length };
+    return { items: buildMatchTimelineItems(autunnaleFiltered), rawCount: autunnale.length };
   }, [phaseTab, autunnaleFiltered, primaverileFiltered, torneiFiltered, amichevoliFiltered, autunnale.length, primaverile.length, tornei.length, amichevoli.length]);
 
   if (!teamId) return <div className="p-6 text-muted-foreground">Squadra non trovata.</div>;
@@ -4172,26 +4224,29 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   : "Nessuna partita in questa fase."}
               </CardContent>
             </Card>
-          ) : activePhase.items.map(m => (
+          ) : activePhase.items.map(m => {
+            const originalPostponedView = m.__timelineView === "postponed-original";
+            return (
             <MatchCard
-              key={m.id}
+              key={`${m.id}-${m.__timelineView ?? "standard"}`}
               match={m}
-              canEditPreNotes={canEditPreNotes}
-              canEditPostNotes={canEditPostNotes}
-              canEditSchedule={canEditSchedule}
-              canDeleteMatch={canImportExport}
-              canManageMatchPlan={canManageMatchPlan}
-              canViewMatchPlan={canViewMatchPlan}
+              canEditPreNotes={canEditPreNotes && !originalPostponedView}
+              canEditPostNotes={canEditPostNotes && !originalPostponedView}
+              canEditSchedule={canEditSchedule && !originalPostponedView}
+              canDeleteMatch={canImportExport && !originalPostponedView}
+              canManageMatchPlan={canManageMatchPlan && !originalPostponedView}
+              canViewMatchPlan={canViewMatchPlan && !originalPostponedView}
               teamPlayers={teamPlayers}
               teamTrainingSchedule={team?.trainingSchedule ?? null}
               matchSection={currentSection}
               teamName={team?.name ?? ""}
               teamCategory={team?.category ?? undefined}
-              bulkSelectEnabled={canImportExport}
+              bulkSelectEnabled={canImportExport && !originalPostponedView}
               bulkSelected={selectedMatchIds.has(m.id)}
               onBulkToggle={() => togglePhaseMatchSelection(m.id)}
             />
-          ))}
+            );
+          })}
         </div>
       )}
       </div>

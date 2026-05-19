@@ -3,11 +3,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboardStats, useListPlayers, useListTeams } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { format } from "date-fns";
+import { addDays, addMonths, endOfMonth, endOfWeek, eachDayOfInterval, format, isSameMonth, startOfDay, startOfMonth, startOfWeek, subMonths } from "date-fns";
 import { it as itLocale } from "date-fns/locale";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useLanguage } from "@/lib/i18n";
@@ -37,6 +37,88 @@ type SecretaryClubFileRow = {
   sizeBytes: number;
   createdAt: string;
 };
+
+type DashboardTeam = {
+  id: number;
+  name: string;
+  clubSection?: string | null;
+  trainingSchedule?: TrainingSlot[] | null;
+};
+
+type DashboardMatch = {
+  id: number;
+  opponent: string;
+  date: string;
+  isPostponed?: boolean | null;
+  rescheduleDate?: string | null;
+  rescheduleTbd?: boolean | null;
+  homeAway?: string | null;
+  result?: string | null;
+  teamId?: number | null;
+  teamName?: string | null;
+  competition?: string | null;
+  location?: string | null;
+};
+
+type DashboardExtraEvent = {
+  id: number;
+  section?: string | null;
+  category?: string | null;
+  title: string;
+  dateFrom: string;
+  dateTo: string;
+  startTime?: string | null;
+  endTime?: string | null;
+  frequency?: "everyday" | "selected_days" | string | null;
+  weekdays?: number[] | null;
+  targetMode?: "all" | "selected" | string | null;
+  teamIds?: number[] | null;
+};
+
+type DashboardCalendarItem =
+  | {
+      kind: "training" | "extra";
+      key: string;
+      date: Date;
+      time: string;
+      title: string;
+      subtitle: string;
+      teamId?: number;
+      teamName?: string;
+    }
+  | {
+      kind: "match";
+      key: string;
+      date: Date;
+      time: string;
+      title: string;
+      subtitle: string;
+      teamId?: number;
+      teamName?: string;
+      match: DashboardMatch;
+    }
+  | {
+      kind: "tournament";
+      key: string;
+      date: Date;
+      time: string;
+      title: string;
+      subtitle: string;
+      teamId?: number;
+      teamName?: string;
+      matches: DashboardMatch[];
+    };
+
+const DASHBOARD_TEAM_PALETTE = [
+  "#3b82f6",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#f43f5e",
+  "#0ea5e9",
+  "#14b8a6",
+  "#f97316",
+];
 
 /** Elenco file: in caso di errore API rete nulla in UI (lista vuota), solo log in sviluppo. */
 async function fetchSecretaryClubFilesList(): Promise<SecretaryClubFileRow[]> {
@@ -127,6 +209,90 @@ function noteRecipientLabel(recipient: "secretary" | "technical_director" | "coa
   return "staff tecnico";
 }
 
+function parseLocalDateTime(value?: string | null): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function combineLocalDateAndTime(day: Date, hhmm?: string | null): Date {
+  const [hRaw, mRaw] = String(hhmm || "00:00").split(":");
+  const h = Number.parseInt(hRaw || "0", 10);
+  const m = Number.parseInt(mRaw || "0", 10);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0);
+}
+
+function formatDashboardTimeInputLive(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 4);
+  if (digits.length === 0) return "";
+  if (digits.length <= 2) return digits;
+  if (digits.length === 3) {
+    const hh = Number(digits.slice(0, 2));
+    if (hh <= 23) return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+    return `${digits[0]}:${digits.slice(1)}`;
+  }
+  return `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+}
+
+function normalizeDashboardTime24(value: string): string | null {
+  const clean = value.trim();
+  const colon = clean.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (colon) {
+    const hh = Number(colon[1]);
+    const mm = Number(colon[2]);
+    if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  const d = clean.replace(/\D/g, "");
+  if (d.length === 4) {
+    const hh = Number(d.slice(0, 2));
+    const mm = Number(d.slice(2, 4));
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  if (d.length === 3) {
+    const hh2 = Number(d.slice(0, 2));
+    if (hh2 <= 23) return `${String(hh2).padStart(2, "0")}:0${d.slice(2)}`;
+    const hh = Number(d[0] ?? "0");
+    const mm = Number(d.slice(1));
+    if (hh < 0 || hh > 9 || mm < 0 || mm > 59) return null;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+  if (d.length === 2) {
+    const hh = Number(d);
+    if (hh < 0 || hh > 23) return null;
+    return `${String(hh).padStart(2, "0")}:00`;
+  }
+  return null;
+}
+
+function combineDashboardDateAndTimeToIso(dateValue: string, timeValue: string): string | null {
+  if (!dateValue) return null;
+  const normalized = normalizeDashboardTime24(timeValue);
+  if (!normalized) return null;
+  const parsed = new Date(`${dateValue}T${normalized}:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function matchTimeLabel(date: Date): string {
+  return format(date, "HH:mm");
+}
+
+function normalCompetition(value?: string | null): string {
+  return String(value ?? "").trim();
+}
+
+function isTournamentMatch(match: DashboardMatch): boolean {
+  return /^torneo\b/i.test(normalCompetition(match.competition));
+}
+
+function homeAwayLabel(value?: string | null): string {
+  const raw = String(value ?? "").toLowerCase();
+  if (raw === "home" || raw === "casa") return "Casa";
+  if (raw === "away" || raw === "trasferta") return "Trasferta";
+  return value ? String(value) : "";
+}
+
 async function fetchJsonOrThrow<T>(url: string): Promise<T> {
   console.log(`[dashboard] request GET ${url}`);
   const res = await fetch(withApi(url), { credentials: "include" });
@@ -159,9 +325,12 @@ export default function Dashboard() {
   const { t, language } = useLanguage();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { role, user, club } = useAuth();
+  const { role, user, club, section } = useAuth();
   const nr = normalizeSessionRole(role);
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
+  const dashboardSection = section || "scuola_calcio";
+  const canPrepareFromDashboardCalendar = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director" || nr === "technical_director";
+  const canEditDashboardCalendar = nr === "secretary" || nr === "admin" || nr === "director" || nr === "presidente";
 
   const { data: stats, isLoading } = useGetDashboardStats({
     query: {
@@ -317,6 +486,294 @@ export default function Dashboard() {
       fetchJsonOrThrow<Array<{ status?: string; scheduledAt?: string }>>("/api/training-sessions"),
     enabled: Boolean(isClubWideTechnicalRole && user),
   });
+
+  const { data: dashboardMatches = [] } = useQuery<DashboardMatch[]>({
+    queryKey: ["/api/matches", clubIdNum, nr, "dashboard-calendar"],
+    queryFn: () => fetchJsonOrThrow<DashboardMatch[]>("/api/matches"),
+    enabled: Boolean(user),
+  });
+
+  const { data: dashboardExtraEvents = [] } = useQuery<DashboardExtraEvent[]>({
+    queryKey: ["/api/calendar-extra-events", clubIdNum, nr, dashboardSection, "dashboard-calendar"],
+    queryFn: () => fetchJsonOrThrow<DashboardExtraEvent[]>(`/api/calendar-extra-events?section=${dashboardSection}`),
+    enabled: Boolean(user),
+  });
+
+  const [selectedCalendarItem, setSelectedCalendarItem] = useState<DashboardCalendarItem | null>(null);
+  const [dashboardCalendarMonth, setDashboardCalendarMonth] = useState(() => startOfMonth(new Date()));
+  const [dashboardCalendarCollapsed, setDashboardCalendarCollapsed] = useState(false);
+  const [dashboardSelectedTeamIds, setDashboardSelectedTeamIds] = useState<Set<number>>(new Set());
+  const [calendarEditDate, setCalendarEditDate] = useState("");
+  const [calendarEditTime, setCalendarEditTime] = useState("");
+  const [calendarEditLocation, setCalendarEditLocation] = useState("");
+  const [calendarEditPostponed, setCalendarEditPostponed] = useState(false);
+  const [calendarEditRescheduleTbd, setCalendarEditRescheduleTbd] = useState(false);
+  const [calendarEditRescheduleDate, setCalendarEditRescheduleDate] = useState("");
+  const [calendarEditRescheduleTime, setCalendarEditRescheduleTime] = useState("");
+
+  const dashboardTeams = useMemo(
+    () => ((allTeams ?? []) as DashboardTeam[]).filter((team) => Number(team?.id) > 0),
+    [allTeams],
+  );
+
+  useEffect(() => {
+    const ids = dashboardTeams.map((team) => Number(team.id));
+    if (ids.length === 0) {
+      setDashboardSelectedTeamIds(new Set());
+      return;
+    }
+    setDashboardSelectedTeamIds((prev) => {
+      if (prev.size === 0) return new Set(ids);
+      const next = new Set<number>();
+      ids.forEach((id) => {
+        if (prev.has(id)) next.add(id);
+      });
+      return next.size > 0 ? next : new Set(ids);
+    });
+  }, [dashboardTeams]);
+
+  useEffect(() => {
+    if (selectedCalendarItem?.kind !== "match") {
+      setCalendarEditDate("");
+      setCalendarEditTime("");
+      setCalendarEditLocation("");
+      setCalendarEditPostponed(false);
+      setCalendarEditRescheduleTbd(false);
+      setCalendarEditRescheduleDate("");
+      setCalendarEditRescheduleTime("");
+      return;
+    }
+    const date = parseLocalDateTime(selectedCalendarItem.match.date) ?? selectedCalendarItem.date;
+    const rescheduleDate = parseLocalDateTime(selectedCalendarItem.match.rescheduleDate);
+    setCalendarEditDate(format(date, "yyyy-MM-dd"));
+    setCalendarEditTime(format(date, "HH:mm"));
+    setCalendarEditLocation(selectedCalendarItem.match.location ?? "");
+    setCalendarEditPostponed(!!selectedCalendarItem.match.isPostponed);
+    setCalendarEditRescheduleTbd(!!selectedCalendarItem.match.rescheduleTbd);
+    setCalendarEditRescheduleDate(rescheduleDate ? format(rescheduleDate, "yyyy-MM-dd") : "");
+    setCalendarEditRescheduleTime(rescheduleDate ? format(rescheduleDate, "HH:mm") : "");
+  }, [selectedCalendarItem]);
+
+  const updateDashboardMatchMutation = useMutation({
+    mutationFn: async (payload: {
+      matchId: number;
+      date: string;
+      location: string;
+      isPostponed: boolean;
+      rescheduleTbd: boolean;
+      rescheduleDate: string | null;
+    }) => {
+      const res = await fetch(withApi(`/api/matches/${payload.matchId}`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: payload.date,
+          location: payload.location,
+          isPostponed: payload.isPostponed,
+          rescheduleTbd: payload.isPostponed ? payload.rescheduleTbd : false,
+          rescheduleDate: payload.isPostponed && !payload.rescheduleTbd ? payload.rescheduleDate : null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.text()) || "Aggiornamento non riuscito");
+      return res.json();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/matches"], type: "active" });
+      setSelectedCalendarItem(null);
+      toast({ title: "Evento aggiornato", description: "Data, orario e luogo sono stati salvati." });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Aggiornamento non riuscito",
+        description: error?.message || "Riprova tra poco.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const dashboardCalendarItems = useMemo<DashboardCalendarItem[]>(() => {
+    const teams = dashboardSelectedTeamIds.size > 0
+      ? dashboardTeams.filter((team) => dashboardSelectedTeamIds.has(Number(team.id)))
+      : [];
+    const allowedTeamIds = new Set(teams.map((team) => Number(team.id)));
+    const teamById = new Map<number, DashboardTeam>();
+    teams.forEach((team) => teamById.set(Number(team.id), team));
+    const nowDay = startOfDay(new Date());
+    const monthStart = startOfWeek(startOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 });
+    const monthEnd = endOfWeek(endOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 });
+    const maxDay = monthEnd;
+    const items: DashboardCalendarItem[] = [];
+
+    teams.forEach((team) => {
+      (team.trainingSchedule ?? []).forEach((slot) => {
+        const dayMap: Record<string, number> = {
+          "Domenica": 0,
+          "Lunedì": 1,
+          "Lunedi": 1,
+          "Martedì": 2,
+          "Martedi": 2,
+          "Mercoledì": 3,
+          "Mercoledi": 3,
+          "Giovedì": 4,
+          "Giovedi": 4,
+          "Venerdì": 5,
+          "Venerdi": 5,
+          "Sabato": 6,
+        };
+        const targetDay = dayMap[String(slot.day ?? "")];
+        if (targetDay == null) return;
+        const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+        monthDays.forEach((day) => {
+          if (day.getDay() !== targetDay) return;
+          const at = combineLocalDateAndTime(day, slot.startTime);
+          if (at > maxDay) return;
+          items.push({
+            kind: "training",
+            key: `training-${team.id}-${format(day, "yyyy-MM-dd")}-${slot.startTime}`,
+            date: at,
+            time: `${slot.startTime ?? ""}${slot.endTime ? `-${slot.endTime}` : ""}`,
+            title: `Allenamento ${team.name}`,
+            subtitle: team.name,
+            teamId: team.id,
+            teamName: team.name,
+          });
+        });
+      });
+    });
+
+    const tournamentGroups = new Map<string, DashboardMatch[]>();
+    dashboardMatches.forEach((match) => {
+      const date = parseLocalDateTime(match.date);
+      const recoveryDate = match.isPostponed && match.rescheduleDate && !match.rescheduleTbd
+        ? parseLocalDateTime(match.rescheduleDate)
+        : null;
+      const originalInMonth = !!date && date >= monthStart && date <= monthEnd;
+      const recoveryInMonth = !!recoveryDate && recoveryDate >= monthStart && recoveryDate <= monthEnd;
+      if (!date || (!originalInMonth && !recoveryInMonth)) return;
+      if (match.teamId && !allowedTeamIds.has(Number(match.teamId))) return;
+      const team = match.teamId ? teamById.get(Number(match.teamId)) : undefined;
+      if (recoveryDate) {
+        if (originalInMonth) {
+          items.push({
+            kind: "match",
+            key: `match-${match.id}-postponed-original`,
+            date,
+            time: matchTimeLabel(date),
+            title: `${team?.name ?? match.teamName ?? "Squadra"} vs ${match.opponent}`,
+            subtitle: ["Rinviata", homeAwayLabel(match.homeAway), match.competition].filter(Boolean).join(" - "),
+            teamId: Number(match.teamId ?? 0) || undefined,
+            teamName: team?.name ?? match.teamName ?? undefined,
+            match,
+          });
+        }
+        if (recoveryInMonth) {
+          items.push({
+            kind: "match",
+            key: `match-${match.id}-recovery`,
+            date: recoveryDate,
+            time: matchTimeLabel(recoveryDate),
+            title: `Recupero: ${team?.name ?? match.teamName ?? "Squadra"} vs ${match.opponent}`,
+            subtitle: [homeAwayLabel(match.homeAway), match.competition].filter(Boolean).join(" - "),
+            teamId: Number(match.teamId ?? 0) || undefined,
+            teamName: team?.name ?? match.teamName ?? undefined,
+            match: { ...match, date: match.rescheduleDate as string, isPostponed: false, rescheduleDate: match.date },
+          });
+        }
+        return;
+      }
+      if (isTournamentMatch(match) && match.competition) {
+        const key = `${format(date, "yyyy-MM-dd")}|${normalCompetition(match.competition)}|${match.teamId ?? ""}`;
+        const list = tournamentGroups.get(key) ?? [];
+        list.push(match);
+        tournamentGroups.set(key, list);
+        return;
+      }
+      items.push({
+        kind: "match",
+        key: `match-${match.id}`,
+        date,
+        time: matchTimeLabel(date),
+        title: `${team?.name ?? match.teamName ?? "Squadra"} vs ${match.opponent}`,
+        subtitle: [homeAwayLabel(match.homeAway), match.competition].filter(Boolean).join(" · "),
+        teamId: Number(match.teamId ?? 0) || undefined,
+        teamName: team?.name ?? match.teamName ?? undefined,
+        match,
+      });
+    });
+
+    tournamentGroups.forEach((matches, key) => {
+      const sorted = [...matches].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const firstDate = parseLocalDateTime(sorted[0]?.date);
+      if (!firstDate) return;
+      const first = sorted[0];
+      const team = first.teamId ? teamById.get(Number(first.teamId)) : undefined;
+      items.push({
+        kind: "tournament",
+        key: `tournament-${key}`,
+        date: firstDate,
+        time: matchTimeLabel(firstDate),
+        title: normalCompetition(first.competition).replace(/^torneo:\s*/i, "Torneo: ") || "Torneo",
+        subtitle: `${team?.name ?? first.teamName ?? "Squadra"} · ${sorted.length} partite/eventi`,
+        teamId: Number(first.teamId ?? 0) || undefined,
+        teamName: team?.name ?? first.teamName ?? undefined,
+        matches: sorted,
+      });
+    });
+
+    dashboardExtraEvents.forEach((evt) => {
+      if (Array.isArray(evt.teamIds) && evt.teamIds.length > 0 && !evt.teamIds.some((id) => allowedTeamIds.has(Number(id)))) return;
+      const from = parseLocalDateTime(`${evt.dateFrom}T00:00:00`);
+      const to = parseLocalDateTime(`${evt.dateTo}T23:59:59`);
+      if (!from || !to) return;
+      eachDayOfInterval({ start: monthStart, end: monthEnd }).forEach((day) => {
+        if (day < startOfDay(from) || day > to || day > maxDay) return;
+        if (evt.frequency === "selected_days" && Array.isArray(evt.weekdays) && !evt.weekdays.includes(day.getDay())) return;
+        const at = combineLocalDateAndTime(day, evt.startTime);
+        items.push({
+          kind: "extra",
+          key: `extra-${evt.id}-${format(day, "yyyy-MM-dd")}`,
+          date: at,
+          time: `${evt.startTime ?? ""}${evt.endTime ? `-${evt.endTime}` : ""}` || matchTimeLabel(at),
+          title: evt.title,
+          subtitle: evt.category ? String(evt.category).replace(/_/g, " ") : "Impegno",
+        });
+      });
+    });
+
+    return items
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .slice(0, 200);
+  }, [dashboardTeams, dashboardMatches, dashboardExtraEvents, dashboardCalendarMonth, dashboardSelectedTeamIds]);
+
+  const dashboardCalendarDays = useMemo(
+    () =>
+      eachDayOfInterval({
+        start: startOfWeek(startOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 }),
+        end: endOfWeek(endOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 }),
+      }),
+    [dashboardCalendarMonth],
+  );
+
+  const dashboardEventsByDay = useMemo(() => {
+    const map = new Map<string, DashboardCalendarItem[]>();
+    dashboardCalendarItems.forEach((item) => {
+      const key = format(item.date, "yyyy-MM-dd");
+      const list = map.get(key) ?? [];
+      list.push(item);
+      map.set(key, list);
+    });
+    return map;
+  }, [dashboardCalendarItems]);
+
+  const dashboardWeekPreviewItems = useMemo(() => {
+    const today = startOfDay(new Date());
+    const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+    return dashboardCalendarItems
+      .filter((item) => item.date >= today && item.date <= weekEnd)
+      .slice(0, 8);
+  }, [dashboardCalendarItems]);
 
   const dashboardTeamCount = useMemo(() => {
     const fromApi = stats?.totalTeams ?? 0;
@@ -906,6 +1363,234 @@ export default function Dashboard() {
         <StatCard title={t.staffMembers} value={stats?.totalMembers || 0} icon={ShieldCheck} link="/members" />
       </div>
 
+      <Card className="shadow-md border-border/50">
+        <CardHeader className="pb-3 border-b">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-primary" />
+              <CardTitle className="text-base font-display">
+                Calendario - {format(dashboardCalendarMonth, "MMMM yyyy", { locale: itLocale })}
+              </CardTitle>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => subMonths(m, 1))}>
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setDashboardCalendarMonth(startOfMonth(new Date()))}>
+                Oggi
+              </Button>
+              <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => addMonths(m, 1))}>
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+              <Link href="/scuola-calcio/calendar">
+                <Button type="button" variant="outline" size="sm" className="gap-2">
+                  Apri completo
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                title={dashboardCalendarCollapsed ? "Apri calendario" : "Chiudi calendario"}
+                onClick={() => setDashboardCalendarCollapsed((value) => !value)}
+              >
+                {dashboardCalendarCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {dashboardTeams.length > 1 && (
+            <div className="border-b px-4 py-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="font-medium">
+                  Annate visibili ({dashboardSelectedTeamIds.size}/{dashboardTeams.length})
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setDashboardSelectedTeamIds(new Set(dashboardTeams.map((team) => Number(team.id))))}>
+                    Tutte
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setDashboardSelectedTeamIds(new Set())}>
+                    Nessuna
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {dashboardTeams.map((team, index) => {
+                  const id = Number(team.id);
+                  const selected = dashboardSelectedTeamIds.has(id);
+                  const color = DASHBOARD_TEAM_PALETTE[index % DASHBOARD_TEAM_PALETTE.length];
+                  return (
+                    <button
+                      key={team.id}
+                      type="button"
+                      className={cn(
+                        "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                        selected ? "bg-emerald-50 text-emerald-900" : "bg-background text-muted-foreground opacity-60",
+                      )}
+                      style={{ borderColor: selected ? color : undefined }}
+                      onClick={() =>
+                        setDashboardSelectedTeamIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(id)) next.delete(id);
+                          else next.add(id);
+                          return next;
+                        })
+                      }
+                    >
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                      {team.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <div className="border-b px-4 py-3">
+            <div className="mb-2 text-sm font-medium">Da oggi a fine settimana</div>
+            {dashboardWeekPreviewItems.length === 0 ? (
+              <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                Nessun impegno in programma.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {dashboardWeekPreviewItems.map((item) => {
+                  const postponed = item.kind === "match" && !!item.match.isPostponed;
+                  const typeLabel = postponed
+                    ? "Rinviata"
+                    : item.kind === "training"
+                      ? "Allenamento"
+                      : item.kind === "tournament"
+                        ? "Torneo"
+                        : "Partita";
+                  return (
+                  <button
+                    key={`preview-${item.key}`}
+                    type="button"
+                    className={cn(
+                      "rounded-lg border bg-card px-3 py-2 text-left text-xs hover:border-primary/50",
+                      postponed && "border-amber-300 bg-amber-50 text-amber-900",
+                    )}
+                    onClick={() => setSelectedCalendarItem(item)}
+                  >
+                    <span className={cn("font-semibold text-primary", postponed && "text-amber-700")}>
+                      {format(item.date, "EEE d", { locale: itLocale })} · {item.time}
+                    </span>
+                    <span className="mt-1 block truncate font-medium">{item.title}</span>
+                    <span className="block truncate text-muted-foreground">{typeLabel} - {item.subtitle}</span>
+                  </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          {!dashboardCalendarCollapsed && (
+            <>
+              <div className="grid grid-cols-7 border-b bg-muted/30 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((day) => (
+                  <div key={day} className="px-2 py-2 text-center">{day}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7">
+                {dashboardCalendarDays.map((day) => {
+                  const key = format(day, "yyyy-MM-dd");
+                  const events = dashboardEventsByDay.get(key) ?? [];
+                  const muted = !isSameMonth(day, dashboardCalendarMonth);
+                  const today = startOfDay(day).getTime() === startOfDay(new Date()).getTime();
+                  return (
+                    <div
+                      key={key}
+                      className={cn(
+                        "min-h-[118px] border-b border-r p-2",
+                        muted && "bg-muted/20 text-muted-foreground",
+                      )}
+                    >
+                      <div className={cn("inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-semibold", today && "bg-emerald-600 text-white")}>
+                        {format(day, "d")}
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {events.slice(0, 4).map((item) => {
+                          const postponed = item.kind === "match" && !!item.match.isPostponed;
+                          const typeLabel = postponed
+                            ? "Rinviata"
+                            : item.kind === "training"
+                              ? "Allen."
+                              : item.kind === "tournament"
+                                ? "Torneo"
+                                : "Partita";
+                          const className = postponed
+                            ? "bg-amber-50 text-amber-900 border-amber-300"
+                            : item.kind === "training"
+                              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                              : item.kind === "tournament"
+                                ? "bg-violet-50 text-violet-800 border-violet-200"
+                                : "bg-blue-50 text-blue-800 border-blue-200";
+                          return (
+                            <button
+                              key={item.key}
+                              type="button"
+                              className={cn("w-full rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight hover:shadow-sm", className)}
+                              onClick={() => setSelectedCalendarItem(item)}
+                            >
+                              <span className="font-semibold">{item.time} - {typeLabel}</span>
+                              <span className="block truncate">{item.title}</span>
+                            </button>
+                          );
+                        })}
+                        {events.length > 4 && (
+                          <div className="text-[11px] text-muted-foreground">+{events.length - 4} altri</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          <div className="hidden">
+          {dashboardCalendarItems.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+              Nessun impegno nei prossimi giorni.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {dashboardCalendarItems.map((item) => {
+                const Icon = item.kind === "training" ? Dumbbell : item.kind === "tournament" ? Trophy : CalendarDays;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="text-left rounded-xl border bg-card p-3 hover:border-primary/50 hover:shadow-sm transition"
+                    onClick={() => setSelectedCalendarItem(item)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-muted-foreground">
+                            {format(item.date, "EEE d MMM", { locale: itLocale })} · {item.time}
+                          </p>
+                          <Badge variant="secondary" className="shrink-0 text-[10px]">
+                            {item.kind === "training" ? "Allenamento" : item.kind === "tournament" ? "Torneo" : "Partita"}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-sm font-semibold text-foreground line-clamp-2">{item.title}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{item.subtitle}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          </div>
+        </CardContent>
+      </Card>
+
       {showSecretaryFilesCard && (
         <>
           <Card className="shadow-md border-border/50 border-emerald-500/20 bg-emerald-500/[0.03]">
@@ -1052,6 +1737,248 @@ export default function Dashboard() {
           </Dialog>
         </>
       )}
+
+      <Dialog open={selectedCalendarItem !== null} onOpenChange={(open) => !open && setSelectedCalendarItem(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{selectedCalendarItem?.title ?? "Impegno"}</DialogTitle>
+            <DialogDescription>
+              {selectedCalendarItem
+                ? `${format(selectedCalendarItem.date, "EEEE d MMMM yyyy", { locale: itLocale })} · ${selectedCalendarItem.time}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedCalendarItem && (
+            <div className="space-y-4">
+              <div className="rounded-xl border bg-muted/30 p-3 text-sm">
+                <p className="font-medium">{selectedCalendarItem.subtitle}</p>
+                {selectedCalendarItem.teamName && (
+                  <p className="mt-1 text-muted-foreground">Squadra: {selectedCalendarItem.teamName}</p>
+                )}
+              </div>
+
+              {selectedCalendarItem.kind === "tournament" && (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">Partite del torneo</p>
+                  <div className="max-h-64 overflow-y-auto rounded-xl border divide-y">
+                    {selectedCalendarItem.matches.map((match) => {
+                      const date = parseLocalDateTime(match.date);
+                      return (
+                        <div key={match.id} className="flex items-center justify-between gap-3 p-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{match.opponent}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {date ? `${format(date, "d MMM", { locale: itLocale })} · ${matchTimeLabel(date)}` : "Orario da completare"}
+                            </p>
+                          </div>
+                          {match.teamId ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="shrink-0"
+                              variant={canPrepareFromDashboardCalendar ? "default" : "outline"}
+                              onClick={() => {
+                                if (canPrepareFromDashboardCalendar) {
+                                  setLocation(`/calendari/${match.teamId}?openMatchId=${match.id}`);
+                                  return;
+                                }
+                                const matchDate = date ?? selectedCalendarItem.date;
+                                setSelectedCalendarItem({
+                                  kind: "match",
+                                  key: `match-${match.id}`,
+                                  date: matchDate,
+                                  time: matchTimeLabel(matchDate),
+                                  title: `${selectedCalendarItem.teamName ?? match.teamName ?? "Squadra"} vs ${match.opponent}`,
+                                  subtitle: [homeAwayLabel(match.homeAway), match.competition].filter(Boolean).join(" · "),
+                                  teamId: Number(match.teamId ?? 0) || undefined,
+                                  teamName: selectedCalendarItem.teamName ?? match.teamName ?? undefined,
+                                  match,
+                                });
+                              }}
+                            >
+                              {canPrepareFromDashboardCalendar ? "Prepara" : "Modifica"}
+                            </Button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {selectedCalendarItem.kind === "match" && (
+                <>
+                  {canEditDashboardCalendar && (
+                    <div className="rounded-xl border p-3">
+                      <p className="mb-3 text-sm font-semibold">Modifica organizzativa</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor="calendar-edit-date">Data</Label>
+                          <Input id="calendar-edit-date" type="date" value={calendarEditDate} onChange={(e) => setCalendarEditDate(e.target.value)} />
+                        </div>
+                        <div>
+                          <Label htmlFor="calendar-edit-time">Orario</Label>
+                          <Input
+                            id="calendar-edit-time"
+                            type="text"
+                            value={calendarEditTime}
+                            onChange={(e) => setCalendarEditTime(formatDashboardTimeInputLive(e.target.value))}
+                            onBlur={(e) => {
+                              const normalized = normalizeDashboardTime24(e.target.value);
+                              if (normalized) setCalendarEditTime(normalized);
+                            }}
+                            placeholder="HH:mm"
+                            inputMode="numeric"
+                            autoComplete="off"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <Label htmlFor="calendar-edit-location">Luogo</Label>
+                          <Input id="calendar-edit-location" value={calendarEditLocation} onChange={(e) => setCalendarEditLocation(e.target.value)} placeholder="Es. Campo sportivo..." />
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-3 rounded-lg bg-muted/30 p-3">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-border"
+                            checked={calendarEditPostponed}
+                            onChange={(e) => setCalendarEditPostponed(e.target.checked)}
+                          />
+                          Partita rinviata
+                        </label>
+                        {calendarEditPostponed && (
+                          <div className="space-y-3 pl-6">
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-border"
+                                checked={calendarEditRescheduleTbd}
+                                onChange={(e) => setCalendarEditRescheduleTbd(e.target.checked)}
+                              />
+                              Data recupero da concordare
+                            </label>
+                            {!calendarEditRescheduleTbd && (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                  <Label htmlFor="calendar-reschedule-date">Nuova data recupero</Label>
+                                  <Input id="calendar-reschedule-date" type="date" value={calendarEditRescheduleDate} onChange={(e) => setCalendarEditRescheduleDate(e.target.value)} />
+                                </div>
+                                <div>
+                                  <Label htmlFor="calendar-reschedule-time">Orario recupero</Label>
+                                  <Input
+                                    id="calendar-reschedule-time"
+                                    type="text"
+                                    value={calendarEditRescheduleTime}
+                                    onChange={(e) => setCalendarEditRescheduleTime(formatDashboardTimeInputLive(e.target.value))}
+                                    onBlur={(e) => {
+                                      const normalized = normalizeDashboardTime24(e.target.value);
+                                      if (normalized) setCalendarEditRescheduleTime(normalized);
+                                    }}
+                                    placeholder="HH:mm"
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        className="mt-3"
+                        disabled={!calendarEditDate || updateDashboardMatchMutation.isPending}
+                        onClick={() => {
+                          const match = selectedCalendarItem.match;
+                          const isoDate = combineDashboardDateAndTimeToIso(calendarEditDate, calendarEditTime || "00:00");
+                          if (!isoDate) {
+                            toast({ title: "Data/orario non validi", description: "Controlla data e orario della partita.", variant: "destructive" });
+                            return;
+                          }
+                          const rescheduleIso =
+                            calendarEditPostponed && !calendarEditRescheduleTbd && calendarEditRescheduleDate
+                              ? combineDashboardDateAndTimeToIso(calendarEditRescheduleDate, calendarEditRescheduleTime || "00:00")
+                              : null;
+                          if (calendarEditPostponed && !calendarEditRescheduleTbd && calendarEditRescheduleDate && !rescheduleIso) {
+                            toast({ title: "Recupero non valido", description: "Controlla data e orario del recupero.", variant: "destructive" });
+                            return;
+                          }
+                          updateDashboardMatchMutation.mutate({
+                            matchId: match.id,
+                            date: isoDate,
+                            location: calendarEditLocation.trim(),
+                            isPostponed: calendarEditPostponed,
+                            rescheduleTbd: calendarEditRescheduleTbd,
+                            rescheduleDate: rescheduleIso,
+                          });
+                        }}
+                      >
+                        Salva modifiche
+                      </Button>
+                    </div>
+                  )}
+                  {canPrepareFromDashboardCalendar && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          const match = selectedCalendarItem.match;
+                          setLocation(`/calendari/${match.teamId ?? ""}?openMatchId=${match.id}`);
+                        }}
+                      >
+                        Apri scheda partita
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          const match = selectedCalendarItem.match;
+                          setLocation(`/tactical-board?teamId=${match.teamId ?? ""}&matchId=${match.id}&source=dashboard`);
+                        }}
+                      >
+                        Prepara partita
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {selectedCalendarItem.kind === "training" && canPrepareFromDashboardCalendar && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <Button type="button" onClick={() => setLocation("/training")}>
+                    Apri sessioni
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setLocation("/exercises")}>
+                    Prepara esercitazione
+                  </Button>
+                </div>
+              )}
+
+              {selectedCalendarItem.kind === "extra" && canPrepareFromDashboardCalendar && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <Button type="button" onClick={() => setLocation("/training")}>
+                    Pianifica attività
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setLocation("/exercises")}>
+                    Prepara esercitazione
+                  </Button>
+                </div>
+              )}
+              {(selectedCalendarItem.kind === "training" || selectedCalendarItem.kind === "extra") && !canPrepareFromDashboardCalendar && (
+                <div className="rounded-xl border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Evento visualizzato dal cruscotto. Le azioni tecniche sono disponibili solo allo staff tecnico.
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setSelectedCalendarItem(null)}>
+              Chiudi
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Calendari Partite (stessa vista per segreteria, DT, presidenza, DG, admin) ── */}
       {(nr === "admin" ||
