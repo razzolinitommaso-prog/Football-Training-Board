@@ -59,6 +59,7 @@ type MatchPlanPeriodLite = {
   module?: string;
   format?: TacticalBoardFormat;
   lineupPlayerIds?: number[];
+  lineupDetectedModule?: string | null;
 };
 
 type MatchPlanFieldRow = { player: TeamPlayer; index: number; isReserve: boolean };
@@ -2219,7 +2220,7 @@ const QuickPage = () => {
           ? assignPlayersToElements(presetElements, startersForAssign)
           : presetElements.map((p) => ({ ...p }));
 
-      const placed = new Set(filled.map((e) => e.playerId).filter(Boolean).map(String));
+      const placed = new Set(filled.map((e) => ("playerId" in e ? e.playerId : null)).filter(Boolean).map(String));
       const startersNotOnFormation = officialStarters.filter((p) => !placed.has(String(p.id)));
       const benchPlayers = [...startersNotOnFormation, ...officialReserves];
       const benchEls: TacticalBoardElement[] = benchPlayers.map((p, idx) => {
@@ -2586,6 +2587,7 @@ const QuickPage = () => {
         ? {
             ...period,
             lineupPlayerIds,
+            lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null,
             boardId: savedBoardId,
             boardTitle: savedBoardTitle,
             boardUrl,
@@ -2631,7 +2633,7 @@ const QuickPage = () => {
       const hasPeriod = currentPeriods.some((period: any) => period?.key === matchPeriodKey);
       const periods = (hasPeriod ? currentPeriods : [...currentPeriods, { key: matchPeriodKey, label: periodLabels[matchPeriodKey], minutes: "" }]).map((period: any) =>
         period?.key === matchPeriodKey
-          ? { ...period, lineupPlayerIds, boardConfirmed: false }
+          ? { ...period, lineupPlayerIds, lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null, boardConfirmed: false }
           : period
       );
       const patchRes = await fetch(withApi(`/api/matches/${selectedMatchId}`), {

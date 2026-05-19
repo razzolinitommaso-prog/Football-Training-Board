@@ -33,6 +33,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useGetMyClub } from "@workspace/api-client-react";
 
 interface Team { id: number; name: string; category?: string; assignedStaff?: { userId: number }[]; }
 
@@ -57,6 +58,8 @@ function MatchCalendarTeamCard({
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { data: myClub } = useGetMyClub();
+  const clubLabel = myClub?.name?.trim() || DEFAULT_CLUB_LABEL;
   const fileRef = useRef<HTMLInputElement>(null);
   const pdfFileRef = useRef<HTMLInputElement>(null);
   const pdfKeepPendingWhilePickerRef = useRef(false);
@@ -119,7 +122,7 @@ function MatchCalendarTeamCard({
     }) => {
       return parseMatchCalendarPdfFile(input.file, {
         teamName: team.name,
-        clubName: input.clubHint.trim() || DEFAULT_CLUB_LABEL,
+        clubName: input.clubHint.trim() || clubLabel,
         searchTerms: input.searchTerms,
         sectionTitleHints: input.sectionTitleHints,
         societyHint: input.societyHint,
@@ -373,13 +376,13 @@ function MatchCalendarTeamCard({
                   categoryLine: pdfCategoryFilter,
                   clubLine: pdfClubFilter,
                   teamName: team.name,
-                  clubName: DEFAULT_CLUB_LABEL,
+                  clubName: clubLabel,
                 });
                 if (searchTerms.length === 0) {
                   toast({ title: "Inserisci almeno un termine di ricerca", variant: "destructive" });
                   return;
                 }
-                const societyHint = pdfClubFilter.trim() || DEFAULT_CLUB_LABEL;
+                const societyHint = pdfClubFilter.trim() || clubLabel;
                 const runImport = (sectionTitleHints: string[]) => {
                   setPdfFilterOpen(false);
                   importPdfMutation.mutate({
@@ -490,7 +493,7 @@ function MatchCalendarTeamCard({
                   categoryLine: pdfSectionChoice,
                   clubLine: pdfClubFilter,
                   teamName: team.name,
-                  clubName: DEFAULT_CLUB_LABEL,
+                  clubName: clubLabel,
                 });
                 setPdfSectionPickerOpen(false);
                 importPdfMutation.mutate({
@@ -498,7 +501,7 @@ function MatchCalendarTeamCard({
                   searchTerms,
                   clubHint: pdfClubFilter,
                   sectionTitleHints: [pdfSectionChoice],
-                  societyHint: pdfClubFilter.trim() || DEFAULT_CLUB_LABEL,
+                  societyHint: pdfClubFilter.trim() || clubLabel,
                 });
               }}
             >
