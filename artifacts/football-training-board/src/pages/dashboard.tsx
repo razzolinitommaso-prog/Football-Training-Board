@@ -75,6 +75,20 @@ type DashboardExtraEvent = {
   teamIds?: number[] | null;
 };
 
+type DashboardTrainingOverride = {
+  id: number;
+  teamId: number;
+  originalDate: string;
+  originalStartTime: string;
+  originalEndTime: string;
+  status: "moved" | "cancelled" | string;
+  newDate?: string | null;
+  newStartTime?: string | null;
+  newEndTime?: string | null;
+  location?: string | null;
+  notes?: string | null;
+};
+
 type DashboardCalendarItem =
   | {
       kind: "training" | "extra";
@@ -85,6 +99,12 @@ type DashboardCalendarItem =
       subtitle: string;
       teamId?: number;
       teamName?: string;
+      originalDate?: string;
+      originalStartTime?: string;
+      originalEndTime?: string;
+      trainingStatus?: "regular" | "moved" | "cancelled" | "moved-original";
+      trainingOverride?: DashboardTrainingOverride;
+      trainingNotes?: string | null;
     }
   | {
       kind: "match";
@@ -510,6 +530,30 @@ export default function Dashboard() {
   const [calendarEditRescheduleTbd, setCalendarEditRescheduleTbd] = useState(false);
   const [calendarEditRescheduleDate, setCalendarEditRescheduleDate] = useState("");
   const [calendarEditRescheduleTime, setCalendarEditRescheduleTime] = useState("");
+  const [trainingEditMode, setTrainingEditMode] = useState<"moved" | "cancelled">("moved");
+  const [trainingEditDate, setTrainingEditDate] = useState("");
+  const [trainingEditStartTime, setTrainingEditStartTime] = useState("");
+  const [trainingEditEndTime, setTrainingEditEndTime] = useState("");
+  const [trainingEditLocation, setTrainingEditLocation] = useState("");
+  const [trainingEditNotes, setTrainingEditNotes] = useState("");
+
+  const dashboardOverrideFrom = useMemo(
+    () => format(startOfWeek(startOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd"),
+    [dashboardCalendarMonth],
+  );
+  const dashboardOverrideTo = useMemo(
+    () => format(endOfWeek(endOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd"),
+    [dashboardCalendarMonth],
+  );
+
+  const { data: dashboardTrainingOverrides = [] } = useQuery<DashboardTrainingOverride[]>({
+    queryKey: ["/api/training-calendar-overrides", clubIdNum, nr, dashboardSection, dashboardOverrideFrom, dashboardOverrideTo],
+    queryFn: () =>
+      fetchJsonOrThrow<DashboardTrainingOverride[]>(
+        `/api/training-calendar-overrides?section=${dashboardSection}&from=${dashboardOverrideFrom}&to=${dashboardOverrideTo}`,
+      ),
+    enabled: Boolean(user),
+  });
 
   const dashboardTeams = useMemo(
     () => ((allTeams ?? []) as DashboardTeam[]).filter((team) => Number(team?.id) > 0),
@@ -554,6 +598,26 @@ export default function Dashboard() {
     setCalendarEditRescheduleTime(rescheduleDate ? format(rescheduleDate, "HH:mm") : "");
   }, [selectedCalendarItem]);
 
+  useEffect(() => {
+    if (selectedCalendarItem?.kind !== "training") {
+      setTrainingEditMode("moved");
+      setTrainingEditDate("");
+      setTrainingEditStartTime("");
+      setTrainingEditEndTime("");
+      setTrainingEditLocation("");
+      setTrainingEditNotes("");
+      return;
+    }
+    const item = selectedCalendarItem;
+    const override = item.trainingOverride;
+    setTrainingEditMode(override?.status === "cancelled" ? "cancelled" : "moved");
+    setTrainingEditDate(override?.newDate ?? format(item.date, "yyyy-MM-dd"));
+    setTrainingEditStartTime(override?.newStartTime ?? item.originalStartTime ?? item.time.split("-")[0] ?? "");
+    setTrainingEditEndTime(override?.newEndTime ?? item.originalEndTime ?? item.time.split("-")[1] ?? "");
+    setTrainingEditLocation(override?.location ?? "");
+    setTrainingEditNotes(override?.notes ?? "");
+  }, [selectedCalendarItem]);
+
   const updateDashboardMatchMutation = useMutation({
     mutationFn: async (payload: {
       matchId: number;
@@ -593,6 +657,46 @@ export default function Dashboard() {
     },
   });
 
+  const updateDashboardTrainingMutation = useMutation({
+    mutationFn: async (payload: {
+      teamId: number;
+      originalDate: string;
+      originalStartTime: string;
+      originalEndTime: string;
+      status: "moved" | "cancelled";
+      newDate: string | null;
+      newStartTime: string | null;
+      newEndTime: string | null;
+      location: string | null;
+      notes: string | null;
+    }) => {
+      const res = await fetch(withApi("/api/training-calendar-overrides"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error((await res.text()) || "Aggiornamento allenamento non riuscito");
+      return res.json();
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/training-calendar-overrides"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/training-sessions"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/club/notifications"] }),
+      ]);
+      setSelectedCalendarItem(null);
+      toast({ title: "Allenamento aggiornato", description: "Calendario, sessioni collegate e bacheca sono stati aggiornati." });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Aggiornamento non riuscito",
+        description: error?.message || "Riprova tra poco.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const dashboardCalendarItems = useMemo<DashboardCalendarItem[]>(() => {
     const teams = dashboardSelectedTeamIds.size > 0
       ? dashboardTeams.filter((team) => dashboardSelectedTeamIds.has(Number(team.id)))
@@ -605,6 +709,13 @@ export default function Dashboard() {
     const monthEnd = endOfWeek(endOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 });
     const maxDay = monthEnd;
     const items: DashboardCalendarItem[] = [];
+    const overrideByOccurrence = new Map<string, DashboardTrainingOverride>();
+    dashboardTrainingOverrides.forEach((override) => {
+      overrideByOccurrence.set(
+        `${override.teamId}|${override.originalDate}|${override.originalStartTime}`,
+        override,
+      );
+    });
 
     teams.forEach((team) => {
       (team.trainingSchedule ?? []).forEach((slot) => {
@@ -629,6 +740,67 @@ export default function Dashboard() {
           if (day.getDay() !== targetDay) return;
           const at = combineLocalDateAndTime(day, slot.startTime);
           if (at > maxDay) return;
+          const originalDate = format(day, "yyyy-MM-dd");
+          const originalStartTime = String(slot.startTime ?? "");
+          const originalEndTime = String(slot.endTime ?? "");
+          const override = overrideByOccurrence.get(`${team.id}|${originalDate}|${originalStartTime}`);
+          if (override?.status === "cancelled") {
+            items.push({
+              kind: "training",
+              key: `training-cancelled-${override.id}`,
+              date: at,
+              time: `${originalStartTime}${originalEndTime ? `-${originalEndTime}` : ""}`,
+              title: `Allenamento annullato ${team.name}`,
+              subtitle: team.name,
+              teamId: team.id,
+              teamName: team.name,
+              originalDate,
+              originalStartTime,
+              originalEndTime,
+              trainingStatus: "cancelled",
+              trainingOverride: override,
+              trainingNotes: override.notes ?? null,
+            });
+            return;
+          }
+          if (override?.status === "moved" && override.newDate && override.newStartTime) {
+            items.push({
+              kind: "training",
+              key: `training-moved-original-${override.id}`,
+              date: at,
+              time: `${originalStartTime}${originalEndTime ? `-${originalEndTime}` : ""}`,
+              title: `Allenamento spostato ${team.name}`,
+              subtitle: team.name,
+              teamId: team.id,
+              teamName: team.name,
+              originalDate,
+              originalStartTime,
+              originalEndTime,
+              trainingStatus: "moved-original",
+              trainingOverride: override,
+              trainingNotes: override.notes ?? null,
+            });
+            const movedAt = combineLocalDateAndTime(new Date(`${override.newDate}T00:00:00`), override.newStartTime);
+            if (movedAt >= monthStart && movedAt <= monthEnd) {
+              items.push({
+                kind: "training",
+                key: `training-moved-${override.id}`,
+                date: movedAt,
+                time: `${override.newStartTime}${override.newEndTime ? `-${override.newEndTime}` : ""}`,
+                title: `Recupero allenamento ${team.name}`,
+                subtitle: `Recupero del ${format(day, "d MMM", { locale: itLocale })}`,
+                teamId: team.id,
+                teamName: team.name,
+                originalDate,
+                originalStartTime,
+                originalEndTime,
+                trainingStatus: "moved",
+                trainingOverride: override,
+                trainingNotes: override.notes ?? null,
+              });
+            }
+            return;
+          }
           items.push({
             kind: "training",
             key: `training-${team.id}-${format(day, "yyyy-MM-dd")}-${slot.startTime}`,
@@ -638,6 +810,10 @@ export default function Dashboard() {
             subtitle: team.name,
             teamId: team.id,
             teamName: team.name,
+            originalDate,
+            originalStartTime,
+            originalEndTime,
+            trainingStatus: "regular",
           });
         });
       });
@@ -745,7 +921,7 @@ export default function Dashboard() {
     return items
       .sort((a, b) => a.date.getTime() - b.date.getTime())
       .slice(0, 200);
-  }, [dashboardTeams, dashboardMatches, dashboardExtraEvents, dashboardCalendarMonth, dashboardSelectedTeamIds]);
+  }, [dashboardTeams, dashboardMatches, dashboardExtraEvents, dashboardCalendarMonth, dashboardSelectedTeamIds, dashboardTrainingOverrides]);
 
   const dashboardCalendarDays = useMemo(
     () =>
@@ -1461,7 +1637,13 @@ export default function Dashboard() {
                   const typeLabel = postponed
                     ? "Rinviata"
                     : item.kind === "training"
-                      ? "Allenamento"
+                      ? item.trainingStatus === "cancelled"
+                        ? "Allenamento annullato"
+                        : item.trainingStatus === "moved"
+                          ? "Recupero allenamento"
+                          : item.trainingStatus === "moved-original"
+                            ? "Allenamento spostato"
+                            : "Allenamento"
                       : item.kind === "tournament"
                         ? "Torneo"
                         : "Partita";
@@ -1472,6 +1654,9 @@ export default function Dashboard() {
                     className={cn(
                       "rounded-lg border bg-card px-3 py-2 text-left text-xs hover:border-primary/50",
                       postponed && "border-amber-300 bg-amber-50 text-amber-900",
+                      item.kind === "training" && item.trainingStatus === "moved-original" && "border-slate-300 bg-slate-50 text-slate-700",
+                      item.kind === "training" && item.trainingStatus === "cancelled" && "border-red-200 bg-red-50 text-red-800",
+                      item.kind === "training" && item.trainingStatus === "moved" && "border-emerald-300 bg-emerald-50 text-emerald-900",
                     )}
                     onClick={() => setSelectedCalendarItem(item)}
                   >
@@ -1516,14 +1701,26 @@ export default function Dashboard() {
                           const typeLabel = postponed
                             ? "Rinviata"
                             : item.kind === "training"
-                              ? "Allen."
+                              ? item.trainingStatus === "cancelled"
+                                ? "Annull."
+                                : item.trainingStatus === "moved"
+                                  ? "Recupero"
+                                  : item.trainingStatus === "moved-original"
+                                    ? "Spostato"
+                                    : "Allen."
                               : item.kind === "tournament"
                                 ? "Torneo"
                                 : "Partita";
                           const className = postponed
                             ? "bg-amber-50 text-amber-900 border-amber-300"
                             : item.kind === "training"
-                              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                              ? item.trainingStatus === "cancelled"
+                                ? "bg-red-50 text-red-800 border-red-200"
+                                : item.trainingStatus === "moved-original"
+                                  ? "bg-slate-100 text-slate-700 border-slate-300"
+                                  : item.trainingStatus === "moved"
+                                    ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                                    : "bg-emerald-50 text-emerald-800 border-emerald-200"
                               : item.kind === "tournament"
                                 ? "bg-violet-50 text-violet-800 border-violet-200"
                                 : "bg-blue-50 text-blue-800 border-blue-200";
@@ -1944,15 +2141,118 @@ export default function Dashboard() {
                 </>
               )}
 
-              {selectedCalendarItem.kind === "training" && canPrepareFromDashboardCalendar && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <Button type="button" onClick={() => setLocation("/training")}>
-                    Apri sessioni
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setLocation("/exercises")}>
-                    Prepara esercitazione
-                  </Button>
-                </div>
+              {selectedCalendarItem.kind === "training" && (
+                <>
+                  {canEditDashboardCalendar && selectedCalendarItem.teamId && selectedCalendarItem.originalDate && (
+                    <div className="rounded-xl border p-3">
+                      <p className="mb-3 text-sm font-semibold">Modifica allenamento</p>
+                      <div className="mb-3 grid grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          variant={trainingEditMode === "moved" ? "default" : "outline"}
+                          onClick={() => setTrainingEditMode("moved")}
+                        >
+                          Sposta / recupera
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={trainingEditMode === "cancelled" ? "destructive" : "outline"}
+                          onClick={() => setTrainingEditMode("cancelled")}
+                        >
+                          Elimina data
+                        </Button>
+                      </div>
+                      {trainingEditMode === "moved" && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <Label htmlFor="training-edit-date">Nuova data</Label>
+                            <Input id="training-edit-date" type="date" value={trainingEditDate} onChange={(e) => setTrainingEditDate(e.target.value)} />
+                          </div>
+                          <div>
+                            <Label htmlFor="training-edit-start">Inizio</Label>
+                            <Input
+                              id="training-edit-start"
+                              value={trainingEditStartTime}
+                              onChange={(e) => setTrainingEditStartTime(formatDashboardTimeInputLive(e.target.value))}
+                              onBlur={(e) => {
+                                const normalized = normalizeDashboardTime24(e.target.value);
+                                if (normalized) setTrainingEditStartTime(normalized);
+                              }}
+                              placeholder="HH:mm"
+                              inputMode="numeric"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="training-edit-end">Fine</Label>
+                            <Input
+                              id="training-edit-end"
+                              value={trainingEditEndTime}
+                              onChange={(e) => setTrainingEditEndTime(formatDashboardTimeInputLive(e.target.value))}
+                              onBlur={(e) => {
+                                const normalized = normalizeDashboardTime24(e.target.value);
+                                if (normalized) setTrainingEditEndTime(normalized);
+                              }}
+                              placeholder="HH:mm"
+                              inputMode="numeric"
+                            />
+                          </div>
+                          <div className="sm:col-span-3">
+                            <Label htmlFor="training-edit-location">Luogo</Label>
+                            <Input id="training-edit-location" value={trainingEditLocation} onChange={(e) => setTrainingEditLocation(e.target.value)} placeholder="Es. Campo sportivo..." />
+                          </div>
+                        </div>
+                      )}
+                      <div className="mt-3">
+                        <Label htmlFor="training-edit-notes">Note per staff tecnico</Label>
+                        <Textarea
+                          id="training-edit-notes"
+                          value={trainingEditNotes}
+                          onChange={(e) => setTrainingEditNotes(e.target.value)}
+                          rows={3}
+                          placeholder="Motivo dello spostamento, indicazioni o comunicazioni..."
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        className="mt-3"
+                        disabled={updateDashboardTrainingMutation.isPending}
+                        onClick={() => {
+                          if (!selectedCalendarItem.teamId || !selectedCalendarItem.originalDate || !selectedCalendarItem.originalStartTime || !selectedCalendarItem.originalEndTime) return;
+                          const start = trainingEditMode === "moved" ? normalizeDashboardTime24(trainingEditStartTime) : null;
+                          const end = trainingEditMode === "moved" ? normalizeDashboardTime24(trainingEditEndTime) : null;
+                          if (trainingEditMode === "moved" && (!trainingEditDate || !start || !end)) {
+                            toast({ title: "Data/orario non validi", description: "Controlla nuova data, inizio e fine allenamento.", variant: "destructive" });
+                            return;
+                          }
+                          updateDashboardTrainingMutation.mutate({
+                            teamId: selectedCalendarItem.teamId,
+                            originalDate: selectedCalendarItem.originalDate,
+                            originalStartTime: selectedCalendarItem.originalStartTime,
+                            originalEndTime: selectedCalendarItem.originalEndTime,
+                            status: trainingEditMode,
+                            newDate: trainingEditMode === "moved" ? trainingEditDate : null,
+                            newStartTime: trainingEditMode === "moved" ? start : null,
+                            newEndTime: trainingEditMode === "moved" ? end : null,
+                            location: trainingEditMode === "moved" ? trainingEditLocation.trim() || null : null,
+                            notes: trainingEditNotes.trim() || null,
+                          });
+                        }}
+                      >
+                        Salva modifica allenamento
+                      </Button>
+                    </div>
+                  )}
+                  {canPrepareFromDashboardCalendar && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Button type="button" onClick={() => setLocation("/training")}>
+                        Apri sessioni
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => setLocation("/exercises")}>
+                        Prepara esercitazione
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
 
               {selectedCalendarItem.kind === "extra" && canPrepareFromDashboardCalendar && (
@@ -1965,7 +2265,7 @@ export default function Dashboard() {
                   </Button>
                 </div>
               )}
-              {(selectedCalendarItem.kind === "training" || selectedCalendarItem.kind === "extra") && !canPrepareFromDashboardCalendar && (
+              {(selectedCalendarItem.kind === "extra" || (selectedCalendarItem.kind === "training" && !canPrepareFromDashboardCalendar && !canEditDashboardCalendar)) && (
                 <div className="rounded-xl border bg-muted/30 p-3 text-sm text-muted-foreground">
                   Evento visualizzato dal cruscotto. Le azioni tecniche sono disponibili solo allo staff tecnico.
                 </div>

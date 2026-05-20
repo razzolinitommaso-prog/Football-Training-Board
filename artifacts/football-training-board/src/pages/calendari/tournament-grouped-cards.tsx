@@ -182,6 +182,10 @@ function normalizeSide(value: string): string {
   return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function hasCompleteScore(score?: TournamentProgramScore): boolean {
+  return score?.homeScore != null && score?.awayScore != null;
+}
+
 function isPlaceholderTournamentTeam(value: string): boolean {
   const n = normalizeSide(value);
   return (
@@ -768,21 +772,27 @@ export function TournamentGroupedCards({
         const cardStandingGroups = qualifyingStandingsGroups.length > 0 ? qualifyingStandingsGroups : standingsGroups;
         const finalsRule = finalsRuleByCompetition[g.competition] ?? "cross12";
         const generatedFinals = generatedFinalsByRule(standingsGroups, finalsRule);
-        const phaseLabel = PROGRAM_LABELS[progVal] ?? "Programma completo";
         const standingsWithResults = cardStandingGroups.filter((group) => group.rows.some((row) => row.pg > 0));
         const hasStandingsResults = standingsWithResults.length > 0;
         const summaryGroups = (hasStandingsResults ? standingsWithResults : cardStandingGroups).map((group) => ({
           label: group.label,
-          rows: group.rows.slice(0, 4),
+          rows: group.rows.slice(0, 2),
         }));
         const groupsCount = cardStandingGroups.length;
         const teamsCount = new Set(cardStandingGroups.flatMap((group) => group.rows.map((row) => normalizeSide(row.team))).filter(Boolean)).size;
         const hasFinalEntries = program.some((entry) => /final/i.test(`${entry.phase ?? ""} ${entry.group ?? ""}`));
+        const qualifyingEntries = program.filter((entry) => isQualifyingRow(programEntrySearchText(entry)));
+        const finalEntries = program.filter((entry) => isFinalsRow(programEntrySearchText(entry)));
+        const scoredQualifying = qualifyingEntries.filter((entry) => hasCompleteScore(scores[entry.id])).length;
+        const scoredFinals = finalEntries.filter((entry) => hasCompleteScore(scores[entry.id])).length;
+        const qualifyingComplete = qualifyingEntries.length > 0 && scoredQualifying >= qualifyingEntries.length;
+        const finalsStarted = scoredFinals > 0;
+        const finalsComplete = finalEntries.length > 0 && scoredFinals >= finalEntries.length;
         const currentPhaseLabel =
-          progVal === "finals"
-            ? "Finali"
-            : progVal === "groups"
-              ? "Gironi"
+          finalsComplete
+            ? "Torneo terminato"
+            : finalsStarted || (qualifyingComplete && hasFinalEntries)
+              ? "Finali"
               : hasFinalEntries
                 ? "Gironi + finali"
                 : "Gironi";
@@ -804,11 +814,19 @@ export function TournamentGroupedCards({
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 space-y-1">
                   <CardTitle className="text-base leading-snug pr-2">{g.competition}</CardTitle>
-                  <Badge variant="outline" className="max-w-full truncate text-[11px] font-medium">
-                    {phaseLabel}
+                  <Badge variant={currentPhaseLabel === "Torneo terminato" ? "default" : "outline"} className="max-w-full truncate text-[11px] font-medium">
+                    {currentPhaseLabel}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {clubStanding ? (
+                    <Badge
+                      variant={currentPhaseLabel === "Torneo terminato" ? "default" : "secondary"}
+                      className="rounded-full px-3 py-1 text-sm font-bold tabular-nums"
+                    >
+                      {clubStanding.position}Â° posto
+                    </Badge>
+                  ) : null}
                   {canManageTournament ? (
                     <>
                       <Button

@@ -164,6 +164,7 @@ const TRAINING_SESSIONS = [
 ] as const;
 
 const SESSION_SLOT_NOTE_PREFIX = "__trainingSession=";
+const TRAINING_CALENDAR_NOTE_MARKER = "[FTB_TRAINING_CALENDAR]";
 const TRAINING_PHASES = [
   { value: "iniziale", label: "Iniziale" },
   { value: "centrale", label: "Centrale" },
@@ -360,6 +361,13 @@ function getSessionTrainingSession(session: TrainingSession): string | null {
   const value = noteValue.slice(SESSION_SLOT_NOTE_PREFIX.length).trim();
   if (!value) return null;
   return TRAINING_SESSIONS.some((item) => item.value === value) ? value : null;
+}
+
+function getTrainingCalendarNote(session: TrainingSession): string | null {
+  const note = session.notes ?? "";
+  const idx = note.indexOf(TRAINING_CALENDAR_NOTE_MARKER);
+  if (idx < 0) return null;
+  return note.slice(idx + TRAINING_CALENDAR_NOTE_MARKER.length).trim() || null;
 }
 
 function parseEquipmentSelection(raw: string): Partial<Record<MaterialId, number>> {
@@ -601,6 +609,9 @@ function SessionCard({
   isReadOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const calendarNote = getTrainingCalendarNote(session);
+  const needsReschedule = !!calendarNote && /da riassegnare|eliminato/i.test(calendarNote);
+  const movedBySecretary = !!calendarNote && /spostato/i.test(calendarNote);
   const linkedExercisesQuery = useQuery<SessionExerciseLink[]>({
     queryKey: ["/api/training-sessions", session.id, "exercises"],
     queryFn: () => apiFetch(`/api/training-sessions/${session.id}/exercises`),
@@ -621,6 +632,8 @@ function SessionCard({
           <div className="flex flex-wrap gap-1.5">
             {statusBadge(session.status)}
             {typeBadge(session.sessionKind)}
+            {needsReschedule && <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]">Da riassegnare</Badge>}
+            {movedBySecretary && <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">Spostata da segreteria</Badge>}
           </div>
           <div className="flex items-center gap-1">
             {onOpenDetails && (
@@ -665,6 +678,12 @@ function SessionCard({
         </div>
 
         <h3 className="font-semibold text-sm leading-tight">{session.title}</h3>
+
+        {calendarNote && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+            <span className="font-semibold">Nota calendario: </span>{calendarNote}
+          </div>
+        )}
 
         <div className="space-y-1 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">

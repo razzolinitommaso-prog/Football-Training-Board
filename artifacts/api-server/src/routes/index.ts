@@ -20,6 +20,7 @@ import sectionsRouter from "./sections";
 import playerSeasonStatusRouter from "./player-season-status";
 import observedPlayersRouter from "./observed-players";
 import calendarExtraEventsRouter from "./calendar-extra-events";
+import trainingCalendarOverridesRouter from "./training-calendar-overrides";
 import { boardsRouter } from "./boards-routers";
 
 const router: IRouter = Router();
@@ -45,6 +46,7 @@ router.use(sectionsRouter);
 router.use(playerSeasonStatusRouter);
 router.use(observedPlayersRouter);
 router.use(calendarExtraEventsRouter);
+router.use(trainingCalendarOverridesRouter);
 router.use("/boards", boardsRouter);
 
 export default router;
