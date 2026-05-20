@@ -81,10 +81,14 @@ type DashboardTrainingOverride = {
   originalDate: string;
   originalStartTime: string;
   originalEndTime: string;
-  status: "moved" | "cancelled" | string;
+  status: "moved" | "cancelled" | "note" | "joined" | string;
   newDate?: string | null;
   newStartTime?: string | null;
   newEndTime?: string | null;
+  targetTeamId?: number | null;
+  targetDate?: string | null;
+  targetStartTime?: string | null;
+  targetEndTime?: string | null;
   location?: string | null;
   notes?: string | null;
 };
@@ -102,7 +106,7 @@ type DashboardCalendarItem =
       originalDate?: string;
       originalStartTime?: string;
       originalEndTime?: string;
-      trainingStatus?: "regular" | "moved" | "cancelled" | "moved-original";
+      trainingStatus?: "regular" | "moved" | "cancelled" | "moved-original" | "note" | "joined" | "joined-original";
       trainingOverride?: DashboardTrainingOverride;
       trainingNotes?: string | null;
     }
@@ -455,6 +459,24 @@ export default function Dashboard() {
     reader.readAsDataURL(file);
   };
 
+function dashboardTeamPairKey(name?: string | null): string {
+  return String(name ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/(?:^|\s)[12]\s*[^\s\w]*\s*(?:o\s*)?anno\b/g, " ")
+    .replace(/(?:^|\s)[12]\s*(?:°|º|o)(?=\s|$)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
+  const text = String(name ?? "").toLowerCase();
+  if (/(^|\s)1\s*[^\s\w]*\s*(?:o\s*)?anno\b/.test(text) || /(^|\s)1\s*(?:°|º|o|Â°)(\s|$)/.test(text)) return 1;
+  if (/(^|\s)2\s*[^\s\w]*\s*(?:o\s*)?anno\b/.test(text) || /(^|\s)2\s*(?:°|º|o|Â°)(\s|$)/.test(text)) return 2;
+  return null;
+}
+
   const teamsForCalendarImport = ((allTeams ?? []) as any[]).filter((team) => Number(team?.id) > 0);
   const openCalendarPdfImport = (mode: "federation" | "tournament") => {
     setCalendarImportMode(mode);
@@ -530,12 +552,13 @@ export default function Dashboard() {
   const [calendarEditRescheduleTbd, setCalendarEditRescheduleTbd] = useState(false);
   const [calendarEditRescheduleDate, setCalendarEditRescheduleDate] = useState("");
   const [calendarEditRescheduleTime, setCalendarEditRescheduleTime] = useState("");
-  const [trainingEditMode, setTrainingEditMode] = useState<"moved" | "cancelled">("moved");
+  const [trainingEditMode, setTrainingEditMode] = useState<"note" | "moved" | "cancelled" | "joined">("note");
   const [trainingEditDate, setTrainingEditDate] = useState("");
   const [trainingEditStartTime, setTrainingEditStartTime] = useState("");
   const [trainingEditEndTime, setTrainingEditEndTime] = useState("");
   const [trainingEditLocation, setTrainingEditLocation] = useState("");
   const [trainingEditNotes, setTrainingEditNotes] = useState("");
+  const [trainingJoinTargetKey, setTrainingJoinTargetKey] = useState("");
 
   const dashboardOverrideFrom = useMemo(
     () => format(startOfWeek(startOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd"),
@@ -559,6 +582,59 @@ export default function Dashboard() {
     () => ((allTeams ?? []) as DashboardTeam[]).filter((team) => Number(team?.id) > 0),
     [allTeams],
   );
+
+  const scheduledTrainingJoinTargetOptions = useMemo(() => {
+    if (selectedCalendarItem?.kind !== "training") return [];
+    const dayMap: Record<string, number> = {
+      "Domenica": 0,
+      "LunedÃ¬": 1,
+      "Lunedi": 1,
+      "MartedÃ¬": 2,
+      "Martedi": 2,
+      "MercoledÃ¬": 3,
+      "Mercoledi": 3,
+      "GiovedÃ¬": 4,
+      "Giovedi": 4,
+      "VenerdÃ¬": 5,
+      "Venerdi": 5,
+      "Sabato": 6,
+    };
+    const from = startOfWeek(selectedCalendarItem.date, { weekStartsOn: 1 });
+    const to = endOfWeek(selectedCalendarItem.date, { weekStartsOn: 1 });
+    const days = eachDayOfInterval({ start: from, end: to });
+    const selectedPairKey = dashboardTeamPairKey(selectedCalendarItem.teamName);
+    const selectedRank = dashboardTeamYearRank(selectedCalendarItem.teamName);
+    return dashboardTeams.flatMap((team) =>
+      (team.trainingSchedule ?? []).flatMap((slot) => {
+        const targetDay = dayMap[String(slot.day ?? "")];
+        if (targetDay == null) return [];
+        return days
+          .filter((day) => day.getDay() === targetDay)
+          .map((day) => {
+            const date = format(day, "yyyy-MM-dd");
+            const start = String(slot.startTime ?? "");
+            const end = String(slot.endTime ?? "");
+            return {
+              key: `${team.id}|${date}|${start}|${end}`,
+              teamId: Number(team.id),
+              teamName: team.name,
+              date,
+              start,
+              end,
+              label: `${format(day, "EEE d MMM", { locale: itLocale })} ${start}${end ? `-${end}` : ""} - ${team.name}`,
+            };
+          });
+      }),
+    ).filter((option) => {
+      const optionPairKey = dashboardTeamPairKey(option.teamName);
+      const optionRank = dashboardTeamYearRank(option.teamName);
+      return (
+        option.teamId === selectedCalendarItem.teamId &&
+        option.date === selectedCalendarItem.originalDate &&
+        option.start === selectedCalendarItem.originalStartTime
+      ) ? false : Boolean(selectedPairKey && selectedRank && optionPairKey === selectedPairKey && optionRank && optionRank !== selectedRank);
+    });
+  }, [dashboardTeams, selectedCalendarItem]);
 
   useEffect(() => {
     const ids = dashboardTeams.map((team) => Number(team.id));
@@ -600,22 +676,36 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (selectedCalendarItem?.kind !== "training") {
-      setTrainingEditMode("moved");
+      setTrainingEditMode("note");
       setTrainingEditDate("");
       setTrainingEditStartTime("");
       setTrainingEditEndTime("");
       setTrainingEditLocation("");
       setTrainingEditNotes("");
+      setTrainingJoinTargetKey("");
       return;
     }
     const item = selectedCalendarItem;
     const override = item.trainingOverride;
-    setTrainingEditMode(override?.status === "cancelled" ? "cancelled" : "moved");
+    setTrainingEditMode(
+      override?.status === "cancelled"
+        ? "cancelled"
+        : override?.status === "moved"
+          ? "moved"
+          : override?.status === "joined"
+            ? "joined"
+            : "note",
+    );
     setTrainingEditDate(override?.newDate ?? format(item.date, "yyyy-MM-dd"));
     setTrainingEditStartTime(override?.newStartTime ?? item.originalStartTime ?? item.time.split("-")[0] ?? "");
     setTrainingEditEndTime(override?.newEndTime ?? item.originalEndTime ?? item.time.split("-")[1] ?? "");
     setTrainingEditLocation(override?.location ?? "");
     setTrainingEditNotes(override?.notes ?? "");
+    setTrainingJoinTargetKey(
+      override?.targetTeamId && override.targetDate && override.targetStartTime
+        ? `${override.targetTeamId}|${override.targetDate}|${override.targetStartTime}|${override.targetEndTime ?? ""}`
+        : "",
+    );
   }, [selectedCalendarItem]);
 
   const updateDashboardMatchMutation = useMutation({
@@ -663,10 +753,14 @@ export default function Dashboard() {
       originalDate: string;
       originalStartTime: string;
       originalEndTime: string;
-      status: "moved" | "cancelled";
+      status: "note" | "moved" | "cancelled" | "joined";
       newDate: string | null;
       newStartTime: string | null;
       newEndTime: string | null;
+      targetTeamId?: number | null;
+      targetDate?: string | null;
+      targetStartTime?: string | null;
+      targetEndTime?: string | null;
       location: string | null;
       notes: string | null;
     }) => {
@@ -710,11 +804,18 @@ export default function Dashboard() {
     const maxDay = monthEnd;
     const items: DashboardCalendarItem[] = [];
     const overrideByOccurrence = new Map<string, DashboardTrainingOverride>();
+    const joinedByTargetOccurrence = new Map<string, DashboardTrainingOverride>();
     dashboardTrainingOverrides.forEach((override) => {
       overrideByOccurrence.set(
         `${override.teamId}|${override.originalDate}|${override.originalStartTime}`,
         override,
       );
+      if (override.status === "joined" && override.targetTeamId && override.targetDate && override.targetStartTime) {
+        joinedByTargetOccurrence.set(
+          `${override.targetTeamId}|${override.targetDate}|${override.targetStartTime}`,
+          override,
+        );
+      }
     });
 
     teams.forEach((team) => {
@@ -744,6 +845,27 @@ export default function Dashboard() {
           const originalStartTime = String(slot.startTime ?? "");
           const originalEndTime = String(slot.endTime ?? "");
           const override = overrideByOccurrence.get(`${team.id}|${originalDate}|${originalStartTime}`);
+          const joinedIntoThis = joinedByTargetOccurrence.get(`${team.id}|${originalDate}|${originalStartTime}`);
+          if (joinedIntoThis && joinedIntoThis.teamId !== team.id) {
+            const sourceTeam = teamById.get(Number(joinedIntoThis.teamId));
+            items.push({
+              kind: "training",
+              key: `training-joined-target-${joinedIntoThis.id}`,
+              date: at,
+              time: `${originalStartTime}${originalEndTime ? `-${originalEndTime}` : ""}`,
+              title: `Allenamento congiunto ${team.name}${sourceTeam ? ` + ${sourceTeam.name}` : ""}`,
+              subtitle: sourceTeam ? `${team.name} con ${sourceTeam.name}` : team.name,
+              teamId: team.id,
+              teamName: team.name,
+              originalDate,
+              originalStartTime,
+              originalEndTime,
+              trainingStatus: "joined",
+              trainingOverride: joinedIntoThis,
+              trainingNotes: joinedIntoThis.notes ?? null,
+            });
+            return;
+          }
           if (override?.status === "cancelled") {
             items.push({
               kind: "training",
@@ -763,42 +885,64 @@ export default function Dashboard() {
             });
             return;
           }
-          if (override?.status === "moved" && override.newDate && override.newStartTime) {
+          if ((override?.status === "moved" || override?.status === "joined") && override.newDate && override.newStartTime) {
             items.push({
               kind: "training",
-              key: `training-moved-original-${override.id}`,
+              key: `training-${override.status}-original-${override.id}`,
               date: at,
               time: `${originalStartTime}${originalEndTime ? `-${originalEndTime}` : ""}`,
-              title: `Allenamento spostato ${team.name}`,
+              title: override.status === "joined" ? `Allenamento congiunto ${team.name}` : `Allenamento spostato ${team.name}`,
               subtitle: team.name,
               teamId: team.id,
               teamName: team.name,
               originalDate,
               originalStartTime,
               originalEndTime,
-              trainingStatus: "moved-original",
+              trainingStatus: override.status === "joined" ? "joined-original" : "moved-original",
               trainingOverride: override,
               trainingNotes: override.notes ?? null,
             });
             const movedAt = combineLocalDateAndTime(new Date(`${override.newDate}T00:00:00`), override.newStartTime);
             if (movedAt >= monthStart && movedAt <= monthEnd) {
+              if (override.status === "joined" && override.targetTeamId && override.targetDate && override.targetStartTime) {
+                return;
+              }
               items.push({
                 kind: "training",
-                key: `training-moved-${override.id}`,
+                key: `training-${override.status}-${override.id}`,
                 date: movedAt,
                 time: `${override.newStartTime}${override.newEndTime ? `-${override.newEndTime}` : ""}`,
-                title: `Recupero allenamento ${team.name}`,
-                subtitle: `Recupero del ${format(day, "d MMM", { locale: itLocale })}`,
+                title: override.status === "joined" ? `Allenamento congiunto ${team.name}` : `Recupero allenamento ${team.name}`,
+                subtitle: override.status === "joined" ? `Congiunto dal ${format(day, "d MMM", { locale: itLocale })}` : `Recupero del ${format(day, "d MMM", { locale: itLocale })}`,
                 teamId: team.id,
                 teamName: team.name,
                 originalDate,
                 originalStartTime,
                 originalEndTime,
-                trainingStatus: "moved",
+                trainingStatus: override.status === "joined" ? "joined" : "moved",
                 trainingOverride: override,
                 trainingNotes: override.notes ?? null,
               });
             }
+            return;
+          }
+          if (override?.status === "note") {
+            items.push({
+              kind: "training",
+              key: `training-note-${override.id}`,
+              date: at,
+              time: `${originalStartTime}${originalEndTime ? `-${originalEndTime}` : ""}`,
+              title: `Allenamento ${team.name}`,
+              subtitle: team.name,
+              teamId: team.id,
+              teamName: team.name,
+              originalDate,
+              originalStartTime,
+              originalEndTime,
+              trainingStatus: "note",
+              trainingOverride: override,
+              trainingNotes: override.notes ?? null,
+            });
             return;
           }
           items.push({
@@ -942,6 +1086,51 @@ export default function Dashboard() {
     });
     return map;
   }, [dashboardCalendarItems]);
+
+  const trainingJoinTargetOptions = useMemo(() => {
+    if (selectedCalendarItem?.kind !== "training") return scheduledTrainingJoinTargetOptions;
+    const selectedPairKey = dashboardTeamPairKey(selectedCalendarItem.teamName);
+    const selectedRank = dashboardTeamYearRank(selectedCalendarItem.teamName);
+    const from = startOfWeek(selectedCalendarItem.date, { weekStartsOn: 1 });
+    const to = endOfWeek(selectedCalendarItem.date, { weekStartsOn: 1 });
+    const byKey = new Map<string, {
+      key: string;
+      teamId: number;
+      teamName: string;
+      date: string;
+      start: string;
+      end: string;
+      label: string;
+    }>();
+    scheduledTrainingJoinTargetOptions.forEach((option) => byKey.set(option.key, option));
+    dashboardCalendarItems.forEach((item) => {
+      if (item.kind !== "training" || !item.teamId || !item.originalStartTime) return;
+      if (item.date < from || item.date > to) return;
+      if (item.trainingStatus === "cancelled" || item.trainingStatus === "moved-original" || item.trainingStatus === "joined-original") return;
+      const itemPairKey = dashboardTeamPairKey(item.teamName);
+      const itemRank = dashboardTeamYearRank(item.teamName);
+      if (!selectedPairKey || !selectedRank || itemPairKey !== selectedPairKey || !itemRank || itemRank === selectedRank) return;
+      if (
+        item.teamId === selectedCalendarItem.teamId &&
+        item.originalDate === selectedCalendarItem.originalDate &&
+        item.originalStartTime === selectedCalendarItem.originalStartTime
+      ) return;
+      const date = format(item.date, "yyyy-MM-dd");
+      const start = item.time.split("-")[0] || item.originalStartTime;
+      const end = item.time.split("-")[1] || item.originalEndTime || "";
+      const key = `${item.teamId}|${date}|${start}|${end}`;
+      byKey.set(key, {
+        key,
+        teamId: Number(item.teamId),
+        teamName: item.teamName ?? "Squadra",
+        date,
+        start,
+        end,
+        label: `${format(item.date, "EEE d MMM", { locale: itLocale })} ${start}${end ? `-${end}` : ""} - ${item.teamName ?? "Squadra"}`,
+      });
+    });
+    return Array.from(byKey.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [dashboardCalendarItems, scheduledTrainingJoinTargetOptions, selectedCalendarItem]);
 
   const dashboardWeekPreviewItems = useMemo(() => {
     const today = startOfDay(new Date());
@@ -1643,10 +1832,18 @@ export default function Dashboard() {
                           ? "Recupero allenamento"
                           : item.trainingStatus === "moved-original"
                             ? "Allenamento spostato"
-                            : "Allenamento"
+                            : item.trainingStatus === "joined"
+                              ? "Allenamento congiunto"
+                              : item.trainingStatus === "joined-original"
+                                ? "Allenamento da congiungere"
+                                : "Allenamento"
                       : item.kind === "tournament"
                         ? "Torneo"
                         : "Partita";
+                  const notePreview =
+                    item.kind === "training" && item.trainingNotes
+                      ? item.trainingNotes.replace(/\s+/g, " ").trim()
+                      : "";
                   return (
                   <button
                     key={`preview-${item.key}`}
@@ -1655,8 +1852,10 @@ export default function Dashboard() {
                       "rounded-lg border bg-card px-3 py-2 text-left text-xs hover:border-primary/50",
                       postponed && "border-amber-300 bg-amber-50 text-amber-900",
                       item.kind === "training" && item.trainingStatus === "moved-original" && "border-slate-300 bg-slate-50 text-slate-700",
+                      item.kind === "training" && item.trainingStatus === "joined-original" && "border-slate-300 bg-slate-50 text-slate-700",
                       item.kind === "training" && item.trainingStatus === "cancelled" && "border-red-200 bg-red-50 text-red-800",
                       item.kind === "training" && item.trainingStatus === "moved" && "border-emerald-300 bg-emerald-50 text-emerald-900",
+                      item.kind === "training" && item.trainingStatus === "joined" && "border-cyan-300 bg-cyan-50 text-cyan-900",
                     )}
                     onClick={() => setSelectedCalendarItem(item)}
                   >
@@ -1665,6 +1864,7 @@ export default function Dashboard() {
                     </span>
                     <span className="mt-1 block truncate font-medium">{item.title}</span>
                     <span className="block truncate text-muted-foreground">{typeLabel} - {item.subtitle}</span>
+                    {notePreview && <span className="mt-1 block truncate text-muted-foreground">Nota: {notePreview}</span>}
                   </button>
                   );
                 })}
@@ -1707,7 +1907,11 @@ export default function Dashboard() {
                                   ? "Recupero"
                                   : item.trainingStatus === "moved-original"
                                     ? "Spostato"
-                                    : "Allen."
+                                    : item.trainingStatus === "joined"
+                                      ? "Congiunto"
+                                      : item.trainingStatus === "joined-original"
+                                        ? "Da cong."
+                                        : "Allen."
                               : item.kind === "tournament"
                                 ? "Torneo"
                                 : "Partita";
@@ -1718,9 +1922,13 @@ export default function Dashboard() {
                                 ? "bg-red-50 text-red-800 border-red-200"
                                 : item.trainingStatus === "moved-original"
                                   ? "bg-slate-100 text-slate-700 border-slate-300"
-                                  : item.trainingStatus === "moved"
-                                    ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-                                    : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                  : item.trainingStatus === "joined-original"
+                                    ? "bg-slate-100 text-slate-700 border-slate-300"
+                                    : item.trainingStatus === "moved"
+                                      ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                                      : item.trainingStatus === "joined"
+                                        ? "bg-cyan-50 text-cyan-900 border-cyan-300"
+                                        : "bg-emerald-50 text-emerald-800 border-emerald-200"
                               : item.kind === "tournament"
                                 ? "bg-violet-50 text-violet-800 border-violet-200"
                                 : "bg-blue-50 text-blue-800 border-blue-200";
@@ -2146,7 +2354,14 @@ export default function Dashboard() {
                   {canEditDashboardCalendar && selectedCalendarItem.teamId && selectedCalendarItem.originalDate && (
                     <div className="rounded-xl border p-3">
                       <p className="mb-3 text-sm font-semibold">Modifica allenamento</p>
-                      <div className="mb-3 grid grid-cols-2 gap-2">
+                      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <Button
+                          type="button"
+                          variant={trainingEditMode === "note" ? "default" : "outline"}
+                          onClick={() => setTrainingEditMode("note")}
+                        >
+                          Solo nota
+                        </Button>
                         <Button
                           type="button"
                           variant={trainingEditMode === "moved" ? "default" : "outline"}
@@ -2156,13 +2371,20 @@ export default function Dashboard() {
                         </Button>
                         <Button
                           type="button"
+                          variant={trainingEditMode === "joined" ? "default" : "outline"}
+                          onClick={() => setTrainingEditMode("joined")}
+                        >
+                          Congiungi
+                        </Button>
+                        <Button
+                          type="button"
                           variant={trainingEditMode === "cancelled" ? "destructive" : "outline"}
                           onClick={() => setTrainingEditMode("cancelled")}
                         >
                           Elimina data
                         </Button>
                       </div>
-                      {trainingEditMode === "moved" && (
+                      {(trainingEditMode === "moved" || trainingEditMode === "joined") && (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
                             <Label htmlFor="training-edit-date">Nuova data</Label>
@@ -2200,6 +2422,40 @@ export default function Dashboard() {
                             <Label htmlFor="training-edit-location">Luogo</Label>
                             <Input id="training-edit-location" value={trainingEditLocation} onChange={(e) => setTrainingEditLocation(e.target.value)} placeholder="Es. Campo sportivo..." />
                           </div>
+                          {trainingEditMode === "joined" && (
+                            <div className="sm:col-span-3">
+                              <Label htmlFor="training-join-target">Allenamento da congiungere</Label>
+                              <select
+                                id="training-join-target"
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                value={trainingJoinTargetKey}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setTrainingJoinTargetKey(value);
+                                  const target = trainingJoinTargetOptions.find((option) => option.key === value);
+                                  if (!target) return;
+                                  setTrainingEditDate(target.date);
+                                  setTrainingEditStartTime(target.start);
+                                  setTrainingEditEndTime(target.end);
+                                }}
+                              >
+                                <option value="">Seleziona giorno, orario e annata</option>
+                                {trainingJoinTargetOptions.map((option) => (
+                                  <option key={option.key} value={option.key}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                              {trainingJoinTargetOptions.length === 0 && (
+                                <p className="mt-1 text-xs text-amber-700">
+                                  Nessun altro allenamento disponibile nella stessa settimana.
+                                </p>
+                              )}
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                L'allenamento scelto resta nel suo giorno; quello corrente diventa grigio e confluisce nella card congiunta.
+                              </p>
+                            </div>
+                          )}
                         </div>
                       )}
                       <div className="mt-3">
@@ -2218,22 +2474,41 @@ export default function Dashboard() {
                         disabled={updateDashboardTrainingMutation.isPending}
                         onClick={() => {
                           if (!selectedCalendarItem.teamId || !selectedCalendarItem.originalDate || !selectedCalendarItem.originalStartTime || !selectedCalendarItem.originalEndTime) return;
-                          const start = trainingEditMode === "moved" ? normalizeDashboardTime24(trainingEditStartTime) : null;
-                          const end = trainingEditMode === "moved" ? normalizeDashboardTime24(trainingEditEndTime) : null;
-                          if (trainingEditMode === "moved" && (!trainingEditDate || !start || !end)) {
+                          const needsTarget = trainingEditMode === "moved" || trainingEditMode === "joined";
+                          const start = needsTarget ? normalizeDashboardTime24(trainingEditStartTime) : null;
+                          const end = needsTarget ? normalizeDashboardTime24(trainingEditEndTime) : null;
+                          if (needsTarget && (!trainingEditDate || !start || !end)) {
                             toast({ title: "Data/orario non validi", description: "Controlla nuova data, inizio e fine allenamento.", variant: "destructive" });
                             return;
                           }
+                          const joinTarget = trainingEditMode === "joined"
+                            ? trainingJoinTargetOptions.find((option) => option.key === trainingJoinTargetKey)
+                            : null;
+                          if (trainingEditMode === "joined" && !joinTarget) {
+                            toast({ title: "Allenamento mancante", description: "Seleziona l'allenamento con cui congiungere questa annata.", variant: "destructive" });
+                            return;
+                          }
+                          const effectiveStatus =
+                            trainingEditMode === "moved" &&
+                            trainingEditDate === selectedCalendarItem.originalDate &&
+                            start === selectedCalendarItem.originalStartTime &&
+                            end === selectedCalendarItem.originalEndTime
+                              ? "note"
+                              : trainingEditMode;
                           updateDashboardTrainingMutation.mutate({
                             teamId: selectedCalendarItem.teamId,
                             originalDate: selectedCalendarItem.originalDate,
                             originalStartTime: selectedCalendarItem.originalStartTime,
                             originalEndTime: selectedCalendarItem.originalEndTime,
-                            status: trainingEditMode,
-                            newDate: trainingEditMode === "moved" ? trainingEditDate : null,
-                            newStartTime: trainingEditMode === "moved" ? start : null,
-                            newEndTime: trainingEditMode === "moved" ? end : null,
-                            location: trainingEditMode === "moved" ? trainingEditLocation.trim() || null : null,
+                            status: effectiveStatus,
+                            newDate: effectiveStatus === "moved" || effectiveStatus === "joined" ? trainingEditDate : null,
+                            newStartTime: effectiveStatus === "moved" || effectiveStatus === "joined" ? start : null,
+                            newEndTime: effectiveStatus === "moved" || effectiveStatus === "joined" ? end : null,
+                            targetTeamId: joinTarget?.teamId ?? null,
+                            targetDate: joinTarget?.date ?? null,
+                            targetStartTime: joinTarget?.start ?? null,
+                            targetEndTime: joinTarget?.end ?? null,
+                            location: effectiveStatus === "moved" || effectiveStatus === "joined" ? trainingEditLocation.trim() || null : null,
                             notes: trainingEditNotes.trim() || null,
                           });
                         }}

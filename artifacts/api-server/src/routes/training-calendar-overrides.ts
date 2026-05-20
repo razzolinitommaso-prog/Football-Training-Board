@@ -31,6 +31,10 @@ async function ensureTrainingCalendarOverridesTable() {
       new_date DATE,
       new_start_time TEXT,
       new_end_time TEXT,
+      target_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+      target_date DATE,
+      target_start_time TEXT,
+      target_end_time TEXT,
       location TEXT,
       notes TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -41,6 +45,10 @@ async function ensureTrainingCalendarOverridesTable() {
     CREATE INDEX IF NOT EXISTS idx_training_calendar_overrides_club_team_date
     ON training_calendar_overrides(club_id, team_id, original_date)
   `);
+  await db.execute(sql`ALTER TABLE training_calendar_overrides ADD COLUMN IF NOT EXISTS target_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL`);
+  await db.execute(sql`ALTER TABLE training_calendar_overrides ADD COLUMN IF NOT EXISTS target_date DATE`);
+  await db.execute(sql`ALTER TABLE training_calendar_overrides ADD COLUMN IF NOT EXISTS target_start_time TEXT`);
+  await db.execute(sql`ALTER TABLE training_calendar_overrides ADD COLUMN IF NOT EXISTS target_end_time TEXT`);
 }
 
 function normalizeDate(value: unknown): string | null {
@@ -82,7 +90,7 @@ async function syncPreparedSession(params: {
   teamId: number;
   originalDate: string;
   originalStartTime: string;
-  status: "moved" | "cancelled";
+  status: "note" | "moved" | "cancelled" | "joined";
   newDate?: string | null;
   newStartTime?: string | null;
   location?: string | null;
@@ -104,7 +112,8 @@ async function syncPreparedSession(params: {
   if (sessions.length === 0) return;
 
   for (const session of sessions) {
-    if (params.status === "moved" && params.newDate && params.newStartTime) {
+    if ((params.status === "moved" || params.status === "joined") && params.newDate && params.newStartTime) {
+      const label = params.status === "joined" ? "Allenamento congiunto" : "Allenamento spostato";
       await db
         .update(trainingSessionsTable)
         .set({
@@ -112,7 +121,19 @@ async function syncPreparedSession(params: {
           location: params.location ?? session.location,
           notes: appendCalendarNote(
             session.notes,
-            `Allenamento spostato dalla segreteria dal ${params.originalDate} ${params.originalStartTime} al ${params.newDate} ${params.newStartTime}.${params.notes ? ` Note: ${params.notes}` : ""}`,
+            `${label} dalla segreteria dal ${params.originalDate} ${params.originalStartTime} al ${params.newDate} ${params.newStartTime}.${params.notes ? ` Note: ${params.notes}` : ""}`,
+          ),
+        })
+        .where(eq(trainingSessionsTable.id, session.id));
+      continue;
+    }
+    if (params.status === "note") {
+      await db
+        .update(trainingSessionsTable)
+        .set({
+          notes: appendCalendarNote(
+            session.notes,
+            `Nota segreteria calendario allenamento del ${params.originalDate} ${params.originalStartTime}.${params.notes ? ` Note: ${params.notes}` : ""}`,
           ),
         })
         .where(eq(trainingSessionsTable.id, session.id));
@@ -191,10 +212,23 @@ router.post("/training-calendar-overrides", requireAuth, async (req, res): Promi
   const originalDate = normalizeDate(req.body?.originalDate);
   const originalStartTime = normalizeTime(req.body?.originalStartTime);
   const originalEndTime = normalizeTime(req.body?.originalEndTime);
-  const status = String(req.body?.status ?? "moved") === "cancelled" ? "cancelled" : "moved";
-  const newDate = status === "moved" ? normalizeDate(req.body?.newDate) : null;
-  const newStartTime = status === "moved" ? normalizeTime(req.body?.newStartTime) : null;
-  const newEndTime = status === "moved" ? normalizeTime(req.body?.newEndTime) : null;
+  const rawStatus = String(req.body?.status ?? "note");
+  const status =
+    rawStatus === "cancelled"
+      ? "cancelled"
+      : rawStatus === "moved"
+        ? "moved"
+        : rawStatus === "joined"
+          ? "joined"
+          : "note";
+  const needsTarget = status === "moved" || status === "joined";
+  const newDate = needsTarget ? normalizeDate(req.body?.newDate) : null;
+  const newStartTime = needsTarget ? normalizeTime(req.body?.newStartTime) : null;
+  const newEndTime = needsTarget ? normalizeTime(req.body?.newEndTime) : null;
+  const targetTeamId = status === "joined" ? Number(req.body?.targetTeamId) : null;
+  const targetDate = status === "joined" ? normalizeDate(req.body?.targetDate) : null;
+  const targetStartTime = status === "joined" ? normalizeTime(req.body?.targetStartTime) : null;
+  const targetEndTime = status === "joined" ? normalizeTime(req.body?.targetEndTime) : null;
   const location = String(req.body?.location ?? "").trim() || null;
   const notes = String(req.body?.notes ?? "").trim() || null;
 
@@ -202,8 +236,12 @@ router.post("/training-calendar-overrides", requireAuth, async (req, res): Promi
     res.status(400).json({ error: "Dati allenamento non validi" });
     return;
   }
-  if (status === "moved" && (!newDate || !newStartTime || !newEndTime)) {
+  if (needsTarget && (!newDate || !newStartTime || !newEndTime)) {
     res.status(400).json({ error: "Nuova data e orario sono obbligatori" });
+    return;
+  }
+  if (status === "joined" && (!Number.isInteger(targetTeamId) || !targetDate || !targetStartTime || !targetEndTime)) {
+    res.status(400).json({ error: "Allenamento da congiungere non valido" });
     return;
   }
 
@@ -215,6 +253,16 @@ router.post("/training-calendar-overrides", requireAuth, async (req, res): Promi
   if (!team || team.clubId !== clubId) {
     res.status(404).json({ error: "Squadra non trovata" });
     return;
+  }
+  if (status === "joined" && targetTeamId) {
+    const [targetTeam] = await db
+      .select({ id: teamsTable.id, clubId: teamsTable.clubId })
+      .from(teamsTable)
+      .where(eq(teamsTable.id, targetTeamId));
+    if (!targetTeam || targetTeam.clubId !== clubId) {
+      res.status(404).json({ error: "Squadra di destinazione non trovata" });
+      return;
+    }
   }
 
   const [existing] = await db
@@ -240,6 +288,10 @@ router.post("/training-calendar-overrides", requireAuth, async (req, res): Promi
     newDate,
     newStartTime,
     newEndTime,
+    targetTeamId,
+    targetDate,
+    targetStartTime,
+    targetEndTime,
     location,
     notes,
   };
@@ -264,11 +316,22 @@ router.post("/training-calendar-overrides", requireAuth, async (req, res): Promi
     notes,
   });
 
-  const title = status === "moved" ? "Allenamento spostato" : "Allenamento annullato";
+  const title =
+    status === "moved"
+      ? "Allenamento spostato"
+      : status === "joined"
+        ? "Allenamento congiunto"
+        : status === "cancelled"
+          ? "Allenamento annullato"
+          : "Nota allenamento";
   const message =
     status === "moved"
       ? `${team.name}: allenamento del ${originalDate} ${originalStartTime} spostato al ${newDate} ${newStartTime}.${location ? ` Luogo: ${location}.` : ""}${notes ? ` Note: ${notes}` : ""}`
-      : `${team.name}: allenamento del ${originalDate} ${originalStartTime} annullato.${notes ? ` Note: ${notes}` : ""}`;
+      : status === "joined"
+        ? `${team.name}: allenamento del ${originalDate} ${originalStartTime} congiunto al ${newDate} ${newStartTime}.${location ? ` Luogo: ${location}.` : ""}${notes ? ` Note: ${notes}` : ""}`
+        : status === "cancelled"
+          ? `${team.name}: allenamento del ${originalDate} ${originalStartTime} annullato.${notes ? ` Note: ${notes}` : ""}`
+          : `${team.name}: nota sull'allenamento del ${originalDate} ${originalStartTime}.${notes ? ` Note: ${notes}` : ""}`;
   await notifyClub(clubId, title, message);
 
   res.status(201).json(row);
