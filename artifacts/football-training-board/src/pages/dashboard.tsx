@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboardStats, useListPlayers, useListTeams } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell } from "lucide-react";
+import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell, Heart } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -231,6 +231,22 @@ function noteRecipientLabel(recipient: "secretary" | "technical_director" | "coa
   if (recipient === "secretary") return "segreteria";
   if (recipient === "technical_director") return "direttore tecnico";
   return "staff tecnico";
+}
+
+function dashboardRoleLabel(role: string): string {
+  const normalized = normalizeSessionRole(role);
+  const labels: Record<string, string> = {
+    admin: "Admin",
+    presidente: "Presidente",
+    director: "Direttore",
+    secretary: "Segreteria",
+    coach: "Allenatori",
+    technical_director: "Direttori tecnici",
+    fitness_coach: "Preparatori",
+    athletic_director: "Resp. atletici",
+    parent: "Genitori",
+  };
+  return labels[normalized] ?? role;
 }
 
 function parseLocalDateTime(value?: string | null): Date | null {
@@ -498,6 +514,18 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   });
   const draftExercises = rawDraftExercises.filter((ex) => (ex.createdByUserId ?? null) === myUserId);
 
+  const { data: dashboardExercises = [] } = useQuery<Array<{ id: number; trainingDay?: string | null; trainingSession?: string | null }>>({
+    queryKey: ["/api/exercises", clubIdNum, nr, "dashboard-tiles"],
+    queryFn: () => fetchJsonOrThrow<Array<{ id: number; trainingDay?: string | null; trainingSession?: string | null }>>("/api/exercises"),
+    enabled: Boolean(isTrainingStaff && user),
+  });
+
+  const { data: dashboardMembers = [] } = useQuery<Array<{ id: number; role: string }>>({
+    queryKey: ["/api/clubs/me/members", clubIdNum, dashboardSection, "dashboard-tiles"],
+    queryFn: () => fetchJsonOrThrow<Array<{ id: number; role: string }>>(`/api/clubs/me/members?section=${encodeURIComponent(dashboardSection)}`),
+    enabled: Boolean(user),
+  });
+
   const { data: seasons = [] } = useQuery<{ id: number; name: string; isActive: boolean }[]>({
     queryKey: ["/api/seasons"],
     queryFn: () => fetchJsonOrThrow<{ id: number; name: string; isActive: boolean }[]>("/api/seasons"),
@@ -702,8 +730,8 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
     setTrainingEditLocation(override?.location ?? "");
     setTrainingEditNotes(override?.notes ?? "");
     setTrainingJoinTargetKey(
-      override?.targetTeamId && override.targetDate && override.targetStartTime
-        ? `${override.targetTeamId}|${override.targetDate}|${override.targetStartTime}|${override.targetEndTime ?? ""}`
+      override?.targetTeamId
+        ? String(override.targetTeamId)
         : "",
     );
   }, [selectedCalendarItem]);
@@ -845,7 +873,14 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           const originalStartTime = String(slot.startTime ?? "");
           const originalEndTime = String(slot.endTime ?? "");
           const override = overrideByOccurrence.get(`${team.id}|${originalDate}|${originalStartTime}`);
-          const joinedIntoThis = joinedByTargetOccurrence.get(`${team.id}|${originalDate}|${originalStartTime}`);
+          const joinedIntoThis =
+            joinedByTargetOccurrence.get(`${team.id}|${originalDate}|${originalStartTime}`) ??
+            Array.from(joinedByTargetOccurrence.values()).find(
+              (joined) =>
+                Number(joined.targetTeamId) === Number(team.id) &&
+                joined.targetDate === originalDate &&
+                joined.targetStartTime === originalStartTime,
+            );
           if (joinedIntoThis && joinedIntoThis.teamId !== team.id) {
             const sourceTeam = teamById.get(Number(joinedIntoThis.teamId));
             items.push({
@@ -904,9 +939,6 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
             });
             const movedAt = combineLocalDateAndTime(new Date(`${override.newDate}T00:00:00`), override.newStartTime);
             if (movedAt >= monthStart && movedAt <= monthEnd) {
-              if (override.status === "joined" && override.targetTeamId && override.targetDate && override.targetStartTime) {
-                return;
-              }
               items.push({
                 kind: "training",
                 key: `training-${override.status}-${override.id}`,
@@ -960,6 +992,35 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
             trainingStatus: "regular",
           });
         });
+      });
+    });
+
+    dashboardTrainingOverrides.forEach((override) => {
+      if (override.status !== "joined" || !override.targetTeamId || !override.targetDate || !override.targetStartTime) return;
+      const targetTeamId = Number(override.targetTeamId);
+      if (!allowedTeamIds.has(targetTeamId)) return;
+      const targetTeam = dashboardTeams.find((team) => Number(team.id) === targetTeamId);
+      if (!targetTeam) return;
+      const sourceTeam = dashboardTeams.find((team) => Number(team.id) === Number(override.teamId));
+      const targetAt = combineLocalDateAndTime(new Date(`${override.targetDate}T00:00:00`), override.targetStartTime);
+      if (targetAt < monthStart || targetAt > monthEnd) return;
+      const key = `training-joined-target-${override.id}`;
+      if (items.some((item) => item.key === key)) return;
+      items.push({
+        kind: "training",
+        key,
+        date: targetAt,
+        time: `${override.targetStartTime}${override.targetEndTime ? `-${override.targetEndTime}` : ""}`,
+        title: `Allenamento congiunto ${targetTeam.name}${sourceTeam ? ` + ${sourceTeam.name}` : ""}`,
+        subtitle: sourceTeam ? `${targetTeam.name} con ${sourceTeam.name}` : targetTeam.name,
+        teamId: targetTeam.id,
+        teamName: targetTeam.name,
+        originalDate: override.targetDate,
+        originalStartTime: override.targetStartTime,
+        originalEndTime: override.targetEndTime ?? "",
+        trainingStatus: "joined",
+        trainingOverride: override,
+        trainingNotes: override.notes ?? null,
       });
     });
 
@@ -1132,6 +1193,19 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
     return Array.from(byKey.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [dashboardCalendarItems, scheduledTrainingJoinTargetOptions, selectedCalendarItem]);
 
+  const trainingJoinTwinTeam = useMemo(() => {
+    if (selectedCalendarItem?.kind !== "training" || !selectedCalendarItem.teamId) return null;
+    const currentTeam = dashboardTeams.find((team) => Number(team.id) === Number(selectedCalendarItem.teamId));
+    const currentName = currentTeam?.name ?? selectedCalendarItem.teamName;
+    const pairKey = dashboardTeamPairKey(currentName);
+    const rank = dashboardTeamYearRank(currentName);
+    if (!pairKey || !rank) return null;
+    return dashboardTeams.find((team) => {
+      if (Number(team.id) === Number(selectedCalendarItem.teamId)) return false;
+      return dashboardTeamPairKey(team.name) === pairKey && dashboardTeamYearRank(team.name) !== rank;
+    }) ?? null;
+  }, [dashboardTeams, selectedCalendarItem]);
+
   const dashboardWeekPreviewItems = useMemo(() => {
     const today = startOfDay(new Date());
     const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
@@ -1140,12 +1214,36 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
       .slice(0, 8);
   }, [dashboardCalendarItems]);
 
+  const dashboardUpcomingCalendarTrainingCount = useMemo(() => {
+    const today = startOfDay(new Date());
+    const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+    return dashboardCalendarItems.filter((item) => {
+      if (item.kind !== "training") return false;
+      if (item.date < today || item.date > weekEnd) return false;
+      return !["cancelled", "moved-original", "joined-original"].includes(item.trainingStatus ?? "regular");
+    }).length;
+  }, [dashboardCalendarItems]);
+
   const dashboardTeamCount = useMemo(() => {
     const fromApi = stats?.totalTeams ?? 0;
     const n = allTeams?.length ?? 0;
     if (isClubWideTechnicalRole && n > fromApi) return n;
     return fromApi;
   }, [stats?.totalTeams, allTeams?.length, isClubWideTechnicalRole]);
+  const dashboardSectionLabel = dashboardSection === "settore_giovanile"
+    ? "Settore giovanile"
+    : dashboardSection === "prima_squadra"
+      ? "Prima squadra"
+      : "Scuola calcio";
+
+  const dashboardTeamYearsLabel = useMemo(() => {
+    const teamNames = ((allTeams as any[] | undefined) ?? [])
+      .map((team) => String(team?.name ?? "").trim())
+      .filter(Boolean);
+    if (teamNames.length === 0) return "Nessuna";
+    const preview = teamNames.slice(0, 2).join(", ");
+    return teamNames.length > 2 ? `${preview} +${teamNames.length - 2}` : preview;
+  }, [allTeams]);
 
   const dashboardPlayerCount = useMemo(() => {
     const fromApi = stats?.totalPlayers ?? 0;
@@ -1154,15 +1252,64 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
     return fromApi;
   }, [stats?.totalPlayers, allPlayers?.length, isClubWideTechnicalRole]);
 
+  const dashboardPlayerSummary = useMemo(() => {
+    const players = (allPlayers as any[] | undefined) ?? [];
+    const hasPlayerList = players.length > 0;
+    const isActivePlayer = (player: any) => player.status !== "inactive";
+    const active = hasPlayerList
+      ? players.filter(isActivePlayer).length
+      : dashboardPlayerCount;
+    const inactive = hasPlayerList
+      ? players.filter((player) => player.status === "inactive").length
+      : 0;
+    const available = hasPlayerList
+      ? players.filter((player) => isActivePlayer(player) && player.available !== false).length
+      : active;
+    const unavailable = hasPlayerList
+      ? players.filter((player) => isActivePlayer(player) && player.available === false).length
+      : 0;
+    return { active, inactive, available, unavailable };
+  }, [allPlayers, dashboardPlayerCount]);
+
   const dashboardUpcomingCount = useMemo(() => {
     const fromApi = stats?.upcomingTrainingSessions ?? 0;
-    if (!isClubWideTechnicalRole || trainingSessionsForDash.length === 0) return fromApi;
+    if (!isClubWideTechnicalRole || trainingSessionsForDash.length === 0) {
+      return Math.max(fromApi, dashboardUpcomingCalendarTrainingCount);
+    }
     const nowMs = Date.now();
     const n = trainingSessionsForDash.filter(
       (s) => s.status === "scheduled" && new Date(s.scheduledAt ?? 0).getTime() >= nowMs,
     ).length;
-    return Math.max(fromApi, n);
-  }, [stats?.upcomingTrainingSessions, trainingSessionsForDash, isClubWideTechnicalRole]);
+    return Math.max(fromApi, n, dashboardUpcomingCalendarTrainingCount);
+  }, [stats?.upcomingTrainingSessions, trainingSessionsForDash, isClubWideTechnicalRole, dashboardUpcomingCalendarTrainingCount]);
+
+  const dashboardExerciseSummary = useMemo(() => {
+    const exercises = dashboardExercises ?? [];
+    const associated = exercises.filter((exercise) => Boolean(exercise.trainingDay || exercise.trainingSession));
+    const free = exercises.filter((exercise) => !exercise.trainingDay && !exercise.trainingSession);
+    const completeSessionKeys = new Set(
+      associated
+        .map((exercise) => `${exercise.trainingDay ?? ""}|${exercise.trainingSession ?? ""}`)
+        .filter((key) => key !== "|"),
+    );
+    return {
+      associated: associated.length,
+      free: free.length,
+      completeSessions: completeSessionKeys.size,
+    };
+  }, [dashboardExercises]);
+
+  const dashboardStaffRoleSummary = useMemo(() => {
+    const roles = new Map<string, number>();
+    dashboardMembers.forEach((member) => {
+      const label = dashboardRoleLabel(member.role);
+      roles.set(label, (roles.get(label) ?? 0) + 1);
+    });
+    return Array.from(roles.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 4);
+  }, [dashboardMembers]);
+  const dashboardStaffCount = dashboardMembers.length || stats?.totalMembers || 0;
 
   const [alertDismissed, setAlertDismissed] = useState(false);
 
@@ -1386,7 +1533,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   );
 
   const unavailablePlayers = (allPlayers as any[] | undefined)?.filter(
-    (p: any) => p.available === false
+    (p: any) => p.status !== "inactive" && p.available === false
   ) ?? [];
 
   const chartDataEn = [
@@ -1722,10 +1869,54 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link="/teams" />
-        <StatCard title={t.activePlayers} value={dashboardPlayerCount} icon={Users} link="/players" />
-        <StatCard title={t.upcomingSessions} value={dashboardUpcomingCount} icon={CalendarDays} link="/training" />
-        <StatCard title={t.staffMembers} value={stats?.totalMembers || 0} icon={ShieldCheck} link="/members" />
+        <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link="/teams">
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+            <span>Visibili: <strong className="text-foreground">{dashboardTeamCount}</strong></span>
+            <span>Area: <strong className="text-foreground">{dashboardSectionLabel}</strong></span>
+            <span className="col-span-2 truncate">Annate: <strong className="text-foreground">{dashboardTeamYearsLabel}</strong></span>
+          </div>
+        </StatCard>
+        <StatCard title="Giocatori" value={dashboardPlayerSummary.active} icon={Users} link="/players">
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+            <span>Attivi: <strong className="text-foreground">{dashboardPlayerSummary.active}</strong></span>
+            <span>Non attivi: <strong className="text-foreground">{dashboardPlayerSummary.inactive}</strong></span>
+            <span>Disponibili: <strong className="text-foreground">{dashboardPlayerSummary.available}</strong></span>
+            <span>Non disponibili: <strong className="text-foreground">{dashboardPlayerSummary.unavailable}</strong></span>
+          </div>
+        </StatCard>
+        {nr === "secretary" ? (
+          <StatCard title="Area Genitori" value="App" icon={Heart} link="/secretary/parent-app">
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+              <span>Comunicazioni</span>
+              <span>Documenti</span>
+              <span>Eventi</span>
+              <span>Famiglie</span>
+            </div>
+          </StatCard>
+        ) : (
+          <StatCard title="Sessioni / sedute" value={dashboardUpcomingCount} icon={CalendarDays} link="/training">
+            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+              <span>Sedute: <strong className="text-foreground">{dashboardUpcomingCount}</strong></span>
+              <span>Complete: <strong className="text-foreground">{dashboardExerciseSummary.completeSessions}</strong></span>
+              <span>Assoc.: <strong className="text-foreground">{dashboardExerciseSummary.associated}</strong></span>
+              <span>Libere: <strong className="text-foreground">{dashboardExerciseSummary.free}</strong></span>
+            </div>
+          </StatCard>
+        )}
+        <StatCard title={t.staffMembers} value={dashboardStaffCount} icon={ShieldCheck} link="/members">
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+            <span>Totale: <strong className="text-foreground">{dashboardStaffCount}</strong></span>
+            {dashboardStaffRoleSummary.length > 0 ? (
+              dashboardStaffRoleSummary.map(([label, count]) => (
+                <span key={label} className="truncate">
+                  {label}: <strong className="text-foreground">{count}</strong>
+                </span>
+              ))
+            ) : (
+              <span>Ruoli: <strong className="text-foreground">0</strong></span>
+            )}
+          </div>
+        </StatCard>
       </div>
 
       <Card className="shadow-md border-border/50">
@@ -1825,18 +2016,16 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
                   const postponed = item.kind === "match" && !!item.match.isPostponed;
                   const typeLabel = postponed
                     ? "Rinviata"
-                    : item.kind === "training"
-                      ? item.trainingStatus === "cancelled"
-                        ? "Allenamento annullato"
-                        : item.trainingStatus === "moved"
-                          ? "Recupero allenamento"
-                          : item.trainingStatus === "moved-original"
-                            ? "Allenamento spostato"
-                            : item.trainingStatus === "joined"
-                              ? "Allenamento congiunto"
-                              : item.trainingStatus === "joined-original"
-                                ? "Allenamento da congiungere"
-                                : "Allenamento"
+                            : item.kind === "training"
+                              ? item.trainingStatus === "cancelled"
+                                ? "Allenamento annullato"
+                                : item.trainingStatus === "joined" || item.trainingStatus === "joined-original"
+                                  ? "Allenamento congiunto"
+                                  : item.trainingStatus === "moved"
+                                    ? "Recupero allenamento"
+                                    : item.trainingStatus === "moved-original"
+                                      ? "Allenamento spostato"
+                                      : "Allenamento"
                       : item.kind === "tournament"
                         ? "Torneo"
                         : "Partita";
@@ -1903,14 +2092,12 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
                             : item.kind === "training"
                               ? item.trainingStatus === "cancelled"
                                 ? "Annull."
-                                : item.trainingStatus === "moved"
-                                  ? "Recupero"
-                                  : item.trainingStatus === "moved-original"
-                                    ? "Spostato"
-                                    : item.trainingStatus === "joined"
-                                      ? "Congiunto"
-                                      : item.trainingStatus === "joined-original"
-                                        ? "Da cong."
+                                  : item.trainingStatus === "joined" || item.trainingStatus === "joined-original"
+                                    ? "Congiunto"
+                                    : item.trainingStatus === "moved"
+                                      ? "Recupero"
+                                      : item.trainingStatus === "moved-original"
+                                        ? "Spostato"
                                         : "Allen."
                               : item.kind === "tournament"
                                 ? "Torneo"
@@ -2146,7 +2333,12 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
       <Dialog open={selectedCalendarItem !== null} onOpenChange={(open) => !open && setSelectedCalendarItem(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{selectedCalendarItem?.title ?? "Impegno"}</DialogTitle>
+            <DialogTitle>
+              {selectedCalendarItem?.kind === "training" &&
+              (selectedCalendarItem.trainingStatus === "joined" || selectedCalendarItem.trainingStatus === "joined-original")
+                ? selectedCalendarItem.title.replace(/^Recupero allenamento/i, "Allenamento congiunto").replace(/^Allenamento spostato/i, "Allenamento congiunto")
+                : selectedCalendarItem?.title ?? "Impegno"}
+            </DialogTitle>
             <DialogDescription>
               {selectedCalendarItem
                 ? `${format(selectedCalendarItem.date, "EEEE d MMMM yyyy", { locale: itLocale })} · ${selectedCalendarItem.time}`
@@ -2157,6 +2349,10 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
             <div className="space-y-4">
               <div className="rounded-xl border bg-muted/30 p-3 text-sm">
                 <p className="font-medium">{selectedCalendarItem.subtitle}</p>
+                {selectedCalendarItem.kind === "training" &&
+                  (selectedCalendarItem.trainingStatus === "joined" || selectedCalendarItem.trainingStatus === "joined-original") && (
+                    <p className="mt-1 text-sm font-medium text-cyan-700">Allenamento congiunto</p>
+                  )}
                 {selectedCalendarItem.teamName && (
                   <p className="mt-1 text-muted-foreground">Squadra: {selectedCalendarItem.teamName}</p>
                 )}
@@ -2424,35 +2620,24 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
                           </div>
                           {trainingEditMode === "joined" && (
                             <div className="sm:col-span-3">
-                              <Label htmlFor="training-join-target">Allenamento da congiungere</Label>
-                              <select
-                                id="training-join-target"
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                value={trainingJoinTargetKey}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setTrainingJoinTargetKey(value);
-                                  const target = trainingJoinTargetOptions.find((option) => option.key === value);
-                                  if (!target) return;
-                                  setTrainingEditDate(target.date);
-                                  setTrainingEditStartTime(target.start);
-                                  setTrainingEditEndTime(target.end);
-                                }}
-                              >
-                                <option value="">Seleziona giorno, orario e annata</option>
-                                {trainingJoinTargetOptions.map((option) => (
-                                  <option key={option.key} value={option.key}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                              {trainingJoinTargetOptions.length === 0 && (
+                              <Label>Annata da congiungere</Label>
+                              {trainingJoinTwinTeam ? (
+                                <label className="mt-1 flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 accent-emerald-600"
+                                    checked={trainingJoinTargetKey === String(trainingJoinTwinTeam.id)}
+                                    onChange={(event) => setTrainingJoinTargetKey(event.target.checked ? String(trainingJoinTwinTeam.id) : "")}
+                                  />
+                                  <span className="font-medium">{trainingJoinTwinTeam.name}</span>
+                                </label>
+                              ) : (
                                 <p className="mt-1 text-xs text-amber-700">
-                                  Nessun altro allenamento disponibile nella stessa settimana.
+                                  Nessuna annata gemella trovata per questa squadra.
                                 </p>
                               )}
                               <p className="mt-1 text-xs text-muted-foreground">
-                                L'allenamento scelto resta nel suo giorno; quello corrente diventa grigio e confluisce nella card congiunta.
+                                La data e gli orari sopra indicano dove creare l'allenamento congiunto; l'evento originale resta tracciato nello storico.
                               </p>
                             </div>
                           )}
@@ -2481,11 +2666,11 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
                             toast({ title: "Data/orario non validi", description: "Controlla nuova data, inizio e fine allenamento.", variant: "destructive" });
                             return;
                           }
-                          const joinTarget = trainingEditMode === "joined"
-                            ? trainingJoinTargetOptions.find((option) => option.key === trainingJoinTargetKey)
+                          const joinTarget = trainingEditMode === "joined" && trainingJoinTwinTeam && trainingJoinTargetKey === String(trainingJoinTwinTeam.id)
+                            ? trainingJoinTwinTeam
                             : null;
                           if (trainingEditMode === "joined" && !joinTarget) {
-                            toast({ title: "Allenamento mancante", description: "Seleziona l'allenamento con cui congiungere questa annata.", variant: "destructive" });
+                            toast({ title: "Annata mancante", description: "Seleziona l'annata gemella da congiungere.", variant: "destructive" });
                             return;
                           }
                           const effectiveStatus =
@@ -2504,10 +2689,10 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
                             newDate: effectiveStatus === "moved" || effectiveStatus === "joined" ? trainingEditDate : null,
                             newStartTime: effectiveStatus === "moved" || effectiveStatus === "joined" ? start : null,
                             newEndTime: effectiveStatus === "moved" || effectiveStatus === "joined" ? end : null,
-                            targetTeamId: joinTarget?.teamId ?? null,
-                            targetDate: joinTarget?.date ?? null,
-                            targetStartTime: joinTarget?.start ?? null,
-                            targetEndTime: joinTarget?.end ?? null,
+                            targetTeamId: joinTarget?.id ?? null,
+                            targetDate: effectiveStatus === "joined" ? trainingEditDate : null,
+                            targetStartTime: effectiveStatus === "joined" ? start : null,
+                            targetEndTime: effectiveStatus === "joined" ? end : null,
                             location: effectiveStatus === "moved" || effectiveStatus === "joined" ? trainingEditLocation.trim() || null : null,
                             notes: trainingEditNotes.trim() || null,
                           });
@@ -2940,21 +3125,22 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   );
 }
 
-function StatCard({ title, value, icon: Icon, link }: { title: string, value: number, icon: any, link: string }) {
+function StatCard({ title, value, icon: Icon, link, children }: { title: string, value: number | string, icon: any, link: string, children?: ReactNode }) {
   return (
     <Card className="shadow-md border-border/50 hover:shadow-lg transition-shadow group relative overflow-hidden">
       <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
         <Icon className="w-24 h-24" />
       </div>
-      <CardContent className="p-6 relative z-10 flex flex-col h-full justify-between">
-        <div className="flex items-center justify-between space-y-0 pb-2">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+      <CardContent className="p-6 relative z-10 flex min-h-[180px] flex-col">
+        <div className="flex min-h-[44px] items-start justify-between gap-3 pb-2">
+          <p className="text-sm font-medium leading-snug text-muted-foreground">{title}</p>
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
             <Icon className="w-5 h-5 text-primary" />
           </div>
         </div>
-        <div className="mt-4">
-          <div className="text-4xl font-display font-bold">{value}</div>
+        <div className="mt-4 flex-1">
+          <div className="min-h-[48px] text-4xl font-display font-bold leading-none">{value}</div>
+          {children}
         </div>
         <Link href={link} className="absolute inset-0 z-20">
           <span className="sr-only">{title}</span>
