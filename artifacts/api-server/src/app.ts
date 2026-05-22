@@ -8,7 +8,6 @@ import session from "express-session";
 import cookieParser from "cookie-parser";
 import connectPgSimple from "connect-pg-simple";
 import routes from "./routes";
-import { boardsRouter } from "./routes/boards-routers";
 const PgSession = connectPgSimple(session);
 
 const app: Express = express();
@@ -93,6 +92,5 @@ app.use(
 );
 
 app.use("/api", routes);
-app.use("/api/boards", boardsRouter);
 
 export default app;

@@ -1,95 +1,159 @@
 import { Router } from "express";
-
-type Board = {
-  id: number;
-  title: string;
-  data: any;
-  createdAt: string;
-};
-
-const boards: Board[] = [];
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "@workspace/db";
+import { tacticalBoardsTable } from "@workspace/db/schema";
+import { requireAuth } from "../lib/auth";
 
 export const boardsRouter = Router();
 
-/**
- * GET ALL BOARDS
- */
-boardsRouter.get("/", (_req, res) => {
-  console.log("✅ HIT /boards");
-  return res.json(boards);
-});
+function parseBoardId(value: string | string[] | undefined): number {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return Number.parseInt(String(raw ?? ""), 10);
+}
 
-/**
- * GET SINGLE BOARD
- */
-boardsRouter.get("/:id", (req, res) => {
-  const id = Number(req.params.id);
+function normalizeBoardData(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
-  const board = boards.find((b) => b.id === id);
-
-  if (!board) {
-    return res.status(404).json({ message: "Board not found" });
+function parseOptionalNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
+  return null;
+}
 
-  return res.json(board);
-});
-
-/**
- * CREATE BOARD
- */
-boardsRouter.post("/", (req, res) => {
-  const { title, data } = req.body;
-
-  const newBoard: Board = {
-    id: Date.now(),
-    title: title || "Untitled Board",
-    data: data || {},
-    createdAt: new Date().toISOString(),
+function boardResponse(row: typeof tacticalBoardsTable.$inferSelect) {
+  return {
+    id: row.id,
+    title: row.title,
+    data: row.data,
+    createdAt: row.createdAt?.toISOString?.() ?? String(row.createdAt),
+    updatedAt: row.updatedAt?.toISOString?.() ?? String(row.updatedAt),
   };
+}
 
-  boards.push(newBoard);
+boardsRouter.get("/", requireAuth, async (req, res): Promise<void> => {
+  const clubId = req.session.clubId!;
+  const rows = await db
+    .select()
+    .from(tacticalBoardsTable)
+    .where(eq(tacticalBoardsTable.clubId, clubId))
+    .orderBy(desc(tacticalBoardsTable.updatedAt), desc(tacticalBoardsTable.createdAt));
 
-  return res.status(201).json(newBoard);
+  res.json(rows.map(boardResponse));
 });
 
-/**
- * UPDATE BOARD
- */
-boardsRouter.put("/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const { title, data } = req.body;
-
-  const boardIndex = boards.findIndex((b) => b.id === id);
-
-  if (boardIndex === -1) {
-    return res.status(404).json({ message: "Board not found" });
+boardsRouter.get("/:id", requireAuth, async (req, res): Promise<void> => {
+  const id = parseBoardId(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ message: "Invalid board id" });
+    return;
   }
 
-  boards[boardIndex] = {
-    ...boards[boardIndex],
-    title: title ?? boards[boardIndex].title,
-    data: data ?? boards[boardIndex].data,
-  };
+  const [row] = await db
+    .select()
+    .from(tacticalBoardsTable)
+    .where(and(eq(tacticalBoardsTable.id, id), eq(tacticalBoardsTable.clubId, req.session.clubId!)))
+    .limit(1);
 
-  return res.json(boards[boardIndex]);
+  if (!row) {
+    res.status(404).json({ message: "Board not found" });
+    return;
+  }
+
+  res.json(boardResponse(row));
 });
 
-/**
- * DELETE BOARD
- */
-boardsRouter.delete("/:id", (req, res) => {
-  const id = Number(req.params.id);
+boardsRouter.post("/", requireAuth, async (req, res): Promise<void> => {
+  const data = normalizeBoardData(req.body?.data);
+  const title = String(req.body?.title ?? "").trim() || "Untitled Board";
 
-  const boardIndex = boards.findIndex((b) => b.id === id);
+  const [row] = await db
+    .insert(tacticalBoardsTable)
+    .values({
+      clubId: req.session.clubId!,
+      createdByUserId: req.session.userId ?? null,
+      teamId: parseOptionalNumber(data.teamId),
+      title,
+      boardType: typeof data.boardType === "string" ? data.boardType : null,
+      data,
+    })
+    .returning();
 
-  if (boardIndex === -1) {
-    return res.status(404).json({ message: "Board not found" });
+  if (!row) {
+    res.status(500).json({ message: "Board save failed" });
+    return;
   }
 
-  const deletedBoard = boards.splice(boardIndex, 1);
+  res.status(201).json(boardResponse(row));
+});
 
-  return res.json({
-    message: "Board deleted successfully",
-    board: deletedBoard[0],
-  });
+boardsRouter.put("/:id", requireAuth, async (req, res): Promise<void> => {
+  const id = parseBoardId(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ message: "Invalid board id" });
+    return;
+  }
+
+  const data = req.body?.data === undefined ? undefined : normalizeBoardData(req.body.data);
+  const titleRaw = req.body?.title === undefined ? undefined : String(req.body.title ?? "").trim();
+
+  const updates: Partial<typeof tacticalBoardsTable.$inferInsert> = {};
+  if (titleRaw !== undefined) updates.title = titleRaw || "Untitled Board";
+  if (data !== undefined) {
+    updates.data = data;
+    updates.teamId = parseOptionalNumber(data.teamId);
+    updates.boardType = typeof data.boardType === "string" ? data.boardType : null;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    const [current] = await db
+      .select()
+      .from(tacticalBoardsTable)
+      .where(and(eq(tacticalBoardsTable.id, id), eq(tacticalBoardsTable.clubId, req.session.clubId!)))
+      .limit(1);
+    if (!current) {
+      res.status(404).json({ message: "Board not found" });
+      return;
+    }
+    res.json(boardResponse(current));
+    return;
+  }
+
+  const [row] = await db
+    .update(tacticalBoardsTable)
+    .set(updates)
+    .where(and(eq(tacticalBoardsTable.id, id), eq(tacticalBoardsTable.clubId, req.session.clubId!)))
+    .returning();
+
+  if (!row) {
+    res.status(404).json({ message: "Board not found" });
+    return;
+  }
+
+  res.json(boardResponse(row));
+});
+
+boardsRouter.delete("/:id", requireAuth, async (req, res): Promise<void> => {
+  const id = parseBoardId(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ message: "Invalid board id" });
+    return;
+  }
+
+  const [row] = await db
+    .delete(tacticalBoardsTable)
+    .where(and(eq(tacticalBoardsTable.id, id), eq(tacticalBoardsTable.clubId, req.session.clubId!)))
+    .returning();
+
+  if (!row) {
+    res.status(404).json({ message: "Board not found" });
+    return;
+  }
+
+  res.json({ message: "Board deleted successfully", board: boardResponse(row) });
 });

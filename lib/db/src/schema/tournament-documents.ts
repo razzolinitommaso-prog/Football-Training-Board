@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
 import { clubsTable } from "./clubs";
 import { teamsTable } from "./teams";
 import { usersTable } from "./users";
@@ -19,4 +19,19 @@ export const tournamentDocumentsTable = pgTable("tournament_documents", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const tournamentStatesTable = pgTable("tournament_states", {
+  id: serial("id").primaryKey(),
+  clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
+  teamId: integer("team_id").notNull().references(() => teamsTable.id, { onDelete: "cascade" }),
+  competition: text("competition").notNull(),
+  normalizedCompetition: text("normalized_competition").notNull(),
+  program: jsonb("program").$type<Record<string, unknown>[]>().notNull().default([]),
+  scores: jsonb("scores").$type<Record<string, { homeScore: number | null; awayScore: number | null }>>().notNull().default({}),
+  pdfReferenceDate: text("pdf_reference_date"),
+  updatedByUserId: integer("updated_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
 export type TournamentDocumentRow = typeof tournamentDocumentsTable.$inferSelect;
+export type TournamentStateRow = typeof tournamentStatesTable.$inferSelect;

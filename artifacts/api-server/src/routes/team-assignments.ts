@@ -4,6 +4,11 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
+const TEAM_ASSIGNMENT_MANAGE_ROLES = ["admin", "presidente", "director", "technical_director"];
+
+function canManageTeamAssignments(role?: string | null): boolean {
+  return TEAM_ASSIGNMENT_MANAGE_ROLES.includes(role ?? "");
+}
 
 router.get("/team-assignments", requireAuth, async (req, res): Promise<void> => {
   const assignments = await db
@@ -26,6 +31,10 @@ router.get("/team-assignments", requireAuth, async (req, res): Promise<void> => 
 });
 
 router.post("/team-assignments", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageTeamAssignments(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire assegnazioni staff" });
+    return;
+  }
   const { teamId, userId, role } = req.body;
   if (!teamId || !userId || !role) {
     res.status(400).json({ error: "teamId, userId and role are required" });
@@ -57,6 +66,10 @@ router.post("/team-assignments", requireAuth, async (req, res): Promise<void> =>
 });
 
 router.delete("/team-assignments/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageTeamAssignments(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire assegnazioni staff" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   await db
     .delete(teamStaffAssignmentsTable)

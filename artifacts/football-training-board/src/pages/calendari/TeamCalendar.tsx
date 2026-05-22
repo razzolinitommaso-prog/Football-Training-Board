@@ -32,6 +32,7 @@ import {
   discoverPdfSectionTitles,
   getImageTournamentMissingTime,
   isGenericPdfCategoryHint,
+  type MatchPdfImportResult,
 } from "@/lib/match-calendar-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
@@ -1441,18 +1442,6 @@ function MatchCard({
   async function saveMatchPlanAndCallups() {
     if (!canManageMatchPlan) return;
     try {
-      const currentIds = new Set(callups.map((c) => c.playerId));
-      const toAdd = Array.from(selectedPlayerIds).filter((id) => !currentIds.has(id));
-      const toRemove = callups.filter((c) => !selectedPlayerIds.has(c.playerId)).map((c) => c.id);
-      for (const playerId of toAdd) {
-        await apiFetch(`/api/matches/${match.id}/callups`, {
-          method: "POST",
-          body: JSON.stringify({ playerId, status: "called" }),
-        });
-      }
-      for (const id of toRemove) {
-        await apiFetch(`/api/callups/${id}`, { method: "DELETE" });
-      }
       const selected = new Set(selectedPlayerIds);
       const selectedKeys = new Set(Array.from(selected).map(String));
       const normalizedPlan: MatchPlanData = {
@@ -1481,9 +1470,12 @@ function MatchCard({
           };
         }),
       };
-      await apiFetch(`/api/matches/${match.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ matchPlan: normalizedPlan }),
+      await apiFetch(`/api/matches/${match.id}/plan`, {
+        method: "PUT",
+        body: JSON.stringify({
+          playerIds: Array.from(selectedPlayerIds),
+          matchPlan: normalizedPlan,
+        }),
       });
       qc.invalidateQueries({ queryKey: ["/api/matches"] });
       qc.invalidateQueries({ queryKey: ["/api/matches", match.id, "callups"] });
@@ -3288,6 +3280,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         const competition = rows.find((row) => (row.competition ?? "").trim())?.competition ?? "";
         if (competition.trim()) {
           setTournamentProgram(teamId, competition, pendingTournamentProgram);
+          void saveTournamentState(
+            competition,
+            pendingTournamentProgram,
+            getTournamentScores(teamId, competition),
+            getTournamentPdfReferenceDate(teamId, competition),
+          );
           setTournamentProgramVersion((v) => v + 1);
         }
       }
@@ -3345,10 +3343,13 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         });
       }
       if (teamId) {
+        const previousProgram = getTournamentState(input.originalCompetition)?.program ?? getTournamentProgram(teamId, input.originalCompetition);
+        const previousScores = getTournamentState(input.originalCompetition)?.scores ?? getTournamentScores(teamId, input.originalCompetition);
         if (input.originalCompetition.trim() !== name) {
           setTournamentPdfReferenceDate(teamId, input.originalCompetition, null);
         }
         setTournamentPdfReferenceDate(teamId, name, input.pdfReferenceDate.trim() || null);
+        await saveTournamentState(name, previousProgram, previousScores, input.pdfReferenceDate.trim() || null);
       }
       return group.matches.length;
     },
@@ -3370,14 +3371,26 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       delete next[entryId];
     }
     setTournamentScores(teamId, competition, next);
+    void saveTournamentState(
+      competition,
+      getTournamentState(competition)?.program ?? getTournamentProgram(teamId, competition),
+      next,
+      getTournamentState(competition)?.pdfReferenceDate ?? getTournamentPdfReferenceDate(teamId, competition),
+    );
     setTournamentScoreVersion((v) => v + 1);
   }
 
   function updateTournamentProgramEntry(competition: string, entryId: string, patch: Partial<TournamentProgramEntry>) {
     if (!teamId) return;
-    const current = getTournamentProgram(teamId, competition);
+    const current = getTournamentState(competition)?.program ?? getTournamentProgram(teamId, competition);
     const next = current.map((entry) => (entry.id === entryId ? { ...entry, ...patch } : entry));
     setTournamentProgram(teamId, competition, next);
+    void saveTournamentState(
+      competition,
+      next,
+      getTournamentState(competition)?.scores ?? getTournamentScores(teamId, competition),
+      getTournamentState(competition)?.pdfReferenceDate ?? getTournamentPdfReferenceDate(teamId, competition),
+    );
     setTournamentProgramVersion((v) => v + 1);
   }
 
@@ -3491,12 +3504,48 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     dataUrl: string;
     createdAt: string;
   };
+  type TournamentStateApi = {
+    id: number;
+    teamId: number;
+    competition: string;
+    normalizedCompetition: string;
+    program: TournamentProgramEntry[];
+    scores: Record<string, TournamentProgramScore>;
+    pdfReferenceDate?: string | null;
+    updatedAt: string;
+  };
 
-  const { data: tournamentDocsResponse } = useQuery<{ documents: TournamentDocumentApi[] }>({
+  const { data: tournamentDocsResponse } = useQuery<{ documents: TournamentDocumentApi[]; states?: TournamentStateApi[] }>({
     queryKey: ["/api/tournament-documents", teamId],
     queryFn: () => apiFetch(`/api/tournament-documents?teamId=${teamId}`),
     enabled: !!teamId && phaseTab === "tornei",
   });
+
+  const tournamentStateByCompetition = useMemo(() => {
+    const map = new Map<string, TournamentStateApi>();
+    (tournamentDocsResponse?.states ?? []).forEach((state) => {
+      map.set(state.normalizedCompetition, state);
+    });
+    return map;
+  }, [tournamentDocsResponse?.states]);
+
+  function getTournamentState(competition: string): TournamentStateApi | undefined {
+    return tournamentStateByCompetition.get(normalizeTournamentKeyPart(competition));
+  }
+
+  async function saveTournamentState(
+    competition: string,
+    program: TournamentProgramEntry[],
+    scores: Record<string, TournamentProgramScore>,
+    pdfReferenceDate: string | null,
+  ) {
+    if (!teamId) return;
+    await apiFetch("/api/tournament-documents/state", {
+      method: "PUT",
+      body: JSON.stringify({ teamId, competition, program, scores, pdfReferenceDate }),
+    });
+    await qc.invalidateQueries({ queryKey: ["/api/tournament-documents", teamId] });
+  }
 
   function apiDocToStored(d: TournamentDocumentApi): StoredTournamentAttachment {
     return {
@@ -3527,19 +3576,19 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     if (!teamId) return {};
     const map: Record<string, TournamentProgramEntry[]> = {};
     for (const g of tournamentGroups) {
-      map[g.competition] = getTournamentProgram(teamId, g.competition);
+      map[g.competition] = getTournamentState(g.competition)?.program ?? getTournamentProgram(teamId, g.competition);
     }
     return map;
-  }, [teamId, tournamentGroups, tournamentProgramVersion]);
+  }, [teamId, tournamentGroups, tournamentProgramVersion, tournamentStateByCompetition]);
 
   const tournamentScoresByCompetition = useMemo(() => {
     if (!teamId) return {};
     const map: Record<string, Record<string, TournamentProgramScore>> = {};
     for (const g of tournamentGroups) {
-      map[g.competition] = getTournamentScores(teamId, g.competition);
+      map[g.competition] = getTournamentState(g.competition)?.scores ?? getTournamentScores(teamId, g.competition);
     }
     return map;
-  }, [teamId, tournamentGroups, tournamentScoreVersion]);
+  }, [teamId, tournamentGroups, tournamentScoreVersion, tournamentStateByCompetition]);
 
   const matchFiltersActive =
     matchSearchText.trim() !== "" ||
@@ -3608,7 +3657,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   function openTournamentEdit(group: TournamentCardGroup) {
     const firstLoc = group.matches.map((m) => (m.location ?? "").trim()).find(Boolean) ?? "";
     const pdfRef =
-      teamId ? (getTournamentPdfReferenceDate(teamId, group.competition) ?? "") : "";
+      teamId ? (getTournamentState(group.competition)?.pdfReferenceDate ?? getTournamentPdfReferenceDate(teamId, group.competition) ?? "") : "";
     setEditingTournament({
       originalCompetition: group.competition,
       name: group.competition,
@@ -3910,7 +3959,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                     filt.includes(x.competition.toLowerCase()),
                 );
                 if (g) {
-                  const stored = getTournamentPdfReferenceDate(teamId, g.competition);
+                  const stored = getTournamentState(g.competition)?.pdfReferenceDate ?? getTournamentPdfReferenceDate(teamId, g.competition);
                   if (stored) setPdfImportReferenceDate(stored);
                 }
               }

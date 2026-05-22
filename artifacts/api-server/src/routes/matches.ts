@@ -9,7 +9,7 @@ import {
   parentPlayerRelationsTable,
   parentNotificationsTable,
 } from "@workspace/db";
-import { eq, and, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, notInArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
@@ -56,6 +56,21 @@ function composeNotesWithPlan(publicNotes: string | null, plan: unknown | null):
   return cleanNotes ? `${cleanNotes}\n\n${encoded}` : encoded;
 }
 
+function normalizeMatchPlan(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function uniqueNumericIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(
+    value
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item) && item > 0),
+  )];
+}
+
 async function userCanManageAssignedTeamMatch(userId: number, clubId: number, role: string, teamId: number | null): Promise<boolean> {
   if (!teamId) return false;
   if (!MATCH_PLAN_EDIT_ROLES.includes(role)) return false;
@@ -85,6 +100,7 @@ async function enrichMatch(match: typeof matchesTable.$inferSelect) {
     if (team) teamName = team.name;
   }
   const split = splitPublicNotesAndPlan(match.notes ?? null);
+  const matchPlan = normalizeMatchPlan(match.matchPlan) ?? normalizeMatchPlan(split.plan);
   return {
     ...match,
     teamName,
@@ -92,7 +108,7 @@ async function enrichMatch(match: typeof matchesTable.$inferSelect) {
     location: match.location ?? null,
     result: match.result ?? null,
     notes: split.publicNotes,
-    matchPlan: split.plan,
+    matchPlan,
     preMatchNotes: match.preMatchNotes ?? null,
     postMatchNotes: match.postMatchNotes ?? null,
   };
@@ -139,7 +155,7 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   if (!existing) { res.status(404).json({ error: "Match not found" }); return; }
 
   const scheduleFields = [date, req.body.isPostponed, req.body.rescheduleDate, req.body.rescheduleTbd, preMatchNotes];
-  const postNotesFields = [postMatchNotes];
+  const postNotesFields = [postMatchNotes, result];
   const matchPlanFields = [matchPlan];
   const wantsScheduleEdit = scheduleFields.some(f => f !== undefined);
   const wantsPostNotesEdit = postNotesFields.some(f => f !== undefined);
@@ -173,7 +189,8 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   if (postMatchNotes !== undefined) updates.postMatchNotes = postMatchNotes;
   if (matchPlan !== undefined) {
     const parsed = splitPublicNotesAndPlan(existing.notes ?? null);
-    updates.notes = composeNotesWithPlan(parsed.publicNotes, matchPlan ?? null);
+    updates.notes = parsed.publicNotes;
+    updates.matchPlan = normalizeMatchPlan(matchPlan);
   }
   if (req.body.isPostponed !== undefined) updates.isPostponed = req.body.isPostponed;
   if (req.body.rescheduleDate !== undefined) updates.rescheduleDate = req.body.rescheduleDate ? new Date(req.body.rescheduleDate) : null;
@@ -261,6 +278,78 @@ router.delete("/callups/:id", requireAuth, async (req, res): Promise<void> => {
   const [cu] = await db.delete(callUpsTable).where(eq(callUpsTable.id, id)).returning();
   if (!cu) { res.status(404).json({ error: "Call-up not found" }); return; }
   res.sendStatus(204);
+});
+
+router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => {
+  const matchId = parseRouteIdParam(req.params.id);
+  if (isNaN(matchId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const role = req.session.role ?? "";
+  const userId = req.session.userId!;
+  const clubId = req.session.clubId!;
+  const desiredPlayerIds = uniqueNumericIds(req.body?.playerIds);
+  const matchPlan = normalizeMatchPlan(req.body?.matchPlan);
+
+  if (!matchPlan) {
+    res.status(400).json({ error: "matchPlan obbligatorio" });
+    return;
+  }
+
+  const [existingMatch] = await db
+    .select()
+    .from(matchesTable)
+    .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)));
+  if (!existingMatch) { res.status(404).json({ error: "Match not found" }); return; }
+
+  const canManage = await userCanManageAssignedTeamMatch(userId, clubId, role, existingMatch.teamId ?? null);
+  if (!canManage) {
+    res.status(403).json({ error: "Non autorizzato a modificare convocazioni/schieramenti di questa squadra" });
+    return;
+  }
+
+  await db.transaction(async (tx) => {
+    const parsed = splitPublicNotesAndPlan(existingMatch.notes ?? null);
+    await tx
+      .update(matchesTable)
+      .set({
+        notes: parsed.publicNotes,
+        matchPlan,
+      })
+      .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)));
+
+    if (desiredPlayerIds.length === 0) {
+      await tx.delete(callUpsTable).where(eq(callUpsTable.matchId, matchId));
+      return;
+    }
+
+    await tx
+      .delete(callUpsTable)
+      .where(and(eq(callUpsTable.matchId, matchId), notInArray(callUpsTable.playerId, desiredPlayerIds)));
+
+    const existingCallups = await tx
+      .select({ playerId: callUpsTable.playerId })
+      .from(callUpsTable)
+      .where(eq(callUpsTable.matchId, matchId));
+    const existingPlayerIds = new Set(existingCallups.map((callup) => callup.playerId));
+    const toInsert = desiredPlayerIds
+      .filter((playerId) => !existingPlayerIds.has(playerId))
+      .map((playerId) => ({ matchId, playerId, status: "called" }));
+
+    if (toInsert.length > 0) {
+      await tx.insert(callUpsTable).values(toInsert);
+    }
+  });
+
+  const [updatedMatch] = await db
+    .select()
+    .from(matchesTable)
+    .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)));
+  if (!updatedMatch) { res.status(404).json({ error: "Match not found" }); return; }
+  const callups = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId));
+  res.json({
+    match: await enrichMatch(updatedMatch),
+    callups,
+  });
 });
 
 router.post("/matches/:id/callups/publish", requireAuth, async (req, res): Promise<void> => {

@@ -4,6 +4,31 @@ import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
+const FITNESS_VIEW_ROLES = ["admin", "presidente", "director", "technical_director", "secretary", "coach", "fitness_coach", "athletic_director"];
+const FITNESS_MANAGE_ROLES = ["admin", "presidente", "director", "technical_director", "fitness_coach", "athletic_director"];
+
+function canViewFitness(role?: string | null): boolean {
+  return FITNESS_VIEW_ROLES.includes(role ?? "");
+}
+
+function canManageFitness(role?: string | null): boolean {
+  return FITNESS_MANAGE_ROLES.includes(role ?? "");
+}
+
+async function teamBelongsToClub(teamId: unknown, clubId: number): Promise<boolean> {
+  if (teamId == null || teamId === "") return true;
+  const id = Number(teamId);
+  if (!Number.isFinite(id) || id <= 0) return false;
+  const [team] = await db.select({ id: teamsTable.id }).from(teamsTable).where(and(eq(teamsTable.id, id), eq(teamsTable.clubId, clubId))).limit(1);
+  return !!team;
+}
+
+async function playerBelongsToClub(playerId: unknown, clubId: number): Promise<boolean> {
+  const id = Number(playerId);
+  if (!Number.isFinite(id) || id <= 0) return false;
+  const [player] = await db.select({ id: playersTable.id }).from(playersTable).where(and(eq(playersTable.id, id), eq(playersTable.clubId, clubId))).limit(1);
+  return !!player;
+}
 
 async function enrichProgram(program: typeof fitnessProgramsTable.$inferSelect) {
   let teamName: string | null = null;
@@ -35,6 +60,10 @@ async function enrichFitnessData(data: typeof playerFitnessDataTable.$inferSelec
 }
 
 router.get("/fitness-programs", requireAuth, async (req, res): Promise<void> => {
+  if (!canViewFitness(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a visualizzare programmi atletici" });
+    return;
+  }
   const programs = await db
     .select()
     .from(fitnessProgramsTable)
@@ -46,9 +75,17 @@ router.get("/fitness-programs", requireAuth, async (req, res): Promise<void> => 
 });
 
 router.post("/fitness-programs", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageFitness(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire programmi atletici" });
+    return;
+  }
   const { title, teamId, description, durationWeeks, intensityLevel } = req.body;
   if (!title || typeof title !== "string") {
     res.status(400).json({ error: "title is required" });
+    return;
+  }
+  if (!(await teamBelongsToClub(teamId, req.session.clubId!))) {
+    res.status(400).json({ error: "Squadra non valida" });
     return;
   }
 
@@ -70,6 +107,10 @@ router.post("/fitness-programs", requireAuth, async (req, res): Promise<void> =>
 });
 
 router.get("/fitness-programs/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canViewFitness(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a visualizzare programmi atletici" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -85,10 +126,18 @@ router.get("/fitness-programs/:id", requireAuth, async (req, res): Promise<void>
 });
 
 router.patch("/fitness-programs/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageFitness(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire programmi atletici" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const { title, teamId, description, durationWeeks, intensityLevel } = req.body;
+  if (teamId !== undefined && !(await teamBelongsToClub(teamId, req.session.clubId!))) {
+    res.status(400).json({ error: "Squadra non valida" });
+    return;
+  }
   const updates: Record<string, unknown> = {};
   if (title !== undefined) updates.title = title;
   if (teamId !== undefined) updates.teamId = teamId;
@@ -109,6 +158,10 @@ router.patch("/fitness-programs/:id", requireAuth, async (req, res): Promise<voi
 });
 
 router.delete("/fitness-programs/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageFitness(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire programmi atletici" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -122,6 +175,10 @@ router.delete("/fitness-programs/:id", requireAuth, async (req, res): Promise<vo
 });
 
 router.get("/player-fitness-data", requireAuth, async (req, res): Promise<void> => {
+  if (!canViewFitness(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a visualizzare dati atletici" });
+    return;
+  }
   const playerId = req.query.playerId ? parseInt(req.query.playerId as string) : null;
 
   const conditions = [eq(playerFitnessDataTable.clubId, req.session.clubId!)];
@@ -138,9 +195,17 @@ router.get("/player-fitness-data", requireAuth, async (req, res): Promise<void> 
 });
 
 router.post("/player-fitness-data", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageFitness(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire dati atletici" });
+    return;
+  }
   const { playerId, date, endurance, strength, speed, notes } = req.body;
   if (!playerId || !date) {
     res.status(400).json({ error: "playerId and date are required" });
+    return;
+  }
+  if (!(await playerBelongsToClub(playerId, req.session.clubId!))) {
+    res.status(400).json({ error: "Giocatore non valido" });
     return;
   }
 
@@ -163,6 +228,10 @@ router.post("/player-fitness-data", requireAuth, async (req, res): Promise<void>
 });
 
 router.patch("/player-fitness-data/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageFitness(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire dati atletici" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -186,6 +255,10 @@ router.patch("/player-fitness-data/:id", requireAuth, async (req, res): Promise<
 });
 
 router.delete("/player-fitness-data/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageFitness(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire dati atletici" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 

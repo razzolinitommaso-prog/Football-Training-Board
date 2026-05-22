@@ -4,6 +4,11 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
+const SEASON_MANAGE_ROLES = ["admin", "presidente", "director", "secretary"];
+
+function canManageSeasons(role?: string | null): boolean {
+  return SEASON_MANAGE_ROLES.includes(role ?? "");
+}
 
 router.get("/seasons", requireAuth, async (req, res): Promise<void> => {
   const seasons = await db.select().from(seasonsTable)
@@ -12,6 +17,10 @@ router.get("/seasons", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/seasons", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageSeasons(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire le stagioni" });
+    return;
+  }
   const { name, startDate, endDate, isActive } = req.body;
   if (!name || !startDate || !endDate) { res.status(400).json({ error: "name, startDate, endDate required" }); return; }
 
@@ -26,6 +35,10 @@ router.post("/seasons", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.patch("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageSeasons(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire le stagioni" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { name, startDate, endDate, isActive, isArchived } = req.body;
@@ -48,6 +61,10 @@ router.patch("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.delete("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageSeasons(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire le stagioni" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const [season] = await db.delete(seasonsTable)

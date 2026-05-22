@@ -56,6 +56,15 @@ export type TournamentProgramEntry = {
   group?: string | null;
 };
 
+type OcrWorker = {
+  recognize: (image: unknown) => Promise<{ data: { lines?: unknown[]; text?: string } }>;
+  terminate: () => Promise<unknown>;
+};
+
+type OcrModule = {
+  createWorker: (lang: string) => Promise<OcrWorker>;
+};
+
 type ParseTextOptions = ParsePdfOptions & {
   fileName?: string;
   lastModified?: number;
@@ -1912,10 +1921,7 @@ async function ocrPageWithWorker(
 }
 
 async function createOcrWorker(
-  createWorker: (lang: string) => Promise<{
-    recognize: (image: unknown) => Promise<{ data: { lines?: unknown[]; text?: string } }>;
-    terminate: () => Promise<void>;
-  }>,
+  createWorker: OcrModule["createWorker"],
   lang: "ita" | "eng",
 ) {
   const worker = await createWorker(lang);
@@ -2010,7 +2016,7 @@ function alignNativeTournamentLinesWithOcrDates(
     const line = nativeLines[i];
     const y = nativeYs[i] ?? 0;
     if (/(?:\bORE\s*)?\d{1,2}[:.]\d{2}\b/i.test(line)) {
-      const dateLine = dateByTimedRow[timedRowIndex] ?? lastInsertedDate;
+      const dateLine: string | null = dateByTimedRow[timedRowIndex] ?? lastInsertedDate;
       timedRowIndex++;
       if (dateLine && dateLine !== lastInsertedDate) {
         lines.push(dateLine);
@@ -2064,12 +2070,7 @@ export async function parseMatchCalendarPdfFile(
   } else {
     onOcr?.({ phase: "loading" });
     try {
-      const tess = (await import("tesseract.js")) as {
-        createWorker: (lang: string) => Promise<{
-          recognize: (image: unknown) => Promise<{ data: { lines?: unknown[]; text?: string } }>;
-          terminate: () => Promise<void>;
-        }>;
-      };
+      const tess = (await import("tesseract.js")) as unknown as OcrModule;
       const worker = await createOcrWorker(tess.createWorker, "ita");
       try {
         let totalAddedDates = 0;
@@ -2129,12 +2130,7 @@ export async function parseTournamentImageFile(
   file: File,
   options: ParsePdfOptions = {},
 ): Promise<MatchPdfImportResult> {
-  const tess = (await import("tesseract.js")) as {
-    createWorker: (lang: string) => Promise<{
-      recognize: (image: unknown) => Promise<{ data: { lines?: unknown[]; text?: string } }>;
-      terminate: () => Promise<void>;
-    }>;
-  };
+  const tess = (await import("tesseract.js")) as unknown as OcrModule;
 
   const imageDataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();

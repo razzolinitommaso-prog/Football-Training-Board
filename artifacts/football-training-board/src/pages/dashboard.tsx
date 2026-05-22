@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboardStats, useListPlayers, useListTeams } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell, Heart } from "lucide-react";
+import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell, Heart, Eye, RotateCcw } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -190,11 +190,16 @@ type ClubNotification = {
   type: string;
   createdAt: string;
   isRead: boolean;
+  isTrashed?: boolean;
+  isSent?: boolean;
+  createdByUserId?: number | null;
   source?: "internal" | "platform" | "player_notes";
   recipientTag?: string;
   seasonTag?: string;
   surnameTag?: string;
 };
+
+type NotificationFolder = "received" | "sent" | "trash";
 
 const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
 const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
@@ -351,6 +356,10 @@ function typeStyle(type: string) {
   if (type === "urgent") return { bg: "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800", icon: <Siren className="w-4 h-4 text-red-500" />, badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" };
   if (type === "warning") return { bg: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800", icon: <AlertTriangle className="w-4 h-4 text-amber-500" />, badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" };
   return { bg: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800", icon: <Info className="w-4 h-4 text-blue-500" />, badge: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" };
+}
+
+function notificationKey(notification: Pick<ClubNotification, "id" | "source">) {
+  return `${notification.source ?? "internal"}:${notification.id}`;
 }
 
 function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof useLanguage>["t"]) {
@@ -1318,12 +1327,14 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   const [notifLoading, setNotifLoading] = useState(true);
   const [notifError, setNotifError] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [notificationsCollapsed, setNotificationsCollapsed] = useState(false);
+  const [notificationsCollapsed, setNotificationsCollapsed] = useState(true);
+  const [notifFolderFilter, setNotifFolderFilter] = useState<NotificationFolder>("received");
   const [notifSourceFilter, setNotifSourceFilter] = useState("all");
   const [notifTypeFilter, setNotifTypeFilter] = useState("all");
   const [notifSeasonFilter, setNotifSeasonFilter] = useState("all");
   const [notifRecipientFilter, setNotifRecipientFilter] = useState("all");
   const [notifSurnameFilter, setNotifSurnameFilter] = useState("");
+  const [selectedNotification, setSelectedNotification] = useState<ClubNotification | null>(null);
   const [formTitle, setFormTitle] = useState("");
   const [formMessage, setFormMessage] = useState("");
   const [formType, setFormType] = useState("info");
@@ -1332,6 +1343,36 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
 
   const canSend = nr === "admin" || nr === "presidente" || nr === "director" || nr === "technical_director";
   const canSeePlatformAnnouncements = nr === "admin" || nr === "presidente" || nr === "director";
+
+  const moveNotificationToTrash = async (notification: ClubNotification) => {
+    if (notification.source !== "internal") {
+      setNotifications((prev) => prev.map((n) => notificationKey(n) === notificationKey(notification) ? { ...n, isTrashed: true } : n));
+      setSelectedNotification((prev) => prev && notificationKey(prev) === notificationKey(notification) ? { ...prev, isTrashed: true } : prev);
+      return;
+    }
+    const res = await fetch(withApi(`/api/club/notifications/${notification.id}/trash`), { method: "PATCH", credentials: "include" });
+    if (!res.ok) {
+      toast({ title: "Cestino non aggiornato", description: "Riprova tra poco.", variant: "destructive" });
+      return;
+    }
+    setNotifications((prev) => prev.map((n) => notificationKey(n) === notificationKey(notification) ? { ...n, isTrashed: true } : n));
+    setSelectedNotification((prev) => prev && notificationKey(prev) === notificationKey(notification) ? { ...prev, isTrashed: true } : prev);
+  };
+
+  const restoreNotificationFromTrash = async (notification: ClubNotification) => {
+    if (notification.source !== "internal") {
+      setNotifications((prev) => prev.map((n) => notificationKey(n) === notificationKey(notification) ? { ...n, isTrashed: false } : n));
+      setSelectedNotification((prev) => prev && notificationKey(prev) === notificationKey(notification) ? { ...prev, isTrashed: false } : prev);
+      return;
+    }
+    const res = await fetch(withApi(`/api/club/notifications/${notification.id}/restore`), { method: "PATCH", credentials: "include" });
+    if (!res.ok) {
+      toast({ title: "Ripristino non riuscito", description: "Riprova tra poco.", variant: "destructive" });
+      return;
+    }
+    setNotifications((prev) => prev.map((n) => notificationKey(n) === notificationKey(notification) ? { ...n, isTrashed: false } : n));
+    setSelectedNotification((prev) => prev && notificationKey(prev) === notificationKey(notification) ? { ...prev, isTrashed: false } : prev);
+  };
 
   const fetchNotifications = useCallback(async () => {
     setNotifLoading(true);
@@ -1351,7 +1392,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
       }
 
       const internal: ClubNotification[] = internalRes.ok
-        ? (await internalRes.json()).map((n: any) => ({ ...n, source: "internal" as const }))
+        ? (await internalRes.json()).map((n: any) => ({ ...n, isTrashed: Boolean(n.isTrashed), isSent: Boolean(n.isSent), source: "internal" as const }))
         : [];
 
       const platform: ClubNotification[] = (platformRes && platformRes.ok)
@@ -1362,6 +1403,8 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
             type: n.type === "critical" ? "urgent" : n.type,
             createdAt: n.sentAt,
             isRead: n.isRead,
+            isTrashed: false,
+            isSent: false,
             source: "platform" as const,
           }))
         : [];
@@ -1387,6 +1430,13 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
       : `/api/club/notifications/${id}/read`;
     await fetch(withApi(url), { method: "PATCH", credentials: "include" });
     setNotifications(prev => prev.map(n => n.id === id && n.source === source ? { ...n, isRead: true } : n));
+  };
+
+  const openNotificationDetails = (notification: ClubNotification) => {
+    setSelectedNotification(notification);
+    if (!notification.isRead && notification.source !== "player_notes") {
+      void markRead(notification.id, notification.source);
+    }
   };
 
   const markAllRead = async () => {
@@ -1420,6 +1470,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
         body: JSON.stringify({ title: formTitle.trim(), message: formMessage.trim(), type: formType }),
       });
       if (!res.ok) { setFormError("Errore durante l'invio."); setFormSending(false); return; }
+      await res.json();
       setFormTitle(""); setFormMessage(""); setFormType("info"); setShowForm(false);
       await fetchNotifications();
     } catch { setFormError("Errore di rete."); }
@@ -1504,6 +1555,11 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   const notificationsFilteredView = useMemo(() => {
     const surnameNeedle = notifSurnameFilter.trim().toLowerCase();
     return notificationsView.filter((n) => {
+      const isTrashed = Boolean(n.isTrashed);
+      const isSent = Boolean(n.isSent);
+      if (notifFolderFilter === "trash" && !isTrashed) return false;
+      if (notifFolderFilter === "sent" && (!isSent || isTrashed)) return false;
+      if (notifFolderFilter === "received" && isTrashed) return false;
       if (notifSourceFilter !== "all" && (n.source ?? "internal") !== notifSourceFilter) return false;
       if (notifTypeFilter !== "all") {
         const normalizedType = n.source === "player_notes" ? "note" : n.type;
@@ -1519,9 +1575,11 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
       }
       return true;
     });
-  }, [notificationsView, notifSourceFilter, notifTypeFilter, notifSeasonFilter, notifRecipientFilter, notifSurnameFilter]);
+  }, [notificationsView, notifFolderFilter, notifSourceFilter, notifTypeFilter, notifSeasonFilter, notifRecipientFilter, notifSurnameFilter]);
 
   const unreadCount = notificationsView.filter(n => !n.isRead).length;
+  const trashedNotificationsCount = notificationsView.filter((n) => Boolean(n.isTrashed)).length;
+  const sentNotificationsCount = notificationsView.filter((n) => Boolean(n.isSent) && !n.isTrashed).length;
   const recipientNoteNotifications = notificationsView.filter((n) =>
     String(n.title ?? "").toLowerCase().startsWith("nota giocatore") || n.source === "player_notes"
   );
@@ -1742,7 +1800,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           )}
           {notificationsCollapsed ? (
             <div className="px-4 py-3 text-xs text-muted-foreground">
-              {unreadCount > 0 ? `${unreadCount} notifiche non lette` : `${notificationsView.length} notifiche`}
+              {unreadCount > 0 ? `${unreadCount} notifiche non lette` : `${notificationsView.length} notifiche`} - Inviate {sentNotificationsCount} - Cestino {trashedNotificationsCount}
             </div>
           ) : notifLoading ? (
             <div className="p-6 space-y-2">
@@ -1750,7 +1808,15 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
             </div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b bg-muted/20 grid grid-cols-1 md:grid-cols-5 gap-2">
+              <div className="px-4 py-3 border-b bg-muted/20 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-2">
+                <Select value={notifFolderFilter} onValueChange={(value) => setNotifFolderFilter(value as NotificationFolder)}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Cartella" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="received">Ricevuti</SelectItem>
+                    <SelectItem value="sent">Inviati ({sentNotificationsCount})</SelectItem>
+                    <SelectItem value="trash">Cestino ({trashedNotificationsCount})</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Select value={notifSourceFilter} onValueChange={setNotifSourceFilter}>
                   <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Provenienza" /></SelectTrigger>
                   <SelectContent>
@@ -1804,15 +1870,20 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
                 <div className="divide-y max-h-[340px] overflow-y-auto">
                   {notificationsFilteredView.map(n => {
                     const s = typeStyle(n.type);
+                    const isTrashed = Boolean(n.isTrashed);
                     return (
                       <div
                         key={n.id}
-                        className={cn("flex items-start gap-3 px-4 py-3 transition-colors", n.isRead ? "opacity-60" : "")}
+                        className={cn("flex items-start gap-3 px-4 py-3 transition-colors hover:bg-muted/30", n.isRead ? "opacity-60" : "")}
                       >
                         <div className={cn("w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 border", s.bg)}>
                           {s.icon}
                         </div>
-                        <div className="flex-1 min-w-0">
+                        <button
+                          type="button"
+                          className="flex-1 min-w-0 text-left cursor-pointer"
+                          onClick={() => openNotificationDetails(n)}
+                        >
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full", s.badge)}>
                               {n.source === "player_notes" ? "Note" : n.type === "urgent" ? "Urgente" : n.type === "warning" ? "Avviso" : "Info"}
@@ -1836,28 +1907,104 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
                           <p className="text-[10px] text-muted-foreground mt-1">
                             {format(new Date(n.createdAt), "d MMM yyyy • HH:mm", { locale: itLocale })}
                           </p>
-                        </div>
+                        </button>
                         {n.source === "player_notes" ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-[11px] flex-shrink-0 text-amber-700 hover:text-amber-800 hover:bg-amber-100 dark:text-amber-300"
-                            title="Apri note giocatori"
-                            onClick={() => openPlayerNotesInbox(n)}
-                          >
-                            Apri
-                          </Button>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              title="Leggi dettagli"
+                              onClick={() => openNotificationDetails(n)}
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-[11px] text-amber-700 hover:text-amber-800 hover:bg-amber-100 dark:text-amber-300"
+                              title="Apri note giocatori"
+                              onClick={() => openPlayerNotesInbox(n)}
+                            >
+                              Apri
+                            </Button>
+                          </div>
                         ) : (!n.isRead ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-primary"
-                            title="Segna come letta"
-                            onClick={() => markRead(n.id, n.source)}
-                          >
-                            <CheckCheck className="w-3.5 h-3.5" />
-                          </Button>
-                        ) : null)}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              title="Leggi dettagli"
+                              onClick={() => openNotificationDetails(n)}
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              title="Segna come letta"
+                              onClick={() => markRead(n.id, n.source)}
+                            >
+                              <CheckCheck className="w-3.5 h-3.5" />
+                            </Button>
+                            {isTrashed ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                title="Ripristina"
+                                onClick={() => restoreNotificationFromTrash(n)}
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                title="Sposta nel cestino"
+                                onClick={() => moveNotificationToTrash(n)}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              title="Leggi dettagli"
+                              onClick={() => openNotificationDetails(n)}
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            {isTrashed ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                title="Ripristina"
+                                onClick={() => restoreNotificationFromTrash(n)}
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                title="Sposta nel cestino"
+                                onClick={() => moveNotificationToTrash(n)}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     );
                   })}
@@ -1867,6 +2014,63 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(selectedNotification)} onOpenChange={(open) => !open && setSelectedNotification(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          {selectedNotification && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="secondary">
+                    {selectedNotification.source === "player_notes"
+                      ? "Note"
+                      : selectedNotification.type === "urgent"
+                        ? "Urgente"
+                        : selectedNotification.type === "warning"
+                          ? "Avviso"
+                          : "Info"}
+                  </Badge>
+                  {selectedNotification.source === "platform" && <Badge variant="outline">Piattaforma FTB</Badge>}
+                  {selectedNotification.source === "internal" && <Badge variant="outline">Interna</Badge>}
+                  {selectedNotification.source === "player_notes" && <Badge variant="outline">Note giocatori</Badge>}
+                </div>
+                <DialogTitle className="text-xl">{selectedNotification.title}</DialogTitle>
+                <DialogDescription>
+                  {format(new Date(selectedNotification.createdAt), "d MMMM yyyy 'alle' HH:mm", { locale: itLocale })}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="max-h-[55vh] overflow-y-auto rounded-md border bg-muted/20 p-4">
+                <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{selectedNotification.message}</p>
+              </div>
+              <DialogFooter className="gap-2 sm:justify-between">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {selectedNotification.recipientTag && <span>Destinatari: {selectedNotification.recipientTag}</span>}
+                  {selectedNotification.seasonTag && <span>Annata: {selectedNotification.seasonTag}</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedNotification.source === "player_notes" && (
+                    <Button variant="secondary" size="sm" onClick={() => openPlayerNotesInbox(selectedNotification)}>
+                      Apri note
+                    </Button>
+                  )}
+                  {selectedNotification.isTrashed ? (
+                    <Button variant="outline" size="sm" onClick={() => restoreNotificationFromTrash(selectedNotification)}>
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      Ripristina
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="sm" onClick={() => moveNotificationToTrash(selectedNotification)}>
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Cestino
+                    </Button>
+                  )}
+                  <Button size="sm" onClick={() => setSelectedNotification(null)}>Chiudi</Button>
+                </div>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link="/teams">

@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request } from "express";
-import { db, teamsTable, tournamentDocumentsTable } from "@workspace/db";
+import { db, teamsTable, tournamentDocumentsTable, tournamentStatesTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
@@ -7,6 +7,20 @@ const router: IRouter = Router();
 
 const UPLOAD_ROLES = ["admin", "director", "secretary", "presidente"];
 const MAX_TOURNAMENT_DOC_BYTES = 8 * 1024 * 1024;
+
+type TournamentProgramEntry = {
+  id: string;
+  date: string;
+  homeTeam: string;
+  awayTeam: string;
+  phase?: string | null;
+  group?: string | null;
+};
+
+type TournamentProgramScore = {
+  homeScore: number | null;
+  awayScore: number | null;
+};
 
 function normalizeTournamentKeyPart(value: unknown): string {
   let s = String(value ?? "").trim().toLowerCase();
@@ -39,6 +53,48 @@ function parseBase64Payload(raw: string): { base64: string; mimeFromDataUrl?: st
     return { base64: s.slice(comma + 1), mimeFromDataUrl };
   }
   return { base64: s };
+}
+
+function normalizeProgram(value: unknown): TournamentProgramEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const id = String(row.id ?? "").trim();
+    const date = String(row.date ?? "").trim();
+    const homeTeam = String(row.homeTeam ?? "").trim();
+    const awayTeam = String(row.awayTeam ?? "").trim();
+    if (!id || !date || !homeTeam || !awayTeam) return [];
+    return [{
+      id,
+      date,
+      homeTeam,
+      awayTeam,
+      phase: row.phase == null ? null : String(row.phase),
+      group: row.group == null ? null : String(row.group),
+    }];
+  });
+}
+
+function normalizeScores(value: unknown): Record<string, TournamentProgramScore> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, TournamentProgramScore> = {};
+  for (const [key, rawScore] of Object.entries(value as Record<string, unknown>)) {
+    if (!rawScore || typeof rawScore !== "object" || Array.isArray(rawScore)) continue;
+    const score = rawScore as Record<string, unknown>;
+    const home = score.homeScore == null ? null : Number(score.homeScore);
+    const away = score.awayScore == null ? null : Number(score.awayScore);
+    out[key] = {
+      homeScore: Number.isFinite(home) ? home : null,
+      awayScore: Number.isFinite(away) ? away : null,
+    };
+  }
+  return out;
+}
+
+function normalizePdfReferenceDate(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 }
 
 /** Allineato al filtro sezione di GET /api/matches con teamId. */
@@ -88,6 +144,14 @@ router.get("/tournament-documents", requireAuth, async (req, res): Promise<void>
       .where(and(...conditions))
       .orderBy(desc(tournamentDocumentsTable.createdAt));
 
+    const stateRows = await db
+      .select()
+      .from(tournamentStatesTable)
+      .where(and(
+        eq(tournamentStatesTable.clubId, clubId),
+        eq(tournamentStatesTable.teamId, teamId),
+      ));
+
     res.json({
       documents: rows.map((r) => ({
         id: r.id,
@@ -99,6 +163,16 @@ router.get("/tournament-documents", requireAuth, async (req, res): Promise<void>
         fileSize: r.fileSize,
         dataUrl: r.dataUrl,
         createdAt: r.createdAt?.toISOString?.() ?? String(r.createdAt),
+      })),
+      states: stateRows.map((r) => ({
+        id: r.id,
+        teamId: r.teamId,
+        competition: r.competition,
+        normalizedCompetition: r.normalizedCompetition,
+        program: r.program,
+        scores: r.scores,
+        pdfReferenceDate: r.pdfReferenceDate,
+        updatedAt: r.updatedAt?.toISOString?.() ?? String(r.updatedAt),
       })),
     });
   } catch (err: unknown) {
@@ -224,6 +298,79 @@ router.post("/tournament-documents", requireAuth, async (req, res): Promise<void
     }
     throw err;
   }
+});
+
+router.put("/tournament-documents/state", requireAuth, async (req, res): Promise<void> => {
+  if (!UPLOAD_ROLES.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Solo segreteria o ruoli equivalenti possono aggiornare programma torneo" });
+    return;
+  }
+  const clubId = req.session.clubId!;
+  const userId = req.session.userId!;
+  const body = req.body as {
+    teamId?: unknown;
+    competition?: unknown;
+    program?: unknown;
+    scores?: unknown;
+    pdfReferenceDate?: unknown;
+  };
+  const teamId = Number.parseInt(String(body.teamId ?? ""), 10);
+  const competition = String(body.competition ?? "").trim();
+  if (!Number.isFinite(teamId) || teamId <= 0 || !competition) {
+    res.status(400).json({ error: "teamId e competition sono obbligatori" });
+    return;
+  }
+  const teamOk = await assertTeamAccessibleInSession(req, teamId);
+  if (!teamOk) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+
+  const normalizedCompetition = normalizeTournamentKeyPart(competition);
+  const program = normalizeProgram(body.program);
+  const scores = normalizeScores(body.scores);
+  const pdfReferenceDate = normalizePdfReferenceDate(body.pdfReferenceDate);
+
+  const [existing] = await db
+    .select({ id: tournamentStatesTable.id })
+    .from(tournamentStatesTable)
+    .where(and(
+      eq(tournamentStatesTable.clubId, clubId),
+      eq(tournamentStatesTable.teamId, teamId),
+      eq(tournamentStatesTable.normalizedCompetition, normalizedCompetition),
+    ))
+    .limit(1);
+
+  const values = {
+    clubId,
+    teamId,
+    competition,
+    normalizedCompetition,
+    program,
+    scores,
+    pdfReferenceDate,
+    updatedByUserId: userId,
+  };
+
+  const [row] = existing
+    ? await db.update(tournamentStatesTable).set(values).where(eq(tournamentStatesTable.id, existing.id)).returning()
+    : await db.insert(tournamentStatesTable).values(values).returning();
+
+  if (!row) {
+    res.status(500).json({ error: "Salvataggio stato torneo fallito" });
+    return;
+  }
+
+  res.json({
+    id: row.id,
+    teamId: row.teamId,
+    competition: row.competition,
+    normalizedCompetition: row.normalizedCompetition,
+    program: row.program,
+    scores: row.scores,
+    pdfReferenceDate: row.pdfReferenceDate,
+    updatedAt: row.updatedAt?.toISOString?.() ?? String(row.updatedAt),
+  });
 });
 
 router.patch("/tournament-documents/:id", requireAuth, async (req, res): Promise<void> => {

@@ -19,6 +19,36 @@ import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
 
+async function ensureClubNotificationUserState(notificationId: number, userId: number, trashed: boolean) {
+  const [existing] = await db
+    .select()
+    .from(clubNotificationReadsTable)
+    .where(and(
+      eq(clubNotificationReadsTable.notificationId, notificationId),
+      eq(clubNotificationReadsTable.userId, userId),
+    ))
+    .limit(1);
+
+  const nextState = {
+    isTrashed: trashed,
+    trashedAt: trashed ? new Date() : null,
+  };
+
+  if (existing) {
+    await db
+      .update(clubNotificationReadsTable)
+      .set(nextState)
+      .where(eq(clubNotificationReadsTable.id, existing.id));
+    return;
+  }
+
+  await db.insert(clubNotificationReadsTable).values({
+    notificationId,
+    userId,
+    ...nextState,
+  });
+}
+
 async function withPlayerName<T extends { playerId: number }>(records: T[]) {
   return Promise.all(records.map(async (r) => {
     const [player] = await db.select().from(playersTable).where(eq(playersTable.id, r.playerId));
@@ -475,11 +505,13 @@ router.get("/club/notifications", requireAuth, async (req, res) => {
     .from(clubNotificationReadsTable)
     .where(eq(clubNotificationReadsTable.userId, userId));
 
-  const readSet = new Set(reads.map((r) => r.notificationId));
+  const stateByNotificationId = new Map(reads.map((r) => [r.notificationId, r]));
 
   const result = notifications.map((n) => ({
     ...n,
-    isRead: readSet.has(n.id),
+    isRead: stateByNotificationId.has(n.id),
+    isTrashed: stateByNotificationId.get(n.id)?.isTrashed ?? false,
+    isSent: n.createdByUserId === userId,
   }));
   res.json(result);
 });
@@ -503,6 +535,7 @@ router.post("/club/notifications", requireAuth, async (req, res) => {
       title: String(title),
       message: String(message),
       type: String(type || "info"),
+      createdByUserId: req.session.userId!,
     })
     .returning();
   res.status(201).json(notification);
@@ -526,6 +559,40 @@ router.patch("/club/notifications/:id/read", requireAuth, async (req, res) => {
       .insert(clubNotificationReadsTable)
       .values({ notificationId: id, userId });
   }
+  res.json({ success: true });
+});
+
+router.patch("/club/notifications/:id/trash", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id));
+  const userId = req.session.userId!;
+  const clubId = req.session.clubId!;
+  const [notification] = await db
+    .select({ id: clubNotificationsTable.id })
+    .from(clubNotificationsTable)
+    .where(and(eq(clubNotificationsTable.id, id), eq(clubNotificationsTable.clubId, clubId)))
+    .limit(1);
+  if (!notification) {
+    res.status(404).json({ error: "Notification not found" });
+    return;
+  }
+  await ensureClubNotificationUserState(id, userId, true);
+  res.json({ success: true });
+});
+
+router.patch("/club/notifications/:id/restore", requireAuth, async (req, res) => {
+  const id = parseInt(String(req.params.id));
+  const userId = req.session.userId!;
+  const clubId = req.session.clubId!;
+  const [notification] = await db
+    .select({ id: clubNotificationsTable.id })
+    .from(clubNotificationsTable)
+    .where(and(eq(clubNotificationsTable.id, id), eq(clubNotificationsTable.clubId, clubId)))
+    .limit(1);
+  if (!notification) {
+    res.status(404).json({ error: "Notification not found" });
+    return;
+  }
+  await ensureClubNotificationUserState(id, userId, false);
   res.json({ success: true });
 });
 

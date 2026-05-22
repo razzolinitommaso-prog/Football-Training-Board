@@ -2573,14 +2573,10 @@ const QuickPage = () => {
     const periodLabels: Record<typeof matchPeriodKey, string> = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" };
     const boardUrl = `/tactical-board?boardId=${savedBoardId}&teamId=${boardTeamId}&matchId=${selectedMatchId}&periodKey=${matchPeriodKey}&returnTo=${encodeURIComponent(`/calendari/${boardTeamId}?openMatchId=${selectedMatchId}`)}`;
     const lineupPlayerIds = getLineupPlayerIdsForMatchPlan();
-    await Promise.all(lineupPlayerIds.map((playerId) =>
-      fetch(withApi(`/api/matches/${selectedMatchId}/callups`), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId, status: "called" }),
-      })
-    ));
+    const playerIds = Array.from(new Set([
+      ...matchCallups.map((callup) => callup.playerId),
+      ...lineupPlayerIds,
+    ]));
     const hasPeriod = currentPeriods.some((period: any) => period?.key === matchPeriodKey);
     const periods = (hasPeriod ? currentPeriods : [...currentPeriods, { key: matchPeriodKey, label: periodLabels[matchPeriodKey], minutes: "" }]).map((period: any) =>
       period?.key === matchPeriodKey
@@ -2596,12 +2592,14 @@ const QuickPage = () => {
           }
         : period
     );
-    await fetch(withApi(`/api/matches/${selectedMatchId}`), {
-      method: "PATCH",
+    const planRes = await fetch(withApi(`/api/matches/${selectedMatchId}/plan`), {
+      method: "PUT",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ matchPlan: { ...existingPlan, periods } }),
+      body: JSON.stringify({ playerIds, matchPlan: { ...existingPlan, periods } }),
     });
+    if (!planRes.ok) throw new Error("Errore collegamento scheda partita");
+    await loadMatchCallups(selectedMatchId);
   };
 
   const saveMatchSheetFromBoard = async () => {
@@ -2619,16 +2617,10 @@ const QuickPage = () => {
       const existingPlan = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
       const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
       const lineupPlayerIds = getLineupPlayerIdsForMatchPlan();
-      await Promise.all(
-        lineupPlayerIds.map((playerId) =>
-          fetch(withApi(`/api/matches/${selectedMatchId}/callups`), {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ playerId, status: "called" }),
-          })
-        )
-      );
+      const playerIds = Array.from(new Set([
+        ...matchCallups.map((callup) => callup.playerId),
+        ...lineupPlayerIds,
+      ]));
       const periodLabels: Record<typeof matchPeriodKey, string> = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" };
       const hasPeriod = currentPeriods.some((period: any) => period?.key === matchPeriodKey);
       const periods = (hasPeriod ? currentPeriods : [...currentPeriods, { key: matchPeriodKey, label: periodLabels[matchPeriodKey], minutes: "" }]).map((period: any) =>
@@ -2636,13 +2628,14 @@ const QuickPage = () => {
           ? { ...period, lineupPlayerIds, lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null, boardConfirmed: false }
           : period
       );
-      const patchRes = await fetch(withApi(`/api/matches/${selectedMatchId}`), {
-        method: "PATCH",
+      const patchRes = await fetch(withApi(`/api/matches/${selectedMatchId}/plan`), {
+        method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchPlan: { ...existingPlan, periods } }),
+        body: JSON.stringify({ playerIds, matchPlan: { ...existingPlan, periods } }),
       });
       if (!patchRes.ok) throw new Error("patch");
+      await loadMatchCallups(selectedMatchId);
       setMatchSheetSaveHint("Scheda partita salvata (da confermare in calendario).");
       window.setTimeout(() => setMatchSheetSaveHint(null), 5000);
     } catch {

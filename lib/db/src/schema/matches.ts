@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { clubsTable } from "./clubs";
@@ -18,6 +18,7 @@ export const matchesTable = pgTable("matches", {
   homeAway: text("home_away").notNull().default("home"),
   result: text("result"),
   notes: text("notes"),
+  matchPlan: jsonb("match_plan").$type<Record<string, unknown> | null>(),
   preMatchNotes: text("pre_match_notes"),
   postMatchNotes: text("post_match_notes"),
   isPostponed: boolean("is_postponed").notNull().default(false),

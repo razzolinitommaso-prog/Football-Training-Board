@@ -19,3 +19,5 @@ export * from "./player-season-status";
 export * from "./observed-players";
 export * from "./calendar-extra-events";
 export * from "./training-calendar-overrides";
+export * from "./tactical-boards";
+export * from "./sessions";

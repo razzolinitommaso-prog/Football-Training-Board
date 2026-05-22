@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trophy, Trash2, Users, Calendar, MapPin, AlertTriangle } from "lucide-react";
+import { Plus, Trophy, Trash2, Users, Calendar, MapPin, AlertTriangle, CheckCircle } from "lucide-react";
 
 interface Match {
   id: number; opponent: string; date: string; competition?: string; location?: string;
@@ -61,6 +61,7 @@ export default function MatchesPage() {
   const [competition, setCompetition] = useState(""); const [location, setLocation] = useState("");
   const [homeAway, setHomeAway] = useState("home"); const [teamId, setTeamId] = useState("");
   const [selectedPlayer, setSelectedPlayer] = useState("");
+  const [resultDrafts, setResultDrafts] = useState<Record<number, string>>({});
 
   const { data: matches = [], isLoading } = useQuery<Match[]>({ queryKey: ["/api/matches"], queryFn: () => apiFetch("/api/matches") });
   const { data: teams = [] } = useQuery<Team[]>({ queryKey: ["/api/teams"], queryFn: () => apiFetch("/api/teams") });
@@ -83,8 +84,17 @@ export default function MatchesPage() {
   });
 
   const patchResult = useMutation({
-    mutationFn: ({ id, result }: { id: number; result: string }) => apiFetch(`/api/matches/${id}`, { method: "PATCH", body: JSON.stringify({ result }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/matches"] }),
+    mutationFn: ({ id, result }: { id: number; result: string | null }) => apiFetch(`/api/matches/${id}`, { method: "PATCH", body: JSON.stringify({ result }) }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["/api/matches"] });
+      setResultDrafts((prev) => {
+        const next = { ...prev };
+        delete next[variables.id];
+        return next;
+      });
+      toast({ title: "Risultato salvato" });
+    },
+    onError: (err: any) => toast({ title: err?.message ?? "Errore salvataggio risultato", variant: "destructive" }),
   });
 
   const addCallUp = useMutation({
@@ -208,13 +218,29 @@ export default function MatchesPage() {
                     {m.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{m.location}</span>}
                     {m.competition && <Badge variant="outline">{m.competition}</Badge>}
                   </div>
-                  {m.result && <p className="text-sm font-semibold mt-2">{t.result}: {m.result}</p>}
-                  {!m.result && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <Input className="w-32 h-7 text-sm" placeholder="2-1" onBlur={(e) => { if (e.target.value) patchResult.mutate({ id: m.id, result: e.target.value }); }} />
-                      <span className="text-xs text-muted-foreground">{t.result}</span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <Input
+                      className="w-32 h-8 text-sm"
+                      placeholder="2-1"
+                      value={resultDrafts[m.id] ?? m.result ?? ""}
+                      onChange={(e) => setResultDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                      disabled={patchResult.isPending}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={patchResult.isPending || (resultDrafts[m.id] ?? m.result ?? "").trim() === (m.result ?? "").trim()}
+                      onClick={() => {
+                        const value = (resultDrafts[m.id] ?? m.result ?? "").trim();
+                        patchResult.mutate({ id: m.id, result: value || null });
+                      }}
+                    >
+                      <CheckCircle className="w-3 h-3 mr-1" />
+                      Salva risultato
+                    </Button>
+                    <span className="text-xs text-muted-foreground">{t.result}</span>
+                  </div>
                 </CardContent>
               </Card>
             ))}
