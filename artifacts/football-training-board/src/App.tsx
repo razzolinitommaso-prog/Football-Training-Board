@@ -80,7 +80,11 @@ function ProtectedAppRoutes() {
         <Route path="/members">
           <ProtectedRoute allowedRoles={["admin", "secretary"]}><MembersList /></ProtectedRoute>
         </Route>
-        <Route path="/tactical-board" component={TacticalBoard} />
+        <Route path="/tactical-board">
+          <ProtectedRoute allowedRoles={["admin", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
+            <TacticalBoard />
+          </ProtectedRoute>
+        </Route>
   
         <Route path="/fitness-dashboard">
           <ProtectedRoute allowedRoles={fitnessRoles}><FitnessDashboard /></ProtectedRoute>

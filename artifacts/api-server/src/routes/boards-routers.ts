@@ -6,6 +6,8 @@ import { requireAuth } from "../lib/auth";
 
 export const boardsRouter = Router();
 
+const BOARD_EDIT_ROLES = ["admin", "director", "technical_director", "coach", "fitness_coach", "athletic_director"];
+
 function parseBoardId(value: string | string[] | undefined): number {
   const raw = Array.isArray(value) ? value[0] : value;
   return Number.parseInt(String(raw ?? ""), 10);
@@ -34,6 +36,10 @@ function boardResponse(row: typeof tacticalBoardsTable.$inferSelect) {
     createdAt: row.createdAt?.toISOString?.() ?? String(row.createdAt),
     updatedAt: row.updatedAt?.toISOString?.() ?? String(row.updatedAt),
   };
+}
+
+function canEditBoards(role?: string | null): boolean {
+  return BOARD_EDIT_ROLES.includes(role ?? "");
 }
 
 boardsRouter.get("/", requireAuth, async (req, res): Promise<void> => {
@@ -69,6 +75,10 @@ boardsRouter.get("/:id", requireAuth, async (req, res): Promise<void> => {
 });
 
 boardsRouter.post("/", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditBoards(req.session.role)) {
+    res.status(403).json({ message: "Non autorizzato a salvare lavagne tattiche" });
+    return;
+  }
   const data = normalizeBoardData(req.body?.data);
   const title = String(req.body?.title ?? "").trim() || "Untitled Board";
 
@@ -93,6 +103,10 @@ boardsRouter.post("/", requireAuth, async (req, res): Promise<void> => {
 });
 
 boardsRouter.put("/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditBoards(req.session.role)) {
+    res.status(403).json({ message: "Non autorizzato a modificare lavagne tattiche" });
+    return;
+  }
   const id = parseBoardId(req.params.id);
   if (!Number.isFinite(id)) {
     res.status(400).json({ message: "Invalid board id" });
@@ -139,6 +153,10 @@ boardsRouter.put("/:id", requireAuth, async (req, res): Promise<void> => {
 });
 
 boardsRouter.delete("/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditBoards(req.session.role)) {
+    res.status(403).json({ message: "Non autorizzato a eliminare lavagne tattiche" });
+    return;
+  }
   const id = parseBoardId(req.params.id);
   if (!Number.isFinite(id)) {
     res.status(400).json({ message: "Invalid board id" });
