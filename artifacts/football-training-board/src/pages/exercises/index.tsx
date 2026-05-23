@@ -23,6 +23,7 @@ import {
 import { ExerciseDrawingBoard } from "./ExerciseDrawingBoard";
 import { ExerciseVoiceRecorder } from "./ExerciseVoiceRecorder";
 import { ExerciseVideoRecorder } from "./ExerciseVideoRecorder";
+import { withApi } from "@/lib/api-base";
 
 interface Exercise {
   id: number; title: string; category?: string | null; description?: string | null;
@@ -66,7 +67,7 @@ interface Guideline {
 async function apiFetch(url: string, options?: RequestInit) {
   const method = options?.method ?? "GET";
   console.log(`[exercises] request ${method} ${url}`);
-  const res = await fetch(url, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
+  const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   console.log(`[exercises] response ${method} ${url} -> ${res.status}`);
   if (!res.ok) {
     const errorText = await res.text();

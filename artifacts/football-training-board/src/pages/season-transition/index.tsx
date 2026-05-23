@@ -18,6 +18,7 @@ import {
   Trash2, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { withApi } from "@/lib/api-base";
 
 interface Season { id: number; name: string; startDate: string; endDate: string; isActive: boolean; }
 
@@ -67,7 +68,7 @@ const NEEDS_AMOUNT = ["transfer_paid"];
 const NEEDS_SWAP_DATA = ["swap", "swap_loan"];
 
 async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, {
+  const res = await fetch(withApi(url), {
     ...options, credentials: "include",
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
   });

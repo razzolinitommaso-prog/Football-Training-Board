@@ -2,11 +2,10 @@ import { useState, useEffect } from "react";
 import { Bell, FileText, Trophy, Banknote, MessageSquare, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { withApi } from "@/lib/api-base";
 
 async function apiFetch(path: string, options?: RequestInit) {
-  const res = await fetch(`${BASE}/api${path}`, { credentials: "include", headers: { "Content-Type": "application/json" }, ...options });
+  const res = await fetch(withApi(`/api${path}`), { credentials: "include", headers: { "Content-Type": "application/json" }, ...options });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }

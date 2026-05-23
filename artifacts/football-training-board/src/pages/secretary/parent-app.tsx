@@ -13,11 +13,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { withApi } from "@/lib/api-base";
 
 async function apiFetch(path: string, options?: RequestInit) {
-  const res = await fetch(`${BASE}/api${path}`, {
+  const res = await fetch(withApi(`/api${path}`), {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...options,

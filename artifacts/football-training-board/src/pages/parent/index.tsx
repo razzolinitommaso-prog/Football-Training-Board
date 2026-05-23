@@ -2,11 +2,10 @@ import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Users, Trophy, CalendarDays, Bell, ChevronRight, Banknote, MessageSquare } from "lucide-react";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { withApi } from "@/lib/api-base";
 
 async function apiFetch(path: string) {
-  const res = await fetch(`${BASE}/api${path}`, { credentials: "include" });
+  const res = await fetch(withApi(`/api${path}`), { credentials: "include" });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }

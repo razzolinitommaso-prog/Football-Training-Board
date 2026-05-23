@@ -2,11 +2,10 @@ import { useState, useEffect } from "react";
 import { Bell, Info, AlertTriangle, CreditCard, AlertCircle, CheckCheck, Clock, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { withApi } from "@/lib/api-base";
 
 async function apiFetch(path: string, options?: RequestInit) {
-  const res = await fetch(`${BASE}/api${path}`, {
+  const res = await fetch(withApi(`/api${path}`), {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...options,

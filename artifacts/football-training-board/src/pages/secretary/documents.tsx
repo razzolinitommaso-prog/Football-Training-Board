@@ -10,12 +10,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileText, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { withApi } from "@/lib/api-base";
 
 interface Doc { id: number; playerId: number; playerName?: string; type: string; expiryDate?: string; notes?: string; }
 interface Player { id: number; firstName: string; lastName: string; }
 
 async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
+  const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) throw new Error(await res.text());
   if (res.status === 204) return null;
   return res.json();

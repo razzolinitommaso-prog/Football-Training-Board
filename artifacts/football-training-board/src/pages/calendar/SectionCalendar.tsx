@@ -25,6 +25,7 @@ import {
 } from "@/lib/calendar-schedule-filter";
 import { ScheduleFilterFields } from "@/components/calendar/ScheduleFilterFields";
 import { useToast } from "@/hooks/use-toast";
+import { withApi } from "@/lib/api-base";
 
 type Section = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 
@@ -51,7 +52,7 @@ interface ExtraEvent {
 }
 
 async function apiFetch(url: string) {
-  const res = await fetch(url, { credentials: "include" });
+  const res = await fetch(withApi(url), { credentials: "include" });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -342,7 +343,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
         teamIds: extraTargetMode === "selected" ? extraTeamIds : [],
         playerIds: extraPlayerIds,
       };
-      const res = await fetch("/api/calendar-extra-events", {
+      const res = await fetch(withApi("/api/calendar-extra-events"), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

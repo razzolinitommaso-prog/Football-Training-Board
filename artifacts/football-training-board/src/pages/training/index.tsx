@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { it as itLocale } from "date-fns/locale";
+import { withApi } from "@/lib/api-base";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -179,7 +180,7 @@ const PRINCIPI = [
 async function apiFetch(url: string, options?: RequestInit) {
   const method = options?.method ?? "GET";
   console.log(`[training] request ${method} ${url}`);
-  const res = await fetch(url, {
+  const res = await fetch(withApi(url), {
     ...options,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },

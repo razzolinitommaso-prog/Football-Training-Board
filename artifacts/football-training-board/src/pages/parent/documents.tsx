@@ -5,11 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { withApi } from "@/lib/api-base";
 
 async function apiFetch(path: string, options?: RequestInit) {
-  const res = await fetch(`${BASE}/api${path}`, { credentials: "include", headers: { "Content-Type": "application/json" }, ...options });
+  const res = await fetch(withApi(`/api${path}`), { credentials: "include", headers: { "Content-Type": "application/json" }, ...options });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }

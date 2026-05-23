@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CalendarCheck, Users, CheckCircle2, XCircle, AlertCircle, CircleDotDashed } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { withApi } from "@/lib/api-base";
 
 interface TrainingSession {
   id: number;
@@ -26,7 +27,7 @@ interface Player { id: number; firstName: string; lastName: string; teamId?: num
 interface AttendanceRecord { id: number; playerId: number; playerName?: string; status: string; }
 
 async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
+  const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) throw new Error(await res.text());
   if (res.status === 204) return null;
   return res.json();

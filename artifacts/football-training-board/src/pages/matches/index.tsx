@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Trophy, Trash2, Users, Calendar, MapPin, AlertTriangle, CheckCircle } from "lucide-react";
+import { withApi } from "@/lib/api-base";
 
 interface Match {
   id: number; opponent: string; date: string; competition?: string; location?: string;
@@ -21,7 +22,7 @@ interface Team { id: number; name: string; }
 interface CallUp { id: number; playerId: number; playerName?: string; status: string; }
 
 async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
+  const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) throw new Error(await res.text());
   if (res.status === 204) return null;
   return res.json();

@@ -2,15 +2,14 @@ import { useState, useEffect } from "react";
 import { Heart, Copy, RefreshCw, Eye, EyeOff, CheckCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { withApi } from "@/lib/api-base";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
 async function apiFetch(path: string, options?: RequestInit) {
-  const res = await fetch(`${BASE}/api${path}`, {
+  const res = await fetch(withApi(`/api${path}`), {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...options,

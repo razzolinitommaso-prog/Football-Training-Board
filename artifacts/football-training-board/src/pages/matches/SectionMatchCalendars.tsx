@@ -25,6 +25,7 @@ import {
 import { findImportDuplicateConflicts } from "@/lib/match-import-conflicts";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { format } from "date-fns";
+import { withApi } from "@/lib/api-base";
 import {
   Dialog,
   DialogContent,
@@ -687,7 +688,7 @@ const SECTION_LABEL: Record<string, string> = {
 };
 
 async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
+  const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) throw new Error(await res.text());
   if (res.status === 204) return null;
   return res.json();

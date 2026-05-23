@@ -11,12 +11,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CreditCard, Zap, Users, UsersRound, CheckCircle2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { withApi } from "@/lib/api-base";
 
 interface Subscription { id: number; planName: string; status: string; startDate: string; endDate?: string; maxTeams: number; maxPlayers: number; currentTeams: number; currentPlayers: number; }
 interface BillingPayment { id: number; amount: number; status: string; paymentDate?: string; description?: string; }
 
 async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
+  const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) throw new Error(await res.text());
   if (res.status === 204) return null;
   return res.json();

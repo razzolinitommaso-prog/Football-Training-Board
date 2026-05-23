@@ -7,11 +7,12 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/use-auth";
+import { withApi } from "@/lib/api-base";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 async function apiFetch(path: string, options?: RequestInit) {
-  const res = await fetch(`${BASE}/api${path}`, { credentials: "include", headers: { "Content-Type": "application/json" }, ...options });
+  const res = await fetch(withApi(`/api${path}`), { credentials: "include", headers: { "Content-Type": "application/json" }, ...options });
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || "Errore API"); }
   return res.json();
 }

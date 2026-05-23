@@ -66,6 +66,7 @@ import {
 } from "@/pages/calendari/tournament-documents-storage";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
+import { withApi } from "@/lib/api-base";
 import { format } from "date-fns";
 import { it as itLocale } from "date-fns/locale";
 import {
@@ -822,7 +823,7 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
 }
 
 async function apiFetch(url: string, options?: RequestInit) {
-  const res = await fetch(url, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
+  const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) throw new Error(await res.text());
   if (res.status === 204) return null;
   return res.json();
