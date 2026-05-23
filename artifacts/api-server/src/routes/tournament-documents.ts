@@ -373,6 +373,43 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
   });
 });
 
+router.delete("/tournament-documents/state", requireAuth, async (req, res): Promise<void> => {
+  if (!UPLOAD_ROLES.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Solo segreteria o ruoli equivalenti possono eliminare lo stato torneo" });
+    return;
+  }
+  const clubId = req.session.clubId!;
+  const teamId = Number.parseInt(String(req.query.teamId ?? ""), 10);
+  const competition = String(req.query.competition ?? "").trim();
+  if (!Number.isFinite(teamId) || teamId <= 0 || !competition) {
+    res.status(400).json({ error: "teamId e competition sono obbligatori" });
+    return;
+  }
+  const teamOk = await assertTeamAccessibleInSession(req, teamId);
+  if (!teamOk) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+
+  const normalizedCompetition = normalizeTournamentKeyPart(competition);
+  await db
+    .delete(tournamentStatesTable)
+    .where(and(
+      eq(tournamentStatesTable.clubId, clubId),
+      eq(tournamentStatesTable.teamId, teamId),
+      eq(tournamentStatesTable.normalizedCompetition, normalizedCompetition),
+    ));
+  await db
+    .delete(tournamentDocumentsTable)
+    .where(and(
+      eq(tournamentDocumentsTable.clubId, clubId),
+      eq(tournamentDocumentsTable.teamId, teamId),
+      eq(tournamentDocumentsTable.normalizedCompetition, normalizedCompetition),
+    ));
+
+  res.json({ ok: true });
+});
+
 router.patch("/tournament-documents/:id", requireAuth, async (req, res): Promise<void> => {
   if (!UPLOAD_ROLES.includes(req.session.role ?? "")) {
     res.status(403).json({ error: "Solo segreteria o ruoli equivalenti possono rinominare allegati torneo" });

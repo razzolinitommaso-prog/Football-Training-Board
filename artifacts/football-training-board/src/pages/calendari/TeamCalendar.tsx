@@ -3280,12 +3280,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       if (pdfImportModeRef.current === "tournament" && pendingTournamentProgram.length > 0) {
         const competition = rows.find((row) => (row.competition ?? "").trim())?.competition ?? "";
         if (competition.trim()) {
-          setTournamentProgram(teamId, competition, pendingTournamentProgram);
-          void saveTournamentState(
+          if (!tournamentDocsLoaded) setTournamentProgram(teamId, competition, pendingTournamentProgram);
+          await saveTournamentState(
             competition,
             pendingTournamentProgram,
-            getTournamentScores(teamId, competition),
-            getTournamentPdfReferenceDate(teamId, competition),
+            getTournamentScoresForEdit(competition),
+            getTournamentPdfReferenceDateForEdit(competition),
           );
           setTournamentProgramVersion((v) => v + 1);
         }
@@ -3323,6 +3323,23 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     onError: (e: Error) => toast({ title: e.message || "Errore eliminazione", variant: "destructive" }),
   });
 
+  const deleteTournamentMutation = useMutation({
+    mutationFn: async (group: TournamentCardGroup) => {
+      for (const match of group.matches) {
+        await apiFetch(`/api/matches/${match.id}`, { method: "DELETE" });
+      }
+      await deleteTournamentState(group.competition);
+      return { count: group.matches.length, competition: group.competition };
+    },
+    onSuccess: ({ count, competition }) => {
+      qc.invalidateQueries({ queryKey: ["/api/matches", teamId] });
+      qc.invalidateQueries({ queryKey: ["/api/tournament-documents", teamId] });
+      setSelectedMatchIds(new Set());
+      toast({ title: "Torneo eliminato", description: `${competition}: ${count} partite/eventi eliminati.` });
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore eliminazione torneo", variant: "destructive" }),
+  });
+
   const updateTournamentMutation = useMutation({
     mutationFn: async (input: {
       originalCompetition: string;
@@ -3344,12 +3361,13 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         });
       }
       if (teamId) {
-        const previousProgram = getTournamentState(input.originalCompetition)?.program ?? getTournamentProgram(teamId, input.originalCompetition);
-        const previousScores = getTournamentState(input.originalCompetition)?.scores ?? getTournamentScores(teamId, input.originalCompetition);
+        const previousProgram = getTournamentProgramForEdit(input.originalCompetition);
+        const previousScores = getTournamentScoresForEdit(input.originalCompetition);
         if (input.originalCompetition.trim() !== name) {
-          setTournamentPdfReferenceDate(teamId, input.originalCompetition, null);
+          if (!tournamentDocsLoaded) setTournamentPdfReferenceDate(teamId, input.originalCompetition, null);
+          await deleteTournamentState(input.originalCompetition);
         }
-        setTournamentPdfReferenceDate(teamId, name, input.pdfReferenceDate.trim() || null);
+        if (!tournamentDocsLoaded) setTournamentPdfReferenceDate(teamId, name, input.pdfReferenceDate.trim() || null);
         await saveTournamentState(name, previousProgram, previousScores, input.pdfReferenceDate.trim() || null);
       }
       return group.matches.length;
@@ -3365,32 +3383,32 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   function updateTournamentProgramScore(competition: string, entryId: string, score: TournamentProgramScore) {
     if (!teamId) return;
     const next = {
-      ...getTournamentScores(teamId, competition),
+      ...getTournamentScoresForEdit(competition),
       [entryId]: score,
     };
     if (score.homeScore == null || score.awayScore == null) {
       delete next[entryId];
     }
-    setTournamentScores(teamId, competition, next);
+    if (!tournamentDocsLoaded) setTournamentScores(teamId, competition, next);
     void saveTournamentState(
       competition,
-      getTournamentState(competition)?.program ?? getTournamentProgram(teamId, competition),
+      getTournamentProgramForEdit(competition),
       next,
-      getTournamentState(competition)?.pdfReferenceDate ?? getTournamentPdfReferenceDate(teamId, competition),
+      getTournamentPdfReferenceDateForEdit(competition),
     );
     setTournamentScoreVersion((v) => v + 1);
   }
 
   function updateTournamentProgramEntry(competition: string, entryId: string, patch: Partial<TournamentProgramEntry>) {
     if (!teamId) return;
-    const current = getTournamentState(competition)?.program ?? getTournamentProgram(teamId, competition);
+    const current = getTournamentProgramForEdit(competition);
     const next = current.map((entry) => (entry.id === entryId ? { ...entry, ...patch } : entry));
-    setTournamentProgram(teamId, competition, next);
+    if (!tournamentDocsLoaded) setTournamentProgram(teamId, competition, next);
     void saveTournamentState(
       competition,
       next,
-      getTournamentState(competition)?.scores ?? getTournamentScores(teamId, competition),
-      getTournamentState(competition)?.pdfReferenceDate ?? getTournamentPdfReferenceDate(teamId, competition),
+      getTournamentScoresForEdit(competition),
+      getTournamentPdfReferenceDateForEdit(competition),
     );
     setTournamentProgramVersion((v) => v + 1);
   }
@@ -3521,6 +3539,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     queryFn: () => apiFetch(`/api/tournament-documents?teamId=${teamId}`),
     enabled: !!teamId && phaseTab === "tornei",
   });
+  const tournamentDocsLoaded = Boolean(tournamentDocsResponse);
 
   const tournamentStateByCompetition = useMemo(() => {
     const map = new Map<string, TournamentStateApi>();
@@ -3534,6 +3553,45 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     return tournamentStateByCompetition.get(normalizeTournamentKeyPart(competition));
   }
 
+  function getTournamentProgramForEdit(competition: string): TournamentProgramEntry[] {
+    if (!teamId) return [];
+    return getTournamentState(competition)?.program ?? (!tournamentDocsLoaded ? getTournamentProgram(teamId, competition) : []);
+  }
+
+  function getTournamentScoresForEdit(competition: string): Record<string, TournamentProgramScore> {
+    if (!teamId) return {};
+    return getTournamentState(competition)?.scores ?? (!tournamentDocsLoaded ? getTournamentScores(teamId, competition) : {});
+  }
+
+  function getTournamentPdfReferenceDateForEdit(competition: string): string | null {
+    if (!teamId) return null;
+    return getTournamentState(competition)?.pdfReferenceDate ?? (!tournamentDocsLoaded ? getTournamentPdfReferenceDate(teamId, competition) : null);
+  }
+
+  function applyTournamentStateToCache(state: TournamentStateApi) {
+    qc.setQueryData<{ documents: TournamentDocumentApi[]; states?: TournamentStateApi[] }>(
+      ["/api/tournament-documents", teamId],
+      (current) => {
+        const documents = current?.documents ?? [];
+        const states = current?.states ?? [];
+        const nextStates = states.filter((item) => item.normalizedCompetition !== state.normalizedCompetition);
+        nextStates.push(state);
+        return { documents, states: nextStates };
+      },
+    );
+  }
+
+  function removeTournamentStateFromCache(competition: string) {
+    const normalizedCompetition = normalizeTournamentKeyPart(competition);
+    qc.setQueryData<{ documents: TournamentDocumentApi[]; states?: TournamentStateApi[] }>(
+      ["/api/tournament-documents", teamId],
+      (current) => ({
+        documents: (current?.documents ?? []).filter((item) => item.normalizedCompetition !== normalizedCompetition),
+        states: (current?.states ?? []).filter((item) => item.normalizedCompetition !== normalizedCompetition),
+      }),
+    );
+  }
+
   async function saveTournamentState(
     competition: string,
     program: TournamentProgramEntry[],
@@ -3541,11 +3599,21 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     pdfReferenceDate: string | null,
   ) {
     if (!teamId) return;
-    await apiFetch("/api/tournament-documents/state", {
+    const state = await apiFetch("/api/tournament-documents/state", {
       method: "PUT",
       body: JSON.stringify({ teamId, competition, program, scores, pdfReferenceDate }),
-    });
-    await qc.invalidateQueries({ queryKey: ["/api/tournament-documents", teamId] });
+    }) as TournamentStateApi;
+    applyTournamentStateToCache(state);
+    return state;
+  }
+
+  async function deleteTournamentState(competition: string) {
+    if (!teamId) return;
+    await apiFetch(
+      `/api/tournament-documents/state?teamId=${teamId}&competition=${encodeURIComponent(competition)}`,
+      { method: "DELETE" },
+    );
+    removeTournamentStateFromCache(competition);
   }
 
   function apiDocToStored(d: TournamentDocumentApi): StoredTournamentAttachment {
@@ -3577,19 +3645,19 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     if (!teamId) return {};
     const map: Record<string, TournamentProgramEntry[]> = {};
     for (const g of tournamentGroups) {
-      map[g.competition] = getTournamentState(g.competition)?.program ?? getTournamentProgram(teamId, g.competition);
+      map[g.competition] = getTournamentProgramForEdit(g.competition);
     }
     return map;
-  }, [teamId, tournamentGroups, tournamentProgramVersion, tournamentStateByCompetition]);
+  }, [teamId, tournamentGroups, tournamentProgramVersion, tournamentStateByCompetition, tournamentDocsLoaded]);
 
   const tournamentScoresByCompetition = useMemo(() => {
     if (!teamId) return {};
     const map: Record<string, Record<string, TournamentProgramScore>> = {};
     for (const g of tournamentGroups) {
-      map[g.competition] = getTournamentState(g.competition)?.scores ?? getTournamentScores(teamId, g.competition);
+      map[g.competition] = getTournamentScoresForEdit(g.competition);
     }
     return map;
-  }, [teamId, tournamentGroups, tournamentScoreVersion, tournamentStateByCompetition]);
+  }, [teamId, tournamentGroups, tournamentScoreVersion, tournamentStateByCompetition, tournamentDocsLoaded]);
 
   const matchFiltersActive =
     matchSearchText.trim() !== "" ||
@@ -3608,7 +3676,8 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     importTournamentImageMutation.isPending ||
     importTournamentProgramMutation.isPending ||
     applyImportMutation.isPending ||
-    bulkDeleteMutation.isPending;
+    bulkDeleteMutation.isPending ||
+    deleteTournamentMutation.isPending;
 
   function togglePhaseMatchSelection(id: number) {
     setSelectedMatchIds((prev) => {
@@ -3657,8 +3726,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
   function openTournamentEdit(group: TournamentCardGroup) {
     const firstLoc = group.matches.map((m) => (m.location ?? "").trim()).find(Boolean) ?? "";
-    const pdfRef =
-      teamId ? (getTournamentState(group.competition)?.pdfReferenceDate ?? getTournamentPdfReferenceDate(teamId, group.competition) ?? "") : "";
+    const pdfRef = getTournamentPdfReferenceDateForEdit(group.competition) ?? "";
     setEditingTournament({
       originalCompetition: group.competition,
       name: group.competition,
@@ -3668,7 +3736,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   }
 
   function deleteTournament(group: TournamentCardGroup) {
-    bulkDeleteMutation.mutate(group.matches.map((m) => m.id));
+    deleteTournamentMutation.mutate(group);
   }
 
   const renderPhaseImportToolbar = (phaseItems: Match[]) =>
@@ -3960,7 +4028,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                     filt.includes(x.competition.toLowerCase()),
                 );
                 if (g) {
-                  const stored = getTournamentState(g.competition)?.pdfReferenceDate ?? getTournamentPdfReferenceDate(teamId, g.competition);
+                  const stored = getTournamentPdfReferenceDateForEdit(g.competition);
                   if (stored) setPdfImportReferenceDate(stored);
                 }
               }
