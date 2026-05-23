@@ -99,14 +99,17 @@ function StatusBadge({ status, options = STATUS_OPTIONS }: { status: string; opt
 function PlayerRow({ player, teams, onEdit }: {
   player: PlayerStatus;
   teams: { id: number; name: string }[];
-  onEdit: (p: PlayerStatus) => void;
+  onEdit?: (p: PlayerStatus) => void;
 }) {
   const teamName = teams.find(t => t.id === player.teamId)?.name ?? "—";
   const age = calcAge(player.dateOfBirth);
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 border-b last:border-b-0 transition-colors cursor-pointer"
-      onClick={() => onEdit(player)}
+      className={cn(
+        "flex items-center gap-3 px-4 py-3 hover:bg-muted/30 border-b last:border-b-0 transition-colors",
+        onEdit && "cursor-pointer"
+      )}
+      onClick={() => onEdit?.(player)}
     >
       <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
         <User className="w-4 h-4 text-primary" />
@@ -124,7 +127,7 @@ function PlayerRow({ player, teams, onEdit }: {
         {player.transferAmount != null && (
           <span className="text-xs font-semibold text-purple-700">€{player.transferAmount.toLocaleString()}</span>
         )}
-        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+        {onEdit && <ChevronRight className="w-4 h-4 text-muted-foreground" />}
       </div>
     </div>
   );
@@ -132,8 +135,8 @@ function PlayerRow({ player, teams, onEdit }: {
 
 function ObservedRow({ player, onEdit, onDelete }: {
   player: ObservedPlayer;
-  onEdit: (p: ObservedPlayer) => void;
-  onDelete: (id: number) => void;
+  onEdit?: (p: ObservedPlayer) => void;
+  onDelete?: (id: number) => void;
 }) {
   const age = calcAge(player.dateOfBirth);
   return (
@@ -141,7 +144,7 @@ function ObservedRow({ player, onEdit, onDelete }: {
       <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
         <Eye className="w-4 h-4 text-amber-600" />
       </div>
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onEdit(player)}>
+      <div className={cn("flex-1 min-w-0", onEdit && "cursor-pointer")} onClick={() => onEdit?.(player)}>
         <div className="font-medium text-sm truncate">{player.firstName} {player.lastName}</div>
         <div className="text-xs text-muted-foreground flex gap-2 flex-wrap">
           {player.clubOrigin && <span className="flex items-center gap-0.5"><Building2 className="w-3 h-3" />{player.clubOrigin}</span>}
@@ -156,13 +159,15 @@ function ObservedRow({ player, onEdit, onDelete }: {
         {player.transferAmount != null && (
           <span className="text-xs font-semibold text-purple-700">€{player.transferAmount.toLocaleString()}</span>
         )}
-        <Button
-          variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600"
-          onClick={e => { e.stopPropagation(); onDelete(player.id); }}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
-        <ChevronRight className="w-4 h-4 text-muted-foreground cursor-pointer" onClick={() => onEdit(player)} />
+        {onDelete && (
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600"
+            onClick={e => { e.stopPropagation(); onDelete(player.id); }}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        )}
+        {onEdit && <ChevronRight className="w-4 h-4 text-muted-foreground cursor-pointer" onClick={() => onEdit(player)} />}
       </div>
     </div>
   );
@@ -628,7 +633,7 @@ export default function SeasonTransitionPage() {
     return counts;
   }, [playerStatuses]);
 
-  const canAdmin = role === "admin" || role === "secretary";
+  const canManageTransition = ["admin", "presidente", "director", "secretary", "technical_director"].includes(role ?? "");
   const fromSeason = seasons.find(s => s.id === fromSeasonId);
   const toSeason = seasons.find(s => s.id === toSeasonId);
 
@@ -669,7 +674,7 @@ export default function SeasonTransitionPage() {
             </SelectContent>
           </Select>
         </div>
-        {canAdmin && fromSeasonId && toSeasonId && (
+        {canManageTransition && fromSeasonId && toSeasonId && (
           <Button size="sm" variant="outline" onClick={() => setPromoteDialogOpen(true)} className="ml-auto gap-2">
             <RefreshCw className="w-4 h-4" />
             Promuovi squadre
@@ -736,7 +741,12 @@ export default function SeasonTransitionPage() {
                     <div className="py-12 text-center text-muted-foreground text-sm">Nessun giocatore in questa sezione.</div>
                   ) : (
                     playersBySection[s.key].map(p => (
-                      <PlayerRow key={p.playerId} player={p} teams={teams} onEdit={setEditPlayer} />
+                      <PlayerRow
+                        key={p.playerId}
+                        player={p}
+                        teams={teams}
+                        onEdit={canManageTransition ? setEditPlayer : undefined}
+                      />
                     ))
                   )}
                 </CardContent>
@@ -753,10 +763,12 @@ export default function SeasonTransitionPage() {
                     <Eye className="w-4 h-4 text-amber-600" />
                     Giocatori in osservazione — {observedPlayers.length}
                   </CardTitle>
-                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setEditObserved("new")}>
-                    <Plus className="w-3.5 h-3.5" />
-                    Aggiungi
-                  </Button>
+                  {canManageTransition && (
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setEditObserved("new")}>
+                      <Plus className="w-3.5 h-3.5" />
+                      Aggiungi
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="p-0">
@@ -766,16 +778,18 @@ export default function SeasonTransitionPage() {
                   <div className="py-16 text-center">
                     <Eye className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
                     <p className="text-sm text-muted-foreground">Nessun giocatore in osservazione.</p>
-                    <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={() => setEditObserved("new")}>
-                      <Plus className="w-3.5 h-3.5" /> Aggiungi il primo
-                    </Button>
+                    {canManageTransition && (
+                      <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={() => setEditObserved("new")}>
+                        <Plus className="w-3.5 h-3.5" /> Aggiungi il primo
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   observedPlayers.map(p => (
                     <ObservedRow
                       key={p.id} player={p}
-                      onEdit={setEditObserved}
-                      onDelete={id => deleteObservedMutation.mutate(id)}
+                      onEdit={canManageTransition ? setEditObserved : undefined}
+                      onDelete={canManageTransition ? id => deleteObservedMutation.mutate(id) : undefined}
                     />
                   ))
                 )}

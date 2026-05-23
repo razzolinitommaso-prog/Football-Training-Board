@@ -96,16 +96,16 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={playerPerformanceRoles}><PlayerPerformance /></ProtectedRoute>
         </Route>
         <Route path="/seasons">
-          <ProtectedRoute allowedRoles={["admin", "director", "technical_director"]}><SeasonsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "technical_director"]}><SeasonsPage /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/seasons">
-          <ProtectedRoute allowedRoles={["admin", "director", "technical_director"]}><SeasonsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "technical_director"]}><SeasonsPage /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/seasons">
-          <ProtectedRoute allowedRoles={["admin", "director", "technical_director"]}><SeasonsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "technical_director"]}><SeasonsPage /></ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/seasons">
-          <ProtectedRoute allowedRoles={["admin", "director", "technical_director"]}><SeasonsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "technical_director"]}><SeasonsPage /></ProtectedRoute>
         </Route>
         <Route path="/matches">
           <ProtectedRoute allowedRoles={coachingRoles}><MatchesPage /></ProtectedRoute>
@@ -252,7 +252,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={["admin"]}><PrimaSquadraPage /></ProtectedRoute>
         </Route>
         <Route path="/season-transition">
-          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "secretary", "director", "technical_director"]}>
             <SeasonTransitionPage />
           </ProtectedRoute>
         </Route>

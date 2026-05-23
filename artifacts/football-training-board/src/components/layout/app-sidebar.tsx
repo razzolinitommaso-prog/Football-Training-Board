@@ -61,7 +61,7 @@ const SEZIONE_SUB_ITEMS: SubItem[] = [
   { label: "Giocatori",            url: "players",    icon: Users,         roles: ["admin", "presidente", "director", "secretary", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Sessioni Allenamento", url: "training",   icon: CalendarDays,  roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Partite",              url: "matches",    icon: Trophy,        roles: ["admin", "presidente", "director", "secretary", "technical_director", "coach", "fitness_coach", "athletic_director"] },
-  { label: "Stagioni",             url: "seasons",    icon: Layers,        roles: ["admin", "presidente", "director", "technical_director"] },
+  { label: "Stagioni",             url: "seasons",    icon: Layers,        roles: ["admin", "presidente", "director", "secretary", "technical_director"] },
   { label: "Presenze",             url: "attendance", icon: CalendarCheck, roles: ["admin", "presidente", "technical_director", "coach"] },
   { label: "Calendario",           url: "calendar",   icon: CalendarRange, roles: ["admin", "presidente", "director", "secretary", "technical_director", "coach", "fitness_coach", "athletic_director"] },
 ];
@@ -118,7 +118,7 @@ export function AppSidebar() {
     { titleKey: "documents",       url: "/secretary/documents",     icon: FileText,      roles: ["admin", "presidente", "secretary"], group: "secretary" },
     { titleKey: "equipment",       url: "/secretary/equipment",     icon: Package,       roles: ["admin", "presidente", "secretary"], group: "secretary" },
     { label: "App Genitori",          url: "/secretary/parent-app",    icon: Heart,      roles: ["admin", "presidente", "secretary"], group: "secretary" },
-    { label: "Transizione Stagionale", url: "/season-transition",      icon: RefreshCw,  roles: ["admin", "presidente", "secretary"], group: "secretary" },
+    { label: "Transizione Stagionale", url: "/season-transition",      icon: RefreshCw,  roles: ["admin", "presidente", "secretary", "director", "technical_director"], group: "secretary" },
     { label: "Credenziali & Accessi", url: "/club/credentials",        icon: KeyRound,   roles: ["admin", "presidente", "secretary", "director"], group: "secretary" },
     // Fitness (DT: solo lettura a livello funzionale se esposto altrove; non gestisce programmi fitness dalla sidebar)
     { titleKey: "fitnessDashboard",  url: "/fitness-dashboard",  icon: Activity,  roles: ["fitness_coach", "athletic_director", "director"], group: "fitness" },

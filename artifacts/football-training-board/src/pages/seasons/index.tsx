@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,9 +44,10 @@ function formatDate(d: string) {
 }
 
 function SeasonCard({
-  season, onSetActive, onArchive, onDelete, onDownload, isDownloading,
+  season, canManage, onSetActive, onArchive, onDelete, onDownload, isDownloading,
 }: {
   season: Season;
+  canManage: boolean;
   onSetActive: () => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -72,7 +74,7 @@ function SeasonCard({
           </div>
 
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {!season.isActive && !season.isArchived && (
+            {canManage && !season.isActive && !season.isArchived && (
               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onSetActive}>
                 Imposta attiva
               </Button>
@@ -89,15 +91,17 @@ function SeasonCard({
                 : <Download className="w-3.5 h-3.5" />
               }
             </Button>
-            <Button
-              size="icon" variant="ghost"
-              className={`h-7 w-7 ${season.isArchived ? "text-amber-600 hover:text-amber-700" : "text-muted-foreground hover:text-amber-600"}`}
-              onClick={onArchive}
-              title={season.isArchived ? "Ripristina da archivio" : "Archivia stagione"}
-            >
-              {season.isArchived ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
-            </Button>
-            {!season.isActive && (
+            {canManage && (
+              <Button
+                size="icon" variant="ghost"
+                className={`h-7 w-7 ${season.isArchived ? "text-amber-600 hover:text-amber-700" : "text-muted-foreground hover:text-amber-600"}`}
+                onClick={onArchive}
+                title={season.isArchived ? "Ripristina da archivio" : "Archivia stagione"}
+              >
+                {season.isArchived ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+              </Button>
+            )}
+            {canManage && !season.isActive && (
               <Button
                 size="icon" variant="ghost"
                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
@@ -123,6 +127,7 @@ function SeasonCard({
 }
 
 export default function SeasonsPage() {
+  const { role } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -201,6 +206,7 @@ export default function SeasonsPage() {
 
   const active = seasons.filter(s => !s.isArchived);
   const archived = seasons.filter(s => s.isArchived);
+  const canManageSeasons = ["admin", "presidente", "director", "secretary"].includes(role ?? "");
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -215,10 +221,12 @@ export default function SeasonsPage() {
             Gestisci le stagioni sportive del club — scarica e archivia i dati stagionali
           </p>
         </div>
-        <Button onClick={() => setOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Nuova stagione
-        </Button>
+        {canManageSeasons && (
+          <Button onClick={() => setOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Nuova stagione
+          </Button>
+        )}
       </div>
 
       {/* Loading */}
@@ -235,10 +243,12 @@ export default function SeasonsPage() {
           <CardContent className="py-16 text-center">
             <Layers className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
             <p className="text-muted-foreground">Nessuna stagione ancora.</p>
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => setOpen(true)}>
-              <Plus className="w-3.5 h-3.5 mr-1.5" />
-              Aggiungi la prima stagione
-            </Button>
+            {canManageSeasons && (
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => setOpen(true)}>
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                Aggiungi la prima stagione
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -253,6 +263,7 @@ export default function SeasonsPage() {
             <SeasonCard
               key={s.id}
               season={s}
+              canManage={canManageSeasons}
               onSetActive={() => patchMutation.mutate({ id: s.id, data: { isActive: true } })}
               onArchive={() => patchMutation.mutate({ id: s.id, data: { isArchived: !s.isArchived, isActive: false } })}
               onDelete={() => {
@@ -284,6 +295,7 @@ export default function SeasonsPage() {
                 <SeasonCard
                   key={s.id}
                   season={s}
+                  canManage={canManageSeasons}
                   onSetActive={() => patchMutation.mutate({ id: s.id, data: { isActive: true, isArchived: false } })}
                   onArchive={() => patchMutation.mutate({ id: s.id, data: { isArchived: false } })}
                   onDelete={() => {

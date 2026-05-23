@@ -4,6 +4,11 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
+const SEASON_TRANSITION_ROLES = ["admin", "presidente", "director", "secretary", "technical_director"];
+
+function canManageSeasonTransition(role?: string | null): boolean {
+  return SEASON_TRANSITION_ROLES.includes(role ?? "");
+}
 
 router.get("/seasons/:id/observed-players", requireAuth, async (req, res): Promise<void> => {
   const seasonId = parseInt(String(req.params.id));
@@ -21,6 +26,11 @@ router.get("/seasons/:id/observed-players", requireAuth, async (req, res): Promi
 });
 
 router.post("/seasons/:id/observed-players", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageSeasonTransition(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire la transizione stagionale" });
+    return;
+  }
+
   const seasonId = parseInt(String(req.params.id));
   if (isNaN(seasonId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -45,6 +55,11 @@ router.post("/seasons/:id/observed-players", requireAuth, async (req, res): Prom
 });
 
 router.patch("/seasons/:id/observed-players/:pid", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageSeasonTransition(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire la transizione stagionale" });
+    return;
+  }
+
   const seasonId = parseInt(String(req.params.id));
   const pid = parseInt(String(req.params.pid));
   if (isNaN(seasonId) || isNaN(pid)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -80,6 +95,11 @@ router.patch("/seasons/:id/observed-players/:pid", requireAuth, async (req, res)
 });
 
 router.delete("/seasons/:id/observed-players/:pid", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageSeasonTransition(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire la transizione stagionale" });
+    return;
+  }
+
   const pid = parseInt(String(req.params.pid));
   if (isNaN(pid)) { res.status(400).json({ error: "Invalid id" }); return; }
 

@@ -4,6 +4,11 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
+const SEASON_TRANSITION_ROLES = ["admin", "presidente", "director", "secretary", "technical_director"];
+
+function canManageSeasonTransition(role?: string | null): boolean {
+  return SEASON_TRANSITION_ROLES.includes(role ?? "");
+}
 
 const AGE_GROUP_NEXT: Record<string, string> = {
   "U5": "U6",   "U6": "U7",   "U7": "U8",   "U8": "U9",
@@ -64,6 +69,11 @@ router.get("/seasons/:id/player-status", requireAuth, async (req, res): Promise<
 });
 
 router.post("/seasons/:id/player-status", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageSeasonTransition(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire la transizione stagionale" });
+    return;
+  }
+
   const seasonId = parseInt(String(req.params.id));
   if (isNaN(seasonId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
@@ -95,6 +105,11 @@ router.post("/seasons/:id/player-status", requireAuth, async (req, res): Promise
 });
 
 router.post("/seasons/:id/promote", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageSeasonTransition(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a gestire la transizione stagionale" });
+    return;
+  }
+
   const fromSeasonId = parseInt(String(req.params.id));
   if (isNaN(fromSeasonId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
