@@ -1,11 +1,19 @@
 import { Router, type IRouter, type Request } from "express";
-import { db, teamsTable, tournamentDocumentsTable, tournamentStatesTable } from "@workspace/db";
+import { db, teamsTable, teamStaffAssignmentsTable, tournamentDocumentsTable, tournamentStatesTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
 
 const UPLOAD_ROLES = ["admin", "director", "secretary", "presidente"];
+const STATE_UPDATE_ROLES = [
+  ...UPLOAD_ROLES,
+  "technical_director",
+  "coach",
+  "fitness_coach",
+  "athletic_director",
+];
+const ASSIGNED_TEAM_STATE_UPDATE_ROLES = ["coach", "fitness_coach", "athletic_director"];
 const MAX_TOURNAMENT_DOC_BYTES = 8 * 1024 * 1024;
 
 type TournamentProgramEntry = {
@@ -113,6 +121,23 @@ async function assertTeamAccessibleInSession(req: Request, teamId: number): Prom
   if (!team || team.clubId !== clubId) return false;
   if (!sectionFilter) return true;
   return (team.clubSection ?? "").trim() === String(sectionFilter).trim();
+}
+
+async function canUpdateTournamentState(req: Request, teamId: number): Promise<boolean> {
+  const role = req.session.role ?? "";
+  if (!STATE_UPDATE_ROLES.includes(role)) return false;
+  if (!ASSIGNED_TEAM_STATE_UPDATE_ROLES.includes(role)) return true;
+
+  const [assignment] = await db
+    .select({ id: teamStaffAssignmentsTable.id })
+    .from(teamStaffAssignmentsTable)
+    .where(and(
+      eq(teamStaffAssignmentsTable.userId, req.session.userId!),
+      eq(teamStaffAssignmentsTable.clubId, req.session.clubId!),
+      eq(teamStaffAssignmentsTable.teamId, teamId),
+    ))
+    .limit(1);
+  return !!assignment;
 }
 
 router.get("/tournament-documents", requireAuth, async (req, res): Promise<void> => {
@@ -301,10 +326,6 @@ router.post("/tournament-documents", requireAuth, async (req, res): Promise<void
 });
 
 router.put("/tournament-documents/state", requireAuth, async (req, res): Promise<void> => {
-  if (!UPLOAD_ROLES.includes(req.session.role ?? "")) {
-    res.status(403).json({ error: "Solo segreteria o ruoli equivalenti possono aggiornare programma torneo" });
-    return;
-  }
   const clubId = req.session.clubId!;
   const userId = req.session.userId!;
   const body = req.body as {
@@ -318,6 +339,10 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
   const competition = String(body.competition ?? "").trim();
   if (!Number.isFinite(teamId) || teamId <= 0 || !competition) {
     res.status(400).json({ error: "teamId e competition sono obbligatori" });
+    return;
+  }
+  if (!(await canUpdateTournamentState(req, teamId))) {
+    res.status(403).json({ error: "Non autorizzato ad aggiornare i punteggi torneo per questa squadra" });
     return;
   }
   const teamOk = await assertTeamAccessibleInSession(req, teamId);
