@@ -126,7 +126,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
         toast({ title: "Orari salvati" });
       },
       onError: (err: any) => {
-        console.error("[updateScheduleMutation] error:", err);
+        if (import.meta.env.DEV) console.error("[updateScheduleMutation] error:", err);
         toast({ title: "Errore nel salvataggio orari", description: err?.message ?? String(err), variant: "destructive" });
       },
     }
@@ -151,7 +151,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   function saveSchedule() {
     if (!scheduleTeam) return;
-    console.log("[saveSchedule] id=", scheduleTeam.id, "scheduleRows=", scheduleRows);
+    if (import.meta.env.DEV) console.log("[saveSchedule] id=", scheduleTeam.id, "scheduleRows=", scheduleRows);
     updateScheduleMutation.mutate({ id: scheduleTeam.id, data: { trainingSchedule: scheduleRows } });
   }
 
@@ -163,7 +163,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
         toast({ title: "Squadra aggiornata" });
       },
       onError: (err: any) => {
-        console.error("[updateTeamMutation] error:", err);
+        if (import.meta.env.DEV) console.error("[updateTeamMutation] error:", err);
         toast({ title: "Errore nel salvataggio squadra", description: err?.message ?? String(err), variant: "destructive" });
       },
     }
@@ -187,7 +187,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   function saveEditTeam(data: z.infer<typeof teamSchema>) {
     if (!editTeam) return;
-    console.log("[saveEditTeam] id=", editTeam.id, "editScheduleRows=", editScheduleRows, "formData=", data);
+    if (import.meta.env.DEV) console.log("[saveEditTeam] id=", editTeam.id, "editScheduleRows=", editScheduleRows, "formData=", data);
     updateTeamMutation.mutate({ id: editTeam.id, data: { ...data, trainingSchedule: editScheduleRows } });
   }
 

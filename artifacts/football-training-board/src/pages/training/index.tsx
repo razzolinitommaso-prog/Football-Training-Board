@@ -179,21 +179,21 @@ const PRINCIPI = [
 
 async function apiFetch(url: string, options?: RequestInit) {
   const method = options?.method ?? "GET";
-  console.log(`[training] request ${method} ${url}`);
+  if (import.meta.env.DEV) console.log(`[training] request ${method} ${url}`);
   const res = await fetch(withApi(url), {
     ...options,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
   });
-  console.log(`[training] response ${method} ${url} -> ${res.status}`);
+  if (import.meta.env.DEV) console.log(`[training] response ${method} ${url} -> ${res.status}`);
   if (!res.ok) {
     const errorText = await res.text();
-    console.error(`[training] error ${method} ${url}:`, errorText);
+    if (import.meta.env.DEV) console.error(`[training] error ${method} ${url}:`, errorText);
     throw new Error(errorText);
   }
   if (res.status === 204) return null;
   const payload = await res.json();
-  console.log(`[training] payload ${method} ${url}:`, payload);
+  if (import.meta.env.DEV) console.log(`[training] payload ${method} ${url}:`, payload);
   return payload;
 }
 

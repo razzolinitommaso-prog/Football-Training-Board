@@ -23,7 +23,9 @@ export default function ParentNotifications() {
   const { toast } = useToast();
 
   useEffect(() => {
-    apiFetch("/parent/notifications").then(setNotifications).catch(console.error).finally(() => setLoading(false));
+    apiFetch("/parent/notifications").then(setNotifications).catch((error) => {
+      if (import.meta.env.DEV) console.error(error);
+    }).finally(() => setLoading(false));
   }, []);
 
   async function markRead(id: number) {

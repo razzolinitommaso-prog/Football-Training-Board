@@ -143,10 +143,10 @@ export default function Register() {
         body: JSON.stringify(formData),
       });
 
-      console.log("STATUS:", res.status);
+      if (import.meta.env.DEV) console.log("STATUS:", res.status);
 
       const text = await res.text();
-      console.log("RESPONSE:", text);
+      if (import.meta.env.DEV) console.log("RESPONSE:", text);
 
       if (!res.ok) {
         throw new Error(text);
@@ -155,7 +155,7 @@ export default function Register() {
       const data = JSON.parse(text) as { clubAccessCode: string; clubParentCode?: string };
       setSuccess({ accessCode: data.clubAccessCode, parentCode: data.clubParentCode ?? "" });
     } catch (err) {
-      console.error("REAL ERROR:", err);
+      if (import.meta.env.DEV) console.error("REAL ERROR:", err);
       alert("ERROR: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);

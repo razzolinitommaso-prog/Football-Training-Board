@@ -86,7 +86,7 @@ export function useTeamPlayers(teamId: number | null) {
           setPlayers(data);
         }
       } catch (error) {
-        console.error("Errore caricamento giocatori team", error);
+        if (import.meta.env.DEV) console.error("Errore caricamento giocatori team", error);
         if (!cancelled) {
           setPlayers([]);
         }

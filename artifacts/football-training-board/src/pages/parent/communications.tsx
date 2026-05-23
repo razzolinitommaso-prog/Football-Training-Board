@@ -28,7 +28,9 @@ export default function ParentCommunications() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch("/parent/communications").then(setCommunications).catch(console.error).finally(() => setLoading(false));
+    apiFetch("/parent/communications").then(setCommunications).catch((error) => {
+      if (import.meta.env.DEV) console.error(error);
+    }).finally(() => setLoading(false));
   }, []);
 
   if (loading) return (

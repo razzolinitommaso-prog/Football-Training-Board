@@ -2106,7 +2106,7 @@ export async function parseMatchCalendarPdfFile(
         }
       }
     } catch (err) {
-      console.error("[pdf-ocr] error", err);
+      if (import.meta.env.DEV) console.error("[pdf-ocr] error", err);
       onOcr?.({ phase: "error", reason: err instanceof Error ? err.message : String(err) });
     }
   }

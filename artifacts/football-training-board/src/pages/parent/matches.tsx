@@ -35,7 +35,9 @@ export default function ParentMatches() {
         setMatches(data);
         if (data.length > 0) setExpanded({ [data[0].teamId]: true });
       })
-      .catch(console.error)
+      .catch((error) => {
+        if (import.meta.env.DEV) console.error(error);
+      })
       .finally(() => setLoading(false));
   }, []);
 

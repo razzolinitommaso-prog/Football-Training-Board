@@ -66,17 +66,17 @@ interface Guideline {
 
 async function apiFetch(url: string, options?: RequestInit) {
   const method = options?.method ?? "GET";
-  console.log(`[exercises] request ${method} ${url}`);
+  if (import.meta.env.DEV) console.log(`[exercises] request ${method} ${url}`);
   const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
-  console.log(`[exercises] response ${method} ${url} -> ${res.status}`);
+  if (import.meta.env.DEV) console.log(`[exercises] response ${method} ${url} -> ${res.status}`);
   if (!res.ok) {
     const errorText = await res.text();
-    console.error(`[exercises] error ${method} ${url}:`, errorText);
+    if (import.meta.env.DEV) console.error(`[exercises] error ${method} ${url}:`, errorText);
     throw new Error(errorText);
   }
   if (res.status === 204) return null;
   const payload = await res.json();
-  console.log(`[exercises] payload ${method} ${url}:`, payload);
+  if (import.meta.env.DEV) console.log(`[exercises] payload ${method} ${url}:`, payload);
   return payload;
 }
 

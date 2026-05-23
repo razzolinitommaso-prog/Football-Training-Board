@@ -1512,18 +1512,18 @@ const QuickPage = () => {
 
   const loadBoards = async () => {
     try {
-      console.log("[tactical-board] request GET /api/boards");
+      if (import.meta.env.DEV) console.log("[tactical-board] request GET /api/boards");
       const res = await fetch(withApi("/api/boards"), { credentials: "include" });
-      console.log("[tactical-board] response GET /api/boards ->", res.status);
+      if (import.meta.env.DEV) console.log("[tactical-board] response GET /api/boards ->", res.status);
       if (!res.ok) {
         throw new Error(`Request failed (${res.status})`);
       }
       const data = await res.json();
-      console.log("[tactical-board] payload /api/boards:", data);
+      if (import.meta.env.DEV) console.log("[tactical-board] payload /api/boards:", data);
       setBoards(data);
       setBoardsError(null);
     } catch (err) {
-      console.error("Errore caricamento boards", err);
+      if (import.meta.env.DEV) console.error("Errore caricamento boards", err);
       setBoards([]);
       setBoardsError("Errore caricamento lavagne dal backend.");
     }
@@ -1733,7 +1733,7 @@ const QuickPage = () => {
           setFreeRosterPlayers(mergeRosterPlayers(allRosterPlayers, teamMembers.flat()));
         }
       } catch (error) {
-        console.error("Errore caricamento rosa libera", error);
+        if (import.meta.env.DEV) console.error("Errore caricamento rosa libera", error);
         if (!cancelled) setFreeRosterPlayers(allRosterPlayers);
       }
     };
@@ -1839,16 +1839,16 @@ const QuickPage = () => {
 
     const currentBoardFormat = boardFormat;
 
-    // TEMP DEBUG: remove once board format/category are fully wired.
-    console.log("[tactical-board] applyPreset formation", {
-      presetName,
-      currentBoardFormat,
-      formationFormats: formation.formats,
-    });
+    if (import.meta.env.DEV) {
+      console.log("[tactical-board] applyPreset formation", {
+        presetName,
+        currentBoardFormat,
+        formationFormats: formation.formats,
+      });
+    }
 
     if (!formation.formats.includes(currentBoardFormat)) {
-      // TEMP DEBUG
-      console.log("[tactical-board] Formation blocked by format guard");
+      if (import.meta.env.DEV) console.log("[tactical-board] Formation blocked by format guard");
       return;
     }
 
@@ -3132,7 +3132,7 @@ const QuickPage = () => {
     setBoardFormat(deriveFormatFromCategory(nextCategory));
     setBoardClubId(parseNumericId((club as any)?.id));
 
-    console.log("🆕 Nuova board");
+    if (import.meta.env.DEV) console.log("Nuova board");
   }}
   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 text-sm hover:bg-white/20 transition"
 >
@@ -3173,7 +3173,7 @@ const QuickPage = () => {
     
     const method = currentBoardId ? "PUT" : "POST";
     
-    console.log(`[tactical-board] request ${method} ${url}`);
+    if (import.meta.env.DEV) console.log(`[tactical-board] request ${method} ${url}`);
     const response = await fetch(url, {
       method,
       credentials: "include",
@@ -3182,7 +3182,7 @@ const QuickPage = () => {
       },
       body: JSON.stringify(boardPayload),
     });
-    console.log(`[tactical-board] response ${method} ${url} ->`, response.status);
+    if (import.meta.env.DEV) console.log(`[tactical-board] response ${method} ${url} ->`, response.status);
 
       if (!response.ok) {
         throw new Error("Errore salvataggio");
@@ -3194,12 +3194,12 @@ const QuickPage = () => {
       setBoardIdInUrl(savedBoardId);
       await linkSavedBoardToMatchPeriod(savedBoardId, boardTitle);
       
-      console.log("✅ Board salvata:", savedBoard);
+      if (import.meta.env.DEV) console.log("Board salvata:", savedBoard);
       
       await loadBoards();
       setSaveState("Saved");  
     } catch (error) {
-      console.error("❌ Errore salvataggio board:", error);
+      if (import.meta.env.DEV) console.error("Errore salvataggio board:", error);
       setSaveState("Error");
     }
   }}

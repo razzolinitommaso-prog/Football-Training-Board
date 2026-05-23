@@ -35,7 +35,9 @@ export default function ParentDocuments() {
   useEffect(() => {
     Promise.all([apiFetch("/parent/documents"), apiFetch("/parent/children")])
       .then(([d, c]) => { setData(d); setChildren(c); if (c.length === 1) setSelectedChild(String(c[0].id)); })
-      .catch(console.error)
+      .catch((error) => {
+        if (import.meta.env.DEV) console.error(error);
+      })
       .finally(() => setLoading(false));
   }, []);
 

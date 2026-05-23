@@ -23,7 +23,9 @@ export default function ParentChildren() {
         data.forEach((t: any) => { exp[t.id] = true; });
         setExpanded(exp);
       })
-      .catch(console.error)
+      .catch((error) => {
+        if (import.meta.env.DEV) console.error(error);
+      })
       .finally(() => setLoading(false));
   }, []);
 

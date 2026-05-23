@@ -339,16 +339,16 @@ function homeAwayLabel(value?: string | null): string {
 }
 
 async function fetchJsonOrThrow<T>(url: string): Promise<T> {
-  console.log(`[dashboard] request GET ${url}`);
+  if (import.meta.env.DEV) console.log(`[dashboard] request GET ${url}`);
   const res = await fetch(withApi(url), { credentials: "include" });
-  console.log(`[dashboard] response GET ${url} -> ${res.status}`);
+  if (import.meta.env.DEV) console.log(`[dashboard] response GET ${url} -> ${res.status}`);
   if (!res.ok) {
     const errorText = await res.text();
-    console.error(`[dashboard] error GET ${url}:`, errorText);
+    if (import.meta.env.DEV) console.error(`[dashboard] error GET ${url}:`, errorText);
     throw new Error(`Request failed (${res.status}) for ${url}`);
   }
   const payload = (await res.json()) as T;
-  console.log(`[dashboard] payload GET ${url}:`, payload);
+  if (import.meta.env.DEV) console.log(`[dashboard] payload GET ${url}:`, payload);
   return payload;
 }
 
@@ -1383,9 +1383,9 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
         (canSeePlatformAnnouncements ? fetch(withApi("/api/club/platform-announcements"), { credentials: "include" }) : Promise.resolve(null)),
       ]);
 
-      console.log("[dashboard] response GET /api/club/notifications ->", internalRes.status);
+      if (import.meta.env.DEV) console.log("[dashboard] response GET /api/club/notifications ->", internalRes.status);
       if (platformRes) {
-        console.log("[dashboard] response GET /api/club/platform-announcements ->", platformRes.status);
+        if (import.meta.env.DEV) console.log("[dashboard] response GET /api/club/platform-announcements ->", platformRes.status);
       }
       if (!internalRes.ok) {
         throw new Error(`Request failed (${internalRes.status}) for /api/club/notifications`);
@@ -1413,9 +1413,9 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       setNotifications(merged);
-      console.log("[dashboard] payload notifications:", merged);
+      if (import.meta.env.DEV) console.log("[dashboard] payload notifications:", merged);
     } catch (error) {
-      console.error("[dashboard] notifications error:", error);
+      if (import.meta.env.DEV) console.error("[dashboard] notifications error:", error);
       setNotifications([]);
       setNotifError("Errore caricamento comunicazioni dal backend.");
     }

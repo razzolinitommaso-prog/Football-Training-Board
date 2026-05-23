@@ -32,7 +32,9 @@ export default function ParentDashboard() {
       setMatches(m);
       setPayments(p);
       setNotifications(n);
-    }).catch(console.error).finally(() => setLoading(false));
+    }).catch((error) => {
+      if (import.meta.env.DEV) console.error(error);
+    }).finally(() => setLoading(false));
   }, []);
 
   const totalPlayers = teams.reduce((sum, t) => sum + (t.players?.length ?? 0), 0);
