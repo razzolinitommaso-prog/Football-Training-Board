@@ -33,11 +33,11 @@ function planLimits(plan: string) {
 }
 
 router.post("/auth/register", async (req, res): Promise<void> => {
-  console.log("BODY:", req.body);
   const parsed = RegisterUserBody.safeParse(req.body);
-  console.log("VALID:", parsed.success);
   if (!parsed.success) {
-    console.log("ZOD ERROR:", parsed.error);
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[REGISTER] validation error:", parsed.error);
+    }
     res.status(400).json({ error: parsed.error.message });
     return;
   }
@@ -169,11 +169,12 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    console.log(`[LOGIN] email="${normalizedEmail}" section="${section ?? "none"}"`);
 
     const [user] = await db.select().from(usersTable).where(eq(usersTable.email, normalizedEmail));
     if (!user) {
-      console.log(`[LOGIN] FAIL - user not found for email="${normalizedEmail}"`);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[LOGIN] user not found");
+      }
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
@@ -188,7 +189,9 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       validPassword = password === user.passwordHash;
     }
     if (!validPassword) {
-      console.log(`[LOGIN] FAIL - wrong password for email="${normalizedEmail}"`);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[LOGIN] wrong password");
+      }
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }

@@ -7,8 +7,8 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
-console.log("[env-debug] DATABASE_URL =", process.env.DATABASE_URL);
-console.log("[env-debug] PORT =", process.env.PORT);
+console.log("[env] DATABASE_URL configured:", Boolean(process.env.DATABASE_URL));
+console.log("[env] PORT =", process.env.PORT ?? "(default)");
 
 const port = Number(process.env.PORT) || 3001;
 

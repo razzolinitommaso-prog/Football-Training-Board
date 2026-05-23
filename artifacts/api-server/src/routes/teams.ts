@@ -321,7 +321,9 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  console.log("[PATCH /teams/:id] id=%d parsed.data=%j", params.data.id, parsed.data);
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[PATCH /teams/:id] id=%d parsed.data=%j", params.data.id, parsed.data);
+  }
 
   const [team] = await db
     .update(teamsTable)
