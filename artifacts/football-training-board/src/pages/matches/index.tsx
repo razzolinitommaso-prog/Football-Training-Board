@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Trophy, Trash2, Users, Calendar, MapPin, AlertTriangle, CheckCircle } from "lucide-react";
 import { withApi } from "@/lib/api-base";
+import { useAuth } from "@/hooks/use-auth";
 
 interface Match {
   id: number; opponent: string; date: string; competition?: string; location?: string;
@@ -55,6 +56,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function MatchesPage() {
   const { t } = useLanguage();
   const { toast } = useToast();
+  const { role } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [callUpMatchId, setCallUpMatchId] = useState<number | null>(null);
@@ -63,6 +65,7 @@ export default function MatchesPage() {
   const [homeAway, setHomeAway] = useState("home"); const [teamId, setTeamId] = useState("");
   const [selectedPlayer, setSelectedPlayer] = useState("");
   const [resultDrafts, setResultDrafts] = useState<Record<number, string>>({});
+  const canCreateDeleteMatches = ["admin", "presidente", "director", "secretary"].includes(role ?? "");
 
   const { data: matches = [], isLoading } = useQuery<Match[]>({ queryKey: ["/api/matches"], queryFn: () => apiFetch("/api/matches") });
   const { data: teams = [] } = useQuery<Team[]>({ queryKey: ["/api/teams"], queryFn: () => apiFetch("/api/teams") });
@@ -139,6 +142,7 @@ export default function MatchesPage() {
           <h1 className="text-2xl font-bold flex items-center gap-2"><Trophy className="w-6 h-6 text-primary" />{t.matches}</h1>
           <p className="text-sm text-muted-foreground mt-1">{t.matchesDesc}</p>
         </div>
+        {canCreateDeleteMatches ? (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button><Plus className="w-4 h-4 mr-2" />{t.addMatch}</Button></DialogTrigger>
           <DialogContent className="max-w-md">
@@ -177,6 +181,7 @@ export default function MatchesPage() {
             </form>
           </DialogContent>
         </Dialog>
+        ) : null}
       </div>
 
       {isLoading ? <div className="text-center py-12 text-muted-foreground">{t.loading}</div>
@@ -196,9 +201,11 @@ export default function MatchesPage() {
                       <Button size="sm" variant="outline" onClick={() => setCallUpMatchId(m.id)}>
                         <Users className="w-3 h-3 mr-1" />{t.callUps}
                       </Button>
-                      <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => { if (confirm(t.deleteMatch)) deleteMatch.mutate(m.id); }}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      {canCreateDeleteMatches ? (
+                        <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => { if (confirm(t.deleteMatch)) deleteMatch.mutate(m.id); }}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 </CardHeader>

@@ -15,6 +15,7 @@ import { requireAuth } from "../lib/auth";
 const router: IRouter = Router();
 
 const SCHEDULE_ROLES = ["secretary", "director", "admin"];
+const MATCH_CREATE_DELETE_ROLES = ["secretary", "director", "admin", "presidente"];
 const POST_NOTES_ROLES = [
   "secretary",
   "director",
@@ -131,6 +132,10 @@ router.get("/matches", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/matches", requireAuth, async (req, res): Promise<void> => {
+  if (!MATCH_CREATE_DELETE_ROLES.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Non autorizzato a creare partite" });
+    return;
+  }
   const { opponent, date, teamId, seasonId, competition, location, homeAway, notes } = req.body;
   if (!opponent || !date) { res.status(400).json({ error: "opponent and date required" }); return; }
   const [match] = await db.insert(matchesTable).values({
@@ -210,6 +215,10 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.delete("/matches/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!MATCH_CREATE_DELETE_ROLES.includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Non autorizzato a eliminare partite" });
+    return;
+  }
   const id = parseRouteIdParam(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const [match] = await db.delete(matchesTable)
