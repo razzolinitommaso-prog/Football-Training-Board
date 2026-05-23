@@ -677,6 +677,7 @@ export function TournamentGroupedCards({
   onProgramChange,
   canUploadDocuments,
   canManageTournament,
+  canEditTournamentScores,
   attachmentsByCompetition,
   programsByCompetition,
   scoresByCompetition,
@@ -693,6 +694,7 @@ export function TournamentGroupedCards({
   onProgramChange: (competition: string, value: string) => void;
   canUploadDocuments: boolean;
   canManageTournament: boolean;
+  canEditTournamentScores: boolean;
   attachmentsByCompetition: Record<string, StoredTournamentAttachment[]>;
   programsByCompetition: Record<string, TournamentProgramEntry[]>;
   scoresByCompetition: Record<string, Record<string, TournamentProgramScore>>;
@@ -1074,7 +1076,7 @@ export function TournamentGroupedCards({
                                   </p>
                                   <p className="text-muted-foreground">{format(new Date(entry.date), "dd/MM HH:mm", { locale: itLocale })}</p>
                                 </div>
-                                {isFinalPlaceholderEntry(entry) || isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam) ? (
+                                {canEditTournamentScores && (isFinalPlaceholderEntry(entry) || isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)) ? (
                                   <Button
                                     type="button"
                                     variant="ghost"
@@ -1091,11 +1093,17 @@ export function TournamentGroupedCards({
                                   className="hidden"
                                   readOnly
                                 />
-                                <ScoreInputPair
-                                  home={scores[entry.id]?.homeScore}
-                                  away={scores[entry.id]?.awayScore}
-                                  onChange={(score) => onTournamentScoreChange(g.competition, entry.id, score)}
-                                />
+                                {canEditTournamentScores ? (
+                                  <ScoreInputPair
+                                    home={scores[entry.id]?.homeScore}
+                                    away={scores[entry.id]?.awayScore}
+                                    onChange={(score) => onTournamentScoreChange(g.competition, entry.id, score)}
+                                  />
+                                ) : (
+                                  <span className="shrink-0 rounded-md border bg-muted/30 px-2 py-1 text-xs font-semibold tabular-nums">
+                                    {scorePart(scores[entry.id]?.homeScore)} - {scorePart(scores[entry.id]?.awayScore)}
+                                  </span>
+                                )}
                               </div>
                             ))}
                           </div>

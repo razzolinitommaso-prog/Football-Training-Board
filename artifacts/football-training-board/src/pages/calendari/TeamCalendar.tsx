@@ -3007,6 +3007,10 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   });
   const isAssignedStaffForTeam = !!team && !!user?.id && Array.isArray(team.assignedStaff)
     && team.assignedStaff.some((s) => s.userId === user.id);
+  const canEditTournamentScores =
+    canImportExport ||
+    role === "technical_director" ||
+    (["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && isAssignedStaffForTeam);
   const canManageMatchPlan = ["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && isAssignedStaffForTeam;
   const canViewMatchPlan = canManageMatchPlan || role === "technical_director";
   const currentSection: MatchSection = (section === "prima_squadra" || section === "settore_giovanile" || section === "scuola_calcio")
@@ -4164,6 +4168,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               }
               canUploadDocuments={canImportExport}
               canManageTournament={canManageTournament}
+              canEditTournamentScores={canEditTournamentScores}
               attachmentsByCompetition={tournamentAttachmentsByCompetition}
               programsByCompetition={tournamentProgramsByCompetition}
               scoresByCompetition={tournamentScoresByCompetition}
