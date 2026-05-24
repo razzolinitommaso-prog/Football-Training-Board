@@ -238,9 +238,9 @@ function standingsFor(
   return [...table.values()].sort(
     (a, b) =>
       b.pts - a.pts ||
-      b.pg - a.pg ||
       (b.gf - b.gs) - (a.gf - a.gs) ||
       b.gf - a.gf ||
+      a.pg - b.pg ||
       a.team.localeCompare(b.team),
   );
 }
@@ -400,9 +400,9 @@ function placementRows(groups: { label: string; rows: StandingRow[] }[]): Standi
   return out.sort(
     (a, b) =>
       b.pts - a.pts ||
-      b.pg - a.pg ||
       (b.gf - b.gs) - (a.gf - a.gs) ||
       b.gf - a.gf ||
+      a.pg - b.pg ||
       a.team.localeCompare(b.team),
   );
 }
