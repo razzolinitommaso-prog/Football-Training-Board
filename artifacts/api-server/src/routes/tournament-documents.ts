@@ -30,6 +30,14 @@ type TournamentProgramScore = {
   awayScore: number | null;
 };
 
+type TournamentPointsRule = {
+  win: number;
+  draw: number;
+  loss: number;
+};
+
+const DEFAULT_POINTS_RULE: TournamentPointsRule = { win: 3, draw: 1, loss: 0 };
+
 function normalizeTournamentKeyPart(value: unknown): string {
   let s = String(value ?? "").trim().toLowerCase();
   if (!s) return "unknown";
@@ -103,6 +111,20 @@ function normalizeScores(value: unknown): Record<string, TournamentProgramScore>
 function normalizePdfReferenceDate(value: unknown): string | null {
   const text = String(value ?? "").trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function normalizePointsRule(value: unknown): TournamentPointsRule {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return DEFAULT_POINTS_RULE;
+  const rule = value as Record<string, unknown>;
+  const numberOrDefault = (key: keyof TournamentPointsRule) => {
+    const n = Number(rule[key]);
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_POINTS_RULE[key];
+  };
+  return {
+    win: numberOrDefault("win"),
+    draw: numberOrDefault("draw"),
+    loss: numberOrDefault("loss"),
+  };
 }
 
 /** Allineato al filtro sezione di GET /api/matches con teamId. */
@@ -196,6 +218,7 @@ router.get("/tournament-documents", requireAuth, async (req, res): Promise<void>
         normalizedCompetition: r.normalizedCompetition,
         program: r.program,
         scores: r.scores,
+        pointsRule: r.pointsRule,
         pdfReferenceDate: r.pdfReferenceDate,
         updatedAt: r.updatedAt?.toISOString?.() ?? String(r.updatedAt),
       })),
@@ -333,6 +356,7 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
     competition?: unknown;
     program?: unknown;
     scores?: unknown;
+    pointsRule?: unknown;
     pdfReferenceDate?: unknown;
   };
   const teamId = Number.parseInt(String(body.teamId ?? ""), 10);
@@ -354,6 +378,7 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
   const normalizedCompetition = normalizeTournamentKeyPart(competition);
   const program = normalizeProgram(body.program);
   const scores = normalizeScores(body.scores);
+  const pointsRule = normalizePointsRule(body.pointsRule);
   const pdfReferenceDate = normalizePdfReferenceDate(body.pdfReferenceDate);
 
   const [existing] = await db
@@ -373,6 +398,7 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
     normalizedCompetition,
     program,
     scores,
+    pointsRule,
     pdfReferenceDate,
     updatedByUserId: userId,
   };
@@ -393,6 +419,7 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
     normalizedCompetition: row.normalizedCompetition,
     program: row.program,
     scores: row.scores,
+    pointsRule: row.pointsRule,
     pdfReferenceDate: row.pdfReferenceDate,
     updatedAt: row.updatedAt?.toISOString?.() ?? String(row.updatedAt),
   });

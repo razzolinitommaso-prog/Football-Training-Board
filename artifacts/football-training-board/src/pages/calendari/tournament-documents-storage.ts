@@ -25,6 +25,14 @@ export type TournamentProgramScore = {
   awayScore: number | null;
 };
 
+export type TournamentPointsRule = {
+  win: number;
+  draw: number;
+  loss: number;
+};
+
+export const DEFAULT_TOURNAMENT_POINTS_RULE: TournamentPointsRule = { win: 3, draw: 1, loss: 0 };
+
 /** Normalizza la competizione per confronto con `normalizedCompetition` lato API. */
 export function normalizeTournamentKeyPart(value: unknown): string {
   let s = String(value ?? "").trim().toLowerCase();
@@ -51,6 +59,7 @@ export function fileToDataUrl(file: File): Promise<string> {
 const PDF_REF_PREFIX = "ftb-pdf-ref";
 const PROGRAM_PREFIX = "ftb-tournament-program";
 const SCORE_PREFIX = "ftb-tournament-score";
+const POINTS_RULE_PREFIX = "ftb-tournament-points";
 
 function pdfRefStorageKey(teamId: number, competition: string): string {
   return `${PDF_REF_PREFIX}:${teamId}:${normalizeTournamentKeyPart(competition)}`;
@@ -62,6 +71,10 @@ function tournamentProgramStorageKey(teamId: number, competition: string): strin
 
 function tournamentScoreStorageKey(teamId: number, competition: string): string {
   return `${SCORE_PREFIX}:${teamId}:${normalizeTournamentKeyPart(competition)}`;
+}
+
+function tournamentPointsRuleStorageKey(teamId: number, competition: string): string {
+  return `${POINTS_RULE_PREFIX}:${teamId}:${normalizeTournamentKeyPart(competition)}`;
 }
 
 export function getTournamentProgram(teamId: number, competition: string): TournamentProgramEntry[] {
@@ -100,6 +113,28 @@ export function getTournamentScores(teamId: number, competition: string): Record
 export function setTournamentScores(teamId: number, competition: string, scores: Record<string, TournamentProgramScore>): void {
   try {
     localStorage.setItem(tournamentScoreStorageKey(teamId, competition), JSON.stringify(scores));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function getTournamentPointsRule(teamId: number, competition: string): TournamentPointsRule {
+  try {
+    const raw = localStorage.getItem(tournamentPointsRuleStorageKey(teamId, competition));
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+      win: Number.isFinite(Number(parsed?.win)) ? Number(parsed.win) : DEFAULT_TOURNAMENT_POINTS_RULE.win,
+      draw: Number.isFinite(Number(parsed?.draw)) ? Number(parsed.draw) : DEFAULT_TOURNAMENT_POINTS_RULE.draw,
+      loss: Number.isFinite(Number(parsed?.loss)) ? Number(parsed.loss) : DEFAULT_TOURNAMENT_POINTS_RULE.loss,
+    };
+  } catch {
+    return DEFAULT_TOURNAMENT_POINTS_RULE;
+  }
+}
+
+export function setTournamentPointsRule(teamId: number, competition: string, rule: TournamentPointsRule): void {
+  try {
+    localStorage.setItem(tournamentPointsRuleStorageKey(teamId, competition), JSON.stringify(rule));
   } catch {
     /* ignore quota / private mode */
   }

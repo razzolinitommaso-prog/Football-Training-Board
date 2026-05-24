@@ -19,7 +19,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { StoredTournamentAttachment } from "@/pages/calendari/tournament-documents-storage";
-import type { TournamentProgramEntry, TournamentProgramScore } from "@/pages/calendari/tournament-documents-storage";
+import {
+  DEFAULT_TOURNAMENT_POINTS_RULE,
+  type TournamentPointsRule,
+  type TournamentProgramEntry,
+  type TournamentProgramScore,
+} from "@/pages/calendari/tournament-documents-storage";
 import { isFinalsRow, isKnockoutRow, isQualifyingRow, type TournamentProgramView } from "@/pages/calendari/tournament-program-filter";
 
 export interface TournamentCardMatch {
@@ -204,13 +209,10 @@ function isFinalPlaceholderEntry(entry: TournamentProgramEntry): boolean {
   return isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam) || /final/i.test(entry.group ?? "");
 }
 
-type TournamentPointsRule = { win: number; draw: number; loss: number };
-const DEFAULT_POINTS_RULE: TournamentPointsRule = { win: 3, draw: 1, loss: 0 };
-
 function standingsFor(
   entries: TournamentProgramEntry[],
   scores: Record<string, TournamentProgramScore>,
-  pointsRule: TournamentPointsRule = DEFAULT_POINTS_RULE,
+  pointsRule: TournamentPointsRule = DEFAULT_TOURNAMENT_POINTS_RULE,
 ) {
   const table = new Map<string, { team: string; pg: number; v: number; n: number; p: number; gf: number; gs: number; pts: number }>();
   const ensure = (team: string) => {
@@ -254,32 +256,6 @@ type EditingProgramEntry = {
   entry: TournamentProgramEntry;
   teamOptions: string[];
 };
-
-function pointsRuleStorageKey(competition: string): string {
-  return `ftb-tournament-points:${normalizeSide(competition) || "unknown"}`;
-}
-
-function readPointsRule(competition: string): TournamentPointsRule {
-  try {
-    const raw = localStorage.getItem(pointsRuleStorageKey(competition));
-    const parsed = raw ? JSON.parse(raw) : null;
-    return {
-      win: Number.isFinite(Number(parsed?.win)) ? Number(parsed.win) : DEFAULT_POINTS_RULE.win,
-      draw: Number.isFinite(Number(parsed?.draw)) ? Number(parsed.draw) : DEFAULT_POINTS_RULE.draw,
-      loss: Number.isFinite(Number(parsed?.loss)) ? Number(parsed.loss) : DEFAULT_POINTS_RULE.loss,
-    };
-  } catch {
-    return DEFAULT_POINTS_RULE;
-  }
-}
-
-function writePointsRule(competition: string, rule: TournamentPointsRule): void {
-  try {
-    localStorage.setItem(pointsRuleStorageKey(competition), JSON.stringify(rule));
-  } catch {
-    /* ignore local storage */
-  }
-}
 
 function programEntrySearchText(entry: TournamentProgramEntry): string {
   return [entry.homeTeam, entry.awayTeam, entry.phase ?? "", entry.group ?? ""].join(" ");
@@ -681,11 +657,13 @@ export function TournamentGroupedCards({
   attachmentsByCompetition,
   programsByCompetition,
   scoresByCompetition,
+  pointsRulesByCompetition,
   onEditTournament,
   onDeleteTournament,
   onLocalDocumentSelected,
   onDocumentRename,
   onTournamentScoreChange,
+  onTournamentPointsRuleChange,
   onTournamentProgramEntryChange,
 }: {
   groups: TournamentCardGroup[];
@@ -698,11 +676,13 @@ export function TournamentGroupedCards({
   attachmentsByCompetition: Record<string, StoredTournamentAttachment[]>;
   programsByCompetition: Record<string, TournamentProgramEntry[]>;
   scoresByCompetition: Record<string, Record<string, TournamentProgramScore>>;
+  pointsRulesByCompetition: Record<string, TournamentPointsRule>;
   onEditTournament: (group: TournamentCardGroup) => void;
   onDeleteTournament: (group: TournamentCardGroup) => void;
   onLocalDocumentSelected: (competition: string, file: File) => void;
   onDocumentRename: (documentId: string, fileName: string) => void;
   onTournamentScoreChange: (competition: string, entryId: string, score: TournamentProgramScore) => void;
+  onTournamentPointsRuleChange: (competition: string, rule: TournamentPointsRule) => void;
   onTournamentProgramEntryChange: (competition: string, entryId: string, patch: Partial<TournamentProgramEntry>) => void;
 }) {
   const docInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -710,7 +690,6 @@ export function TournamentGroupedCards({
   const [expandedByCompetition, setExpandedByCompetition] = useState<Record<string, boolean>>({});
   const [finalsRuleByCompetition, setFinalsRuleByCompetition] = useState<Record<string, FinalsRule>>({});
   const [finalsOptionsOpenByCompetition, setFinalsOptionsOpenByCompetition] = useState<Record<string, boolean>>({});
-  const [pointsRulesByCompetition, setPointsRulesByCompetition] = useState<Record<string, TournamentPointsRule>>({});
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [editingDocName, setEditingDocName] = useState("");
   const [pointsOptionsOpenByCompetition, setPointsOptionsOpenByCompetition] = useState<Record<string, boolean>>({});
@@ -758,7 +737,7 @@ export function TournamentGroupedCards({
         const teamOptions = tournamentTeamOptions(program);
         const matchScores = storedProgram.length > 0 ? {} : scoresFromTournamentMatches(sorted);
         const scores = { ...matchScores, ...(scoresByCompetition[g.competition] ?? {}) };
-        const pointsRule = pointsRulesByCompetition[g.competition] ?? readPointsRule(g.competition);
+        const pointsRule = pointsRulesByCompetition[g.competition] ?? DEFAULT_TOURNAMENT_POINTS_RULE;
         const programByView = filterProgramEntriesByView(program, progVal);
         const clubOnly = !!clubOnlyByCompetition[g.competition];
         const expanded = expandedByCompetition[g.competition] ?? false;
@@ -1147,8 +1126,7 @@ export function TournamentGroupedCards({
                               onChange={(e) => {
                                 const nextValue = Number(e.target.value.replace(/[^\d]/g, "").slice(0, 2) || 0);
                                 const nextRule = { ...pointsRule, [key]: nextValue };
-                                writePointsRule(g.competition, nextRule);
-                                setPointsRulesByCompetition((prev) => ({ ...prev, [g.competition]: nextRule }));
+                                onTournamentPointsRuleChange(g.competition, nextRule);
                               }}
                             />
                           </label>

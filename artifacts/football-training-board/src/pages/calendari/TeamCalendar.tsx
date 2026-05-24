@@ -54,12 +54,15 @@ import {
   fileToDataUrl,
   getTournamentProgram,
   getTournamentScores,
+  getTournamentPointsRule,
   getTournamentPdfReferenceDate,
   normalizeTournamentKeyPart,
   setTournamentProgram,
   setTournamentScores,
+  setTournamentPointsRule,
   setTournamentPdfReferenceDate,
   type StoredTournamentAttachment,
+  type TournamentPointsRule,
   type TournamentProgramEntry,
   type TournamentProgramScore,
   ymdLocalNoonToIso,
@@ -3417,6 +3420,34 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     setTournamentProgramVersion((v) => v + 1);
   }
 
+  function updateTournamentPointsRule(competition: string, rule: TournamentPointsRule) {
+    if (!teamId) return;
+    if (!tournamentDocsLoaded) setTournamentPointsRule(teamId, competition, rule);
+    void saveTournamentState(
+      competition,
+      getTournamentProgramForEdit(competition),
+      getTournamentScoresForEdit(competition),
+      getTournamentPdfReferenceDateForEdit(competition),
+      rule,
+    );
+    qc.setQueryData<{ documents: TournamentDocumentApi[]; states?: TournamentStateApi[] }>(
+      ["/api/tournament-documents", teamId],
+      (current) => {
+        const normalizedCompetition = normalizeTournamentKeyPart(competition);
+        const documents = current?.documents ?? [];
+        const states = current?.states ?? [];
+        const existing = states.find((state) => state.normalizedCompetition === normalizedCompetition);
+        if (!existing) return current;
+        return {
+          documents,
+          states: states.map((state) =>
+            state.normalizedCompetition === normalizedCompetition ? { ...state, pointsRule: rule } : state,
+          ),
+        };
+      },
+    );
+  }
+
   const createMatchMutation = useMutation({
     mutationFn: async () => {
       if (!teamId) throw new Error("Squadra non valida");
@@ -3534,6 +3565,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     normalizedCompetition: string;
     program: TournamentProgramEntry[];
     scores: Record<string, TournamentProgramScore>;
+    pointsRule: TournamentPointsRule;
     pdfReferenceDate?: string | null;
     updatedAt: string;
   };
@@ -3572,6 +3604,11 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     return getTournamentState(competition)?.pdfReferenceDate ?? (!tournamentDocsLoaded ? getTournamentPdfReferenceDate(teamId, competition) : null);
   }
 
+  function getTournamentPointsRuleForEdit(competition: string): TournamentPointsRule {
+    if (!teamId) return { win: 3, draw: 1, loss: 0 };
+    return getTournamentState(competition)?.pointsRule ?? (!tournamentDocsLoaded ? getTournamentPointsRule(teamId, competition) : { win: 3, draw: 1, loss: 0 });
+  }
+
   function applyTournamentStateToCache(state: TournamentStateApi) {
     qc.setQueryData<{ documents: TournamentDocumentApi[]; states?: TournamentStateApi[] }>(
       ["/api/tournament-documents", teamId],
@@ -3601,11 +3638,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     program: TournamentProgramEntry[],
     scores: Record<string, TournamentProgramScore>,
     pdfReferenceDate: string | null,
+    pointsRule: TournamentPointsRule = getTournamentPointsRuleForEdit(competition),
   ) {
     if (!teamId) return;
     const state = await apiFetch("/api/tournament-documents/state", {
       method: "PUT",
-      body: JSON.stringify({ teamId, competition, program, scores, pdfReferenceDate }),
+      body: JSON.stringify({ teamId, competition, program, scores, pointsRule, pdfReferenceDate }),
     }) as TournamentStateApi;
     applyTournamentStateToCache(state);
     return state;
@@ -3662,6 +3700,15 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     }
     return map;
   }, [teamId, tournamentGroups, tournamentScoreVersion, tournamentStateByCompetition, tournamentDocsLoaded]);
+
+  const tournamentPointsRulesByCompetition = useMemo(() => {
+    if (!teamId) return {};
+    const map: Record<string, TournamentPointsRule> = {};
+    for (const g of tournamentGroups) {
+      map[g.competition] = getTournamentPointsRuleForEdit(g.competition);
+    }
+    return map;
+  }, [teamId, tournamentGroups, tournamentStateByCompetition, tournamentDocsLoaded]);
 
   const matchFiltersActive =
     matchSearchText.trim() !== "" ||
@@ -4172,11 +4219,13 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               attachmentsByCompetition={tournamentAttachmentsByCompetition}
               programsByCompetition={tournamentProgramsByCompetition}
               scoresByCompetition={tournamentScoresByCompetition}
+              pointsRulesByCompetition={tournamentPointsRulesByCompetition}
               onEditTournament={openTournamentEdit}
               onDeleteTournament={deleteTournament}
               onLocalDocumentSelected={appendLocalTournamentDocument}
               onDocumentRename={renameTournamentDocument}
               onTournamentScoreChange={updateTournamentProgramScore}
+              onTournamentPointsRuleChange={updateTournamentPointsRule}
               onTournamentProgramEntryChange={updateTournamentProgramEntry}
             />
           )}

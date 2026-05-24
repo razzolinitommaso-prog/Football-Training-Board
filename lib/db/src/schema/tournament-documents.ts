@@ -27,6 +27,7 @@ export const tournamentStatesTable = pgTable("tournament_states", {
   normalizedCompetition: text("normalized_competition").notNull(),
   program: jsonb("program").$type<Record<string, unknown>[]>().notNull().default([]),
   scores: jsonb("scores").$type<Record<string, { homeScore: number | null; awayScore: number | null }>>().notNull().default({}),
+  pointsRule: jsonb("points_rule").$type<{ win: number; draw: number; loss: number }>().notNull().default({ win: 3, draw: 1, loss: 0 }),
   pdfReferenceDate: text("pdf_reference_date"),
   updatedByUserId: integer("updated_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
