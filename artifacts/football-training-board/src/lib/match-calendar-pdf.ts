@@ -1282,6 +1282,15 @@ async function pageToLinesWithYs(
   const flushRow = () => {
     if (!rowBuf.length) return;
     rowBuf.sort((a, b) => a.x - b.x);
+    const rowText = rowBuf.map((item) => item.str).join(" ");
+    const isTournamentCellScheduleRow =
+      options.includeTournamentTableLines === true &&
+      /\b\d{1,2}[:.]\d{2}\b/.test(rowText) &&
+      !/\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\b/.test(rowText) &&
+      rowBuf.filter((item) => /[-\u2013\u2014]/.test(item.str)).length >= 2;
+    if (isTournamentCellScheduleRow) {
+      return;
+    }
     const parts: string[] = [];
     for (let i = 0; i < rowBuf.length; i++) {
       if (i > 0) {

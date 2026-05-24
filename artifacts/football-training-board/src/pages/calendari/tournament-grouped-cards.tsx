@@ -389,8 +389,36 @@ function generatedFinalsByRule(groups: { label: string; rows: StandingRow[] }[],
   return generatedPlacementFinalsFromGroups(groups) ?? [];
 }
 
+function placementRows(groups: { label: string; rows: StandingRow[] }[]): StandingRow[] {
+  const seen = new Set<string>();
+  const out: StandingRow[] = [];
+  for (const row of groups.flatMap((group) => group.rows)) {
+    const key = normalizeSide(row.team);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out.sort(
+    (a, b) =>
+      b.pts - a.pts ||
+      b.pg - a.pg ||
+      (b.gf - b.gs) - (a.gf - a.gs) ||
+      b.gf - a.gf ||
+      a.team.localeCompare(b.team),
+  );
+}
+
 function resolveGeneratedFinalLabel(value: string, groups: { label: string; rows: StandingRow[] }[]): string {
   const text = value.trim();
+  const placement = text.match(/finale\s+(\d+)\D+(\d+)\D+posto/i) ?? text.match(/(\d+)\D+(\d+)\D+posto/i);
+  if (placement) {
+    const leftPos = Number(placement[1]);
+    const rightPos = Number(placement[2]);
+    const rows = groups.length === 1 ? (groups[0]?.rows ?? []) : placementRows(groups);
+    const left = rows[leftPos - 1]?.team ?? `${leftPos}Â° classificata`;
+    const right = rows[rightPos - 1]?.team ?? `${rightPos}Â° classificata`;
+    return `${left} - ${right}`;
+  }
   const singleGroup = groups.length === 1 ? groups[0] : null;
   if (singleGroup) {
     const posto = text.match(/finale\s+(\d+)\D+(\d+)\D+posto/i) ?? text.match(/(\d+)\D+(\d+)\D+posto/i);
