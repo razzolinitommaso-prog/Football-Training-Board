@@ -258,6 +258,12 @@ type EditingProgramEntry = {
   entry: TournamentProgramEntry;
   teamOptions: string[];
 };
+type EditingTournamentGroups = {
+  competition: string;
+  program: TournamentProgramEntry[];
+  teams: string[];
+  groups: { id: string; name: string; teams: string[] }[];
+};
 
 function programEntrySearchText(entry: TournamentProgramEntry): string {
   return [entry.homeTeam, entry.awayTeam, entry.phase ?? "", entry.group ?? ""].join(" ");
@@ -422,6 +428,39 @@ function tournamentTeamOptions(entries: TournamentProgramEntry[]): string[] {
     }
   }
   return out.sort((a, b) => a.localeCompare(b));
+}
+
+function defaultTournamentGroupDrafts(entries: TournamentProgramEntry[]): EditingTournamentGroups["groups"] {
+  const teams = tournamentTeamOptions(entries);
+  const labels = [...new Set(entries.map((entry) => entry.group?.trim()).filter(Boolean) as string[])].filter(
+    (label) => !/final/i.test(label),
+  );
+  const baseLabels = labels.length > 0 ? labels : ["Girone A", "Girone B"];
+  return baseLabels.map((label, index) => ({
+    id: `group-${index}`,
+    name: label,
+    teams: teams.filter((team) =>
+      entries.some((entry) => entry.group?.trim() === label && [entry.homeTeam, entry.awayTeam].some((side) => normalizeSide(side) === normalizeSide(team))),
+    ),
+  }));
+}
+
+function applyTournamentGroupDrafts(
+  program: TournamentProgramEntry[],
+  groups: EditingTournamentGroups["groups"],
+): TournamentProgramEntry[] {
+  const teamToGroup = new Map<string, string>();
+  for (const group of groups) {
+    const name = group.name.trim() || "Girone";
+    for (const team of group.teams) teamToGroup.set(normalizeSide(team), name);
+  }
+  return program.map((entry) => {
+    if (isProgramEntryFinal(entry)) return entry;
+    const homeGroup = teamToGroup.get(normalizeSide(entry.homeTeam));
+    const awayGroup = teamToGroup.get(normalizeSide(entry.awayTeam));
+    if (!homeGroup || !awayGroup || homeGroup !== awayGroup) return entry;
+    return { ...entry, group: homeGroup, phase: entry.phase || "Gironi" };
+  });
 }
 
 function ymdFromDate(value: string): string {
@@ -669,6 +708,7 @@ export function TournamentGroupedCards({
   onTournamentPointsRuleChange,
   onTournamentFinalsRuleChange,
   onTournamentProgramEntryChange,
+  onTournamentProgramGroupsChange,
 }: {
   groups: TournamentCardGroup[];
   clubLabel: string;
@@ -690,6 +730,7 @@ export function TournamentGroupedCards({
   onTournamentPointsRuleChange: (competition: string, rule: TournamentPointsRule) => void;
   onTournamentFinalsRuleChange: (competition: string, rule: FinalsRule) => void;
   onTournamentProgramEntryChange: (competition: string, entryId: string, patch: Partial<TournamentProgramEntry>) => void;
+  onTournamentProgramGroupsChange: (competition: string, program: TournamentProgramEntry[]) => void;
 }) {
   const docInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [clubOnlyByCompetition, setClubOnlyByCompetition] = useState<Record<string, boolean>>({});
@@ -704,6 +745,7 @@ export function TournamentGroupedCards({
   const [editingDate, setEditingDate] = useState("");
   const [editingTime, setEditingTime] = useState("");
   const [editingPostponed, setEditingPostponed] = useState(false);
+  const [editingGroups, setEditingGroups] = useState<EditingTournamentGroups | null>(null);
 
   const openProgramEntryEditor = (competition: string, entry: TournamentProgramEntry, teamOptions: string[]) => {
     setEditingProgramEntry({ competition, entry, teamOptions });
@@ -712,6 +754,16 @@ export function TournamentGroupedCards({
     setEditingDate(ymdFromDate(entry.date));
     setEditingTime(hmFromDate(entry.date));
     setEditingPostponed(normalizeSide(entry.phase ?? "").includes("rinviata"));
+  };
+
+  const openGroupsEditor = (competition: string, program: TournamentProgramEntry[]) => {
+    const teams = tournamentTeamOptions(program);
+    setEditingGroups({
+      competition,
+      program,
+      teams,
+      groups: defaultTournamentGroupDrafts(program),
+    });
   };
 
   return (
@@ -1098,20 +1150,33 @@ export function TournamentGroupedCards({
                   <div className="rounded-lg border border-border/80 bg-muted/10 p-3 space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-foreground">Regole classifica</p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 px-2 text-xs"
-                        onClick={() =>
-                          setPointsOptionsOpenByCompetition((prev) => ({
-                            ...prev,
-                            [g.competition]: !(prev[g.competition] ?? false),
-                          }))
-                        }
-                      >
-                        Regole punti
-                      </Button>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        {canManageTournament ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => openGroupsEditor(g.competition, program)}
+                          >
+                            Imposta gironi
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2 text-xs"
+                          onClick={() =>
+                            setPointsOptionsOpenByCompetition((prev) => ({
+                              ...prev,
+                              [g.competition]: !(prev[g.competition] ?? false),
+                            }))
+                          }
+                        >
+                          Regole punti
+                        </Button>
+                      </div>
                     </div>
                     {(pointsOptionsOpenByCompetition[g.competition] ?? false) ? (
                       <div className="grid grid-cols-3 gap-2 rounded-md border border-border/70 bg-background p-2">
@@ -1329,6 +1394,127 @@ export function TournamentGroupedCards({
           </Card>
         );
       })}
+      {editingGroups ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl border border-border bg-background p-4 shadow-xl sm:rounded-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-semibold text-foreground">Imposta gironi</p>
+                <p className="text-xs text-muted-foreground">Assegna le squadre ai gironi del torneo.</p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={() => setEditingGroups(null)}
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                {editingGroups.groups.map((group, groupIndex) => (
+                  <div key={group.id} className="rounded-lg border border-border/80 bg-muted/10 p-3">
+                    <div className="mb-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        className="h-9 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm font-medium focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        value={group.name}
+                        onChange={(e) =>
+                          setEditingGroups((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  groups: prev.groups.map((item) => (item.id === group.id ? { ...item, name: e.target.value } : item)),
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                      <Badge variant="secondary" className="shrink-0 tabular-nums">
+                        {group.teams.length}
+                      </Badge>
+                    </div>
+                    <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+                      {editingGroups.teams.map((team) => {
+                        const checked = group.teams.some((item) => normalizeSide(item) === normalizeSide(team));
+                        return (
+                          <label key={`${group.id}-${team}`} className="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-muted/50">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) =>
+                                setEditingGroups((prev) => {
+                                  if (!prev) return prev;
+                                  const nextGroups = prev.groups.map((item, index) => {
+                                    const withoutTeam = item.teams.filter((value) => normalizeSide(value) !== normalizeSide(team));
+                                    if (item.id !== group.id) return { ...item, teams: withoutTeam };
+                                    return {
+                                      ...item,
+                                      teams: e.target.checked ? [...withoutTeam, team] : withoutTeam,
+                                    };
+                                  });
+                                  if (groupIndex >= nextGroups.length) return prev;
+                                  return { ...prev, groups: nextGroups };
+                                })
+                              }
+                            />
+                            <span className="min-w-0 truncate">{team}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={() =>
+                    setEditingGroups((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            groups: [
+                              ...prev.groups,
+                              {
+                                id: `group-${Date.now()}`,
+                                name: `Girone ${String.fromCharCode(65 + prev.groups.length)}`,
+                                teams: [],
+                              },
+                            ],
+                          }
+                        : prev,
+                    )
+                  }
+                >
+                  Aggiungi girone
+                </Button>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button type="button" variant="outline" className="h-10 flex-1" onClick={() => setEditingGroups(null)}>
+                  Annulla
+                </Button>
+                <Button
+                  type="button"
+                  className="h-10 flex-1"
+                  onClick={() => {
+                    const nextProgram = applyTournamentGroupDrafts(editingGroups.program, editingGroups.groups);
+                    onTournamentProgramGroupsChange(editingGroups.competition, nextProgram);
+                    setEditingGroups(null);
+                  }}
+                >
+                  Salva gironi
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {editingProgramEntry ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
           <div className="w-full max-w-md rounded-t-2xl border border-border bg-background p-4 shadow-xl sm:rounded-2xl">

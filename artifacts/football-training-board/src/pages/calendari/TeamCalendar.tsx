@@ -3421,6 +3421,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     setTournamentProgramVersion((v) => v + 1);
   }
 
+  function updateTournamentProgramGroups(competition: string, program: TournamentProgramEntry[]) {
+    if (!teamId) return;
+    if (!tournamentDocsLoaded) setTournamentProgram(teamId, competition, program);
+    void saveTournamentState(
+      competition,
+      program,
+      getTournamentScoresForEdit(competition),
+      getTournamentPdfReferenceDateForEdit(competition),
+    );
+    setTournamentProgramVersion((v) => v + 1);
+  }
+
   function updateTournamentPointsRule(competition: string, rule: TournamentPointsRule) {
     if (!teamId) return;
     if (!tournamentDocsLoaded) setTournamentPointsRule(teamId, competition, rule);
@@ -4273,6 +4285,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               onTournamentPointsRuleChange={updateTournamentPointsRule}
               onTournamentFinalsRuleChange={updateTournamentFinalsRule}
               onTournamentProgramEntryChange={updateTournamentProgramEntry}
+              onTournamentProgramGroupsChange={updateTournamentProgramGroups}
             />
           )}
 

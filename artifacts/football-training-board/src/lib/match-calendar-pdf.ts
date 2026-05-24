@@ -1329,11 +1329,23 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
   const groupHeadings: { group: string; x: number; y: number }[] = [];
   for (const row of rows) {
     for (const cell of row.cells) {
-      const match = cell.str.match(/^girone\s+([a-z0-9]+)$/i);
+      const match = cell.str.match(/^(?:girone|raggruppamento)\s+([a-z0-9]+)$/i);
       if (match) groupHeadings.push({ group: `Girone ${String(match[1] ?? "").toUpperCase()}`, x: cell.x, y: row.y });
     }
   }
   groupHeadings.sort((a, b) => a.x - b.x);
+
+  const pageDateCell = rows
+    .flatMap((row) => row.cells)
+    .map((cell) => parseItalianNamedDateIso(cell.str, undefined) ?? parseDateTimeIso(cell.str))
+    .find(Boolean);
+
+  const groupForScheduleRow = (rowY: number): string | null => {
+    const above = groupHeadings
+      .filter((heading) => heading.y > rowY)
+      .sort((a, b) => a.y - b.y)[0];
+    return above?.group ?? null;
+  };
 
   for (const row of rows) {
     const rowText = row.cells.map((cell) => cell.str).join(" ");
@@ -1364,7 +1376,20 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
   for (const row of rows) {
     const dateCell = row.cells.find((cell) => dateRe.test(cell.str));
     const timeCell = row.cells.find((cell) => timeRe.test(cell.str));
-    if (!dateCell || !timeCell) continue;
+    if (!timeCell) continue;
+
+    if (!dateCell && pageDateCell) {
+      const groupLabel = groupForScheduleRow(row.y);
+      if (!groupLabel) continue;
+      for (const cell of row.cells.filter((candidate) => candidate.x > timeCell.x + 20)) {
+        if (!/[-–—]/.test(cell.str)) continue;
+        const clean = cleanTournamentTeamName(cell.str);
+        if (clean) pushLine(`${formatIsoDateForPdfLine(pageDateCell)} ${timeCell.str} ${groupLabel} ${clean}`, row.y + 0.04);
+      }
+      continue;
+    }
+
+    if (!dateCell) continue;
 
     const groupCell = row.cells.find((cell) => /^[A-Z]$/i.test(cell.str) && cell.x > timeCell.x && cell.x < timeCell.x + 110);
     const rightCells = row.cells.filter((cell) => cell.x > (groupCell?.x ?? timeCell.x) + 35);
