@@ -263,6 +263,7 @@ type EditingTournamentGroups = {
   teams: string[];
   groups: { id: string; name: string; teams: string[] }[];
 };
+type GeneratedFinal = { label: string; homeTeam: string; awayTeam: string };
 
 function programEntrySearchText(entry: TournamentProgramEntry): string {
   return [entry.homeTeam, entry.awayTeam, entry.phase ?? "", entry.group ?? ""].join(" ");
@@ -272,6 +273,18 @@ function isProgramEntryFinal(entry: TournamentProgramEntry): boolean {
   const phaseText = normalizeSide(`${entry.phase ?? ""} ${entry.group ?? ""}`);
   if (/\bfinali?\b/.test(phaseText)) return true;
   return isFinalsRow(programEntrySearchText(entry));
+}
+
+function finalStartPosition(entry: TournamentProgramEntry): number | null {
+  const text = normalizeSide(`${entry.phase ?? ""} ${entry.group ?? ""} ${entry.homeTeam} ${entry.awayTeam}`);
+  const match =
+    text.match(/\bfinale\s+(\d+)\D+\d+\D+posto\b/) ??
+    text.match(/\bfinale\s+(\d+)\D+posto\b/) ??
+    text.match(/\b(\d+)\D+\d+\D+posto\b/) ??
+    text.match(/\b(\d+)\D+posto\b/);
+  if (!match) return null;
+  const position = Number(match[1]);
+  return Number.isFinite(position) && position > 0 ? position : null;
 }
 
 function filterProgramEntriesByView(entries: TournamentProgramEntry[], view: TournamentProgramView): TournamentProgramEntry[] {
@@ -846,14 +859,18 @@ export function TournamentGroupedCards({
         const cardStandingGroups = qualifyingStandingsGroups.length > 0 ? qualifyingStandingsGroups : standingsGroups;
         const finalsRule = finalsRulesByCompetition[g.competition] ?? DEFAULT_TOURNAMENT_FINALS_RULE;
         const generatedFinals = generatedFinalsByRule(cardStandingGroups, finalsRule);
-        const generatedFinalsByEntryId = new Map<string, string>();
+        const generatedFinalsByEntryId = new Map<string, GeneratedFinal>();
         if (finalsRule !== "manual" && generatedFinals.length > 0) {
+          let fallbackIndex = 0;
           program
             .filter((entry) => isProgramEntryFinal(entry))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-            .forEach((entry, index) => {
-              const generated = generatedFinals[index];
-              if (generated) generatedFinalsByEntryId.set(entry.id, `${generated.homeTeam} - ${generated.awayTeam}`);
+            .forEach((entry) => {
+              const position = finalStartPosition(entry);
+              const index = position ? position - 1 : fallbackIndex;
+              const generated = generatedFinals[index] ?? generatedFinals[fallbackIndex];
+              fallbackIndex += 1;
+              if (generated) generatedFinalsByEntryId.set(entry.id, generated);
             });
         }
         const standingsWithResults = cardStandingGroups.filter((group) => group.rows.some((row) => row.pg > 0));
@@ -1146,10 +1163,12 @@ export function TournamentGroupedCards({
                           <div className="divide-y divide-border/60">
                             {group.entries.map((entry) => {
                               const entryLabel = `${entry.homeTeam} - ${entry.awayTeam}`;
-                              const resolvedPlacement = generatedFinalsByEntryId.get(entry.id) ?? (isPlacementFinalText(entryLabel)
+                              const generatedFinal = generatedFinalsByEntryId.get(entry.id);
+                              const generatedFinalLabel = generatedFinal ? `${generatedFinal.homeTeam} - ${generatedFinal.awayTeam}` : null;
+                              const resolvedPlacement = generatedFinalLabel ?? (isPlacementFinalText(entryLabel)
                                 ? resolveGeneratedFinalLabel(entryLabel, cardStandingGroups)
                                 : null);
-                              const displayLabel = generatedFinalsByEntryId.get(entry.id)
+                              const displayLabel = generatedFinal
                                 ? entryLabel
                                 : (isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)
                                   ? resolveGeneratedFinalLabel(entryLabel, cardStandingGroups)
@@ -1162,6 +1181,9 @@ export function TournamentGroupedCards({
                                   </p>
                                   {resolvedPlacement && resolvedPlacement !== entryLabel ? (
                                     <p className="truncate text-[11px] font-medium text-primary">{resolvedPlacement}</p>
+                                  ) : null}
+                                  {generatedFinal && generatedFinal.label ? (
+                                    <p className="truncate text-[11px] text-muted-foreground">{generatedFinal.label}</p>
                                   ) : null}
                                   <p className="text-muted-foreground">{format(new Date(entry.date), "dd/MM HH:mm", { locale: itLocale })}</p>
                                 </div>
