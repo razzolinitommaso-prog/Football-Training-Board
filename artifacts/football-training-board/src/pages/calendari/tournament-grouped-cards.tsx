@@ -845,7 +845,17 @@ export function TournamentGroupedCards({
         const qualifyingStandingsGroups = standingsGroups.filter((group) => !/final/i.test(group.label));
         const cardStandingGroups = qualifyingStandingsGroups.length > 0 ? qualifyingStandingsGroups : standingsGroups;
         const finalsRule = finalsRulesByCompetition[g.competition] ?? DEFAULT_TOURNAMENT_FINALS_RULE;
-        const generatedFinals = generatedFinalsByRule(standingsGroups, finalsRule);
+        const generatedFinals = generatedFinalsByRule(cardStandingGroups, finalsRule);
+        const generatedFinalsByEntryId = new Map<string, string>();
+        if (finalsRule !== "manual" && generatedFinals.length > 0) {
+          program
+            .filter((entry) => isProgramEntryFinal(entry))
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+            .forEach((entry, index) => {
+              const generated = generatedFinals[index];
+              if (generated) generatedFinalsByEntryId.set(entry.id, `${generated.homeTeam} - ${generated.awayTeam}`);
+            });
+        }
         const standingsWithResults = cardStandingGroups.filter((group) => group.rows.some((row) => row.pg > 0));
         const hasStandingsResults = standingsWithResults.length > 0;
         const summaryGroups = (hasStandingsResults ? standingsWithResults : cardStandingGroups).map((group) => ({
@@ -1136,20 +1146,19 @@ export function TournamentGroupedCards({
                           <div className="divide-y divide-border/60">
                             {group.entries.map((entry) => {
                               const entryLabel = `${entry.homeTeam} - ${entry.awayTeam}`;
-                              const resolvedPlacement = isPlacementFinalText(entryLabel)
-                                ? resolveGeneratedFinalLabel(entryLabel, standingsGroups)
-                                : null;
+                              const resolvedPlacement = generatedFinalsByEntryId.get(entry.id) ?? (isPlacementFinalText(entryLabel)
+                                ? resolveGeneratedFinalLabel(entryLabel, cardStandingGroups)
+                                : null);
+                              const displayLabel = generatedFinalsByEntryId.get(entry.id)
+                                ? entryLabel
+                                : (isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)
+                                  ? resolveGeneratedFinalLabel(entryLabel, cardStandingGroups)
+                                  : entryLabel);
                               return (
                               <div key={entry.id} className="py-2 text-xs flex items-center justify-between gap-2">
                                 <div className="min-w-0">
                                   <p className="truncate font-medium">
-                                    {isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)
-                                      ? resolveGeneratedFinalLabel(entryLabel, standingsGroups)
-                                      : (
-                                          <>
-                                            {entry.homeTeam} <span className="text-muted-foreground font-normal">-</span> {entry.awayTeam}
-                                          </>
-                                        )}
+                                    {displayLabel}
                                   </p>
                                   {resolvedPlacement && resolvedPlacement !== entryLabel ? (
                                     <p className="truncate text-[11px] font-medium text-primary">{resolvedPlacement}</p>
