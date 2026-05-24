@@ -20,7 +20,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { StoredTournamentAttachment } from "@/pages/calendari/tournament-documents-storage";
 import {
+  DEFAULT_TOURNAMENT_FINALS_RULE,
   DEFAULT_TOURNAMENT_POINTS_RULE,
+  type TournamentFinalsRule,
   type TournamentPointsRule,
   type TournamentProgramEntry,
   type TournamentProgramScore,
@@ -250,7 +252,7 @@ function scoreFromResult(result?: string | null): TournamentProgramScore {
 }
 
 type StandingRow = ReturnType<typeof standingsFor>[number];
-type FinalsRule = "cross12" | "samePosition" | "manual";
+type FinalsRule = TournamentFinalsRule;
 type EditingProgramEntry = {
   competition: string;
   entry: TournamentProgramEntry;
@@ -658,12 +660,14 @@ export function TournamentGroupedCards({
   programsByCompetition,
   scoresByCompetition,
   pointsRulesByCompetition,
+  finalsRulesByCompetition,
   onEditTournament,
   onDeleteTournament,
   onLocalDocumentSelected,
   onDocumentRename,
   onTournamentScoreChange,
   onTournamentPointsRuleChange,
+  onTournamentFinalsRuleChange,
   onTournamentProgramEntryChange,
 }: {
   groups: TournamentCardGroup[];
@@ -677,18 +681,19 @@ export function TournamentGroupedCards({
   programsByCompetition: Record<string, TournamentProgramEntry[]>;
   scoresByCompetition: Record<string, Record<string, TournamentProgramScore>>;
   pointsRulesByCompetition: Record<string, TournamentPointsRule>;
+  finalsRulesByCompetition: Record<string, FinalsRule>;
   onEditTournament: (group: TournamentCardGroup) => void;
   onDeleteTournament: (group: TournamentCardGroup) => void;
   onLocalDocumentSelected: (competition: string, file: File) => void;
   onDocumentRename: (documentId: string, fileName: string) => void;
   onTournamentScoreChange: (competition: string, entryId: string, score: TournamentProgramScore) => void;
   onTournamentPointsRuleChange: (competition: string, rule: TournamentPointsRule) => void;
+  onTournamentFinalsRuleChange: (competition: string, rule: FinalsRule) => void;
   onTournamentProgramEntryChange: (competition: string, entryId: string, patch: Partial<TournamentProgramEntry>) => void;
 }) {
   const docInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [clubOnlyByCompetition, setClubOnlyByCompetition] = useState<Record<string, boolean>>({});
   const [expandedByCompetition, setExpandedByCompetition] = useState<Record<string, boolean>>({});
-  const [finalsRuleByCompetition, setFinalsRuleByCompetition] = useState<Record<string, FinalsRule>>({});
   const [finalsOptionsOpenByCompetition, setFinalsOptionsOpenByCompetition] = useState<Record<string, boolean>>({});
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [editingDocName, setEditingDocName] = useState("");
@@ -751,7 +756,7 @@ export function TournamentGroupedCards({
         }));
         const qualifyingStandingsGroups = standingsGroups.filter((group) => !/final/i.test(group.label));
         const cardStandingGroups = qualifyingStandingsGroups.length > 0 ? qualifyingStandingsGroups : standingsGroups;
-        const finalsRule = finalsRuleByCompetition[g.competition] ?? "cross12";
+        const finalsRule = finalsRulesByCompetition[g.competition] ?? DEFAULT_TOURNAMENT_FINALS_RULE;
         const generatedFinals = generatedFinalsByRule(standingsGroups, finalsRule);
         const standingsWithResults = cardStandingGroups.filter((group) => group.rows.some((row) => row.pg > 0));
         const hasStandingsResults = standingsWithResults.length > 0;
@@ -1206,10 +1211,7 @@ export function TournamentGroupedCards({
                               size="sm"
                               className="h-8 justify-start px-2 text-xs"
                               onClick={() => {
-                                setFinalsRuleByCompetition((prev) => ({
-                                  ...prev,
-                                  [g.competition]: value as FinalsRule,
-                                }));
+                                onTournamentFinalsRuleChange(g.competition, value as FinalsRule);
                                 setFinalsOptionsOpenByCompetition((prev) => ({
                                   ...prev,
                                   [g.competition]: false,

@@ -37,6 +37,8 @@ type TournamentPointsRule = {
 };
 
 const DEFAULT_POINTS_RULE: TournamentPointsRule = { win: 3, draw: 1, loss: 0 };
+const FINALS_RULES = ["cross12", "samePosition", "manual"] as const;
+type FinalsRule = typeof FINALS_RULES[number];
 
 function normalizeTournamentKeyPart(value: unknown): string {
   let s = String(value ?? "").trim().toLowerCase();
@@ -125,6 +127,11 @@ function normalizePointsRule(value: unknown): TournamentPointsRule {
     draw: numberOrDefault("draw"),
     loss: numberOrDefault("loss"),
   };
+}
+
+function normalizeFinalsRule(value: unknown): FinalsRule {
+  const text = String(value ?? "").trim();
+  return (FINALS_RULES as readonly string[]).includes(text) ? (text as FinalsRule) : "cross12";
 }
 
 /** Allineato al filtro sezione di GET /api/matches con teamId. */
@@ -219,6 +226,7 @@ router.get("/tournament-documents", requireAuth, async (req, res): Promise<void>
         program: r.program,
         scores: r.scores,
         pointsRule: r.pointsRule,
+        finalsRule: r.finalsRule,
         pdfReferenceDate: r.pdfReferenceDate,
         updatedAt: r.updatedAt?.toISOString?.() ?? String(r.updatedAt),
       })),
@@ -357,6 +365,7 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
     program?: unknown;
     scores?: unknown;
     pointsRule?: unknown;
+    finalsRule?: unknown;
     pdfReferenceDate?: unknown;
   };
   const teamId = Number.parseInt(String(body.teamId ?? ""), 10);
@@ -379,6 +388,7 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
   const program = normalizeProgram(body.program);
   const scores = normalizeScores(body.scores);
   const pointsRule = normalizePointsRule(body.pointsRule);
+  const finalsRule = normalizeFinalsRule(body.finalsRule);
   const pdfReferenceDate = normalizePdfReferenceDate(body.pdfReferenceDate);
 
   const [existing] = await db
@@ -399,6 +409,7 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
     program,
     scores,
     pointsRule,
+    finalsRule,
     pdfReferenceDate,
     updatedByUserId: userId,
   };
@@ -420,6 +431,7 @@ router.put("/tournament-documents/state", requireAuth, async (req, res): Promise
     program: row.program,
     scores: row.scores,
     pointsRule: row.pointsRule,
+    finalsRule: row.finalsRule,
     pdfReferenceDate: row.pdfReferenceDate,
     updatedAt: row.updatedAt?.toISOString?.() ?? String(row.updatedAt),
   });

@@ -32,6 +32,8 @@ export type TournamentPointsRule = {
 };
 
 export const DEFAULT_TOURNAMENT_POINTS_RULE: TournamentPointsRule = { win: 3, draw: 1, loss: 0 };
+export type TournamentFinalsRule = "cross12" | "samePosition" | "manual";
+export const DEFAULT_TOURNAMENT_FINALS_RULE: TournamentFinalsRule = "cross12";
 
 /** Normalizza la competizione per confronto con `normalizedCompetition` lato API. */
 export function normalizeTournamentKeyPart(value: unknown): string {
