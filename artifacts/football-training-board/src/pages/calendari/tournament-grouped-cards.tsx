@@ -206,7 +206,6 @@ function isPlaceholderTournamentTeam(value: string): boolean {
     /^finale\s*\d+\s*posto$/.test(n)
   );
 }
-
 function isFinalPlaceholderEntry(entry: TournamentProgramEntry): boolean {
   return isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam) || /final/i.test(entry.group ?? "");
 }
@@ -386,7 +385,7 @@ function generatedFinalsByRule(groups: { label: string; rows: StandingRow[] }[],
   if (rule === "manual") return [];
   if (groups.length === 1) return generatedFinalsFromStandings(groups[0]?.rows ?? []);
   if (rule === "samePosition") return generatedCrossFinalsFromGroups(groups) ?? [];
-  return generatedFinalsFromStandings(placementRows(groups));
+  return generatedPlacementFinalsFromGroups(groups) ?? [];
 }
 
 function placementRows(groups: { label: string; rows: StandingRow[] }[]): StandingRow[] {
@@ -410,10 +409,14 @@ function placementRows(groups: { label: string; rows: StandingRow[] }[]): Standi
 
 function resolveGeneratedFinalLabel(value: string, groups: { label: string; rows: StandingRow[] }[]): string {
   const text = value.trim();
-  const placement = text.match(/finale\s+(\d+)\D+(\d+)\D+posto/i) ?? text.match(/(\d+)\D+(\d+)\D+posto/i);
+  const placement =
+    text.match(/finale\s+(\d+)\D+(\d+)\D+posto/i) ??
+    text.match(/finale\s+(\d+)\D+posto/i) ??
+    text.match(/(\d+)\D+(\d+)\D+posto/i) ??
+    text.match(/(\d+)\D+posto/i);
   if (placement) {
     const leftPos = Number(placement[1]);
-    const rightPos = Number(placement[2]);
+    const rightPos = placement[2] ? Number(placement[2]) : leftPos + 1;
     const rows = groups.length === 1 ? (groups[0]?.rows ?? []) : placementRows(groups);
     const left = rows[leftPos - 1]?.team ?? `${leftPos}Â° classificata`;
     const right = rows[rightPos - 1]?.team ?? `${rightPos}Â° classificata`;
@@ -441,6 +444,11 @@ function resolveGeneratedFinalLabel(value: string, groups: { label: string; rows
     return group?.rows[position - 1]?.team ?? `${position}ª classificata Girone ${groupLetter.toUpperCase()}`;
   };
   return `${findTeam(leftGroup, leftPos)} - ${findTeam(rightGroup, rightPos)}`;
+}
+
+function isPlacementFinalText(value: string): boolean {
+  const n = normalizeSide(value);
+  return /\bfinale\b/.test(n) && /\bposto\b/.test(n) && /\d+/.test(n);
 }
 
 function tournamentTeamOptions(entries: TournamentProgramEntry[]): string[] {
@@ -1126,18 +1134,26 @@ export function TournamentGroupedCards({
                         <div key={group.label} className="pb-2 last:pb-0">
                           {programGroups.length > 1 ? <p className="py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</p> : null}
                           <div className="divide-y divide-border/60">
-                            {group.entries.map((entry) => (
+                            {group.entries.map((entry) => {
+                              const entryLabel = `${entry.homeTeam} - ${entry.awayTeam}`;
+                              const resolvedPlacement = isPlacementFinalText(entryLabel)
+                                ? resolveGeneratedFinalLabel(entryLabel, standingsGroups)
+                                : null;
+                              return (
                               <div key={entry.id} className="py-2 text-xs flex items-center justify-between gap-2">
                                 <div className="min-w-0">
                                   <p className="truncate font-medium">
                                     {isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)
-                                      ? resolveGeneratedFinalLabel(`${entry.homeTeam} - ${entry.awayTeam}`, standingsGroups)
+                                      ? resolveGeneratedFinalLabel(entryLabel, standingsGroups)
                                       : (
                                           <>
                                             {entry.homeTeam} <span className="text-muted-foreground font-normal">-</span> {entry.awayTeam}
                                           </>
                                         )}
                                   </p>
+                                  {resolvedPlacement && resolvedPlacement !== entryLabel ? (
+                                    <p className="truncate text-[11px] font-medium text-primary">{resolvedPlacement}</p>
+                                  ) : null}
                                   <p className="text-muted-foreground">{format(new Date(entry.date), "dd/MM HH:mm", { locale: itLocale })}</p>
                                 </div>
                                 {canEditTournamentScores && (isFinalPlaceholderEntry(entry) || isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)) ? (
@@ -1169,7 +1185,8 @@ export function TournamentGroupedCards({
                                   </span>
                                 )}
                               </div>
-                            ))}
+                            );
+                            })}
                           </div>
                         </div>
                       ))}
@@ -1293,7 +1310,7 @@ export function TournamentGroupedCards({
                       {(finalsOptionsOpenByCompetition[g.competition] ?? false) ? (
                         <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
                           {[
-                            ["cross12", "1°-2° / 3°-4°"],
+                            ["cross12", "1A-2B / 1B-2A"],
                             ["samePosition", "1A-1B / 2A-2B"],
                             ["manual", "Manuale"],
                           ].map(([value, label]) => (
