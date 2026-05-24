@@ -386,7 +386,7 @@ function generatedFinalsByRule(groups: { label: string; rows: StandingRow[] }[],
   if (rule === "manual") return [];
   if (groups.length === 1) return generatedFinalsFromStandings(groups[0]?.rows ?? []);
   if (rule === "samePosition") return generatedCrossFinalsFromGroups(groups) ?? [];
-  return generatedPlacementFinalsFromGroups(groups) ?? [];
+  return generatedFinalsFromStandings(placementRows(groups));
 }
 
 function placementRows(groups: { label: string; rows: StandingRow[] }[]): StandingRow[] {
@@ -1293,7 +1293,7 @@ export function TournamentGroupedCards({
                       {(finalsOptionsOpenByCompetition[g.competition] ?? false) ? (
                         <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
                           {[
-                            ["cross12", "1A-2B / 1B-2A"],
+                            ["cross12", "1°-2° / 3°-4°"],
                             ["samePosition", "1A-1B / 2A-2B"],
                             ["manual", "Manuale"],
                           ].map(([value, label]) => (
