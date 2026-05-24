@@ -754,6 +754,19 @@ function parseUnifiedTournamentProgramLines(
       .sort((a, b) => a.idx - b.idx);
     return matches.length >= 2 ? [matches[0].team, matches[1].team] : null;
   };
+  const findKnownPairs = (rest: string): [string, string][] => {
+    const restNorm = normalizeName(rest);
+    const matches = knownTeams
+      .map((team) => ({ team, idx: restNorm.indexOf(normalizeName(team)) }))
+      .filter((m) => m.idx >= 0)
+      .sort((a, b) => a.idx - b.idx);
+    if (matches.length < 4 || (rest.match(/[\u2013\u2014-]/g)?.length ?? 0) < 2) return [];
+    const pairs: [string, string][] = [];
+    for (let i = 0; i + 1 < matches.length; i += 2) {
+      pairs.push([matches[i].team, matches[i + 1].team]);
+    }
+    return pairs;
+  };
   const splitPair = (rest: string): [string, string] | null => {
     const explicit = rest.match(/^(.+?)\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>)\s*(.+)$/i);
     if (explicit) return [explicit[1] ?? "", explicit[2] ?? ""];
@@ -769,6 +782,11 @@ function parseUnifiedTournamentProgramLines(
     for (const part of sourceParts) {
       const n = normalizeName(part);
       if (!n || /\b(?:riposa|riposano|campo|risultato)\b/.test(n)) continue;
+      const knownPairs = findKnownPairs(part);
+      if (knownPairs.length > 0) {
+        pairs.push(...knownPairs);
+        continue;
+      }
       const pair = splitPair(part);
       if (pair) pairs.push(pair);
     }
