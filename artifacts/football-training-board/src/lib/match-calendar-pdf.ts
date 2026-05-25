@@ -403,12 +403,23 @@ function cleanTournamentPlacementFinalLabel(value: string): string {
 function cleanOcrTournamentOpponentName(value: string): string {
   return cleanTournamentTeamName(
     value.replace(/^\s*\d+\s*[|Â¦]?\s*/g, "")
+      .replace(/^\s*(?:[.\-]?\d{4}\s*)?(?:\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\s*)+/g, "")
+      .replace(/^\s*[.\-]?\d{4}\s+/g, "")
       .replace(/^[|¦=\-\s]+|[|¦=\-\s]+$/g, "")
       .replace(/\s*=+\]?\s*.*$/g, "")
       .replace(/\bDD\s*-?\s*O\b.*$/i, "")
       .replace(/\bO\b\s*$/i, "")
       .replace(/\s+/g, " "),
   );
+}
+
+function cleanTournamentCellTeamName(value: string, options: { stripTrailingScore?: boolean } = {}): string {
+  let cleaned = cleanOcrTournamentOpponentName(value)
+    .replace(/^[0O]\s+(?=[A-ZÀ-Ü])/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (options.stripTrailingScore) cleaned = cleaned.replace(/\s+\d{1,2}\s*$/g, "").trim();
+  return cleanOcrTournamentOpponentName(cleaned);
 }
 
 function parseTournamentImageEmptySlotLine(
@@ -657,8 +668,10 @@ function parseTournamentProgramLines(
     if (!currentDateIso) continue;
 
     totalDateLines++;
-    const programEntry = parseAnyTournamentProgramLineNear(normalizedLines, i, currentDateIso, currentPhase);
-    if (programEntry) {
+    const programEntries = parseAnyTournamentProgramLinesNear(normalizedLines, i, currentDateIso, currentPhase);
+    for (const programEntry of programEntries.length > 0
+      ? programEntries
+      : [parseAnyTournamentProgramLineNear(normalizedLines, i, currentDateIso, currentPhase)].filter(Boolean) as TournamentProgramEntry[]) {
       const key = `${programEntry.date}|${normalizeName(programEntry.homeTeam)}|${normalizeName(programEntry.awayTeam)}`;
       if (!seenProgram.has(key)) {
         seenProgram.add(key);
@@ -919,6 +932,57 @@ function parseAnyTournamentProgramLines(
   return entries;
 }
 
+function parseCellTournamentProgramLines(
+  line: string,
+  currentDateIso: string,
+  currentPhase: string | null,
+): TournamentProgramEntry[] {
+  const m = line.match(/\b(?:ORE\s*)?(\d{1,2})[:.](\d{2})\b\s*(.+)$/i);
+  if (!m) return [];
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const rest = cleanTournamentTeamName(m[3] ?? "");
+  if (isTournamentPlacementFinalLabel(rest)) return [];
+
+  const rawCells = rest
+    .split(/\s+[\u2013\u2014-]\s+/g)
+    .map((cell) => cell.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (rawCells.length < 4) return [];
+
+  const cells: string[] = [];
+  for (let i = 0; i < rawCells.length; i += 1) {
+    const current = rawCells[i] ?? "";
+    if (/^[0O]?\d{1,2}$/i.test(current)) continue;
+    const nextIsScore = /^[0O]?\d{1,2}$/i.test(rawCells[i + 1] ?? "");
+    const cleaned = cleanTournamentCellTeamName(current, { stripTrailingScore: nextIsScore });
+    if (cleaned && !isImageTournamentEmptyTeam(cleaned)) cells.push(cleaned);
+  }
+  if (cells.length < 4) return [];
+
+  const base = new Date(currentDateIso);
+  if (Number.isNaN(base.getTime())) return [];
+  base.setHours(hour, minute, 0, 0);
+  const phase = currentPhase?.trim() || null;
+  const group = phase?.match(/\bgirone\s+[a-z0-9]+/i)?.[0] ?? null;
+  const entries: TournamentProgramEntry[] = [];
+
+  for (let i = 0; i + 1 < cells.length; i += 2) {
+    const homeTeam = cells[i] ?? "";
+    const awayTeam = cells[i + 1] ?? "";
+    if (!homeTeam || !awayTeam) continue;
+    entries.push({
+      id: "",
+      date: base.toISOString(),
+      homeTeam: homeTeam.slice(0, 120),
+      awayTeam: awayTeam.slice(0, 120),
+      phase,
+      group,
+    });
+  }
+  return entries;
+}
+
 function parseImageTournamentProgramLines(
   line: string,
   currentDateIso: string,
@@ -992,6 +1056,8 @@ function parseAnyTournamentProgramLineNear(
   currentPhase: string | null,
 ): TournamentProgramEntry | null {
   for (const candidate of tournamentProgramCandidateLines(lines, index)) {
+    const cellParsed = parseCellTournamentProgramLines(candidate, currentDateIso, currentPhase);
+    if (cellParsed.length > 0) return cellParsed[0] ?? null;
     const parsed = parseAnyTournamentProgramLine(candidate, currentDateIso, currentPhase);
     if (parsed) return parsed;
   }
@@ -1008,6 +1074,7 @@ function parseAnyTournamentProgramLinesNear(
   const seen = new Set<string>();
   for (const candidate of tournamentProgramCandidateLines(lines, index)) {
     const parsed = [
+      ...parseCellTournamentProgramLines(candidate, currentDateIso, currentPhase),
       ...parseImageTournamentProgramLines(candidate, currentDateIso, currentPhase),
       ...parseAnyTournamentProgramLines(candidate, currentDateIso, currentPhase),
     ];
