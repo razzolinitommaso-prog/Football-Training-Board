@@ -260,8 +260,18 @@ function looksLikeTournamentProgram(fullText: string): boolean {
 }
 
 function extractTournamentGroupLabel(line: string): string | null {
-  const match = line.match(/\b(?:girone|raggruppamento)\s+([a-z0-9]+)\b/i);
-  return match ? `Girone ${String(match[1] ?? "").toUpperCase()}` : null;
+  const group = line.match(/\b(?:girone|raggruppamento)\s+([a-z0-9]+(?:\s+[a-z0-9]+){0,2})\b/i);
+  if (group) {
+    const label = String(group[1] ?? "")
+      .replace(/\b(?:data|ora|ore|campo|gara|classificata|classificato)\b.*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase();
+    return label ? `Girone ${label}` : null;
+  }
+  const triangular = line.match(/\btriangolare\s+([a-z0-9]+)\b/i);
+  if (triangular) return `Triangolare ${String(triangular[1] ?? "").toUpperCase()}`;
+  return null;
 }
 
 function parseItalianNamedDateIso(line: string, fallbackYear?: number | null): string | null {
@@ -348,7 +358,11 @@ function tournamentAliasMatchesSide(sideNorm: string, aliasNorms: string[]): boo
 function detectTournamentPhase(line: string, currentPhase: string | null): string | null {
   const n = normalizeName(line);
   if (n.includes("programma torneo")) return "Gironi";
+  if (/\bfase finale\b/.test(n) && /\bargento\b/.test(n)) return "Fase finale - Argento";
+  if (/\bfase finale\b/.test(n) && /\b(?:oro|gold)\b/.test(n)) return "Fase finale - Oro";
   if (n.includes("fase finale")) return "Fase finale";
+  if (/\bsesti di finale\b/.test(n)) return "Sesti di finale";
+  if (/\btriangolari di semifinale\b/.test(n)) return "Triangolari di semifinale";
   if (n.includes("semifinali")) return "Semifinali";
   if (/\bfinale\b/.test(n) && !n.includes("fase finale")) return "Finale";
   return currentPhase;
@@ -766,7 +780,7 @@ function parseUnifiedTournamentProgramLines(
     if (groupLabel) {
       currentGroup = groupLabel;
       currentPhase = "Gironi";
-      const groupMatch = line.match(/\b(?:girone|raggruppamento)\s+[a-z0-9]+\b/i);
+      const groupMatch = line.match(/\b(?:girone|raggruppamento)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}\b/i);
       const after = line.slice((groupMatch?.index ?? 0) + (groupMatch?.[0].length ?? 0)).trim();
       if (after) after.split(/\s{2,}|[,;|]/).forEach((part) => addTeam(currentGroup!, part));
       continue;
@@ -841,7 +855,7 @@ function parseUnifiedTournamentProgramLines(
     const line = normalizedLines[i] ?? "";
     if (!line || isPageFooterOrNoise(line)) continue;
     currentPhase = detectTournamentPhase(line, currentPhase);
-    const rowGroup = extractTournamentGroupLabel(line) ?? currentGroup ?? currentPhase?.match(/\bgirone\s+[a-z0-9]+/i)?.[0] ?? null;
+    const rowGroup = extractTournamentGroupLabel(line) ?? currentGroup ?? currentPhase?.match(/\bgirone\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}/i)?.[0] ?? null;
     const numericDateIso = parseDateTimeIso(line);
     const namedDateIso = parseItalianNamedDateIso(line, fallbackYear);
     if (numericDateIso || namedDateIso) currentDateIso = numericDateIso ?? namedDateIso;
@@ -857,7 +871,7 @@ function parseUnifiedTournamentProgramLines(
     const keepGroupLabels = /\bclassificat[aoe]?\b/i.test(afterTime);
     const restSource = keepGroupLabels
       ? afterTime
-      : afterTime.replace(/\b(?:girone|raggruppamento)\s+[a-z0-9]+\b/i, "").replace(/^\s*[a-z]\s+/i, "");
+      : afterTime.replace(/\b(?:girone|raggruppamento)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}\b/i, "").replace(/^\s*[a-z]\s+/i, "");
     const pairs = splitPairs(cleanTournamentFixtureRest(restSource));
     if (pairs.length === 0) {
       discarded++;
@@ -1457,8 +1471,8 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
   const groupHeadings: { group: string; x: number; y: number }[] = [];
   for (const row of rows) {
     for (const cell of row.cells) {
-      const match = cell.str.match(/^(?:girone|raggruppamento)\s+([a-z0-9]+)$/i);
-      if (match) groupHeadings.push({ group: `Girone ${String(match[1] ?? "").toUpperCase()}`, x: cell.x, y: row.y });
+      const label = extractTournamentGroupLabel(cell.str);
+      if (label) groupHeadings.push({ group: label, x: cell.x, y: row.y });
     }
   }
   groupHeadings.sort((a, b) => a.x - b.x);
@@ -1471,6 +1485,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
   const groupForScheduleRow = (rowY: number): string | null => {
     const above = groupHeadings
       .filter((heading) => heading.y > rowY)
+      .filter((heading) => heading.y - rowY < 210)
       .sort((a, b) => a.y - b.y)[0];
     return above?.group ?? null;
   };
