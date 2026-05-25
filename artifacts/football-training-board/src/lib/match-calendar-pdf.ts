@@ -1499,25 +1499,84 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
     }
   }
 
-  const dateRe = /\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\b/;
+  const dateRe = /\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/;
   const timeRe = /\b\d{1,2}[:.]\d{2}\b/;
-  for (const row of rows) {
-    const dateCell = row.cells.find((cell) => dateRe.test(cell.str));
-    const timeCell = row.cells.find((cell) => timeRe.test(cell.str));
-    if (!timeCell) continue;
+  let currentTableDate = pageDateCell ? formatIsoDateForPdfLine(pageDateCell) : "";
+  let pendingTimeCells: { x: number; time: string; date: string }[] = [];
 
-    if (!dateCell && pageDateCell) {
-      const groupLabel = groupForScheduleRow(row.y);
-      if (!groupLabel) continue;
-      for (const cell of row.cells.filter((candidate) => candidate.x > timeCell.x + 20)) {
-        if (!/[-–—]/.test(cell.str)) continue;
-        const clean = cleanTournamentTeamName(cell.str);
-        if (clean) pushLine(`${formatIsoDateForPdfLine(pageDateCell)} ${timeCell.str} ${groupLabel} ${clean}`, row.y + 0.04);
+  const isUsefulTournamentFixtureCell = (value: string): boolean => {
+    const clean = cleanTournamentTeamName(value);
+    const n = normalizeName(clean);
+    if (!clean || !/[-–—]/.test(clean)) return false;
+    if (/^[a-z]\d+\s*[-–—]\s*[a-z]\d+$/i.test(clean)) return false;
+    if (/\b(?:campo|data|ora|ore|gara|ris|giornata)\b/.test(n)) return false;
+    return /[a-zàèéìòù]{2,}/i.test(clean);
+  };
+
+  const normalizeTournamentDateCell = (value: string): string => {
+    const clean = value.trim();
+    const withYear = clean.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+    if (withYear) return clean;
+    const short = clean.match(/^(\d{1,2})[\/.\-](\d{1,2})$/);
+    if (short) {
+      const year = extractYearFromIso(pageDateCell ?? "") ?? new Date().getFullYear();
+      return `${String(short[1]).padStart(2, "0")}/${String(short[2]).padStart(2, "0")}/${year}`;
+    }
+    return clean;
+  };
+
+  const pushTournamentFixtureCell = (dateValue: string, timeValue: string, groupLabel: string | null, fixture: string, y: number) => {
+    const clean = cleanTournamentTeamName(fixture);
+    if (!isUsefulTournamentFixtureCell(clean)) return;
+    pushLine(`${normalizeTournamentDateCell(dateValue)} ${timeValue.replace(".", ":")} ${groupLabel ?? ""} ${clean}`, y);
+  };
+
+  for (const row of rows) {
+    const dateCells = row.cells.filter((cell) => dateRe.test(cell.str));
+    if (dateCells.length > 0) currentTableDate = normalizeTournamentDateCell(dateCells[0].str);
+    const timeCells = row.cells.filter((cell) => timeRe.test(cell.str));
+
+    if (timeCells.length > 0) {
+      pendingTimeCells = timeCells.map((timeCell) => {
+        const dateCell = dateCells
+          .filter((cell) => cell.x <= timeCell.x + 20)
+          .sort((a, b) => Math.abs(a.x - timeCell.x) - Math.abs(b.x - timeCell.x))[0];
+        return {
+          x: timeCell.x,
+          time: timeCell.str,
+          date: dateCell ? normalizeTournamentDateCell(dateCell.str) : currentTableDate,
+        };
+      });
+
+      for (const timeCell of pendingTimeCells) {
+        const nextTimeX = pendingTimeCells
+          .map((cell) => cell.x)
+          .filter((x) => x > timeCell.x + 20)
+          .sort((a, b) => a - b)[0] ?? Number.POSITIVE_INFINITY;
+        const groupLabel = groupForScheduleRow(row.y);
+        const fixtureCells = row.cells.filter((cell) =>
+          cell.x > timeCell.x + 35 &&
+          cell.x < nextTimeX - 20 &&
+          isUsefulTournamentFixtureCell(cell.str)
+        );
+        for (const cell of fixtureCells) pushTournamentFixtureCell(timeCell.date, timeCell.time, groupLabel, cell.str, row.y + 0.04);
+      }
+    }
+
+    if (timeCells.length === 0 && pendingTimeCells.length > 0) {
+      const fixtureCells = row.cells.filter((cell) => isUsefulTournamentFixtureCell(cell.str));
+      for (const cell of fixtureCells) {
+        const timeCell = [...pendingTimeCells]
+          .filter((candidate) => candidate.x <= cell.x + 20)
+          .sort((a, b) => Math.abs(a.x - cell.x) - Math.abs(b.x - cell.x))[0] ?? pendingTimeCells[0];
+        pushTournamentFixtureCell(timeCell.date, timeCell.time, groupForScheduleRow(row.y), cell.str, row.y + 0.04);
       }
       continue;
     }
 
-    if (!dateCell) continue;
+    const dateCell = row.cells.find((cell) => dateRe.test(cell.str));
+    const timeCell = row.cells.find((cell) => timeRe.test(cell.str));
+    if (!dateCell || !timeCell) continue;
 
     const groupCell = row.cells.find((cell) => /^[A-Z]$/i.test(cell.str) && cell.x > timeCell.x && cell.x < timeCell.x + 110);
     const rightCells = row.cells.filter((cell) => cell.x > (groupCell?.x ?? timeCell.x) + 35);
