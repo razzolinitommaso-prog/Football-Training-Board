@@ -264,6 +264,34 @@ type EditingTournamentGroups = {
   groups: { id: string; name: string; teams: string[] }[];
 };
 type GeneratedFinal = { label: string; homeTeam: string; awayTeam: string };
+type TournamentLogistics = {
+  startDate: string;
+  endDate: string;
+  overnight: boolean;
+  departureDate: string;
+  returnDate: string;
+  notes: string;
+};
+
+const TOURNAMENT_LOGISTICS_PREFIX = "__tournamentLogistics=";
+
+function decodeTournamentLogistics(notes?: string | null): TournamentLogistics | null {
+  const raw = (notes ?? "").split(/\r?\n/).find((line) => line.startsWith(TOURNAMENT_LOGISTICS_PREFIX));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(TOURNAMENT_LOGISTICS_PREFIX.length));
+    return {
+      startDate: typeof parsed.startDate === "string" ? parsed.startDate : "",
+      endDate: typeof parsed.endDate === "string" ? parsed.endDate : "",
+      overnight: parsed.overnight === true,
+      departureDate: typeof parsed.departureDate === "string" ? parsed.departureDate : "",
+      returnDate: typeof parsed.returnDate === "string" ? parsed.returnDate : "",
+      notes: typeof parsed.notes === "string" ? parsed.notes : "",
+    };
+  } catch {
+    return null;
+  }
+}
 
 function programEntrySearchText(entry: TournamentProgramEntry): string {
   return [entry.homeTeam, entry.awayTeam, entry.phase ?? "", entry.group ?? ""].join(" ");
@@ -822,6 +850,7 @@ export function TournamentGroupedCards({
         const first = sorted[0];
         const last = sorted[sorted.length - 1];
         const firstLoc = sorted.map((m) => (m.location ?? "").trim()).find(Boolean);
+        const logistics = sorted.map((m) => decodeTournamentLogistics(m.notes)).find(Boolean) ?? null;
         const dateFrom = first
           ? format(new Date(first.date), "d MMMM yyyy", { locale: itLocale })
           : "—";
@@ -1004,6 +1033,13 @@ export function TournamentGroupedCards({
                 <span className="font-medium text-foreground/80">Luogo: </span>
                 {locLine}
               </p>
+              {logistics?.overnight ? (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-950">
+                  <p className="font-semibold">Torneo con pernottamento</p>
+                  <p>Partenza: {logistics.departureDate || "da completare"} - Ritorno: {logistics.returnDate || "da completare"}</p>
+                  {logistics.notes ? <p className="mt-1 whitespace-pre-wrap text-emerald-900/80">{logistics.notes}</p> : null}
+                </div>
+              ) : null}
               {canUploadDocuments ? (
                 <input
                   type="file"

@@ -120,9 +120,19 @@ type ManualTournamentForm = {
   overnight: boolean;
   overnightFrom: string;
   overnightTo: string;
+  overnightNotes: string;
   groups: { id: string; name: string; teams: string[] }[];
   matches: { id: string; date: string; time: string; group: string; homeTeam: string; awayTeam: string }[];
   finals: { id: string; date: string; time: string; label: string; homeTeam: string; awayTeam: string }[];
+};
+
+type TournamentLogistics = {
+  startDate: string;
+  endDate: string;
+  overnight: boolean;
+  departureDate: string;
+  returnDate: string;
+  notes: string;
 };
 
 type MatchTimelineView = "standard" | "postponed-original" | "recovery";
@@ -386,6 +396,7 @@ function defaultManualTournamentForm(): ManualTournamentForm {
     overnight: false,
     overnightFrom: "",
     overnightTo: "",
+    overnightNotes: "",
     groups: [
       { id: "group-a", name: "Girone A", teams: [""] },
       { id: "group-b", name: "Girone B", teams: [""] },
@@ -397,6 +408,51 @@ function defaultManualTournamentForm(): ManualTournamentForm {
       { id: "final-1", date: "", time: "", label: "Finale 1° - 2° posto", homeTeam: "da completare", awayTeam: "da completare" },
     ],
   };
+}
+
+const TOURNAMENT_LOGISTICS_PREFIX = "__tournamentLogistics=";
+
+function encodeTournamentLogistics(logistics: TournamentLogistics): string {
+  return `${TOURNAMENT_LOGISTICS_PREFIX}${JSON.stringify(logistics)}`;
+}
+
+function decodeTournamentLogistics(notes?: string | null): TournamentLogistics | null {
+  const raw = (notes ?? "").split(/\r?\n/).find((line) => line.startsWith(TOURNAMENT_LOGISTICS_PREFIX));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(TOURNAMENT_LOGISTICS_PREFIX.length));
+    return {
+      startDate: typeof parsed.startDate === "string" ? parsed.startDate : "",
+      endDate: typeof parsed.endDate === "string" ? parsed.endDate : "",
+      overnight: parsed.overnight === true,
+      departureDate: typeof parsed.departureDate === "string" ? parsed.departureDate : "",
+      returnDate: typeof parsed.returnDate === "string" ? parsed.returnDate : "",
+      notes: typeof parsed.notes === "string" ? parsed.notes : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function tournamentLogisticsFromForm(form: ManualTournamentForm): TournamentLogistics {
+  return {
+    startDate: form.startDate,
+    endDate: form.endDate,
+    overnight: form.overnight,
+    departureDate: form.overnight ? form.overnightFrom : "",
+    returnDate: form.overnight ? form.overnightTo : "",
+    notes: form.overnight ? form.overnightNotes.trim() : "",
+  };
+}
+
+function tournamentNotesFromLogistics(logistics: TournamentLogistics): string {
+  const visibleNotes = logistics.overnight
+    ? [
+        `Torneo con pernottamento. Partenza: ${logistics.departureDate || "da completare"}. Ritorno: ${logistics.returnDate || "da completare"}`,
+        logistics.notes,
+      ].filter(Boolean).join("\n")
+    : logistics.notes;
+  return [visibleNotes, encodeTournamentLogistics(logistics)].filter(Boolean).join("\n");
 }
 
 function tournamentGroupForTeam(teamName: string, groups: { name: string; teams: string[] }[]): string | null {
@@ -3006,6 +3062,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     originalCompetition: string;
     name: string;
     location: string;
+    startDate: string;
+    endDate: string;
+    overnight: boolean;
+    overnightFrom: string;
+    overnightTo: string;
+    overnightNotes: string;
     /** YYYY-MM-DD per import PDF torneo senza date nel testo. */
     pdfReferenceDate: string;
   }>(null);
@@ -3422,18 +3484,35 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       originalCompetition: string;
       name: string;
       location: string;
+      startDate: string;
+      endDate: string;
+      overnight: boolean;
+      overnightFrom: string;
+      overnightTo: string;
+      overnightNotes: string;
       pdfReferenceDate: string;
     }) => {
       const name = input.name.trim();
       if (!name) throw new Error("Inserisci il nome del torneo");
       const group = tournamentGroups.find((g) => g.competition === input.originalCompetition);
       if (!group) throw new Error("Torneo non trovato");
+      const logistics = tournamentLogisticsFromForm({
+        ...defaultManualTournamentForm(),
+        startDate: input.startDate,
+        endDate: input.endDate,
+        overnight: input.overnight,
+        overnightFrom: input.overnightFrom,
+        overnightTo: input.overnightTo,
+        overnightNotes: input.overnightNotes,
+      });
+      const notes = tournamentNotesFromLogistics(logistics);
       for (const match of group.matches) {
         await apiFetch(`/api/matches/${match.id}`, {
           method: "PATCH",
           body: JSON.stringify({
             competition: name,
             location: input.location.trim() || null,
+            notes,
           }),
         });
       }
@@ -3639,9 +3718,8 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         .filter((entry): entry is TournamentProgramEntry => Boolean(entry));
       const program = [...qualifying, ...finals].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       if (program.length === 0) throw new Error("Inserisci almeno una partita nel programma torneo");
-      const notes = manualTournamentForm.overnight
-        ? `Torneo con pernottamento. Partenza: ${manualTournamentForm.overnightFrom || "da completare"}. Ritorno: ${manualTournamentForm.overnightTo || "da completare"}`
-        : null;
+      const logistics = tournamentLogisticsFromForm(manualTournamentForm);
+      const notes = tournamentNotesFromLogistics(logistics);
       for (const entry of program) {
         await apiFetch("/api/matches", {
           method: "POST",
@@ -3978,11 +4056,20 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
   function openTournamentEdit(group: TournamentCardGroup) {
     const firstLoc = group.matches.map((m) => (m.location ?? "").trim()).find(Boolean) ?? "";
+    const firstMatch = group.matches[0];
+    const lastMatch = group.matches[group.matches.length - 1];
+    const logistics = group.matches.map((m) => decodeTournamentLogistics(m.notes)).find(Boolean) ?? null;
     const pdfRef = getTournamentPdfReferenceDateForEdit(group.competition) ?? "";
     setEditingTournament({
       originalCompetition: group.competition,
       name: group.competition,
       location: firstLoc,
+      startDate: logistics?.startDate || toDateInputValue(firstMatch?.date),
+      endDate: logistics?.endDate || toDateInputValue(lastMatch?.date),
+      overnight: logistics?.overnight ?? false,
+      overnightFrom: logistics?.departureDate ?? "",
+      overnightTo: logistics?.returnDate ?? "",
+      overnightNotes: logistics?.notes ?? "",
       pdfReferenceDate: pdfRef,
     });
   }
@@ -4800,7 +4887,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                 />
                 Torneo con pernottamento
               </label>
-              {manualTournamentForm.overnight ? (
+                  {manualTournamentForm.overnight ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label htmlFor="manual-tournament-overnight-from">Data partenza</Label>
@@ -4818,6 +4905,16 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                       type="date"
                       value={manualTournamentForm.overnightTo}
                       onChange={(e) => setManualTournamentForm((p) => ({ ...p, overnightTo: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <Label htmlFor="manual-tournament-overnight-notes">Note pernottamento</Label>
+                    <Textarea
+                      id="manual-tournament-overnight-notes"
+                      className="min-h-20"
+                      value={manualTournamentForm.overnightNotes}
+                      onChange={(e) => setManualTournamentForm((p) => ({ ...p, overnightNotes: e.target.value }))}
+                      placeholder="Hotel, ritrovo, trasporto, pasti, referente..."
                     />
                   </div>
                 </div>
@@ -4957,35 +5054,96 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           if (!open) setEditingTournament(null);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Modifica torneo</DialogTitle>
             <DialogDescription>
-              Aggiorna nome, luogo e data di riferimento per l&apos;import PDF (se il programma non ha date nel testo).
+              Aggiorna dati generali e logistici. Accoppiamenti, punteggi e gironi si modificano dalla scheda torneo.
             </DialogDescription>
           </DialogHeader>
           {editingTournament ? (
             <div className="space-y-3">
-              <div className="space-y-1">
-                <Label htmlFor="edit-tournament-name">Nome torneo</Label>
-                <Input
-                  id="edit-tournament-name"
-                  value={editingTournament.name}
-                  onChange={(e) =>
-                    setEditingTournament((prev) => prev ? { ...prev, name: e.target.value } : prev)
-                  }
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="edit-tournament-name">Nome torneo</Label>
+                  <Input
+                    id="edit-tournament-name"
+                    value={editingTournament.name}
+                    onChange={(e) =>
+                      setEditingTournament((prev) => prev ? { ...prev, name: e.target.value } : prev)
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="edit-tournament-location">Luogo</Label>
+                  <Input
+                    id="edit-tournament-location"
+                    value={editingTournament.location}
+                    onChange={(e) =>
+                      setEditingTournament((prev) => prev ? { ...prev, location: e.target.value } : prev)
+                    }
+                    placeholder="da completare"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="edit-tournament-start">Data inizio</Label>
+                  <Input
+                    id="edit-tournament-start"
+                    type="date"
+                    value={editingTournament.startDate}
+                    onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, startDate: e.target.value } : prev)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="edit-tournament-end">Data fine</Label>
+                  <Input
+                    id="edit-tournament-end"
+                    type="date"
+                    value={editingTournament.endDate}
+                    onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, endDate: e.target.value } : prev)}
+                  />
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="edit-tournament-location">Luogo</Label>
-                <Input
-                  id="edit-tournament-location"
-                  value={editingTournament.location}
-                  onChange={(e) =>
-                    setEditingTournament((prev) => prev ? { ...prev, location: e.target.value } : prev)
-                  }
-                  placeholder="da completare"
-                />
+              <div className="rounded-lg border border-border/70 bg-muted/20 p-3 space-y-3">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Checkbox
+                    checked={editingTournament.overnight}
+                    onCheckedChange={(checked) => setEditingTournament((prev) => prev ? { ...prev, overnight: checked === true } : prev)}
+                  />
+                  Torneo con pernottamento
+                </label>
+                {editingTournament.overnight ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-tournament-departure">Data partenza</Label>
+                      <Input
+                        id="edit-tournament-departure"
+                        type="date"
+                        value={editingTournament.overnightFrom}
+                        onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, overnightFrom: e.target.value } : prev)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit-tournament-return">Data ritorno</Label>
+                      <Input
+                        id="edit-tournament-return"
+                        type="date"
+                        value={editingTournament.overnightTo}
+                        onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, overnightTo: e.target.value } : prev)}
+                      />
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <Label htmlFor="edit-tournament-overnight-notes">Note pernottamento</Label>
+                      <Textarea
+                        id="edit-tournament-overnight-notes"
+                        className="min-h-20"
+                        value={editingTournament.overnightNotes}
+                        onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, overnightNotes: e.target.value } : prev)}
+                        placeholder="Hotel, ritrovo, trasporto, pasti, referente..."
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <div className="space-y-1">
                 <Label htmlFor="edit-tournament-pdf-ref">Data di riferimento PDF (facoltativa)</Label>
