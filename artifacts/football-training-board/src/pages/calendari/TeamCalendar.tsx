@@ -3640,7 +3640,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       const program = [...qualifying, ...finals].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       if (program.length === 0) throw new Error("Inserisci almeno una partita nel programma torneo");
       const notes = manualTournamentForm.overnight
-        ? `Torneo con pernottamento da ${manualTournamentForm.overnightFrom || "da completare"} a ${manualTournamentForm.overnightTo || "da completare"}`
+        ? `Torneo con pernottamento. Partenza: ${manualTournamentForm.overnightFrom || "da completare"}. Ritorno: ${manualTournamentForm.overnightTo || "da completare"}`
         : null;
       for (const entry of program) {
         await apiFetch("/api/matches", {
@@ -4803,7 +4803,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               {manualTournamentForm.overnight ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label htmlFor="manual-tournament-overnight-from">Pernottamento da</Label>
+                    <Label htmlFor="manual-tournament-overnight-from">Data partenza</Label>
                     <Input
                       id="manual-tournament-overnight-from"
                       type="date"
@@ -4812,7 +4812,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="manual-tournament-overnight-to">Pernottamento a</Label>
+                    <Label htmlFor="manual-tournament-overnight-to">Data ritorno</Label>
                     <Input
                       id="manual-tournament-overnight-to"
                       type="date"
