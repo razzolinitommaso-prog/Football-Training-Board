@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboardStats, useListPlayers, useListTeams } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell, Heart, Eye, RotateCcw } from "lucide-react";
+import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell, Heart, Eye, RotateCcw, Leaf, Grape, Handshake } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,6 +58,7 @@ type DashboardMatch = {
   teamName?: string | null;
   competition?: string | null;
   location?: string | null;
+  notes?: string | null;
 };
 
 type DashboardExtraEvent = {
@@ -125,6 +126,7 @@ type DashboardCalendarItem =
       kind: "tournament";
       key: string;
       date: Date;
+      dateEnd?: Date;
       time: string;
       title: string;
       subtitle: string;
@@ -329,6 +331,40 @@ function normalCompetition(value?: string | null): string {
 
 function isTournamentMatch(match: DashboardMatch): boolean {
   return /^torneo\b/i.test(normalCompetition(match.competition));
+}
+
+const DASHBOARD_TOURNAMENT_LOGISTICS_PREFIX = "__tournamentLogistics=";
+
+function parseDashboardTournamentDate(value?: string | null): Date | null {
+  const raw = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const parsed = new Date(`${raw}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function decodeDashboardTournamentLogistics(notes?: string | null): { startDate?: string; endDate?: string; departureDate?: string; returnDate?: string } | null {
+  const raw = String(notes ?? "").split(/\r?\n/).find((line) => line.startsWith(DASHBOARD_TOURNAMENT_LOGISTICS_PREFIX));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(DASHBOARD_TOURNAMENT_LOGISTICS_PREFIX.length));
+    return {
+      startDate: typeof parsed.startDate === "string" ? parsed.startDate : "",
+      endDate: typeof parsed.endDate === "string" ? parsed.endDate : "",
+      departureDate: typeof parsed.departureDate === "string" ? parsed.departureDate : "",
+      returnDate: typeof parsed.returnDate === "string" ? parsed.returnDate : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function dashboardMatchPhase(match: DashboardMatch): "autunnale" | "primaverile" | "tornei" | "amichevoli" {
+  const comp = normalCompetition(match.competition).toLowerCase();
+  if (["amichev", "friendly"].some((key) => comp.includes(key))) return "amichevoli";
+  if (["torneo", "coppa", "trofeo", "cup"].some((key) => comp.includes(key))) return "tornei";
+  const date = parseLocalDateTime(match.date);
+  const month = date?.getMonth();
+  return month === 0 || (month != null && month >= 7) ? "autunnale" : "primaverile";
 }
 
 function homeAwayLabel(value?: string | null): string {
@@ -1233,6 +1269,34 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
     }).length;
   }, [dashboardCalendarItems]);
 
+  const dashboardMatchSummary = useMemo(() => {
+    const summary = {
+      autunnale: 0,
+      primaverile: 0,
+      tournaments: new Set<string>(),
+      amichevoli: 0,
+    };
+    dashboardMatches.forEach((match) => {
+      const phase = dashboardMatchPhase(match);
+      if (phase === "tornei") {
+        const competition = normalCompetition(match.competition) || "Torneo";
+        summary.tournaments.add(`${match.teamId ?? "team"}|${competition.toLowerCase()}`);
+        return;
+      }
+      if (phase === "amichevoli") {
+        summary.amichevoli += 1;
+        return;
+      }
+      summary[phase] += 1;
+    });
+    return {
+      autunnale: summary.autunnale,
+      primaverile: summary.primaverile,
+      tornei: summary.tournaments.size,
+      amichevoli: summary.amichevoli,
+    };
+  }, [dashboardMatches]);
+
   const dashboardTeamCount = useMemo(() => {
     const fromApi = stats?.totalTeams ?? 0;
     const n = allTeams?.length ?? 0;
@@ -2121,6 +2185,37 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
             )}
           </div>
         </StatCard>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <DashboardMatchSummaryCard
+          title="Fase autunnale"
+          value={dashboardMatchSummary.autunnale}
+          description="partite (ago-gen)"
+          icon={Leaf}
+          tone="amber"
+        />
+        <DashboardMatchSummaryCard
+          title="Fase primaverile"
+          value={dashboardMatchSummary.primaverile}
+          description="partite (feb-lug)"
+          icon={Grape}
+          tone="pink"
+        />
+        <DashboardMatchSummaryCard
+          title="Tornei"
+          value={dashboardMatchSummary.tornei}
+          description="tornei registrati"
+          icon={Trophy}
+          tone="violet"
+        />
+        <DashboardMatchSummaryCard
+          title="Amichevoli"
+          value={dashboardMatchSummary.amichevoli}
+          description="partite non ufficiali"
+          icon={Handshake}
+          tone="sky"
+        />
       </div>
 
       <Card className="shadow-md border-border/50">
@@ -3326,6 +3421,44 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
         </div>
       )}
     </div>
+  );
+}
+
+function DashboardMatchSummaryCard({
+  title,
+  value,
+  description,
+  icon: Icon,
+  tone,
+}: {
+  title: string;
+  value: number;
+  description: string;
+  icon: any;
+  tone: "amber" | "pink" | "violet" | "sky";
+}) {
+  const styles: Record<typeof tone, { border: string; iconWrap: string; icon: string }> = {
+    amber: { border: "border-amber-200", iconWrap: "bg-amber-100", icon: "text-amber-600" },
+    pink: { border: "border-pink-200", iconWrap: "bg-pink-100", icon: "text-pink-600" },
+    violet: { border: "border-violet-300 ring-1 ring-violet-200", iconWrap: "bg-violet-100", icon: "text-violet-600" },
+    sky: { border: "border-sky-200", iconWrap: "bg-sky-100", icon: "text-sky-600" },
+  };
+  const style = styles[tone];
+  return (
+    <Card className={cn("border bg-card shadow-sm", style.border)}>
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", style.iconWrap)}>
+            <Icon className={cn("h-5 w-5", style.icon)} />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold leading-5">{title}</div>
+            <div className="mt-2 text-2xl font-display font-bold leading-none">{value}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{description}</div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
