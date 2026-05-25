@@ -2161,7 +2161,9 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
         </DialogContent>
       </Dialog>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Panoramica</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link="/teams">
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
             <span>Visibili: <strong className="text-foreground">{dashboardTeamCount}</strong></span>
@@ -2210,15 +2212,19 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
             )}
           </div>
         </StatCard>
-      </div>
+        </div>
+      </section>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Fasi ed eventi</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <DashboardMatchSummaryCard
           title="Fase autunnale"
           value={dashboardMatchSummary.autunnale}
           description="partite (ago-gen)"
           icon={Leaf}
           tone="amber"
+          href="/scuola-calcio/calendar?phase=autunnale"
         />
         <DashboardMatchSummaryCard
           title="Fase primaverile"
@@ -2226,6 +2232,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           description="partite (feb-lug)"
           icon={Grape}
           tone="pink"
+          href="/scuola-calcio/calendar?phase=primaverile"
         />
         <DashboardMatchSummaryCard
           title="Tornei"
@@ -2233,6 +2240,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           description="tornei registrati"
           icon={Trophy}
           tone="violet"
+          href="/scuola-calcio/calendar?phase=tornei"
         />
         <DashboardMatchSummaryCard
           title="Amichevoli"
@@ -2240,8 +2248,10 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           description="partite non ufficiali"
           icon={Handshake}
           tone="sky"
+          href="/scuola-calcio/calendar?phase=amichevoli"
         />
-      </div>
+        </div>
+      </section>
 
       <Card className="shadow-md border-border/50">
         <CardHeader className="pb-3 border-b">
@@ -3457,12 +3467,14 @@ function DashboardMatchSummaryCard({
   description,
   icon: Icon,
   tone,
+  href,
 }: {
   title: string;
   value: number;
   description: string;
   icon: any;
   tone: "amber" | "pink" | "violet" | "sky";
+  href: string;
 }) {
   const styles: Record<typeof tone, { border: string; iconWrap: string; icon: string }> = {
     amber: { border: "border-amber-200", iconWrap: "bg-amber-100", icon: "text-amber-600" },
@@ -3472,20 +3484,22 @@ function DashboardMatchSummaryCard({
   };
   const style = styles[tone];
   return (
-    <Card className={cn("border bg-card shadow-sm", style.border)}>
-      <CardContent className="p-4">
-        <div className="flex items-start gap-3">
-          <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", style.iconWrap)}>
-            <Icon className={cn("h-5 w-5", style.icon)} />
+    <Link href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-lg">
+      <Card className={cn("border bg-card shadow-sm transition hover:border-primary/40 hover:shadow-md", style.border)}>
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", style.iconWrap)}>
+              <Icon className={cn("h-5 w-5", style.icon)} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold leading-5">{title}</div>
+              <div className="mt-2 text-2xl font-display font-bold leading-none">{value}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{description}</div>
+            </div>
           </div>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold leading-5">{title}</div>
-            <div className="mt-2 text-2xl font-display font-bold leading-none">{value}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{description}</div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
