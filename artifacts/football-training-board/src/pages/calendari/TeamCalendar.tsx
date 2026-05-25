@@ -81,6 +81,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -489,6 +490,14 @@ function manualTournamentGroupsForSave(form: ManualTournamentForm): { name: stri
 
 function tournamentGroupNamesForInput(groups: ManualTournamentForm["groups"]): string[] {
   return groups.map((group) => group.name.trim()).filter(Boolean);
+}
+
+function tournamentGroupSelectOptions(groups: ManualTournamentForm["groups"], currentGroup?: string): string[] {
+  const names = tournamentGroupNamesForInput(groups);
+  const current = String(currentGroup ?? "").trim();
+  return current && !names.some((name) => normalizeTournamentText(name) === normalizeTournamentText(current))
+    ? [current, ...names]
+    : names;
 }
 
 function tournamentTeamsForInput(groups: ManualTournamentForm["groups"], groupName?: string): string[] {
@@ -5150,13 +5159,22 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               </div>
               {manualTournamentForm.matches.map((row) => {
                 const teamListId = `manual-match-teams-${row.id}`;
-                const groupListId = "manual-tournament-groups";
+                const groupOptions = tournamentGroupSelectOptions(manualTournamentForm.groups, row.group);
                 const teamOptions = tournamentTeamsForInput(manualTournamentForm.groups, row.group);
                 return (
                   <div key={row.id} className="rounded-lg border border-border/70 p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2">
                     <Input type="date" value={row.date} onChange={(e) => setManualTournamentForm((p) => ({ ...p, matches: p.matches.map((item) => item.id === row.id ? { ...item, date: e.target.value } : item) }))} />
                     <Input placeholder="Ora" inputMode="numeric" value={row.time} onChange={(e) => setManualTournamentForm((p) => ({ ...p, matches: p.matches.map((item) => item.id === row.id ? { ...item, time: formatTimeInputLive(e.target.value) } : item) }))} />
-                    <Input list={groupListId} placeholder="Girone/Campo" value={row.group} onChange={(e) => setManualTournamentForm((p) => ({ ...p, matches: p.matches.map((item) => item.id === row.id ? { ...item, group: e.target.value } : item) }))} />
+                    <Select value={row.group} onValueChange={(value) => setManualTournamentForm((p) => ({ ...p, matches: p.matches.map((item) => item.id === row.id ? { ...item, group: value, homeTeam: "", awayTeam: "" } : item) }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Girone/Campo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {groupOptions.map((groupName) => (
+                          <SelectItem key={groupName} value={groupName}>{groupName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Input list={teamListId} placeholder="Squadra 1" value={row.homeTeam} onChange={(e) => setManualTournamentForm((p) => ({ ...p, matches: p.matches.map((item) => item.id === row.id ? { ...item, homeTeam: e.target.value } : item) }))} />
                     <Input list={teamListId} placeholder="Squadra 2" value={row.awayTeam} onChange={(e) => setManualTournamentForm((p) => ({ ...p, matches: p.matches.map((item) => item.id === row.id ? { ...item, awayTeam: e.target.value } : item) }))} />
                     <datalist id={teamListId}>
@@ -5165,9 +5183,6 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   </div>
                 );
               })}
-              <datalist id="manual-tournament-groups">
-                {tournamentGroupNamesForInput(manualTournamentForm.groups).map((groupName) => <option key={groupName} value={groupName} />)}
-              </datalist>
             </div>
 
             <div className="space-y-2">
@@ -5417,12 +5432,22 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                 </div>
                 {editingTournament.matches.map((row) => {
                   const teamListId = `edit-match-teams-${row.id}`;
+                  const groupOptions = tournamentGroupSelectOptions(editingTournament.groups, row.group);
                   const teamOptions = tournamentTeamsForInput(editingTournament.groups, row.group);
                   return (
                     <div key={row.id} className="rounded-lg border border-border/70 p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_0.8fr_1fr_1fr_1fr_auto] gap-2">
                       <Input type="date" value={row.date} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, date: e.target.value } : item) } : prev)} />
                       <Input placeholder="Ora" inputMode="numeric" value={row.time} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, time: formatTimeInputLive(e.target.value) } : item) } : prev)} />
-                      <Input list="edit-tournament-groups" placeholder="Girone/Campo" value={row.group} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, group: e.target.value } : item) } : prev)} />
+                      <Select value={row.group} onValueChange={(value) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, group: value, homeTeam: "", awayTeam: "" } : item) } : prev)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Girone/Campo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {groupOptions.map((groupName) => (
+                            <SelectItem key={groupName} value={groupName}>{groupName}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Input list={teamListId} placeholder="Squadra 1" value={row.homeTeam} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, homeTeam: e.target.value } : item) } : prev)} />
                       <Input list={teamListId} placeholder="Squadra 2" value={row.awayTeam} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, awayTeam: e.target.value } : item) } : prev)} />
                       <Button
@@ -5440,9 +5465,6 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                     </div>
                   );
                 })}
-                <datalist id="edit-tournament-groups">
-                  {tournamentGroupNamesForInput(editingTournament.groups).map((groupName) => <option key={groupName} value={groupName} />)}
-                </datalist>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
