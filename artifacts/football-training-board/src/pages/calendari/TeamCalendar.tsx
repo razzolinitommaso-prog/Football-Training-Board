@@ -112,6 +112,19 @@ interface Match {
   matchPlan?: MatchPlanData | null;
 }
 
+type ManualTournamentForm = {
+  name: string;
+  location: string;
+  startDate: string;
+  endDate: string;
+  overnight: boolean;
+  overnightFrom: string;
+  overnightTo: string;
+  groupsText: string;
+  scheduleText: string;
+  finalsText: string;
+};
+
 type MatchTimelineView = "standard" | "postponed-original" | "recovery";
 type MatchTimelineItem = Match & {
   __timelineView?: MatchTimelineView;
@@ -362,6 +375,116 @@ function combineDateAndTimeToIso(dateValue: string, timeValue: string): string |
   const parsed = new Date(`${normalizedDate}T${normalized}:00`);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function defaultManualTournamentForm(): ManualTournamentForm {
+  return {
+    name: "",
+    location: "",
+    startDate: "",
+    endDate: "",
+    overnight: false,
+    overnightFrom: "",
+    overnightTo: "",
+    groupsText: "Girone A: \nGirone B: ",
+    scheduleText: "",
+    finalsText: "",
+  };
+}
+
+function parseManualTournamentGroups(text: string): { name: string; teams: string[] }[] {
+  const groups: { name: string; teams: string[] }[] = [];
+  const looseTeams: string[] = [];
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const colonIndex = line.indexOf(":");
+      if (colonIndex >= 0) {
+        const name = line.slice(0, colonIndex).trim() || `Girone ${String.fromCharCode(65 + groups.length)}`;
+        const teams = line
+          .slice(colonIndex + 1)
+          .split(/[,;]/)
+          .map((team) => team.trim())
+          .filter(Boolean);
+        groups.push({ name, teams });
+      } else {
+        looseTeams.push(line);
+      }
+    });
+  if (looseTeams.length > 0) groups.push({ name: "Girone", teams: looseTeams });
+  return groups.filter((group) => group.teams.length > 0);
+}
+
+function tournamentGroupForTeam(teamName: string, groups: { name: string; teams: string[] }[]): string | null {
+  const norm = normalizeTournamentText(teamName);
+  const group = groups.find((item) => item.teams.some((team) => normalizeTournamentText(team) === norm));
+  return group?.name ?? null;
+}
+
+function parseManualTournamentDateTime(dateRaw: string, timeRaw: string, fallbackDate: string): string | null {
+  const normalizedTime = normalizeTime24(timeRaw);
+  if (!normalizedTime) return null;
+  const date = dateRaw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return combineDateAndTimeToIso(date, normalizedTime);
+  const shortDate = date.match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?$/);
+  if (shortDate) {
+    const fallbackYear = fallbackDate ? Number(fallbackDate.slice(0, 4)) : new Date().getFullYear();
+    const year = shortDate[3]
+      ? Number(shortDate[3].length === 2 ? `20${shortDate[3]}` : shortDate[3])
+      : fallbackYear;
+    return combineDateAndTimeToIso(`${year}-${String(Number(shortDate[2])).padStart(2, "0")}-${String(Number(shortDate[1])).padStart(2, "0")}`, normalizedTime);
+  }
+  if (fallbackDate) return combineDateAndTimeToIso(fallbackDate, normalizedTime);
+  return null;
+}
+
+function parseManualTournamentRows(
+  text: string,
+  groups: { name: string; teams: string[] }[],
+  fallbackDate: string,
+  phaseFallback: "Gironi" | "Finali",
+): TournamentProgramEntry[] {
+  const entries: TournamentProgramEntry[] = [];
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line, index) => {
+      const parts = line.split("|").map((part) => part.trim()).filter(Boolean);
+      let dateText = "";
+      let timeText = "";
+      let groupText = "";
+      let matchText = "";
+      if (parts.length >= 4) {
+        [dateText, timeText, groupText, matchText] = parts;
+      } else if (parts.length === 3) {
+        [timeText, groupText, matchText] = parts;
+      } else {
+        const match = line.match(/^(?:(\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)\s+)?(\d{1,2}[:.]?\d{2})\s+(.+)$/);
+        if (!match) return;
+        dateText = match[1] ?? "";
+        timeText = match[2] ?? "";
+        matchText = match[3] ?? "";
+      }
+      const sides = matchText.split(/\s+(?:-|–|—|vs\.?|contro)\s+/i).map((side) => side.trim()).filter(Boolean);
+      if (sides.length < 2) return;
+      const date = parseManualTournamentDateTime(dateText, timeText, fallbackDate);
+      if (!date) return;
+      const homeTeam = sides[0];
+      const awayTeam = sides.slice(1).join(" - ");
+      const inferredGroup = groupText || tournamentGroupForTeam(homeTeam, groups) || tournamentGroupForTeam(awayTeam, groups) || phaseFallback;
+      entries.push({
+        id: `manual-${phaseFallback.toLowerCase()}-${Date.now()}-${index}`,
+        date,
+        homeTeam,
+        awayTeam,
+        phase: phaseFallback,
+        group: inferredGroup,
+      });
+    });
+  return entries;
 }
 
 function normalizeTournamentText(value: string): string {
@@ -2934,6 +3057,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [phaseTab, setPhaseTab] = useState(initialPhaseTab);
   const [duplicateImportOpen, setDuplicateImportOpen] = useState(false);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
+  const [createTournamentOpen, setCreateTournamentOpen] = useState(false);
   const [editingTournament, setEditingTournament] = useState<null | {
     originalCompetition: string;
     name: string;
@@ -2969,6 +3093,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     competition: "",
     location: "",
   });
+  const [manualTournamentForm, setManualTournamentForm] = useState<ManualTournamentForm>(() => defaultManualTournamentForm());
 
   const teamId = overrideTeamId ?? (params?.teamId ? parseInt(params.teamId) : null);
   const isStandalone = !overrideTeamId;
@@ -3526,6 +3651,50 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     onError: (e: Error) => toast({ title: e.message || "Errore creazione partita", variant: "destructive" }),
   });
 
+  const createTournamentMutation = useMutation({
+    mutationFn: async () => {
+      if (!teamId) throw new Error("Squadra non valida");
+      const name = manualTournamentForm.name.trim();
+      if (!name) throw new Error("Inserisci il nome del torneo");
+      if (!manualTournamentForm.startDate) throw new Error("Inserisci la data iniziale del torneo");
+      const groups = parseManualTournamentGroups(manualTournamentForm.groupsText);
+      if (groups.length === 0) throw new Error("Inserisci almeno un girone o un elenco squadre");
+      const qualifying = parseManualTournamentRows(manualTournamentForm.scheduleText, groups, manualTournamentForm.startDate, "Gironi");
+      const finals = parseManualTournamentRows(manualTournamentForm.finalsText, groups, manualTournamentForm.endDate || manualTournamentForm.startDate, "Finali");
+      const program = [...qualifying, ...finals].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      if (program.length === 0) throw new Error("Inserisci almeno una partita nel programma torneo");
+      const notes = manualTournamentForm.overnight
+        ? `Torneo con pernottamento da ${manualTournamentForm.overnightFrom || "da completare"} a ${manualTournamentForm.overnightTo || "da completare"}`
+        : null;
+      for (const entry of program) {
+        await apiFetch("/api/matches", {
+          method: "POST",
+          body: JSON.stringify({
+            opponent: `${entry.homeTeam} - ${entry.awayTeam}`,
+            date: entry.date,
+            teamId,
+            homeAway: "home",
+            competition: name,
+            location: manualTournamentForm.location.trim() || null,
+            notes,
+          }),
+        });
+      }
+      if (!tournamentDocsLoaded) setTournamentProgram(teamId, name, program);
+      await saveTournamentState(name, program, {}, manualTournamentForm.startDate);
+      return program.length;
+    },
+    onSuccess: (count) => {
+      qc.invalidateQueries({ queryKey: ["/api/matches", teamId] });
+      qc.invalidateQueries({ queryKey: ["/api/tournament-documents", teamId] });
+      setTournamentProgramVersion((v) => v + 1);
+      setCreateTournamentOpen(false);
+      setManualTournamentForm(defaultManualTournamentForm());
+      toast({ title: "Torneo creato", description: `${count} partite/eventi inseriti nel programma.` });
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore creazione torneo", variant: "destructive" }),
+  });
+
   const sorted = useMemo(
     () => [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
     [matches],
@@ -3938,6 +4107,17 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               >
                 <Upload className="w-3.5 h-3.5" />
                 {importTournamentProgramMutation.isPending ? "Analisi programma..." : "Carica programma torneo"}
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                disabled={importActionsBusy}
+                onClick={() => setCreateTournamentOpen(true)}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Crea torneo
               </Button>
             </>
           )}
@@ -4578,6 +4758,144 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             </Button>
             <Button type="button" disabled={createMatchMutation.isPending} onClick={() => createMatchMutation.mutate()}>
               {createMatchMutation.isPending ? "Salvataggio..." : "Crea partita"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={createTournamentOpen}
+        onOpenChange={(open) => {
+          setCreateTournamentOpen(open);
+          if (!open) setManualTournamentForm(defaultManualTournamentForm());
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Crea torneo</DialogTitle>
+            <DialogDescription>
+              Inserisci programma, gironi e finali quando il file non e&apos; leggibile o vuoi creare il torneo manualmente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="manual-tournament-name">Nome torneo</Label>
+                <Input
+                  id="manual-tournament-name"
+                  value={manualTournamentForm.name}
+                  onChange={(e) => setManualTournamentForm((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="Es. Torneo Villa Medicea"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="manual-tournament-location">Luogo</Label>
+                <Input
+                  id="manual-tournament-location"
+                  value={manualTournamentForm.location}
+                  onChange={(e) => setManualTournamentForm((p) => ({ ...p, location: e.target.value }))}
+                  placeholder="Campo, impianto, comune..."
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="manual-tournament-start">Data inizio</Label>
+                <Input
+                  id="manual-tournament-start"
+                  type="date"
+                  value={manualTournamentForm.startDate}
+                  onChange={(e) => setManualTournamentForm((p) => ({ ...p, startDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="manual-tournament-end">Data fine</Label>
+                <Input
+                  id="manual-tournament-end"
+                  type="date"
+                  value={manualTournamentForm.endDate}
+                  onChange={(e) => setManualTournamentForm((p) => ({ ...p, endDate: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border/70 bg-muted/20 p-3 space-y-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Checkbox
+                  checked={manualTournamentForm.overnight}
+                  onCheckedChange={(checked) => setManualTournamentForm((p) => ({ ...p, overnight: checked === true }))}
+                />
+                Torneo con pernottamento
+              </label>
+              {manualTournamentForm.overnight ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="manual-tournament-overnight-from">Pernottamento da</Label>
+                    <Input
+                      id="manual-tournament-overnight-from"
+                      type="date"
+                      value={manualTournamentForm.overnightFrom}
+                      onChange={(e) => setManualTournamentForm((p) => ({ ...p, overnightFrom: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="manual-tournament-overnight-to">Pernottamento a</Label>
+                    <Input
+                      id="manual-tournament-overnight-to"
+                      type="date"
+                      value={manualTournamentForm.overnightTo}
+                      onChange={(e) => setManualTournamentForm((p) => ({ ...p, overnightTo: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="manual-tournament-groups">Gironi e squadre</Label>
+              <Textarea
+                id="manual-tournament-groups"
+                className="min-h-28 font-mono text-xs"
+                value={manualTournamentForm.groupsText}
+                onChange={(e) => setManualTournamentForm((p) => ({ ...p, groupsText: e.target.value }))}
+                placeholder="Girone A: GAVINANA, AFFRICO, SALES&#10;Girone B: FIESOLE, SANCAT, SAN GIUSTO"
+              />
+              <p className="text-xs text-muted-foreground">
+                Una riga per girone. Scrivi il nome del girone, due punti, poi le squadre separate da virgola.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="manual-tournament-schedule">Turni di gioco / programma gironi</Label>
+              <Textarea
+                id="manual-tournament-schedule"
+                className="min-h-36 font-mono text-xs"
+                value={manualTournamentForm.scheduleText}
+                onChange={(e) => setManualTournamentForm((p) => ({ ...p, scheduleText: e.target.value }))}
+                placeholder="30/05 | 15:00 | Girone A | GAVINANA - AFFRICO&#10;30/05 | 15:15 | Girone B | FIESOLE - SANCAT"
+              />
+              <p className="text-xs text-muted-foreground">
+                Formato consigliato: data | ora | girone/campo | squadra - squadra. Se ometti la data usa la data inizio torneo.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="manual-tournament-finals">Finali / fase finale</Label>
+              <Textarea
+                id="manual-tournament-finals"
+                className="min-h-28 font-mono text-xs"
+                value={manualTournamentForm.finalsText}
+                onChange={(e) => setManualTournamentForm((p) => ({ ...p, finalsText: e.target.value }))}
+                placeholder="01/06 | 17:30 | Finali | Finale 5° - 6° posto - da completare&#10;01/06 | 18:30 | Finali | Finale 3° - 4° posto - da completare&#10;01/06 | 19:30 | Finali | Finale 1° - 2° posto - da completare"
+              />
+              <p className="text-xs text-muted-foreground">
+                Puoi indicare squadre reali o righe da completare: la card torneo usera&apos; le regole finali per proporre gli accoppiamenti.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setCreateTournamentOpen(false)}>
+              Annulla
+            </Button>
+            <Button type="button" disabled={createTournamentMutation.isPending} onClick={() => createTournamentMutation.mutate()}>
+              {createTournamentMutation.isPending ? "Creazione..." : "Crea torneo"}
             </Button>
           </DialogFooter>
         </DialogContent>
