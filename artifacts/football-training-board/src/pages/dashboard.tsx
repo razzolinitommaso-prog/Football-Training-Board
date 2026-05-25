@@ -1110,7 +1110,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
         return;
       }
       if (isTournamentMatch(match) && match.competition) {
-        const key = `${format(date, "yyyy-MM-dd")}|${normalCompetition(match.competition)}|${match.teamId ?? ""}`;
+        const key = `${normalCompetition(match.competition)}|${match.teamId ?? ""}`;
         const list = tournamentGroups.get(key) ?? [];
         list.push(match);
         tournamentGroups.set(key, list);
@@ -1133,15 +1133,32 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
       const sorted = [...matches].sort((a, b) => String(a.date).localeCompare(String(b.date)));
       const firstDate = parseLocalDateTime(sorted[0]?.date);
       if (!firstDate) return;
+      const lastDate = parseLocalDateTime(sorted[sorted.length - 1]?.date) ?? firstDate;
+      const logistics = sorted.map((match) => decodeDashboardTournamentLogistics(match.notes)).find(Boolean);
+      const periodStart =
+        parseDashboardTournamentDate(logistics?.departureDate) ??
+        parseDashboardTournamentDate(logistics?.startDate) ??
+        startOfDay(firstDate);
+      const periodEnd =
+        parseDashboardTournamentDate(logistics?.returnDate) ??
+        parseDashboardTournamentDate(logistics?.endDate) ??
+        startOfDay(lastDate);
+      const displayStart = periodStart <= periodEnd ? periodStart : startOfDay(firstDate);
+      const displayEnd = periodStart <= periodEnd ? periodEnd : startOfDay(lastDate);
+      const periodText = displayEnd.getTime() > displayStart.getTime()
+        ? `Periodo ${format(displayStart, "d MMM", { locale: itLocale })}-${format(displayEnd, "d MMM", { locale: itLocale })}`
+        : "";
       const first = sorted[0];
       const team = first.teamId ? teamById.get(Number(first.teamId)) : undefined;
+      const tournamentSubtitle = [team?.name ?? first.teamName ?? "Squadra", periodText, `${sorted.length} partite/eventi`].filter(Boolean).join(" - ");
       items.push({
         kind: "tournament",
         key: `tournament-${key}`,
-        date: firstDate,
-        time: matchTimeLabel(firstDate),
+        date: combineLocalDateAndTime(displayStart, "09:00"),
+        dateEnd: displayEnd,
+        time: "Tutto il giorno",
         title: normalCompetition(first.competition).replace(/^torneo:\s*/i, "Torneo: ") || "Torneo",
-        subtitle: `${team?.name ?? first.teamName ?? "Squadra"} · ${sorted.length} partite/eventi`,
+        subtitle: tournamentSubtitle,
         teamId: Number(first.teamId ?? 0) || undefined,
         teamName: team?.name ?? first.teamName ?? undefined,
         matches: sorted,
@@ -1185,10 +1202,14 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   const dashboardEventsByDay = useMemo(() => {
     const map = new Map<string, DashboardCalendarItem[]>();
     dashboardCalendarItems.forEach((item) => {
-      const key = format(item.date, "yyyy-MM-dd");
-      const list = map.get(key) ?? [];
-      list.push(item);
-      map.set(key, list);
+      const itemStart = startOfDay(item.date);
+      const itemEnd = item.kind === "tournament" && item.dateEnd ? startOfDay(item.dateEnd) : itemStart;
+      eachDayOfInterval({ start: itemStart <= itemEnd ? itemStart : itemEnd, end: itemEnd >= itemStart ? itemEnd : itemStart }).forEach((day) => {
+        const key = format(day, "yyyy-MM-dd");
+        const list = map.get(key) ?? [];
+        list.push(item);
+        map.set(key, list);
+      });
     });
     return map;
   }, [dashboardCalendarItems]);
@@ -1255,7 +1276,11 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
     const today = startOfDay(new Date());
     const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
     return dashboardCalendarItems
-      .filter((item) => item.date >= today && item.date <= weekEnd)
+      .filter((item) => {
+        const itemStart = startOfDay(item.date);
+        const itemEnd = item.kind === "tournament" && item.dateEnd ? startOfDay(item.dateEnd) : itemStart;
+        return itemStart <= weekEnd && itemEnd >= today;
+      })
       .slice(0, 8);
   }, [dashboardCalendarItems]);
 
@@ -2640,7 +2665,9 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
             </DialogTitle>
             <DialogDescription>
               {selectedCalendarItem
-                ? `${format(selectedCalendarItem.date, "EEEE d MMMM yyyy", { locale: itLocale })} · ${selectedCalendarItem.time}`
+                ? selectedCalendarItem.kind === "tournament" && selectedCalendarItem.dateEnd && startOfDay(selectedCalendarItem.dateEnd).getTime() !== startOfDay(selectedCalendarItem.date).getTime()
+                  ? `${format(selectedCalendarItem.date, "d MMMM yyyy", { locale: itLocale })} - ${format(selectedCalendarItem.dateEnd, "d MMMM yyyy", { locale: itLocale })}`
+                  : `${format(selectedCalendarItem.date, "EEEE d MMMM yyyy", { locale: itLocale })} · ${selectedCalendarItem.time}`
                 : ""}
             </DialogDescription>
           </DialogHeader>
