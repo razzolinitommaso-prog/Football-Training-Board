@@ -512,6 +512,57 @@ function tournamentAllTeamsForInput(groups: ManualTournamentForm["groups"]): str
   return tournamentTeamsForInput(groups);
 }
 
+function makeTournamentPairKey(group: string, homeTeam: string, awayTeam: string): string {
+  const sides = [normalizeTournamentText(homeTeam), normalizeTournamentText(awayTeam)].sort();
+  return `${normalizeTournamentText(group)}|${sides[0] ?? ""}|${sides[1] ?? ""}`;
+}
+
+function nextTournamentTime(baseTime: string, offset: number): string {
+  const normalized = normalizeTime24(baseTime) ?? "10:00";
+  const [hourRaw = "10", minuteRaw = "00"] = normalized.split(":");
+  const date = new Date(2000, 0, 1, Number(hourRaw), Number(minuteRaw), 0, 0);
+  date.setMinutes(date.getMinutes() + offset * 15);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function completeTournamentRoundRobinMatches(
+  form: Pick<ManualTournamentForm, "groups" | "matches" | "startDate">,
+): ManualTournamentForm["matches"] {
+  const existing = [...form.matches];
+  const seen = new Set(
+    existing
+      .filter((row) => row.homeTeam.trim() && row.awayTeam.trim())
+      .map((row) => makeTournamentPairKey(row.group, row.homeTeam, row.awayTeam)),
+  );
+  const generated: ManualTournamentForm["matches"] = [];
+  let generatedIndex = 0;
+
+  for (const group of form.groups) {
+    const groupName = group.name.trim() || "Girone";
+    const teams = Array.from(new Set(group.teams.map((team) => team.trim()).filter(Boolean)));
+    for (let i = 0; i < teams.length; i += 1) {
+      for (let j = i + 1; j < teams.length; j += 1) {
+        const homeTeam = teams[i] ?? "";
+        const awayTeam = teams[j] ?? "";
+        const key = makeTournamentPairKey(groupName, homeTeam, awayTeam);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        generated.push({
+          id: `auto-match-${Date.now()}-${generatedIndex}`,
+          date: form.startDate,
+          time: nextTournamentTime("10:00", existing.length + generatedIndex),
+          group: groupName,
+          homeTeam,
+          awayTeam,
+        });
+        generatedIndex += 1;
+      }
+    }
+  }
+
+  return [...existing, ...generated];
+}
+
 function splitTournamentOpponent(opponent?: string | null): { homeTeam: string; awayTeam: string } {
   const [homeTeam = "", ...rest] = String(opponent ?? "").split(/\s+-\s+/);
   return { homeTeam: homeTeam.trim(), awayTeam: rest.join(" - ").trim() };
@@ -3593,7 +3644,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         ...defaultManualTournamentForm(),
         groups: input.groups,
       });
-      const qualifying = input.matches
+      const completedMatches = completeTournamentRoundRobinMatches({
+        groups: input.groups,
+        matches: input.matches,
+        startDate: input.startDate,
+      });
+      const qualifying = completedMatches
         .map((row, index): TournamentProgramEntry | null => {
           const homeTeam = row.homeTeam.trim();
           const awayTeam = row.awayTeam.trim();
@@ -3832,7 +3888,8 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       if (!manualTournamentForm.startDate) throw new Error("Inserisci la data iniziale del torneo");
       const groups = manualTournamentGroupsForSave(manualTournamentForm);
       if (groups.length === 0) throw new Error("Inserisci almeno un girone o un elenco squadre");
-      const qualifying = manualTournamentForm.matches
+      const completedMatches = completeTournamentRoundRobinMatches(manualTournamentForm);
+      const qualifying = completedMatches
         .map((row, index): TournamentProgramEntry | null => {
           const homeTeam = row.homeTeam.trim();
           const awayTeam = row.awayTeam.trim();
@@ -5141,21 +5198,35 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label>Turni di gioco / programma gironi</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => setManualTournamentForm((p) => ({
-                    ...p,
-                    matches: [...p.matches, { id: `match-${Date.now()}`, date: "", time: "", group: p.groups[0]?.name || "Girone A", homeTeam: "", awayTeam: "" }],
-                  }))}
-                >
-                  <Plus className="w-3.5 h-3.5 mr-1" />
-                  Partita
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setManualTournamentForm((p) => ({
+                      ...p,
+                      matches: completeTournamentRoundRobinMatches(p),
+                    }))}
+                  >
+                    Genera mancanti
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setManualTournamentForm((p) => ({
+                      ...p,
+                      matches: [...p.matches, { id: `match-${Date.now()}`, date: "", time: "", group: p.groups[0]?.name || "Girone A", homeTeam: "", awayTeam: "" }],
+                    }))}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    Partita
+                  </Button>
+                </div>
               </div>
               {manualTournamentForm.matches.map((row) => {
                 const teamListId = `manual-match-teams-${row.id}`;
@@ -5414,21 +5485,39 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                 ))}
               </div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <Label>Turni di gioco / accoppiamenti</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={() => setEditingTournament((prev) => prev ? {
-                      ...prev,
-                      matches: [...prev.matches, { id: `edit-match-${Date.now()}`, date: "", time: "", group: prev.groups[0]?.name || "Girone A", homeTeam: "", awayTeam: "" }],
-                    } : prev)}
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1" />
-                    Partita
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => setEditingTournament((prev) => prev ? {
+                        ...prev,
+                        matches: completeTournamentRoundRobinMatches({
+                          groups: prev.groups,
+                          matches: prev.matches,
+                          startDate: prev.startDate,
+                        }),
+                      } : prev)}
+                    >
+                      Genera mancanti
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => setEditingTournament((prev) => prev ? {
+                        ...prev,
+                        matches: [...prev.matches, { id: `edit-match-${Date.now()}`, date: "", time: "", group: prev.groups[0]?.name || "Girone A", homeTeam: "", awayTeam: "" }],
+                      } : prev)}
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Partita
+                    </Button>
+                  </div>
                 </div>
                 {editingTournament.matches.map((row) => {
                   const teamListId = `edit-match-teams-${row.id}`;
