@@ -45,6 +45,7 @@ export type MatchPdfImportResult = {
   discarded: number;
   totalDateLines: number;
   tournamentProgram?: TournamentProgramEntry[];
+  tournamentScores?: Record<string, { homeScore: number | null; awayScore: number | null }>;
 };
 
 export type TournamentProgramEntry = {
@@ -54,6 +55,8 @@ export type TournamentProgramEntry = {
   awayTeam: string;
   phase?: string | null;
   group?: string | null;
+  homeScore?: number | null;
+  awayScore?: number | null;
 };
 
 type OcrWorker = {
@@ -422,6 +425,15 @@ function cleanTournamentCellTeamName(value: string, options: { stripTrailingScor
   return cleanOcrTournamentOpponentName(cleaned);
 }
 
+function parseTournamentCellScores(homeRaw: string, awayRaw: string): { homeScore: number | null; awayScore: number | null } {
+  const homeMatch = homeRaw.trim().match(/\s+(\d{1,2})\s*$/);
+  const awayMatch = awayRaw.trim().match(/^\s*([0O]|\d{1,2})\s+(?=[A-ZÀ-Ü])/i);
+  return {
+    homeScore: homeMatch ? Number(homeMatch[1]) : null,
+    awayScore: awayMatch ? Number(String(awayMatch[1]).replace(/O/i, "0")) : null,
+  };
+}
+
 function parseTournamentImageEmptySlotLine(
   line: string,
   currentDateIso: string | null,
@@ -622,6 +634,15 @@ function parseTournamentMatchLine(
   };
 }
 
+function scoresFromParsedTournamentProgram(program: TournamentProgramEntry[]): Record<string, { homeScore: number | null; awayScore: number | null }> {
+  const scores: Record<string, { homeScore: number | null; awayScore: number | null }> = {};
+  for (const entry of program) {
+    if (!entry.id || entry.homeScore == null || entry.awayScore == null) continue;
+    scores[entry.id] = { homeScore: entry.homeScore, awayScore: entry.awayScore };
+  }
+  return scores;
+}
+
 function parseTournamentProgramLines(
   allLines: string[],
   options: {
@@ -700,7 +721,7 @@ function parseTournamentProgramLines(
     });
   }
 
-  return { recognized, discarded, totalDateLines, tournamentProgram };
+  return { recognized, discarded, totalDateLines, tournamentProgram, tournamentScores: scoresFromParsedTournamentProgram(tournamentProgram) };
 }
 
 function parseUnifiedTournamentProgramLines(
@@ -864,7 +885,7 @@ function parseUnifiedTournamentProgramLines(
     });
   }
 
-  return { recognized, discarded, totalDateLines, tournamentProgram };
+  return { recognized, discarded, totalDateLines, tournamentProgram, tournamentScores: scoresFromParsedTournamentProgram(tournamentProgram) };
 }
 
 function parseAnyTournamentProgramLine(
@@ -879,6 +900,10 @@ function parseAnyTournamentProgramLine(
   const rest = cleanTournamentTeamName(m[3] ?? "");
   const pair = rest.match(/^(.+?)\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>)\s*(.+?)\s*(?:\d+\s*[-:]\s*\d+)?$/i);
   if (!pair) return null;
+  const score = (() => {
+    const scoreMatch = rest.match(/\b(\d{1,2})\s*[-:]\s*(\d{1,2})\s*$/);
+    return scoreMatch ? { homeScore: Number(scoreMatch[1]), awayScore: Number(scoreMatch[2]) } : { homeScore: null, awayScore: null };
+  })();
   const homeTeam = cleanOcrTournamentOpponentName(pair[1] ?? "");
   const awayTeam = cleanOcrTournamentOpponentName(pair[2] ?? "");
   if (!homeTeam || !awayTeam) return null;
@@ -894,6 +919,8 @@ function parseAnyTournamentProgramLine(
     awayTeam: awayTeam.slice(0, 120),
     phase,
     group,
+    homeScore: score.homeScore,
+    awayScore: score.awayScore,
   };
 }
 
@@ -951,12 +978,16 @@ function parseCellTournamentProgramLines(
   if (rawCells.length < 4) return [];
 
   const cells: string[] = [];
+  const rawTeamCells: string[] = [];
   for (let i = 0; i < rawCells.length; i += 1) {
     const current = rawCells[i] ?? "";
     if (/^[0O]?\d{1,2}$/i.test(current)) continue;
     const nextIsScore = /^[0O]?\d{1,2}$/i.test(rawCells[i + 1] ?? "");
     const cleaned = cleanTournamentCellTeamName(current, { stripTrailingScore: nextIsScore });
-    if (cleaned && !isImageTournamentEmptyTeam(cleaned)) cells.push(cleaned);
+    if (cleaned && !isImageTournamentEmptyTeam(cleaned)) {
+      rawTeamCells.push(current);
+      cells.push(cleaned);
+    }
   }
   if (cells.length < 4) return [];
 
@@ -971,6 +1002,7 @@ function parseCellTournamentProgramLines(
     const homeTeam = cells[i] ?? "";
     const awayTeam = cells[i + 1] ?? "";
     if (!homeTeam || !awayTeam) continue;
+    const score = parseTournamentCellScores(rawTeamCells[i] ?? "", rawTeamCells[i + 1] ?? "");
     entries.push({
       id: "",
       date: base.toISOString(),
@@ -978,6 +1010,8 @@ function parseCellTournamentProgramLines(
       awayTeam: awayTeam.slice(0, 120),
       phase,
       group,
+      homeScore: score.homeScore,
+      awayScore: score.awayScore,
     });
   }
   return entries;
@@ -1225,7 +1259,7 @@ function parseTournamentImageTextLines(
     tournamentProgram.splice(0, tournamentProgram.length, ...knownProgram);
   }
 
-  return { recognized, discarded, totalDateLines, tournamentProgram };
+  return { recognized, discarded, totalDateLines, tournamentProgram, tournamentScores: scoresFromParsedTournamentProgram(tournamentProgram) };
 }
 
 function extractOpponent(line: string, aliases: string[]): { opponent: string | null; homeAway: "home" | "away" } {

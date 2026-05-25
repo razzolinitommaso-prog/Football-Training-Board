@@ -3218,6 +3218,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [pdfImportMode, setPdfImportMode] = useState<"federation" | "tournament">("federation");
   const [tournamentProgramSelection, setTournamentProgramSelection] = useState<Record<string, string>>({});
   const [pendingTournamentProgram, setPendingTournamentProgram] = useState<TournamentProgramEntry[]>([]);
+  const [pendingTournamentScores, setPendingTournamentScores] = useState<Record<string, TournamentProgramScore>>({});
   const [tournamentProgramVersion, setTournamentProgramVersion] = useState(0);
   const [tournamentScoreVersion, setTournamentScoreVersion] = useState(0);
   const [matchVenueFilter, setMatchVenueFilter] = useState<MatchVenueFilter>("all");
@@ -3370,6 +3371,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     },
     onSuccess: (parsed) => {
       setPendingTournamentProgram(parsed.tournamentProgram ?? []);
+      setPendingTournamentScores(parsed.tournamentScores ?? {});
       if (parsed.recognized.length === 0) {
         toast({
           title: "Nessuna partita riconosciuta nel PDF",
@@ -3410,6 +3412,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     },
     onSuccess: (parsed) => {
       setPendingTournamentProgram(parsed.tournamentProgram ?? []);
+      setPendingTournamentScores(parsed.tournamentScores ?? {});
       if (parsed.recognized.length === 0) {
         toast({
           title: "Nessuna partita riconosciuta nell'immagine",
@@ -3504,6 +3507,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     },
     onSuccess: (parsed) => {
       setPendingTournamentProgram(parsed.tournamentProgram ?? []);
+      setPendingTournamentScores(parsed.tournamentScores ?? {});
       if (parsed.recognized.length === 0) {
         toast({
           title: "Programma torneo non importabile automaticamente",
@@ -3558,14 +3562,19 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       if (pdfImportModeRef.current === "tournament" && pendingTournamentProgram.length > 0) {
         const competition = rows.find((row) => (row.competition ?? "").trim())?.competition ?? "";
         if (competition.trim()) {
-          if (!tournamentDocsLoaded) setTournamentProgram(teamId, competition, pendingTournamentProgram);
+          const scores = { ...getTournamentScoresForEdit(competition), ...pendingTournamentScores };
+          if (!tournamentDocsLoaded) {
+            setTournamentProgram(teamId, competition, pendingTournamentProgram);
+            setTournamentScores(teamId, competition, scores);
+          }
           await saveTournamentState(
             competition,
             pendingTournamentProgram,
-            getTournamentScoresForEdit(competition),
+            scores,
             getTournamentPdfReferenceDateForEdit(competition),
           );
           setTournamentProgramVersion((v) => v + 1);
+          setTournamentScoreVersion((v) => v + 1);
         }
       }
       return ok;
@@ -3576,6 +3585,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       setDuplicateImportOpen(false);
       setPendingImportRows(null);
       setPendingTournamentProgram([]);
+      setPendingTournamentScores({});
       setPendingImportConflictIds([]);
       setDuplicateImportExamples([]);
       toast({
