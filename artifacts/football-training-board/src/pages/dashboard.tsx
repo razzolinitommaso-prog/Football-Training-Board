@@ -94,6 +94,8 @@ type DashboardTrainingOverride = {
   notes?: string | null;
 };
 
+type DashboardMatchPhase = "autunnale" | "primaverile" | "tornei" | "amichevoli";
+
 type DashboardCalendarItem =
   | {
       kind: "training" | "extra";
@@ -358,7 +360,7 @@ function decodeDashboardTournamentLogistics(notes?: string | null): { startDate?
   }
 }
 
-function dashboardMatchPhase(match: DashboardMatch): "autunnale" | "primaverile" | "tornei" | "amichevoli" {
+function dashboardMatchPhase(match: DashboardMatch): DashboardMatchPhase {
   const comp = normalCompetition(match.competition).toLowerCase();
   if (["amichev", "friendly"].some((key) => comp.includes(key))) return "amichevoli";
   if (["torneo", "coppa", "trofeo", "cup"].some((key) => comp.includes(key))) return "tornei";
@@ -618,6 +620,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   const [dashboardCalendarMonth, setDashboardCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [dashboardCalendarCollapsed, setDashboardCalendarCollapsed] = useState(false);
   const [dashboardSelectedTeamIds, setDashboardSelectedTeamIds] = useState<Set<number>>(new Set());
+  const [phaseTeamPicker, setPhaseTeamPicker] = useState<null | { phase: DashboardMatchPhase; title: string }>(null);
   const [calendarEditDate, setCalendarEditDate] = useState("");
   const [calendarEditTime, setCalendarEditTime] = useState("");
   const [calendarEditLocation, setCalendarEditLocation] = useState("");
@@ -655,6 +658,18 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
     () => ((allTeams ?? []) as DashboardTeam[]).filter((team) => Number(team?.id) > 0),
     [allTeams],
   );
+
+  function openDashboardPhaseCalendar(phase: DashboardMatchPhase, title: string) {
+    if (dashboardTeams.length === 0) {
+      setLocation(`/scuola-calcio/calendar?phase=${phase}`);
+      return;
+    }
+    if (nr !== "secretary" && dashboardTeams.length === 1) {
+      setLocation(`/calendari/${dashboardTeams[0].id}?phase=${phase}`);
+      return;
+    }
+    setPhaseTeamPicker({ phase, title });
+  }
 
   const scheduledTrainingJoinTargetOptions = useMemo(() => {
     if (selectedCalendarItem?.kind !== "training") return [];
@@ -2224,7 +2239,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           description="partite (ago-gen)"
           icon={Leaf}
           tone="amber"
-          href="/scuola-calcio/calendar?phase=autunnale"
+          onClick={() => openDashboardPhaseCalendar("autunnale", "Fase autunnale")}
         />
         <DashboardMatchSummaryCard
           title="Fase primaverile"
@@ -2232,7 +2247,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           description="partite (feb-lug)"
           icon={Grape}
           tone="pink"
-          href="/scuola-calcio/calendar?phase=primaverile"
+          onClick={() => openDashboardPhaseCalendar("primaverile", "Fase primaverile")}
         />
         <DashboardMatchSummaryCard
           title="Tornei"
@@ -2240,7 +2255,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           description="tornei registrati"
           icon={Trophy}
           tone="violet"
-          href="/scuola-calcio/calendar?phase=tornei"
+          onClick={() => openDashboardPhaseCalendar("tornei", "Tornei")}
         />
         <DashboardMatchSummaryCard
           title="Amichevoli"
@@ -2248,10 +2263,38 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           description="partite non ufficiali"
           icon={Handshake}
           tone="sky"
-          href="/scuola-calcio/calendar?phase=amichevoli"
+          onClick={() => openDashboardPhaseCalendar("amichevoli", "Amichevoli")}
         />
         </div>
       </section>
+
+      <Dialog open={phaseTeamPicker !== null} onOpenChange={(open) => !open && setPhaseTeamPicker(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Scegli annata</DialogTitle>
+            <DialogDescription>
+              {phaseTeamPicker ? `Seleziona l'annata per aprire ${phaseTeamPicker.title.toLowerCase()}.` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {dashboardTeams.map((team) => (
+              <Button
+                key={team.id}
+                type="button"
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => {
+                  if (!phaseTeamPicker) return;
+                  setLocation(`/calendari/${team.id}?phase=${phaseTeamPicker.phase}`);
+                  setPhaseTeamPicker(null);
+                }}
+              >
+                {team.name}
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card className="shadow-md border-border/50">
         <CardHeader className="pb-3 border-b">
@@ -3467,14 +3510,14 @@ function DashboardMatchSummaryCard({
   description,
   icon: Icon,
   tone,
-  href,
+  onClick,
 }: {
   title: string;
   value: number;
   description: string;
   icon: any;
   tone: "amber" | "pink" | "violet" | "sky";
-  href: string;
+  onClick: () => void;
 }) {
   const styles: Record<typeof tone, { border: string; iconWrap: string; icon: string }> = {
     amber: { border: "border-amber-200", iconWrap: "bg-amber-100", icon: "text-amber-600" },
@@ -3484,7 +3527,7 @@ function DashboardMatchSummaryCard({
   };
   const style = styles[tone];
   return (
-    <Link href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-lg">
+    <button type="button" onClick={onClick} className="block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-lg">
       <Card className={cn("border bg-card shadow-sm transition hover:border-primary/40 hover:shadow-md", style.border)}>
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
@@ -3499,7 +3542,7 @@ function DashboardMatchSummaryCard({
           </div>
         </CardContent>
       </Card>
-    </Link>
+    </button>
   );
 }
 
