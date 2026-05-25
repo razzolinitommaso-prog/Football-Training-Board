@@ -487,6 +487,66 @@ function manualTournamentGroupsForSave(form: ManualTournamentForm): { name: stri
     .filter((group) => group.teams.length > 0);
 }
 
+function splitTournamentOpponent(opponent?: string | null): { homeTeam: string; awayTeam: string } {
+  const [homeTeam = "", ...rest] = String(opponent ?? "").split(/\s+-\s+/);
+  return { homeTeam: homeTeam.trim(), awayTeam: rest.join(" - ").trim() };
+}
+
+function tournamentEditRowsFromProgram(program: TournamentProgramEntry[], fallbackMatches: Array<Pick<Match, "id" | "date" | "opponent">>, fallbackDate: string): Pick<ManualTournamentForm, "groups" | "matches" | "finals"> {
+  const qualifying = program.filter((entry) => !/final/i.test(`${entry.phase ?? ""} ${entry.group ?? ""} ${entry.homeTeam} ${entry.awayTeam}`));
+  const finals = program.filter((entry) => !qualifying.includes(entry));
+  const groupMap = new Map<string, Set<string>>();
+  qualifying.forEach((entry) => {
+    const groupName = (entry.group ?? "").trim() || "Girone";
+    const teams = groupMap.get(groupName) ?? new Set<string>();
+    [entry.homeTeam, entry.awayTeam].forEach((team) => {
+      const clean = String(team ?? "").trim();
+      if (clean && !/da completare/i.test(clean)) teams.add(clean);
+    });
+    groupMap.set(groupName, teams);
+  });
+  const fallbackQualifying = qualifying.length > 0
+    ? []
+    : fallbackMatches.map((match, index) => {
+        const teams = splitTournamentOpponent(match.opponent);
+        return {
+          id: `match-${match.id ?? index}`,
+          date: toDateInputValue(match.date),
+          time: toTimeInputValue(match.date),
+          group: "Girone",
+          ...teams,
+        };
+      });
+  const groups = Array.from(groupMap.entries()).map(([name, teams], index) => ({
+    id: `edit-group-${index}`,
+    name,
+    teams: Array.from(teams).length > 0 ? Array.from(teams) : [""],
+  }));
+  return {
+    groups: groups.length > 0 ? groups : [{ id: "edit-group-a", name: "Girone A", teams: [""] }],
+    matches: qualifying.length > 0
+      ? qualifying.map((entry, index) => ({
+          id: entry.id || `edit-match-${index}`,
+          date: toDateInputValue(entry.date) || fallbackDate,
+          time: toTimeInputValue(entry.date),
+          group: (entry.group ?? "").trim() || "Girone",
+          homeTeam: entry.homeTeam,
+          awayTeam: entry.awayTeam,
+        }))
+      : fallbackQualifying,
+    finals: finals.length > 0
+      ? finals.map((entry, index) => ({
+          id: entry.id || `edit-final-${index}`,
+          date: toDateInputValue(entry.date) || fallbackDate,
+          time: toTimeInputValue(entry.date),
+          label: entry.homeTeam && /final/i.test(entry.homeTeam) ? entry.homeTeam : ((entry.group ?? "").trim() || `Finale ${index + 1}`),
+          homeTeam: entry.homeTeam,
+          awayTeam: entry.awayTeam,
+        }))
+      : [],
+  };
+}
+
 function normalizeTournamentText(value: string): string {
   return value
     .toLowerCase()
@@ -3070,6 +3130,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     overnightNotes: string;
     /** YYYY-MM-DD per import PDF torneo senza date nel testo. */
     pdfReferenceDate: string;
+    groups: ManualTournamentForm["groups"];
+    matches: ManualTournamentForm["matches"];
+    finals: ManualTournamentForm["finals"];
   }>(null);
   const [pendingImportRows, setPendingImportRows] = useState<MatchImportRow[] | null>(null);
   const [pendingImportConflictIds, setPendingImportConflictIds] = useState<number[]>([]);
@@ -3491,11 +3554,53 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       overnightTo: string;
       overnightNotes: string;
       pdfReferenceDate: string;
+      groups: ManualTournamentForm["groups"];
+      matches: ManualTournamentForm["matches"];
+      finals: ManualTournamentForm["finals"];
     }) => {
       const name = input.name.trim();
       if (!name) throw new Error("Inserisci il nome del torneo");
+      if (!input.startDate) throw new Error("Inserisci la data iniziale del torneo");
       const group = tournamentGroups.find((g) => g.competition === input.originalCompetition);
       if (!group) throw new Error("Torneo non trovato");
+      if (!teamId) throw new Error("Squadra non valida");
+      const groups = manualTournamentGroupsForSave({
+        ...defaultManualTournamentForm(),
+        groups: input.groups,
+      });
+      const qualifying = input.matches
+        .map((row, index): TournamentProgramEntry | null => {
+          const homeTeam = row.homeTeam.trim();
+          const awayTeam = row.awayTeam.trim();
+          if (!homeTeam || !awayTeam) return null;
+          const date = parseManualTournamentDateTime(row.date, row.time, input.startDate);
+          if (!date) return null;
+          return {
+            id: row.id || `edit-gironi-${Date.now()}-${index}`,
+            date,
+            homeTeam,
+            awayTeam,
+            phase: "Gironi",
+            group: row.group.trim() || tournamentGroupForTeam(homeTeam, groups) || tournamentGroupForTeam(awayTeam, groups) || "Gironi",
+          };
+        })
+        .filter((entry): entry is TournamentProgramEntry => Boolean(entry));
+      const finals = input.finals
+        .map((row, index): TournamentProgramEntry | null => {
+          const date = parseManualTournamentDateTime(row.date, row.time, input.endDate || input.startDate);
+          if (!date) return null;
+          return {
+            id: row.id || `edit-finali-${Date.now()}-${index}`,
+            date,
+            homeTeam: row.homeTeam.trim() || row.label.trim() || `Finale ${index + 1}`,
+            awayTeam: row.awayTeam.trim() || "da completare",
+            phase: "Finali",
+            group: row.label.trim() || "Finali",
+          };
+        })
+        .filter((entry): entry is TournamentProgramEntry => Boolean(entry));
+      const program = [...qualifying, ...finals].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      if (program.length === 0) throw new Error("Inserisci almeno una partita nel programma torneo");
       const logistics = tournamentLogisticsFromForm({
         ...defaultManualTournamentForm(),
         startDate: input.startDate,
@@ -3506,27 +3611,47 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         overnightNotes: input.overnightNotes,
       });
       const notes = tournamentNotesFromLogistics(logistics);
-      for (const match of group.matches) {
+      const existing = [...group.matches].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      for (let index = 0; index < program.length; index += 1) {
+        const entry = program[index];
+        const payload = {
+          opponent: `${entry.homeTeam} - ${entry.awayTeam}`,
+          date: entry.date,
+          teamId,
+          homeAway: "home",
+          competition: name,
+          location: input.location.trim() || null,
+          notes,
+        };
+        const current = existing[index];
+        if (current) {
+          await apiFetch(`/api/matches/${current.id}`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          });
+        } else {
+          await apiFetch("/api/matches", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+        }
+      }
+      for (const match of existing.slice(program.length)) {
         await apiFetch(`/api/matches/${match.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            competition: name,
-            location: input.location.trim() || null,
-            notes,
-          }),
+          method: "DELETE",
         });
       }
       if (teamId) {
-        const previousProgram = getTournamentProgramForEdit(input.originalCompetition);
         const previousScores = getTournamentScoresForEdit(input.originalCompetition);
         if (input.originalCompetition.trim() !== name) {
           if (!tournamentDocsLoaded) setTournamentPdfReferenceDate(teamId, input.originalCompetition, null);
           await deleteTournamentState(input.originalCompetition);
         }
         if (!tournamentDocsLoaded) setTournamentPdfReferenceDate(teamId, name, input.pdfReferenceDate.trim() || null);
-        await saveTournamentState(name, previousProgram, previousScores, input.pdfReferenceDate.trim() || null);
+        if (!tournamentDocsLoaded) setTournamentProgram(teamId, name, program);
+        await saveTournamentState(name, program, previousScores, input.pdfReferenceDate.trim() || null);
       }
-      return group.matches.length;
+      return program.length;
     },
     onSuccess: (n) => {
       qc.invalidateQueries({ queryKey: ["/api/matches", teamId] });
@@ -4060,6 +4185,11 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     const lastMatch = group.matches[group.matches.length - 1];
     const logistics = group.matches.map((m) => decodeTournamentLogistics(m.notes)).find(Boolean) ?? null;
     const pdfRef = getTournamentPdfReferenceDateForEdit(group.competition) ?? "";
+    const programRows = tournamentEditRowsFromProgram(
+      getTournamentProgramForEdit(group.competition),
+      group.matches,
+      logistics?.startDate || toDateInputValue(firstMatch?.date),
+    );
     setEditingTournament({
       originalCompetition: group.competition,
       name: group.competition,
@@ -4071,6 +4201,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       overnightTo: logistics?.returnDate ?? "",
       overnightNotes: logistics?.notes ?? "",
       pdfReferenceDate: pdfRef,
+      groups: programRows.groups,
+      matches: programRows.matches,
+      finals: programRows.finals,
     });
   }
 
@@ -5058,7 +5191,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           <DialogHeader>
             <DialogTitle>Modifica torneo</DialogTitle>
             <DialogDescription>
-              Aggiorna dati generali e logistici. Accoppiamenti, punteggi e gironi si modificano dalla scheda torneo.
+              Aggiorna dati generali, gironi, squadre e accoppiamenti. Punteggi e regole restano nella scheda torneo.
             </DialogDescription>
           </DialogHeader>
           {editingTournament ? (
@@ -5144,6 +5277,165 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                     </div>
                   </div>
                 ) : null}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Gironi e squadre</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setEditingTournament((prev) => prev ? {
+                      ...prev,
+                      groups: [...prev.groups, { id: `edit-group-${Date.now()}`, name: `Girone ${String.fromCharCode(65 + prev.groups.length)}`, teams: [""] }],
+                    } : prev)}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    Girone
+                  </Button>
+                </div>
+                {editingTournament.groups.map((group) => (
+                  <div key={group.id} className="rounded-lg border border-border/70 p-3 space-y-2">
+                    <div className="flex gap-2">
+                      <Input
+                        value={group.name}
+                        onChange={(e) => setEditingTournament((prev) => prev ? {
+                          ...prev,
+                          groups: prev.groups.map((item) => item.id === group.id ? { ...item, name: e.target.value } : item),
+                        } : prev)}
+                        placeholder="Nome girone"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => setEditingTournament((prev) => prev ? {
+                          ...prev,
+                          groups: prev.groups.filter((item) => item.id !== group.id),
+                        } : prev)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {group.teams.map((teamName, teamIndex) => (
+                        <div key={`${group.id}-${teamIndex}`} className="flex gap-2">
+                          <Input
+                            value={teamName}
+                            onChange={(e) => setEditingTournament((prev) => prev ? {
+                              ...prev,
+                              groups: prev.groups.map((item) => item.id === group.id
+                                ? { ...item, teams: item.teams.map((value, idx) => idx === teamIndex ? e.target.value : value) }
+                                : item),
+                            } : prev)}
+                            placeholder={`Squadra ${teamIndex + 1}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive"
+                            onClick={() => setEditingTournament((prev) => prev ? {
+                              ...prev,
+                              groups: prev.groups.map((item) => item.id === group.id
+                                ? { ...item, teams: item.teams.filter((_, idx) => idx !== teamIndex) }
+                                : item),
+                            } : prev)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => setEditingTournament((prev) => prev ? {
+                        ...prev,
+                        groups: prev.groups.map((item) => item.id === group.id ? { ...item, teams: [...item.teams, ""] } : item),
+                      } : prev)}
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Squadra
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Turni di gioco / accoppiamenti</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setEditingTournament((prev) => prev ? {
+                      ...prev,
+                      matches: [...prev.matches, { id: `edit-match-${Date.now()}`, date: "", time: "", group: prev.groups[0]?.name || "Girone A", homeTeam: "", awayTeam: "" }],
+                    } : prev)}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    Partita
+                  </Button>
+                </div>
+                {editingTournament.matches.map((row) => (
+                  <div key={row.id} className="rounded-lg border border-border/70 p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_0.8fr_1fr_1fr_1fr_auto] gap-2">
+                    <Input type="date" value={row.date} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, date: e.target.value } : item) } : prev)} />
+                    <Input placeholder="Ora" inputMode="numeric" value={row.time} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, time: formatTimeInputLive(e.target.value) } : item) } : prev)} />
+                    <Input placeholder="Girone/Campo" value={row.group} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, group: e.target.value } : item) } : prev)} />
+                    <Input placeholder="Squadra 1" value={row.homeTeam} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, homeTeam: e.target.value } : item) } : prev)} />
+                    <Input placeholder="Squadra 2" value={row.awayTeam} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.map((item) => item.id === row.id ? { ...item, awayTeam: e.target.value } : item) } : prev)} />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 text-muted-foreground hover:text-destructive"
+                      onClick={() => setEditingTournament((prev) => prev ? { ...prev, matches: prev.matches.filter((item) => item.id !== row.id) } : prev)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Finali / fase finale</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setEditingTournament((prev) => prev ? {
+                      ...prev,
+                      finals: [...prev.finals, { id: `edit-final-${Date.now()}`, date: "", time: "", label: "Finale", homeTeam: "da completare", awayTeam: "da completare" }],
+                    } : prev)}
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    Finale
+                  </Button>
+                </div>
+                {editingTournament.finals.map((row) => (
+                  <div key={row.id} className="rounded-lg border border-border/70 p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_0.8fr_1fr_1fr_1fr_auto] gap-2">
+                    <Input type="date" value={row.date} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, finals: prev.finals.map((item) => item.id === row.id ? { ...item, date: e.target.value } : item) } : prev)} />
+                    <Input placeholder="Ora" inputMode="numeric" value={row.time} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, finals: prev.finals.map((item) => item.id === row.id ? { ...item, time: formatTimeInputLive(e.target.value) } : item) } : prev)} />
+                    <Input placeholder="Nome finale" value={row.label} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, finals: prev.finals.map((item) => item.id === row.id ? { ...item, label: e.target.value } : item) } : prev)} />
+                    <Input placeholder="Squadra 1" value={row.homeTeam} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, finals: prev.finals.map((item) => item.id === row.id ? { ...item, homeTeam: e.target.value } : item) } : prev)} />
+                    <Input placeholder="Squadra 2" value={row.awayTeam} onChange={(e) => setEditingTournament((prev) => prev ? { ...prev, finals: prev.finals.map((item) => item.id === row.id ? { ...item, awayTeam: e.target.value } : item) } : prev)} />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 text-muted-foreground hover:text-destructive"
+                      onClick={() => setEditingTournament((prev) => prev ? { ...prev, finals: prev.finals.filter((item) => item.id !== row.id) } : prev)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
               </div>
               <div className="space-y-1">
                 <Label htmlFor="edit-tournament-pdf-ref">Data di riferimento PDF (facoltativa)</Label>
