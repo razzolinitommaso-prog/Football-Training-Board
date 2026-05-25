@@ -1223,14 +1223,14 @@ export function TournamentGroupedCards({
                                   ) : null}
                                   <p className="text-muted-foreground">{format(new Date(entry.date), "dd/MM HH:mm", { locale: itLocale })}</p>
                                 </div>
-                                {canEditTournamentScores && (isFinalPlaceholderEntry(entry) || isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)) ? (
+                                {canEditTournamentScores ? (
                                   <Button
                                     type="button"
                                     variant="ghost"
                                     size="icon"
                                     className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-                                    title="Modifica evento"
-                                    aria-label="Modifica evento"
+                                    title="Modifica partita"
+                                    aria-label="Modifica partita"
                                     onClick={() => openProgramEntryEditor(g.competition, entry, teamOptions)}
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
