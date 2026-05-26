@@ -697,6 +697,44 @@ function scoresFromParsedTournamentProgram(program: TournamentProgramEntry[]): R
   return scores;
 }
 
+function isSuspiciousTournamentProgramSide(value: string): boolean {
+  const clean = cleanTournamentTeamName(value);
+  const n = normalizeName(clean);
+  if (!clean || n.length < 2) return true;
+  if (clean.length > 70) return true;
+  if (/\b\d{1,2}[:.]\d{2}\b/.test(clean)) return true;
+  if (/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(clean)) return true;
+  if (/\s[-\u2013\u2014]\s/.test(clean)) return true;
+  if (/\b\d{1,2}\s*[-:]\s*\d{1,2}\b/.test(clean)) return true;
+  if (/\b(?:classifica|classificata|classificato|finali|generate|programma|partite|campo|risultato|riposa|riposano|premiazioni)\b/.test(n)) return true;
+  return false;
+}
+
+function sanitizeTournamentProgramEntries(program: TournamentProgramEntry[]): TournamentProgramEntry[] {
+  const clean: TournamentProgramEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of program) {
+    const homeTeam = cleanOcrTournamentOpponentName(entry.homeTeam);
+    const awayTeam = cleanOcrTournamentOpponentName(entry.awayTeam);
+    if (isSuspiciousTournamentProgramSide(homeTeam) || isSuspiciousTournamentProgramSide(awayTeam)) continue;
+    if (!looksLikeStandaloneTournamentTeamLine(homeTeam) || !looksLikeStandaloneTournamentTeamLine(awayTeam)) continue;
+    const dt = new Date(entry.date);
+    if (Number.isNaN(dt.getTime())) continue;
+    const year = dt.getFullYear();
+    if (year < 2020 || year > 2035) continue;
+    const key = `${entry.date}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push({
+      ...entry,
+      id: key,
+      homeTeam: homeTeam.slice(0, 120),
+      awayTeam: awayTeam.slice(0, 120),
+    });
+  }
+  return clean;
+}
+
 function parseTournamentProgramLines(
   allLines: string[],
   options: {
@@ -775,7 +813,14 @@ function parseTournamentProgramLines(
     });
   }
 
-  return { recognized, discarded, totalDateLines, tournamentProgram, tournamentScores: scoresFromParsedTournamentProgram(tournamentProgram) };
+  const cleanTournamentProgram = sanitizeTournamentProgramEntries(tournamentProgram);
+  return {
+    recognized,
+    discarded,
+    totalDateLines,
+    tournamentProgram: cleanTournamentProgram,
+    tournamentScores: scoresFromParsedTournamentProgram(cleanTournamentProgram),
+  };
 }
 
 function parseUnifiedTournamentProgramLines(
@@ -964,7 +1009,9 @@ function parseUnifiedTournamentProgramLines(
     }
   }
 
-  for (const entry of tournamentProgram) {
+  const cleanTournamentProgram = sanitizeTournamentProgramEntries(tournamentProgram);
+
+  for (const entry of cleanTournamentProgram) {
     const leftOwn = tournamentAliasMatchesSide(normalizeName(entry.homeTeam), options.aliasNorms);
     const rightOwn = tournamentAliasMatchesSide(normalizeName(entry.awayTeam), options.aliasNorms);
     if (leftOwn === rightOwn) continue;
@@ -981,7 +1028,13 @@ function parseUnifiedTournamentProgramLines(
     });
   }
 
-  return { recognized, discarded, totalDateLines, tournamentProgram, tournamentScores: scoresFromParsedTournamentProgram(tournamentProgram) };
+  return {
+    recognized,
+    discarded,
+    totalDateLines,
+    tournamentProgram: cleanTournamentProgram,
+    tournamentScores: scoresFromParsedTournamentProgram(cleanTournamentProgram),
+  };
 }
 
 function parseAnyTournamentProgramLine(
@@ -1355,7 +1408,14 @@ function parseTournamentImageTextLines(
     tournamentProgram.splice(0, tournamentProgram.length, ...knownProgram);
   }
 
-  return { recognized, discarded, totalDateLines, tournamentProgram, tournamentScores: scoresFromParsedTournamentProgram(tournamentProgram) };
+  const cleanTournamentProgram = sanitizeTournamentProgramEntries(tournamentProgram);
+  return {
+    recognized,
+    discarded,
+    totalDateLines,
+    tournamentProgram: cleanTournamentProgram,
+    tournamentScores: scoresFromParsedTournamentProgram(cleanTournamentProgram),
+  };
 }
 
 function extractOpponent(line: string, aliases: string[]): { opponent: string | null; homeAway: "home" | "away" } {
