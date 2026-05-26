@@ -457,7 +457,9 @@ function cleanOcrTournamentOpponentName(value: string): string {
   value = value
     .replace(/^\s*\d{1,2}[:.]\d{2}(?:[.\s-]*\d{4})?\s+/g, "")
     .replace(/\b\d{1,2}[:.]\d{2}(?:[.\s-]*\d{4})?\b/g, " ")
-    .replace(/\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/g, " ");
+    .replace(/\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/g, " ")
+    .replace(/^\s*(?:[A-Z]|\^|x)\s+(?=\p{L}{3,})/u, "")
+    .replace(/^\s*(?:\^\s*)?(?:gold|silver|oro|argento)\s+[A-Z]\s*$/i, "");
   return cleanTournamentTeamName(
     value.replace(/^\s*\d+\s*[|Â¦]?\s*/g, "")
       .replace(/^\s*(?:[.\-]?\d{4}\s*)?(?:\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\s*)+/g, "")
@@ -701,6 +703,8 @@ function isSuspiciousTournamentProgramSide(value: string): boolean {
   const clean = cleanTournamentTeamName(value);
   const n = normalizeName(clean);
   if (!clean || n.length < 2) return true;
+  if (/^(?:x|[a-z])$/.test(n)) return true;
+  if (/^(?:gold|silver|oro|argento)\s+[a-z]$/.test(n)) return true;
   if (n === "snc" || n === "srl" || n === "asd") return true;
   if (/^(?:a|e|di|del|della|san|santa)\s+\w+$/.test(n) && n.split(/\s+/).length <= 2) return true;
   if (clean.length > 70) return true;
