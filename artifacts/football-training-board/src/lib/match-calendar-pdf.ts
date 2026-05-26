@@ -249,20 +249,28 @@ function looksLikeTournamentProgram(fullText: string): boolean {
     n.includes("girone b") ||
     n.includes("raggruppamento a") ||
     n.includes("raggruppamento b") ||
+    n.includes("raggruppamenti a") ||
+    n.includes("raggruppamenti b") ||
     n.includes("fase finale") ||
     n.includes("semifinali") ||
     /\bore\s+\d{1,2}[:.]\d{2}\b/i.test(fullText) ||
-    /\b(?:girone|raggruppamento)\s+[a-z]\s*\d{1,2}[:.]\d{2}\b/i.test(fullText);
+    /\b(?:girone|raggruppament[oi])\s+[a-z]\s*\d{1,2}[:.]\d{2}\b/i.test(fullText);
   const hasTournamentGrid =
-    (/\bore\s+\d{1,2}[:.]\d{2}\b/i.test(fullText) || /\b(?:girone|raggruppamento)\s+[a-z]\s*\d{1,2}[:.]\d{2}\b/i.test(fullText)) &&
+    (/\bore\s+\d{1,2}[:.]\d{2}\b/i.test(fullText) || /\b(?:girone|raggruppament[oi])\s+[a-z]\s*\d{1,2}[:.]\d{2}\b/i.test(fullText)) &&
     (/\bvs\.?\b/i.test(fullText) || n.includes("riposano") || /\bfinale\b/.test(n) || /\bposto\b/.test(n));
   return (hasTournamentWord && hasScheduleSignals) || hasTournamentGrid;
 }
 
 function extractTournamentGroupLabel(line: string): string | null {
-  const group = line.match(/\b(?:girone|raggruppamento)\s+([a-z0-9]+)\b(?:\s+(oro|argento|gold|silver))?/i);
+  const group = line.match(/\b(girone|raggruppament[oi])\s+([a-z0-9]+)\b(?:\s+([a-z0-9]+))?/i);
   if (group) {
-    const label = [group[1], group[2]]
+    const first = group[2] ?? "";
+    const secondCandidate = group[3] ?? "";
+    const firstIsColor = /^(?:oro|argento|gold|silver)$/i.test(first);
+    const secondIsColor = /^(?:oro|argento|gold|silver)$/i.test(secondCandidate);
+    const secondIsShortCode = /^[a-z0-9]{1,2}$/i.test(secondCandidate);
+    const second = firstIsColor && secondIsShortCode ? secondCandidate : (!firstIsColor && secondIsColor ? secondCandidate : "");
+    const label = [first, second]
       .filter(Boolean)
       .join(" ")
       .replace(/\b(?:data|ora|ore|campo|gara|classificata|classificato)\b.*$/i, "")
@@ -874,7 +882,7 @@ function parseUnifiedTournamentProgramLines(
     const norm = normalizeName(clean);
     if (!clean || norm.length < 3) return;
     if (!looksLikeStandaloneTournamentTeamLine(clean)) return;
-    if (/\b(?:data|orario|ora|campo|ris|gara|programma|partite|finali|fase|girone|raggruppamento)\b/.test(norm)) return;
+    if (/\b(?:data|orario|ora|campo|ris|gara|programma|partite|finali|fase|girone|raggruppament[oi])\b/.test(norm)) return;
     const list = groupTeams.get(group) ?? [];
     if (!list.some((item) => normalizeName(item) === norm)) list.push(clean);
     groupTeams.set(group, list);
@@ -888,7 +896,7 @@ function parseUnifiedTournamentProgramLines(
     if (groupLabel) {
       currentGroup = groupLabel;
       currentPhase = "Gironi";
-      const groupMatch = line.match(/\b(?:girone|raggruppamento)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}\b/i);
+      const groupMatch = line.match(/\b(?:girone|raggruppament[oi])\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}\b/i);
       const after = line.slice((groupMatch?.index ?? 0) + (groupMatch?.[0].length ?? 0)).trim();
       if (after) after.split(/\s{2,}|[,;|]/).forEach((part) => addTeam(currentGroup!, part));
       continue;
@@ -1004,7 +1012,7 @@ function parseUnifiedTournamentProgramLines(
     const line = normalizedLines[i] ?? "";
     if (!line || isPageFooterOrNoise(line)) continue;
     currentPhase = detectTournamentPhase(line, currentPhase);
-    const rowGroup = extractTournamentGroupLabel(line) ?? currentGroup ?? currentPhase?.match(/\bgirone\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}/i)?.[0] ?? null;
+    const rowGroup = extractTournamentGroupLabel(line) ?? currentGroup ?? currentPhase?.match(/\b(?:girone|raggruppament[oi]|triangolare)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}/i)?.[0] ?? null;
     const numericDateIso = parseDateTimeIso(line);
     const namedDateIso = parseItalianNamedDateIso(line, fallbackYear);
     if (numericDateIso || namedDateIso) currentDateIso = numericDateIso ?? namedDateIso;
@@ -1020,7 +1028,7 @@ function parseUnifiedTournamentProgramLines(
     const keepGroupLabels = /\bclassificat[aoe]?\b/i.test(afterTime);
     const restSource = keepGroupLabels
       ? afterTime
-      : afterTime.replace(/\b(?:girone|raggruppamento)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}\b/i, "").replace(/^\s*[a-z]\s+/i, "");
+      : afterTime.replace(/\b(?:girone|raggruppament[oi]|triangolare)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}\b/i, "").replace(/^\s*[a-z]\s+/i, "");
     const pairs = splitPairs(cleanTournamentFixtureRest(restSource));
     if (pairs.length === 0) {
       discarded++;
@@ -1082,7 +1090,7 @@ function parseAnyTournamentProgramLine(
   if (Number.isNaN(base.getTime())) return null;
   base.setHours(hour, minute, 0, 0);
   const phase = currentPhase?.trim() || null;
-  const group = phase?.match(/\bgirone\s+[a-z0-9]+/i)?.[0] ?? null;
+  const group = phase?.match(/\b(?:girone|raggruppament[oi]|triangolare)\s+[a-z0-9]+/i)?.[0] ?? null;
   return {
     id: "",
     date: base.toISOString(),
@@ -1111,7 +1119,7 @@ function parseAnyTournamentProgramLines(
   if (Number.isNaN(base.getTime())) return entries;
   base.setHours(hour, minute, 0, 0);
   const phase = currentPhase?.trim() || null;
-  const group = phase?.match(/\bgirone\s+[a-z0-9]+/i)?.[0] ?? null;
+  const group = phase?.match(/\b(?:girone|raggruppament[oi]|triangolare)\s+[a-z0-9]+/i)?.[0] ?? null;
 
   for (const pair of rest.matchAll(pairRe)) {
     const homeTeam = cleanOcrTournamentOpponentName(pair[1] ?? "");
@@ -1166,7 +1174,7 @@ function parseCellTournamentProgramLines(
   if (Number.isNaN(base.getTime())) return [];
   base.setHours(hour, minute, 0, 0);
   const phase = currentPhase?.trim() || null;
-  const group = phase?.match(/\bgirone\s+[a-z0-9]+/i)?.[0] ?? null;
+  const group = phase?.match(/\b(?:girone|raggruppament[oi]|triangolare)\s+[a-z0-9]+/i)?.[0] ?? null;
   const entries: TournamentProgramEntry[] = [];
 
   for (let i = 0; i + 1 < cells.length; i += 2) {
