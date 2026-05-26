@@ -14,7 +14,7 @@ const STATE_UPDATE_ROLES = [
   "athletic_director",
 ];
 const ASSIGNED_TEAM_STATE_UPDATE_ROLES = ["coach", "fitness_coach", "athletic_director"];
-const MAX_TOURNAMENT_DOC_BYTES = 8 * 1024 * 1024;
+const MAX_TOURNAMENT_DOC_BYTES = 32 * 1024 * 1024;
 
 type TournamentProgramEntry = {
   id: string;

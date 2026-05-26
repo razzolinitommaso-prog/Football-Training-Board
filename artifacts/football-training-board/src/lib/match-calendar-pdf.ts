@@ -339,6 +339,40 @@ function cleanTournamentFixtureRest(value: string): string {
   );
 }
 
+function isTournamentReferenceCodeLine(value: string): boolean {
+  const text = value.trim();
+  const n = normalizeName(text);
+  if (!n) return true;
+  if (/^(?:[a-z]\d+|\d+\s*(?:a|o)?\s+[a-z]|[a-z]\s*\d+)\s*(?:[-\u2013\u2014/]|vs)\s*(?:[a-z]\d+|\d+\s*(?:a|o)?\s+[a-z]|[a-z]\s*\d+)$/i.test(text)) return true;
+  if (/^\d+\s*(?:a|o)?\s+classificat[ao]\s+girone\s+[a-z0-9]+$/i.test(text)) return true;
+  if (/^\d+\s*(?:a|o)?\s+girone\s+[a-z0-9]+$/i.test(text)) return true;
+  return false;
+}
+
+function looksLikeStandaloneTournamentTeamLine(value: string): boolean {
+  const clean = cleanOcrTournamentOpponentName(value);
+  const n = normalizeName(clean);
+  if (!clean || n.length < 3) return false;
+  if (clean.length > 55) return false;
+  if (isTournamentReferenceCodeLine(clean)) return false;
+  if (/[-\u2013\u2014|]/.test(clean)) return false;
+  if (/\b\d{1,2}[:.]\d{2}\b/.test(clean)) return false;
+  if (/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(clean)) return false;
+  if (/\b(?:data|orario|ora|ore|campo|ris|gara|programma|partite|finali|fase|giornata|riposa|riposano|premiazioni|servizio|bar)\b/.test(n)) return false;
+  if (/\b(?:classificat|posto|triangolare)\b/.test(n)) return false;
+  return /[a-z]/i.test(clean);
+}
+
+function parseTournamentTrailingScore(value: string): { text: string; homeScore: number | null; awayScore: number | null } {
+  const match = value.trim().match(/\b([0O]|\d{1,2})\s*[-:]\s*([0O]|\d{1,2})\s*$/i);
+  if (!match) return { text: value, homeScore: null, awayScore: null };
+  return {
+    text: value.slice(0, match.index).trim(),
+    homeScore: Number(String(match[1]).replace(/O/i, "0")),
+    awayScore: Number(String(match[2]).replace(/O/i, "0")),
+  };
+}
+
 function cleanTournamentEventPrefix(value: string): string {
   return cleanTournamentTeamName(
     value
@@ -766,6 +800,7 @@ function parseUnifiedTournamentProgramLines(
     const clean = cleanOcrTournamentOpponentName(team);
     const norm = normalizeName(clean);
     if (!clean || norm.length < 3) return;
+    if (!looksLikeStandaloneTournamentTeamLine(clean)) return;
     if (/\b(?:data|orario|ora|campo|ris|gara|programma|partite|finali|fase|girone|raggruppamento)\b/.test(norm)) return;
     const list = groupTeams.get(group) ?? [];
     if (!list.some((item) => normalizeName(item) === norm)) list.push(clean);
@@ -841,14 +876,36 @@ function parseUnifiedTournamentProgramLines(
     return pairs;
   };
   const addProgramEntry = (date: string, homeRaw: string, awayRaw: string, phase: string | null, group: string | null) => {
-    const homeTeam = cleanOcrTournamentOpponentName(homeRaw);
-    const awayTeam = cleanOcrTournamentOpponentName(awayRaw);
+    const score = parseTournamentTrailingScore(`${homeRaw} - ${awayRaw}`);
+    let homeSource = homeRaw;
+    let awaySource = awayRaw;
+    if (score.homeScore != null && score.awayScore != null) {
+      const scoreless = score.text.match(/^(.+?)\s*(?:[\u2013\u2014-]|vs\.?)\s*(.+)$/i);
+      if (scoreless) {
+        homeSource = scoreless[1] ?? homeRaw;
+        awaySource = scoreless[2] ?? awayRaw;
+      } else {
+        awaySource = awayRaw.replace(/\b([0O]|\d{1,2})\s*[-:]\s*([0O]|\d{1,2})\s*$/i, "").trim();
+      }
+    }
+    const homeTeam = cleanOcrTournamentOpponentName(homeSource);
+    const awayTeam = cleanOcrTournamentOpponentName(awaySource);
     if (!homeTeam || !awayTeam) return;
     if (isImageTournamentEmptyTeam(homeTeam) || isImageTournamentEmptyTeam(awayTeam)) return;
+    if (isTournamentReferenceCodeLine(homeTeam) || isTournamentReferenceCodeLine(awayTeam)) return;
     const key = `${date}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`;
     if (seenProgram.has(key)) return;
     seenProgram.add(key);
-    tournamentProgram.push({ id: key, date, homeTeam: homeTeam.slice(0, 120), awayTeam: awayTeam.slice(0, 120), phase, group });
+    tournamentProgram.push({
+      id: key,
+      date,
+      homeTeam: homeTeam.slice(0, 120),
+      awayTeam: awayTeam.slice(0, 120),
+      phase,
+      group,
+      homeScore: score.homeScore,
+      awayScore: score.awayScore,
+    });
   };
 
   for (let i = 0; i < normalizedLines.length; i++) {
@@ -1546,6 +1603,38 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
     pushLine(`${normalizeTournamentDateCell(dateValue)} ${timeValue.replace(".", ":")} ${groupLabel ?? ""} ${clean}`, y);
   };
 
+  const isTournamentScoreCell = (value: string): boolean => /^[0O]?\d{1,2}\s*(?:[-:]\s*[0O]?\d{1,2})?$/.test(value.trim());
+  const isTournamentTeamCell = (value: string): boolean => {
+    const clean = cleanOcrTournamentOpponentName(value);
+    const n = normalizeName(clean);
+    if (!clean || n.length < 2) return false;
+    if (isTournamentScoreCell(clean) || isTournamentReferenceCodeLine(clean)) return false;
+    if (/\b(?:data|orario|ora|ore|campo|ris|gara|giornata|riposa|premiazioni)\b/.test(n)) return false;
+    return /[a-z]/i.test(clean);
+  };
+  const pushTournamentCellPair = (
+    dateValue: string,
+    timeValue: string,
+    groupLabel: string | null,
+    cells: { str: string; x: number }[],
+    y: number,
+  ) => {
+    const useful = cells.filter((cell) => isTournamentTeamCell(cell.str));
+    if (useful.length < 2) return;
+    for (let i = 0; i + 1 < useful.length; i += 2) {
+      const home = cleanOcrTournamentOpponentName(useful[i].str);
+      const away = cleanOcrTournamentOpponentName(useful[i + 1].str);
+      if (!home || !away) continue;
+      const scoreCells = cells
+        .filter((cell) => cell.x > useful[i + 1].x && cell.x < useful[i + 1].x + 85 && isTournamentScoreCell(cell.str))
+        .map((cell) => cell.str.trim());
+      const scoreSuffix = scoreCells.length >= 2
+        ? ` ${scoreCells[0]} - ${scoreCells[1]}`
+        : (scoreCells[0] && /\d+\s*[-:]\s*\d+/.test(scoreCells[0]) ? ` ${scoreCells[0]}` : "");
+      pushLine(`${normalizeTournamentDateCell(dateValue)} ${timeValue.replace(".", ":")} ${groupLabel ?? ""} ${home} - ${away}${scoreSuffix}`, y);
+    }
+  };
+
   for (const row of rows) {
     const dateCells = row.cells.filter((cell) => dateRe.test(cell.str));
     if (dateCells.length > 0) currentTableDate = normalizeTournamentDateCell(dateCells[0].str);
@@ -1575,6 +1664,10 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
           isUsefulTournamentFixtureCell(cell.str)
         );
         for (const cell of fixtureCells) pushTournamentFixtureCell(timeCell.date, timeCell.time, groupLabel, cell.str, row.y + 0.04);
+        if (fixtureCells.length === 0) {
+          const candidateCells = row.cells.filter((cell) => cell.x > timeCell.x + 35 && cell.x < nextTimeX - 20);
+          pushTournamentCellPair(timeCell.date, timeCell.time, groupLabel, candidateCells, row.y + 0.04);
+        }
       }
     }
 
@@ -1585,6 +1678,16 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
           .filter((candidate) => candidate.x <= cell.x + 20)
           .sort((a, b) => Math.abs(a.x - cell.x) - Math.abs(b.x - cell.x))[0] ?? pendingTimeCells[0];
         pushTournamentFixtureCell(timeCell.date, timeCell.time, groupForScheduleRow(row.y), cell.str, row.y + 0.04);
+      }
+      if (fixtureCells.length === 0) {
+        for (const timeCell of pendingTimeCells) {
+          const nextTimeX = pendingTimeCells
+            .map((cell) => cell.x)
+            .filter((x) => x > timeCell.x + 20)
+            .sort((a, b) => a - b)[0] ?? Number.POSITIVE_INFINITY;
+          const candidateCells = row.cells.filter((cell) => cell.x > timeCell.x + 35 && cell.x < nextTimeX - 20);
+          pushTournamentCellPair(timeCell.date, timeCell.time, groupForScheduleRow(row.y), candidateCells, row.y + 0.04);
+        }
       }
       continue;
     }
