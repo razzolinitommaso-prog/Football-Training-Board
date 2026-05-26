@@ -23,6 +23,7 @@ type TournamentProgramEntry = {
   awayTeam: string;
   phase?: string | null;
   group?: string | null;
+  kind?: "match" | "composition";
 };
 
 type TournamentProgramScore = {
@@ -90,6 +91,7 @@ function normalizeProgram(value: unknown): TournamentProgramEntry[] {
       awayTeam,
       phase: row.phase == null ? null : String(row.phase),
       group: row.group == null ? null : String(row.group),
+      kind: row.kind === "composition" ? "composition" : "match",
     }];
   });
 }

@@ -207,6 +207,7 @@ function isPlaceholderTournamentTeam(value: string): boolean {
   );
 }
 function isFinalPlaceholderEntry(entry: TournamentProgramEntry): boolean {
+  if (entry.kind === "composition") return false;
   return isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam) || /final/i.test(entry.group ?? "");
 }
 
@@ -222,6 +223,15 @@ function standingsFor(
     return table.get(key)!;
   };
   for (const entry of entries) {
+    if (entry.kind === "composition") {
+      const home = ensure(entry.homeTeam);
+      home.pg += 0;
+      if (!isPlaceholderTournamentTeam(entry.awayTeam)) {
+        const away = ensure(entry.awayTeam);
+        away.pg += 0;
+      }
+      continue;
+    }
     if (isFinalPlaceholderEntry(entry)) continue;
     if (isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)) continue;
     const home = ensure(entry.homeTeam);
@@ -371,6 +381,46 @@ function groupProgramEntries(entries: TournamentProgramEntry[]): { label: string
     map.get(label)!.push(entry);
   }
   return [...map.entries()].map(([label, list]) => ({ label, entries: list }));
+}
+
+function parseTournamentPlacementRef(value: string): { position: number; groupLabel: string } | null {
+  const n = normalizeSide(value)
+    .replace(/\b(\d+)\s*\^\b/g, "$1 ")
+    .replace(/\bclass\b/g, "classificata");
+  const match =
+    n.match(/\b(\d+)\s*(?:classificata|classificato|class)?\s*(?:del\s+|della\s+|di\s+)?(?:girone|raggruppamento|triangolare|quadrangolare)\s+([a-z0-9]+(?:\s+(?:oro|argento|bronzo|platino|gold|silver|bronze|platinum))?)\b/) ??
+    n.match(/\b(\d+)\s*(?:classificata|classificato|class)?\s+([a-z0-9]{1,3})\b/);
+  if (!match) return null;
+  const position = Number(match[1]);
+  if (!Number.isFinite(position) || position <= 0) return null;
+  const rawGroup = String(match[2] ?? "").trim();
+  const groupLabel = /^girone|raggruppamento|triangolare|quadrangolare/i.test(rawGroup)
+    ? rawGroup
+    : `Girone ${rawGroup.toUpperCase()}`;
+  return { position, groupLabel };
+}
+
+function resolveTournamentPlacementRef(value: string, groups: { label: string; rows: StandingRow[] }[]): string | null {
+  const ref = parseTournamentPlacementRef(value);
+  if (!ref) return null;
+  const target = groups.find((group) => normalizeSide(group.label) === normalizeSide(ref.groupLabel));
+  return target?.rows[ref.position - 1]?.team ?? null;
+}
+
+function resolveTournamentProgramPlaceholders(
+  entries: TournamentProgramEntry[],
+  groups: { label: string; rows: StandingRow[] }[],
+): TournamentProgramEntry[] {
+  return entries.map((entry) => {
+    const homeResolved = resolveTournamentPlacementRef(entry.homeTeam, groups);
+    const awayResolved = resolveTournamentPlacementRef(entry.awayTeam, groups);
+    if (!homeResolved && !awayResolved) return entry;
+    return {
+      ...entry,
+      homeTeam: homeResolved ?? entry.homeTeam,
+      awayTeam: awayResolved ?? entry.awayTeam,
+    };
+  });
 }
 
 function generatedCrossFinalsFromGroups(groups: { label: string; rows: StandingRow[] }[]) {
@@ -873,9 +923,14 @@ export function TournamentGroupedCards({
         const matchScores = storedProgram.length > 0 ? {} : scoresFromTournamentMatches(sorted);
         const scores = { ...matchScores, ...(scoresByCompetition[g.competition] ?? {}) };
         const pointsRule = pointsRulesByCompetition[g.competition] ?? DEFAULT_TOURNAMENT_POINTS_RULE;
-        const programByView = filterProgramEntriesByView(program, progVal);
+        const rawProgramByView = filterProgramEntriesByView(program, progVal);
         const clubOnly = !!clubOnlyByCompetition[g.competition];
         const expanded = expandedByCompetition[g.competition] ?? false;
+        const baseStandingsGroups = groupProgramEntries(rawProgramByView.filter((entry) => entry.kind !== "composition")).map((group) => ({
+          label: group.label,
+          rows: standingsFor(group.entries, scores, pointsRule),
+        }));
+        const programByView = resolveTournamentProgramPlaceholders(rawProgramByView, baseStandingsGroups);
         const visibleProgram = clubOnly
           ? programByView.filter((entry) => sideMatchesClub(entry.homeTeam, clubLabel) || sideMatchesClub(entry.awayTeam, clubLabel))
           : programByView;
@@ -1198,6 +1253,7 @@ export function TournamentGroupedCards({
                           {programGroups.length > 1 ? <p className="py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</p> : null}
                           <div className="divide-y divide-border/60">
                             {group.entries.map((entry) => {
+                              const compositionEntry = entry.kind === "composition";
                               const entryLabel = `${entry.homeTeam} - ${entry.awayTeam}`;
                               const generatedFinal = generatedFinalsByEntryId.get(entry.id);
                               const generatedFinalLabel = generatedFinal ? `${generatedFinal.homeTeam} - ${generatedFinal.awayTeam}` : null;
@@ -1210,11 +1266,14 @@ export function TournamentGroupedCards({
                                   ? resolveGeneratedFinalLabel(entryLabel, cardStandingGroups)
                                   : entryLabel);
                               return (
-                              <div key={entry.id} className="py-2 text-xs flex items-center justify-between gap-2">
+                              <div key={entry.id} className={`py-2 text-xs flex items-center justify-between gap-2 ${compositionEntry ? "text-muted-foreground" : ""}`}>
                                 <div className="min-w-0">
                                   <p className="truncate font-medium">
-                                    {displayLabel}
+                                    {compositionEntry ? entry.homeTeam : displayLabel}
                                   </p>
+                                  {compositionEntry ? (
+                                    <p className="truncate text-[11px] text-muted-foreground">Composizione girone da classifica precedente</p>
+                                  ) : null}
                                   {resolvedPlacement && resolvedPlacement !== entryLabel ? (
                                     <p className="truncate text-[11px] font-medium text-primary">{resolvedPlacement}</p>
                                   ) : null}
@@ -1223,7 +1282,7 @@ export function TournamentGroupedCards({
                                   ) : null}
                                   <p className="text-muted-foreground">{format(new Date(entry.date), "dd/MM HH:mm", { locale: itLocale })}</p>
                                 </div>
-                                {canEditTournamentScores ? (
+                                {canEditTournamentScores && !compositionEntry ? (
                                   <Button
                                     type="button"
                                     variant="ghost"
@@ -1240,7 +1299,11 @@ export function TournamentGroupedCards({
                                   className="hidden"
                                   readOnly
                                 />
-                                {canEditTournamentScores ? (
+                                {compositionEntry ? (
+                                  <span className="shrink-0 rounded-md border bg-muted/30 px-2 py-1 text-[11px] font-medium">
+                                    in attesa
+                                  </span>
+                                ) : canEditTournamentScores ? (
                                   <ScoreInputPair
                                     home={scores[entry.id]?.homeScore}
                                     away={scores[entry.id]?.awayScore}

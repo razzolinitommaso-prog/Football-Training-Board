@@ -57,6 +57,7 @@ export type TournamentProgramEntry = {
   group?: string | null;
   homeScore?: number | null;
   awayScore?: number | null;
+  kind?: "match" | "composition";
 };
 
 type OcrWorker = {
@@ -319,6 +320,64 @@ function expectedTournamentGroupSize(groupLabel: string | null): number | null {
   return null;
 }
 
+function normalizeTournamentPlacementText(value: string): string {
+  return value
+    .replace(/\b(\d+)\s*(?:\^|Â°|°|Âª|ª|a|A|o|O)\b/g, "$1^")
+    .replace(/\bprima\s+classificat[ao]\b/gi, "1^ classificata")
+    .replace(/\bseconda\s+classificat[ao]\b/gi, "2^ classificata")
+    .replace(/\bterza\s+classificat[ao]\b/gi, "3^ classificata")
+    .replace(/\bquarta\s+classificat[ao]\b/gi, "4^ classificata")
+    .replace(/\bquinta\s+classificat[ao]\b/gi, "5^ classificata")
+    .replace(/\bsesta\s+classificat[ao]\b/gi, "6^ classificata");
+}
+
+function normalizeTournamentSourceGroup(value: string): string {
+  const clean = value.trim().replace(/\s+/g, " ");
+  const label = extractTournamentGroupLabel(clean);
+  if (label) return label;
+  const short = clean.match(/^(?:girone|raggruppament[oi]|triangolare|quadrangolare)?\s*([a-z0-9]{1,3})$/i);
+  return short ? `Girone ${String(short[1]).toUpperCase()}` : clean;
+}
+
+function parseTournamentCompositionRefs(value: string): string[] {
+  const normalized = normalizeTournamentPlacementText(value.replace(/[=:+]/g, " + "));
+  const refs: string[] = [];
+  const re = /\b(\d+)\s*\^?\s*(?:classificat[aoe]?|class\.?)?\s*(?:del\s+|della\s+|di\s+)?(?:girone|raggruppament[oi]|triangolare|quadrangolare)?\s+([a-z0-9]{1,3}(?:\s+(?:oro|argento|bronzo|platino|gold|silver|bronze|platinum))?)\b/gi;
+  for (const match of normalized.matchAll(re)) {
+    const position = Number(match[1]);
+    const group = normalizeTournamentSourceGroup(match[2] ?? "");
+    if (!Number.isFinite(position) || position <= 0 || !group) continue;
+    refs.push(`${position}^ classificata ${group}`);
+  }
+  return [...new Set(refs)];
+}
+
+function parseTournamentCompositionLine(
+  line: string,
+  currentPhase: string | null,
+  fallbackDateIso: string | null,
+): TournamentProgramEntry[] {
+  const clean = normalizeTournamentPlacementText(line.replace(/\s+/g, " ").trim());
+  const n = normalizeName(clean);
+  if (!/\b(?:compost[ao]|formato|formata|accede|accedono|qualificat[aeio]|classificat[aeio])\b/.test(n)) return [];
+  const groupLabel = extractTournamentGroupLabel(clean);
+  if (!groupLabel) return [];
+  const refs = parseTournamentCompositionRefs(clean);
+  if (refs.length === 0) return [];
+  const expected = expectedTournamentGroupSize(groupLabel);
+  const limitedRefs = expected ? refs.slice(0, expected) : refs;
+  const date = fallbackDateIso ?? new Date(new Date().getFullYear(), 0, 1, 10, 0, 0, 0).toISOString();
+  return limitedRefs.map((ref, index) => ({
+    id: `composition|${normalizeName(groupLabel)}|${index}|${normalizeName(ref)}`,
+    date,
+    homeTeam: ref,
+    awayTeam: "da completare",
+    phase: currentPhase ?? "Qualificazioni",
+    group: groupLabel,
+    kind: "composition",
+  }));
+}
+
 function parseItalianNamedDateIso(line: string, fallbackYear?: number | null): string | null {
   const n = normalizeName(line).replace(/\s+/g, " ").trim();
   /** Più occorrenze sulla stessa riga: usa l’ultima valida (testo spurio spesso prima della data). */
@@ -436,6 +495,8 @@ function tournamentAliasMatchesSide(sideNorm: string, aliasNorms: string[]): boo
 
 function detectTournamentPhase(line: string, currentPhase: string | null): string | null {
   const n = normalizeName(line);
+  const numberedQualifying = n.match(/\b(\d+)\s*(?:\^|a|o)?\s*fase\s+qualificazioni?\b/);
+  if (numberedQualifying) return `${numberedQualifying[1]}^ fase qualificazioni`;
   if (n.includes("programma torneo")) return "Gironi";
   const tier = TOURNAMENT_GROUP_TIER_WORDS.find((word) => new RegExp(`\\b${word}\\b`, "i").test(n));
   if (/\bfase finale\b/.test(n) && tier) return `Fase finale - ${titleCaseWords(tier)}`;
@@ -779,6 +840,23 @@ function sanitizeTournamentProgramEntries(program: TournamentProgramEntry[]): To
     });
   };
   for (const entry of program) {
+    if (entry.kind === "composition") {
+      const homeTeam = normalizeTournamentPlacementText(String(entry.homeTeam ?? "").trim());
+      const awayTeam = String(entry.awayTeam ?? "da completare").trim() || "da completare";
+      const group = String(entry.group ?? "").trim();
+      if (!homeTeam || !group) continue;
+      const key = entry.id || `composition|${normalizeName(group)}|${normalizeName(homeTeam)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      clean.push({
+        ...entry,
+        id: key,
+        homeTeam: homeTeam.slice(0, 120),
+        awayTeam: awayTeam.slice(0, 120),
+        kind: "composition",
+      });
+      continue;
+    }
     const homeTeam = cleanOcrTournamentOpponentName(entry.homeTeam);
     const awayTeam = cleanOcrTournamentOpponentName(entry.awayTeam);
     if (isSuspiciousTournamentProgramSide(homeTeam) || isSuspiciousTournamentProgramSide(awayTeam)) continue;
@@ -1043,6 +1121,7 @@ function parseUnifiedTournamentProgramLines(
       group,
       homeScore: score.homeScore,
       awayScore: score.awayScore,
+      kind: "match",
     });
   };
 
@@ -1050,6 +1129,16 @@ function parseUnifiedTournamentProgramLines(
     const line = normalizedLines[i] ?? "";
     if (!line || isPageFooterOrNoise(line)) continue;
     currentPhase = detectTournamentPhase(line, currentPhase);
+    const compositionEntries = parseTournamentCompositionLine(line, currentPhase, currentDateIso ?? options.fallbackDateIso ?? null);
+    if (compositionEntries.length > 0) {
+      for (const entry of compositionEntries) {
+        const key = entry.id;
+        if (seenProgram.has(key)) continue;
+        seenProgram.add(key);
+        tournamentProgram.push(entry);
+      }
+      continue;
+    }
     const rowGroup = extractTournamentGroupLabel(line) ?? currentGroup ?? currentPhase?.match(/\b(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}/i)?.[0] ?? null;
     const numericDateIso = parseDateTimeIso(line);
     const namedDateIso = parseItalianNamedDateIso(line, fallbackYear);
@@ -1138,6 +1227,7 @@ function parseAnyTournamentProgramLine(
     group,
     homeScore: score.homeScore,
     awayScore: score.awayScore,
+    kind: "match",
   };
 }
 
@@ -1171,6 +1261,7 @@ function parseAnyTournamentProgramLines(
       awayTeam: awayTeam.slice(0, 120),
       phase,
       group,
+      kind: "match",
     });
   }
   return entries;
@@ -1229,6 +1320,7 @@ function parseCellTournamentProgramLines(
       group,
       homeScore: score.homeScore,
       awayScore: score.awayScore,
+      kind: "match",
     });
   }
   return entries;
@@ -1263,6 +1355,7 @@ function parseImageTournamentProgramLines(
       awayTeam: awayTeam.slice(0, 120),
       phase,
       group: inferImageTournamentGroup(homeTeam, awayTeam),
+      kind: "match",
     });
   }
 

@@ -18,6 +18,7 @@ export type TournamentProgramEntry = {
   awayTeam: string;
   phase?: string | null;
   group?: string | null;
+  kind?: "match" | "composition";
 };
 
 export type TournamentProgramScore = {
