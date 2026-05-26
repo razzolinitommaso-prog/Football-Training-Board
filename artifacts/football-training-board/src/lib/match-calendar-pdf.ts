@@ -1678,7 +1678,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
     }
   }
 
-  const dateRe = /\b\d{1,2}(?:[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\.\d{1,2}\.\d{2,4})\b/;
+  const dateRe = /\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/;
   const timeRe = /\b\d{1,2}[:.]\d{2}\b/;
   let currentTableDate = pageDateCell ? formatIsoDateForPdfLine(pageDateCell) : "";
   let pendingTimeCells: { x: number; time: string; date: string }[] = [];
@@ -1695,9 +1695,17 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
   const normalizeTournamentDateCell = (value: string): string => {
     const clean = value.trim();
     const withYear = clean.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
-    if (withYear) return clean;
+    if (withYear) {
+      const day = Number(withYear[1]);
+      const month = Number(withYear[2]);
+      if (day < 1 || day > 31 || month < 1 || month > 12) return "";
+      return clean;
+    }
     const short = clean.match(/^(\d{1,2})[\/.\-](\d{1,2})$/);
     if (short) {
+      const day = Number(short[1]);
+      const month = Number(short[2]);
+      if (day < 1 || day > 31 || month < 1 || month > 12) return "";
       const year = extractYearFromIso(pageDateCell ?? "") ?? new Date().getFullYear();
       return `${String(short[1]).padStart(2, "0")}/${String(short[2]).padStart(2, "0")}/${year}`;
     }
@@ -1707,7 +1715,9 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
   const pushTournamentFixtureCell = (dateValue: string, timeValue: string, groupLabel: string | null, fixture: string, y: number) => {
     const clean = cleanTournamentTeamName(fixture);
     if (!isUsefulTournamentFixtureCell(clean)) return;
-    pushLine(`${normalizeTournamentDateCell(dateValue)} ${timeValue.replace(".", ":")} ${groupLabel ?? ""} ${clean}`, y);
+    const normalizedDate = normalizeTournamentDateCell(dateValue);
+    if (!normalizedDate) return;
+    pushLine(`${normalizedDate} ${timeValue.replace(".", ":")} ${groupLabel ?? ""} ${clean}`, y);
   };
 
   const isTournamentScoreCell = (value: string): boolean => /^[0O]?\d{1,2}\s*(?:[-:]\s*[0O]?\d{1,2})?$/.test(value.trim());
@@ -1738,12 +1748,14 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
       const scoreSuffix = scoreCells.length >= 2
         ? ` ${scoreCells[0]} - ${scoreCells[1]}`
         : (scoreCells[0] && /\d+\s*[-:]\s*\d+/.test(scoreCells[0]) ? ` ${scoreCells[0]}` : "");
-      pushLine(`${normalizeTournamentDateCell(dateValue)} ${timeValue.replace(".", ":")} ${groupLabel ?? ""} ${home} - ${away}${scoreSuffix}`, y);
+      const normalizedDate = normalizeTournamentDateCell(dateValue);
+      if (!normalizedDate) continue;
+      pushLine(`${normalizedDate} ${timeValue.replace(".", ":")} ${groupLabel ?? ""} ${home} - ${away}${scoreSuffix}`, y);
     }
   };
 
   for (const row of rows) {
-    const dateCells = row.cells.filter((cell) => dateRe.test(cell.str));
+    const dateCells = row.cells.filter((cell) => dateRe.test(cell.str) && normalizeTournamentDateCell(cell.str));
     if (dateCells.length > 0) currentTableDate = normalizeTournamentDateCell(dateCells[0].str);
     const timeCells = row.cells.filter((cell) => timeRe.test(cell.str));
 
