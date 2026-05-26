@@ -9,7 +9,7 @@ import {
   GetCurrentUserResponse,
   LogoutUserResponse,
 } from "@workspace/api-zod";
-import { requireAuth } from "../lib/auth";
+import { createAuthToken, requireAuth } from "../lib/auth";
 import { normalizeSessionRole } from "../lib/club-scope";
 
 const router: IRouter = Router();
@@ -20,6 +20,16 @@ function saveSession(req: any): Promise<void> {
       if (err) reject(err);
       else resolve();
     });
+  });
+}
+
+function sessionAuthToken(req: any): string {
+  return createAuthToken({
+    userId: Number(req.session.userId),
+    clubId: req.session.clubId,
+    role: req.session.role,
+    section: req.session.section ?? null,
+    isSuperAdmin: req.session.isSuperAdmin === true,
   });
 }
 
@@ -142,7 +152,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     role: "admin",
   });
 
-  res.status(201).json({ ...response, clubAccessCode: accessCode, clubParentCode: parentCode });
+  res.status(201).json({ ...response, clubAccessCode: accessCode, clubParentCode: parentCode, authToken: sessionAuthToken(req) });
 });
 
 router.post("/auth/login", async (req, res): Promise<void> => {
@@ -210,6 +220,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
         },
         role: "superadmin",
         isSuperAdmin: true,
+        authToken: sessionAuthToken(req),
       });
       return;
     }
@@ -326,7 +337,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       role: normalizeSessionRole(membership.role),
     });
 
-    res.json(response);
+    res.json({ ...response, authToken: sessionAuthToken(req) });
     return;
   } catch (error) {
     console.error("[LOGIN] Unexpected error:", error);
@@ -363,6 +374,7 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
     user: { id: 0, email: `genitori@club.ftb`, firstName: "Area", lastName: "Genitori", createdAt: club.createdAt },
     club: { id: club.id, name: club.name, city: club.city, country: club.country, logoUrl: null, foundedYear: null, description: null, createdAt: club.createdAt },
     role: "parent",
+    authToken: sessionAuthToken(req),
   });
 });
 

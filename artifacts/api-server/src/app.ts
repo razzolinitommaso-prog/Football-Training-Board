@@ -8,6 +8,7 @@ import session from "express-session";
 import cookieParser from "cookie-parser";
 import connectPgSimple from "connect-pg-simple";
 import routes from "./routes";
+import { attachBearerSession } from "./lib/auth";
 const PgSession = connectPgSimple(session);
 
 const app: Express = express();
@@ -90,6 +91,8 @@ app.use(
     },
   })
 );
+
+app.use(attachBearerSession);
 
 app.use("/api", routes);
 

@@ -11,6 +11,7 @@ import {
 import type { LoginRequest, RegisterRequest, AuthResponse } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { clearAuthToken, setAuthToken } from "@/lib/auth-token";
 
 interface AuthContextType {
   user: AuthResponse["user"] | null;
@@ -50,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutation: {
       onSuccess: async (_resp, variables) => {
         try {
+          setAuthToken((_resp as any)?.authToken);
           const verified = await queryClient.fetchQuery({
             queryKey: getGetCurrentUserQueryKey(),
             queryFn: () => getCurrentUser(),
@@ -138,6 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const registerMutation = useRegisterUser({
     mutation: {
       onSuccess: (data) => {
+        setAuthToken((data as any)?.authToken);
         queryClient.setQueryData(getGetCurrentUserQueryKey(), data);
         const code = (data as any).clubAccessCode;
         const clubName = data?.club?.name ?? "";
@@ -164,6 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logoutMutation = useLogoutUser({
     mutation: {
       onSuccess: () => {
+        clearAuthToken();
         queryClient.setQueryData(getGetCurrentUserQueryKey(), null);
         queryClient.clear();
         localStorage.removeItem("ftb-login-section");
@@ -171,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLocation(savedSlug ? `/workspace/${savedSlug}` : "/login-club");
       },
       onError: () => {
+        clearAuthToken();
         queryClient.setQueryData(getGetCurrentUserQueryKey(), null);
         queryClient.clear();
         localStorage.removeItem("ftb-login-section");

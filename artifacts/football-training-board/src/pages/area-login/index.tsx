@@ -6,6 +6,7 @@ import { Link, Redirect } from "wouter";
 import { Loader2, ArrowLeft, Eye, EyeOff, Shield, Target, FileText, BarChart3, Settings, Heart, Dumbbell } from "lucide-react";
 import { useState } from "react";
 import { withApi } from "@/lib/api-base";
+import { setAuthToken } from "@/lib/auth-token";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email"),
@@ -174,6 +175,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
         setSubmitting(false);
         return;
       }
+      setAuthToken((payload as any)?.authToken);
 
       // Frontend safety net: if backend didn't enforce area-role properly,
       // block here using the role returned by /auth/login.
@@ -358,6 +360,7 @@ export function ParentLoginPage() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Credenziali non valide"); setLoading(false); return; }
+      setAuthToken((data as any)?.authToken);
       window.location.href = "/parent-dashboard";
     } catch {
       setError("Errore di connessione. Riprova.");
