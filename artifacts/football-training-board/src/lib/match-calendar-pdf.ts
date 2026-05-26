@@ -260,9 +260,11 @@ function looksLikeTournamentProgram(fullText: string): boolean {
 }
 
 function extractTournamentGroupLabel(line: string): string | null {
-  const group = line.match(/\b(?:girone|raggruppamento)\s+([a-z0-9]+(?:\s+[a-z0-9]+){0,2})\b/i);
+  const group = line.match(/\b(?:girone|raggruppamento)\s+([a-z0-9]+)\b(?:\s+(oro|argento|gold|silver))?/i);
   if (group) {
-    const label = String(group[1] ?? "")
+    const label = [group[1], group[2]]
+      .filter(Boolean)
+      .join(" ")
       .replace(/\b(?:data|ora|ore|campo|gara|classificata|classificato)\b.*$/i, "")
       .replace(/\s+/g, " ")
       .trim()
@@ -452,6 +454,10 @@ function cleanTournamentPlacementFinalLabel(value: string): string {
 }
 
 function cleanOcrTournamentOpponentName(value: string): string {
+  value = value
+    .replace(/^\s*\d{1,2}[:.]\d{2}(?:[.\s-]*\d{4})?\s+/g, "")
+    .replace(/\b\d{1,2}[:.]\d{2}(?:[.\s-]*\d{4})?\b/g, " ")
+    .replace(/\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b/g, " ");
   return cleanTournamentTeamName(
     value.replace(/^\s*\d+\s*[|Â¦]?\s*/g, "")
       .replace(/^\s*(?:[.\-]?\d{4}\s*)?(?:\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\s*)+/g, "")
@@ -850,6 +856,19 @@ function parseUnifiedTournamentProgramLines(
     }
     return pairs;
   };
+  const splitScoredMultiFixtureLine = (rest: string): [string, string][] => {
+    const fixtureRe = /([\p{L}][\p{L}0-9.' ]{2,}?)\s*[-\u2013\u2014]\s*([\p{L}][\p{L}0-9.' ]{2,}?)(?:\s+(\d{1,2}\s*[-:]\s*\d{1,2})|$)/giu;
+    const pairs: [string, string][] = [];
+    for (const match of rest.matchAll(fixtureRe)) {
+      const home = cleanOcrTournamentOpponentName(match[1] ?? "");
+      const away = cleanOcrTournamentOpponentName(match[2] ?? "");
+      const score = match[3]?.trim();
+      if (looksLikeStandaloneTournamentTeamLine(home) && looksLikeStandaloneTournamentTeamLine(away)) {
+        pairs.push([home, score ? `${away} ${score}` : away]);
+      }
+    }
+    return pairs;
+  };
   const splitPair = (rest: string): [string, string] | null => {
     const explicit = rest.match(/^(.+?)\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>)\s*(.+)$/i);
     if (explicit) return [explicit[1] ?? "", explicit[2] ?? ""];
@@ -865,6 +884,11 @@ function parseUnifiedTournamentProgramLines(
     for (const part of sourceParts) {
       const n = normalizeName(part);
       if (!n || /\b(?:riposa|riposano|campo|risultato)\b/.test(n)) continue;
+      const scoredPairs = splitScoredMultiFixtureLine(part);
+      if (scoredPairs.length > 0) {
+        pairs.push(...scoredPairs);
+        continue;
+      }
       const knownPairs = findKnownPairs(part);
       if (knownPairs.length > 0) {
         pairs.push(...knownPairs);
@@ -891,6 +915,7 @@ function parseUnifiedTournamentProgramLines(
     const homeTeam = cleanOcrTournamentOpponentName(homeSource);
     const awayTeam = cleanOcrTournamentOpponentName(awaySource);
     if (!homeTeam || !awayTeam) return;
+    if (!looksLikeStandaloneTournamentTeamLine(homeTeam) || !looksLikeStandaloneTournamentTeamLine(awayTeam)) return;
     if (isImageTournamentEmptyTeam(homeTeam) || isImageTournamentEmptyTeam(awayTeam)) return;
     if (isTournamentReferenceCodeLine(homeTeam) || isTournamentReferenceCodeLine(awayTeam)) return;
     const key = `${date}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`;
@@ -1571,7 +1596,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
     }
   }
 
-  const dateRe = /\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/;
+  const dateRe = /\b\d{1,2}(?:[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\.\d{1,2}\.\d{2,4})\b/;
   const timeRe = /\b\d{1,2}[:.]\d{2}\b/;
   let currentTableDate = pageDateCell ? formatIsoDateForPdfLine(pageDateCell) : "";
   let pendingTimeCells: { x: number; time: string; date: string }[] = [];
