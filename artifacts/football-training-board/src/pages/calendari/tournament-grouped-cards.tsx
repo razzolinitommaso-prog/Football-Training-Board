@@ -207,7 +207,7 @@ function isPlaceholderTournamentTeam(value: string): boolean {
   );
 }
 function isFinalPlaceholderEntry(entry: TournamentProgramEntry): boolean {
-  if (entry.kind === "composition") return false;
+  if (entry.kind === "composition") return true;
   return isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam) || /final/i.test(entry.group ?? "");
 }
 
@@ -223,15 +223,7 @@ function standingsFor(
     return table.get(key)!;
   };
   for (const entry of entries) {
-    if (entry.kind === "composition") {
-      const home = ensure(entry.homeTeam);
-      home.pg += 0;
-      if (!isPlaceholderTournamentTeam(entry.awayTeam)) {
-        const away = ensure(entry.awayTeam);
-        away.pg += 0;
-      }
-      continue;
-    }
+    if (entry.kind === "composition") continue;
     if (isFinalPlaceholderEntry(entry)) continue;
     if (isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)) continue;
     const home = ensure(entry.homeTeam);
@@ -380,7 +372,16 @@ function groupProgramEntries(entries: TournamentProgramEntry[]): { label: string
     if (!map.has(label)) map.set(label, []);
     map.get(label)!.push(entry);
   }
-  return [...map.entries()].map(([label, list]) => ({ label, entries: list }));
+  const groupRank = (label: string) => {
+    const n = normalizeSide(label);
+    const letter = n.match(/\b(?:girone|raggruppamento|triangolare|quadrangolare)\s+([a-z])\b/)?.[1];
+    if (letter) return letter.charCodeAt(0) - 96;
+    const number = Number(n.match(/\b(?:girone|raggruppamento|triangolare|quadrangolare)\s+(\d+)\b/)?.[1]);
+    return Number.isFinite(number) ? 100 + number : 999;
+  };
+  return [...map.entries()]
+    .map(([label, list]) => ({ label, entries: list }))
+    .sort((a, b) => groupRank(a.label) - groupRank(b.label) || a.label.localeCompare(b.label));
 }
 
 function parseTournamentPlacementRef(value: string): { position: number; groupLabel: string } | null {
@@ -935,7 +936,7 @@ export function TournamentGroupedCards({
           ? programByView.filter((entry) => sideMatchesClub(entry.homeTeam, clubLabel) || sideMatchesClub(entry.awayTeam, clubLabel))
           : programByView;
         const programGroups = groupProgramEntries(visibleProgram);
-        const standingsGroups = groupProgramEntries(programByView).map((group) => ({
+        const standingsGroups = groupProgramEntries(programByView.filter((entry) => entry.kind !== "composition")).map((group) => ({
           label: group.label,
           rows: standingsFor(group.entries, scores, pointsRule),
         }));

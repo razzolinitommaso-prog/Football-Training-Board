@@ -1005,7 +1005,8 @@ function parseUnifiedTournamentProgramLines(
     if (!knownTeams.some((item) => normalizeName(item) === norm)) knownTeams.push(clean);
   };
 
-  for (const line of normalizedLines) {
+  for (let lineIndex = 0; lineIndex < normalizedLines.length; lineIndex += 1) {
+    const line = normalizedLines[lineIndex] ?? "";
     if (isPageFooterOrNoise(line)) continue;
     const n = normalizeName(line);
     const groupLabel = extractTournamentGroupLabel(line);
@@ -1016,6 +1017,14 @@ function parseUnifiedTournamentProgramLines(
       const after = line.slice((groupMatch?.index ?? 0) + (groupMatch?.[0].length ?? 0)).trim();
       if (after) after.split(/\s{2,}|[,;|]/).forEach((part) => addTeam(currentGroup!, part));
       continue;
+    }
+    if (/^raggruppament[oi]$/.test(n)) {
+      const next = normalizedLines[lineIndex + 1]?.trim() ?? "";
+      if (/^[a-z0-9]{1,3}$/i.test(next)) {
+        currentGroup = `Girone ${next.toUpperCase()}`;
+        currentPhase = "Gironi";
+        continue;
+      }
     }
     if (
       currentGroup &&
@@ -1773,9 +1782,17 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
 
   const groupHeadings: { group: string; x: number; y: number }[] = [];
   for (const row of rows) {
-    for (const cell of row.cells) {
+    for (let index = 0; index < row.cells.length; index += 1) {
+      const cell = row.cells[index];
       const label = extractTournamentGroupLabel(cell.str);
       if (label) groupHeadings.push({ group: label, x: cell.x, y: row.y });
+      const n = normalizeName(cell.str);
+      if (/^raggruppament[oi]$/.test(n)) {
+        const next = row.cells
+          .slice(index + 1)
+          .find((candidate) => candidate.x > cell.x && candidate.x - cell.x < 180 && /^[a-z0-9]{1,3}$/i.test(candidate.str.trim()));
+        if (next) groupHeadings.push({ group: `Girone ${next.str.trim().toUpperCase()}`, x: cell.x, y: row.y });
+      }
     }
   }
   groupHeadings.sort((a, b) => a.x - b.x);
