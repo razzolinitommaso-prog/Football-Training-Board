@@ -701,6 +701,8 @@ function isSuspiciousTournamentProgramSide(value: string): boolean {
   const clean = cleanTournamentTeamName(value);
   const n = normalizeName(clean);
   if (!clean || n.length < 2) return true;
+  if (n === "snc" || n === "srl" || n === "asd") return true;
+  if (/^(?:a|e|di|del|della|san|santa)\s+\w+$/.test(n) && n.split(/\s+/).length <= 2) return true;
   if (clean.length > 70) return true;
   if (/\b\d{1,2}[:.]\d{2}\b/.test(clean)) return true;
   if (/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(clean)) return true;
@@ -713,10 +715,26 @@ function isSuspiciousTournamentProgramSide(value: string): boolean {
 function sanitizeTournamentProgramEntries(program: TournamentProgramEntry[]): TournamentProgramEntry[] {
   const clean: TournamentProgramEntry[] = [];
   const seen = new Set<string>();
+  const candidateTeamNorms = [...new Set(
+    program
+      .flatMap((entry) => [entry.homeTeam, entry.awayTeam])
+      .map((team) => cleanOcrTournamentOpponentName(team))
+      .filter((team) => !isSuspiciousTournamentProgramSide(team) && looksLikeStandaloneTournamentTeamLine(team))
+      .map((team) => normalizeName(team)),
+  )];
+  const isFragmentOfKnownTeam = (team: string) => {
+    const n = normalizeName(team);
+    if (!n || n.split(/\s+/).length > 2) return false;
+    return candidateTeamNorms.some((known) => {
+      if (known === n) return false;
+      return known.endsWith(` e ${n}`) || known.endsWith(` a ${n}`) || (n.startsWith("a ") && known.endsWith(` ${n}`));
+    });
+  };
   for (const entry of program) {
     const homeTeam = cleanOcrTournamentOpponentName(entry.homeTeam);
     const awayTeam = cleanOcrTournamentOpponentName(entry.awayTeam);
     if (isSuspiciousTournamentProgramSide(homeTeam) || isSuspiciousTournamentProgramSide(awayTeam)) continue;
+    if (isFragmentOfKnownTeam(homeTeam) || isFragmentOfKnownTeam(awayTeam)) continue;
     if (!looksLikeStandaloneTournamentTeamLine(homeTeam) || !looksLikeStandaloneTournamentTeamLine(awayTeam)) continue;
     const dt = new Date(entry.date);
     if (Number.isNaN(dt.getTime())) continue;
