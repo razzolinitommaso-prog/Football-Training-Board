@@ -464,7 +464,7 @@ function looksLikeStandaloneTournamentTeamLine(value: string): boolean {
   if (/[-\u2013\u2014|]/.test(clean)) return false;
   if (/\b\d{1,2}[:.]\d{2}\b/.test(clean)) return false;
   if (/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(clean)) return false;
-  if (/\b(?:data|orario|ora|ore|campo|ris|gara|programma|partite|finali|fase|giornata|riposa|riposano|premiazioni|servizio|bar)\b/.test(n)) return false;
+  if (/\b(?:data|orario|ora|ore|campo|ris|gara|programma|partite|finali|fase|giornata|riposa|riposano|premiazioni|servizio|bar|tempo|tempi|minuto|minuti)\b/.test(n)) return false;
   if (/\b(?:classificat|posto|triangolare|quadrangolare)\b/.test(n)) return false;
   return /[a-z]/i.test(clean);
 }
@@ -813,13 +813,13 @@ function isSuspiciousTournamentProgramSide(value: string): boolean {
   if (/^(?:x|[a-z])$/.test(n)) return true;
   if (new RegExp(`^(?:${TOURNAMENT_GROUP_TIER_WORDS.join("|")})\\s+[a-z]$`, "i").test(n)) return true;
   if (n === "snc" || n === "srl" || n === "asd") return true;
-  if (/^(?:a|e|di|del|della|san|santa)\s+\w+$/.test(n) && n.split(/\s+/).length <= 2) return true;
+  if (/^(?:a|e|di|del|della)\s+\w+$/.test(n) && n.split(/\s+/).length <= 2) return true;
   if (clean.length > 70) return true;
   if (/\b\d{1,2}[:.]\d{2}\b/.test(clean)) return true;
   if (/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(clean)) return true;
   if (/\s[-\u2013\u2014]\s/.test(clean)) return true;
   if (/\b\d{1,2}\s*[-:]\s*\d{1,2}\b/.test(clean)) return true;
-  if (/\b(?:classifica|classificata|classificato|finali|generate|programma|partite|campo|risultato|riposa|riposano|premiazioni)\b/.test(n)) return true;
+  if (/\b(?:classifica|classificata|classificato|finali|generate|programma|partite|campo|risultato|riposa|riposano|premiazioni|tempo|tempi|minuto|minuti)\b/.test(n)) return true;
   return false;
 }
 
@@ -1895,7 +1895,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
     const n = normalizeName(clean);
     if (!clean || n.length < 2) return false;
     if (isTournamentScoreCell(clean) || isTournamentReferenceCodeLine(clean)) return false;
-    if (/\b(?:data|orario|ora|ore|campo|ris|gara|giornata|riposa|premiazioni)\b/.test(n)) return false;
+    if (/\b(?:data|orario|ora|ore|campo|ris|gara|giornata|riposa|premiazioni|tempo|tempi|minuto|minuti)\b/.test(n)) return false;
     return /[a-z]/i.test(clean);
   };
   const pushTournamentCellPair = (
