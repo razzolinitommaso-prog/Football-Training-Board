@@ -1795,18 +1795,23 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
       }
     }
   }
-  groupHeadings.sort((a, b) => a.x - b.x);
+  groupHeadings.sort((a, b) => b.y - a.y || a.x - b.x);
 
   const pageDateCell = rows
     .flatMap((row) => row.cells)
     .map((cell) => parseItalianNamedDateIso(cell.str, undefined) ?? parseDateTimeIso(cell.str))
     .find(Boolean);
 
-  const groupForScheduleRow = (rowY: number): string | null => {
+  const groupForScheduleRow = (rowY: number, rowX?: number): string | null => {
     const above = groupHeadings
       .filter((heading) => heading.y > rowY)
       .filter((heading) => heading.y - rowY < 210)
-      .sort((a, b) => a.y - b.y)[0];
+      .sort((a, b) => {
+        const vertical = (a.y - rowY) - (b.y - rowY);
+        if (Math.abs(vertical) > 6) return vertical;
+        if (rowX == null) return a.x - b.x;
+        return Math.abs(a.x - rowX) - Math.abs(b.x - rowX);
+      })[0];
     return above?.group ?? null;
   };
 
@@ -1819,10 +1824,16 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
     for (let i = 0; i < groupHeadings.length; i++) {
       const heading = groupHeadings[i];
       if (row.y >= heading.y || heading.y - row.y > 130) continue;
-      const prev = groupHeadings[i - 1];
-      const next = groupHeadings[i + 1];
-      const left = prev ? (prev.x + heading.x) / 2 : heading.x - 85;
-      const right = next ? (heading.x + next.x) / 2 : heading.x + 110;
+      const peers = groupHeadings
+        .filter((candidate) => Math.abs(candidate.y - heading.y) <= 8)
+        .sort((a, b) => a.x - b.x);
+      const peerIndex = peers.findIndex((candidate) =>
+        candidate.group === heading.group && candidate.x === heading.x && candidate.y === heading.y
+      );
+      const prev = peerIndex > 0 ? peers[peerIndex - 1] : null;
+      const next = peerIndex >= 0 && peerIndex < peers.length - 1 ? peers[peerIndex + 1] : null;
+      const left = prev ? (prev.x + heading.x) / 2 : heading.x - 160;
+      const right = next ? (heading.x + next.x) / 2 : heading.x + 160;
       const team = row.cells
         .filter((cell) => cell.x >= left && cell.x < right)
         .map((cell) => cell.str)
@@ -1932,7 +1943,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
           .map((cell) => cell.x)
           .filter((x) => x > timeCell.x + 20)
           .sort((a, b) => a - b)[0] ?? Number.POSITIVE_INFINITY;
-        const groupLabel = groupForScheduleRow(row.y);
+        const groupLabel = groupForScheduleRow(row.y, timeCell.x);
         const fixtureCells = row.cells.filter((cell) =>
           cell.x > timeCell.x + 35 &&
           cell.x < nextTimeX - 20 &&
@@ -1952,7 +1963,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
         const timeCell = [...pendingTimeCells]
           .filter((candidate) => candidate.x <= cell.x + 20)
           .sort((a, b) => Math.abs(a.x - cell.x) - Math.abs(b.x - cell.x))[0] ?? pendingTimeCells[0];
-        pushTournamentFixtureCell(timeCell.date, timeCell.time, groupForScheduleRow(row.y), cell.str, row.y + 0.04);
+        pushTournamentFixtureCell(timeCell.date, timeCell.time, groupForScheduleRow(row.y, cell.x), cell.str, row.y + 0.04);
       }
       if (fixtureCells.length === 0) {
         for (const timeCell of pendingTimeCells) {
@@ -1961,7 +1972,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
             .filter((x) => x > timeCell.x + 20)
             .sort((a, b) => a - b)[0] ?? Number.POSITIVE_INFINITY;
           const candidateCells = row.cells.filter((cell) => cell.x > timeCell.x + 35 && cell.x < nextTimeX - 20);
-          pushTournamentCellPair(timeCell.date, timeCell.time, groupForScheduleRow(row.y), candidateCells, row.y + 0.04);
+          pushTournamentCellPair(timeCell.date, timeCell.time, groupForScheduleRow(row.y, timeCell.x), candidateCells, row.y + 0.04);
         }
       }
       continue;
