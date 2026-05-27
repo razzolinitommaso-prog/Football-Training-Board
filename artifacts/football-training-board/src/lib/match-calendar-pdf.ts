@@ -835,9 +835,13 @@ function sanitizeTournamentProgramEntries(program: TournamentProgramEntry[]): To
   )];
   const isFragmentOfKnownTeam = (team: string) => {
     const n = normalizeName(team);
-    if (!n || n.split(/\s+/).length > 2) return false;
+    const parts = n.split(/\s+/).filter(Boolean);
+    if (!n || parts.length > 3) return false;
     return candidateTeamNorms.some((known) => {
       if (known === n) return false;
+      const knownParts = known.split(/\s+/).filter(Boolean);
+      if (knownParts.length <= parts.length) return false;
+      if (known.endsWith(` ${n}`)) return true;
       return known.endsWith(` e ${n}`) || known.endsWith(` a ${n}`) || (n.startsWith("a ") && known.endsWith(` ${n}`));
     });
   };
