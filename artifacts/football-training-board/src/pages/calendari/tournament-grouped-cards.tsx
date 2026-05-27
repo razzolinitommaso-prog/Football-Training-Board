@@ -201,6 +201,7 @@ function isPlaceholderTournamentTeam(value: string): boolean {
     n.includes("evento finale torneo") ||
     n.includes("classificata girone") ||
     n.includes("da completare") ||
+    /^\d+\s+(?:[a-z]|oro|argento|bronzo|platino|gold|silver|bronze|platinum)$/i.test(n) ||
     /^finale\s*\d*$/.test(n) ||
     /^\d+\s*posto$/.test(n) ||
     /^finale\s*\d+\s*posto$/.test(n)
