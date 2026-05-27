@@ -826,13 +826,28 @@ function isSuspiciousTournamentProgramSide(value: string): boolean {
 function sanitizeTournamentProgramEntries(program: TournamentProgramEntry[]): TournamentProgramEntry[] {
   const clean: TournamentProgramEntry[] = [];
   const seen = new Set<string>();
-  const candidateTeamNorms = [...new Set(
-    program
-      .flatMap((entry) => [entry.homeTeam, entry.awayTeam])
-      .map((team) => cleanOcrTournamentOpponentName(team))
-      .filter((team) => !isSuspiciousTournamentProgramSide(team) && looksLikeStandaloneTournamentTeamLine(team))
-      .map((team) => normalizeName(team)),
-  )];
+  const candidateTeamByNorm = new Map<string, string>();
+  for (const team of program.flatMap((entry) => [entry.homeTeam, entry.awayTeam])) {
+    const cleanTeam = cleanOcrTournamentOpponentName(team);
+    if (isSuspiciousTournamentProgramSide(cleanTeam) || !looksLikeStandaloneTournamentTeamLine(cleanTeam)) continue;
+    const norm = normalizeName(cleanTeam);
+    if (!candidateTeamByNorm.has(norm)) candidateTeamByNorm.set(norm, cleanTeam);
+  }
+  const candidateTeamNorms = [...candidateTeamByNorm.keys()];
+  const expandKnownTeamFragment = (team: string): string => {
+    const cleanTeam = cleanOcrTournamentOpponentName(team);
+    const n = normalizeName(cleanTeam);
+    const parts = n.split(/\s+/).filter(Boolean);
+    if (!n || parts.length > 3) return cleanTeam;
+    const expandedNorm = candidateTeamNorms
+      .filter((known) => known !== n)
+      .filter((known) => {
+        const knownParts = known.split(/\s+/).filter(Boolean);
+        return knownParts.length > parts.length && known.endsWith(` ${n}`);
+      })
+      .sort((a, b) => b.length - a.length)[0];
+    return expandedNorm ? (candidateTeamByNorm.get(expandedNorm) ?? cleanTeam) : cleanTeam;
+  };
   const isFragmentOfKnownTeam = (team: string) => {
     const n = normalizeName(team);
     const parts = n.split(/\s+/).filter(Boolean);
@@ -873,8 +888,8 @@ function sanitizeTournamentProgramEntries(program: TournamentProgramEntry[]): To
       });
       continue;
     }
-    const homeTeam = cleanOcrTournamentOpponentName(entry.homeTeam);
-    const awayTeam = cleanOcrTournamentOpponentName(entry.awayTeam);
+    const homeTeam = expandKnownTeamFragment(entry.homeTeam);
+    const awayTeam = expandKnownTeamFragment(entry.awayTeam);
     if (isSuspiciousTournamentProgramSide(homeTeam) || isSuspiciousTournamentProgramSide(awayTeam)) continue;
     if (isFragmentOfKnownTeam(homeTeam) || isFragmentOfKnownTeam(awayTeam)) continue;
     if (containsMultipleKnownTeams(homeTeam) || containsMultipleKnownTeams(awayTeam)) continue;
