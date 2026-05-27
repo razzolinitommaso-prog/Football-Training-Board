@@ -2922,6 +2922,67 @@ function tournamentParseQuality(result: MatchPdfImportResult): number {
   return score;
 }
 
+function tournamentEntryMergeKey(entry: TournamentProgramEntry): string {
+  const sides = [normalizeName(entry.homeTeam), normalizeName(entry.awayTeam)].sort();
+  return [
+    normalizeName(entry.group ?? entry.phase ?? ""),
+    sides[0] ?? "",
+    sides[1] ?? "",
+    entry.kind ?? "match",
+  ].join("|");
+}
+
+function tournamentImportRowMergeKey(row: MatchImportRow): string {
+  return [
+    normalizeName(row.competition ?? ""),
+    normalizeName(row.opponent),
+    row.homeAway,
+    row.date,
+  ].join("|");
+}
+
+function mergeTournamentParseResults(
+  preferred: MatchPdfImportResult,
+  fallback: MatchPdfImportResult,
+): MatchPdfImportResult {
+  const program: TournamentProgramEntry[] = [];
+  const byKey = new Map<string, number>();
+  const addEntry = (entry: TournamentProgramEntry) => {
+    const key = tournamentEntryMergeKey(entry);
+    const existingIndex = byKey.get(key);
+    if (existingIndex == null) {
+      byKey.set(key, program.length);
+      program.push(entry);
+      return;
+    }
+    const existing = program[existingIndex];
+    if (!existing) return;
+    const existingHasDate = Boolean(existing.date && !Number.isNaN(new Date(existing.date).getTime()));
+    const nextHasDate = Boolean(entry.date && !Number.isNaN(new Date(entry.date).getTime()));
+    if (!existingHasDate && nextHasDate) program[existingIndex] = { ...existing, date: entry.date };
+  };
+
+  (preferred.tournamentProgram ?? []).forEach(addEntry);
+  (fallback.tournamentProgram ?? []).forEach(addEntry);
+
+  const recognized: MatchImportRow[] = [];
+  const rowKeys = new Set<string>();
+  for (const row of [...preferred.recognized, ...fallback.recognized]) {
+    const key = tournamentImportRowMergeKey(row);
+    if (rowKeys.has(key)) continue;
+    rowKeys.add(key);
+    recognized.push(row);
+  }
+
+  return {
+    recognized,
+    discarded: Math.min(preferred.discarded, fallback.discarded),
+    totalDateLines: Math.max(preferred.totalDateLines, fallback.totalDateLines),
+    tournamentProgram: program.length > 0 ? sanitizeTournamentProgramEntries(program) : undefined,
+    tournamentScores: { ...(fallback.tournamentScores ?? {}), ...(preferred.tournamentScores ?? {}) },
+  };
+}
+
 export function parseMatchCalendarTextLines(
   allPageLines: string[],
   pageBlobs?: string[],
@@ -2989,14 +3050,13 @@ export function parseMatchCalendarTextLines(
             fallbackYearHint,
           })
         : { recognized: [], discarded: 0, totalDateLines: 0 };
-      if (
-        (standardResult.tournamentProgram?.length ?? 0) > 0 &&
-        tournamentParseQuality(standardResult) > tournamentParseQuality(unifiedResult)
-      ) {
-        return standardResult;
-      }
-      if ((unifiedResult.tournamentProgram?.length ?? 0) > 0 || unifiedResult.recognized.length > 0) {
-        return unifiedResult;
+      const unifiedQuality = tournamentParseQuality(unifiedResult);
+      const standardQuality = tournamentParseQuality(standardResult);
+      const primaryResult = standardQuality > unifiedQuality ? standardResult : unifiedResult;
+      const secondaryResult = primaryResult === unifiedResult ? standardResult : unifiedResult;
+      const mergedResult = mergeTournamentParseResults(primaryResult, secondaryResult);
+      if ((mergedResult.tournamentProgram?.length ?? 0) > 0 || mergedResult.recognized.length > 0) {
+        return mergedResult;
       }
     }
     return tournamentLooksValid

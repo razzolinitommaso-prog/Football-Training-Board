@@ -568,6 +568,31 @@ function splitTournamentOpponent(opponent?: string | null): { homeTeam: string; 
   return { homeTeam: homeTeam.trim(), awayTeam: rest.join(" - ").trim() };
 }
 
+function tournamentProgramEntryLabel(entry: TournamentProgramEntry): string {
+  return [entry.homeTeam, entry.awayTeam].map((part) => String(part ?? "").trim()).filter(Boolean).join(" - ");
+}
+
+function tournamentProgramRowMatchesEntry(row: MatchImportRow, entry: TournamentProgramEntry): boolean {
+  const rowText = normalizeTournamentText(row.opponent);
+  const entryText = normalizeTournamentText(tournamentProgramEntryLabel(entry));
+  if (!rowText || !entryText) return false;
+  if (rowText === entryText) return true;
+  const rowFinal = /final/.test(rowText);
+  const entryFinal = /final/.test(normalizeTournamentText(`${entry.phase ?? ""} ${entry.group ?? ""} ${entryText}`));
+  return rowFinal && entryFinal && (rowText.includes(entryText) || entryText.includes(rowText));
+}
+
+function mergeTournamentProgramDatesFromPreview(
+  program: TournamentProgramEntry[],
+  rows: MatchImportRow[],
+): TournamentProgramEntry[] {
+  if (program.length === 0 || rows.length === 0) return program;
+  return program.map((entry) => {
+    const matchingRow = rows.find((row) => importRowHasValidDate(row) && tournamentProgramRowMatchesEntry(row, entry));
+    return matchingRow ? { ...entry, date: matchingRow.date } : entry;
+  });
+}
+
 function tournamentEditRowsFromProgram(program: TournamentProgramEntry[], fallbackMatches: Array<Pick<Match, "id" | "date" | "opponent">>, fallbackDate: string): Pick<ManualTournamentForm, "groups" | "matches" | "finals"> {
   const qualifying = program.filter((entry) => !/final/i.test(`${entry.phase ?? ""} ${entry.group ?? ""} ${entry.homeTeam} ${entry.awayTeam}`));
   const finals = program.filter((entry) => !qualifying.includes(entry));
@@ -3562,14 +3587,15 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       if (pdfImportModeRef.current === "tournament" && pendingTournamentProgram.length > 0) {
         const competition = rows.find((row) => (row.competition ?? "").trim())?.competition ?? "";
         if (competition.trim()) {
+          const program = mergeTournamentProgramDatesFromPreview(pendingTournamentProgram, rows);
           const scores = { ...getTournamentScoresForEdit(competition), ...pendingTournamentScores };
           if (!tournamentDocsLoaded) {
-            setTournamentProgram(teamId, competition, pendingTournamentProgram);
+            setTournamentProgram(teamId, competition, program);
             setTournamentScores(teamId, competition, scores);
           }
           await saveTournamentState(
             competition,
-            pendingTournamentProgram,
+            program,
             scores,
             getTournamentPdfReferenceDateForEdit(competition),
           );
@@ -3581,6 +3607,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     },
     onSuccess: (ok) => {
       qc.invalidateQueries({ queryKey: ["/api/matches", teamId] });
+      qc.invalidateQueries({ queryKey: ["/api/tournament-documents", teamId] });
       setPreviewOpen(false);
       setDuplicateImportOpen(false);
       setPendingImportRows(null);
@@ -5177,6 +5204,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                     {group.teams.map((team, teamIndex) => (
                       <Input
                         key={`${group.id}-${teamIndex}`}
+                        list="manual-tournament-team-options"
                         value={team}
                         onChange={(e) => setManualTournamentForm((p) => ({
                           ...p,
@@ -5205,6 +5233,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                   </Button>
                 </div>
               ))}
+              <datalist id="manual-tournament-team-options">
+                {tournamentAllTeamsForInput(manualTournamentForm.groups).map((teamName) => <option key={teamName} value={teamName} />)}
+              </datalist>
             </div>
 
             <div className="space-y-2">
@@ -5452,6 +5483,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                       {group.teams.map((teamName, teamIndex) => (
                         <div key={`${group.id}-${teamIndex}`} className="flex gap-2">
                           <Input
+                            list="edit-tournament-team-options"
                             value={teamName}
                             onChange={(e) => setEditingTournament((prev) => prev ? {
                               ...prev,
@@ -5493,6 +5525,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                     </Button>
                   </div>
                 ))}
+                <datalist id="edit-tournament-team-options">
+                  {tournamentAllTeamsForInput(editingTournament.groups).map((teamName) => <option key={teamName} value={teamName} />)}
+                </datalist>
               </div>
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
