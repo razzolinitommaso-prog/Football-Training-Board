@@ -841,6 +841,16 @@ function sanitizeTournamentProgramEntries(program: TournamentProgramEntry[]): To
       return known.endsWith(` e ${n}`) || known.endsWith(` a ${n}`) || (n.startsWith("a ") && known.endsWith(` ${n}`));
     });
   };
+  const containsMultipleKnownTeams = (team: string) => {
+    const n = normalizeName(team);
+    if (!n) return false;
+    const matches = candidateTeamNorms.filter((known) => {
+      if (known === n) return false;
+      if (known.length < 5) return false;
+      return new RegExp(`(?:^|\\s)${known.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`).test(n);
+    });
+    return matches.length >= 2;
+  };
   for (const entry of program) {
     if (entry.kind === "composition") {
       const homeTeam = normalizeTournamentPlacementText(String(entry.homeTeam ?? "").trim());
@@ -863,6 +873,7 @@ function sanitizeTournamentProgramEntries(program: TournamentProgramEntry[]): To
     const awayTeam = cleanOcrTournamentOpponentName(entry.awayTeam);
     if (isSuspiciousTournamentProgramSide(homeTeam) || isSuspiciousTournamentProgramSide(awayTeam)) continue;
     if (isFragmentOfKnownTeam(homeTeam) || isFragmentOfKnownTeam(awayTeam)) continue;
+    if (containsMultipleKnownTeams(homeTeam) || containsMultipleKnownTeams(awayTeam)) continue;
     if (!looksLikeStandaloneTournamentTeamLine(homeTeam) || !looksLikeStandaloneTournamentTeamLine(awayTeam)) continue;
     const dt = new Date(entry.date);
     if (Number.isNaN(dt.getTime())) continue;
