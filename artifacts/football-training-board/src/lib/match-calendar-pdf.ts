@@ -2883,6 +2883,30 @@ export async function parseTournamentImageFile(
   }
 }
 
+function tournamentParseQuality(result: MatchPdfImportResult): number {
+  const program = result.tournamentProgram ?? [];
+  let score = result.recognized.length * 2;
+  for (const entry of program) {
+    if (entry.kind === "composition") {
+      score -= 1;
+      continue;
+    }
+    const home = String(entry.homeTeam ?? "");
+    const away = String(entry.awayTeam ?? "");
+    const homeNorm = normalizeName(home);
+    const awayNorm = normalizeName(away);
+    const isBad =
+      isSuspiciousTournamentProgramSide(home) ||
+      isSuspiciousTournamentProgramSide(away) ||
+      isTournamentReferenceCodeLine(home) ||
+      isTournamentReferenceCodeLine(away) ||
+      /\bclassificat[aoe]?\b/.test(homeNorm) ||
+      /\bclassificat[aoe]?\b/.test(awayNorm);
+    score += isBad ? -5 : 3;
+  }
+  return score;
+}
+
 export function parseMatchCalendarTextLines(
   allPageLines: string[],
   pageBlobs?: string[],
@@ -2941,6 +2965,21 @@ export function parseMatchCalendarTextLines(
         fallbackDateIso: explicitTournamentFallbackIso,
         fallbackYearHint,
       });
+      const standardResult = tournamentLooksValid
+        ? parseTournamentProgramLines(allPageLines, {
+            aliasNorms: tournamentAliases,
+            tournamentTitle,
+            tournamentName,
+            fallbackDateIso: explicitTournamentFallbackIso,
+            fallbackYearHint,
+          })
+        : { recognized: [], discarded: 0, totalDateLines: 0 };
+      if (
+        (standardResult.tournamentProgram?.length ?? 0) > 0 &&
+        tournamentParseQuality(standardResult) > tournamentParseQuality(unifiedResult)
+      ) {
+        return standardResult;
+      }
       if ((unifiedResult.tournamentProgram?.length ?? 0) > 0 || unifiedResult.recognized.length > 0) {
         return unifiedResult;
       }
