@@ -450,8 +450,8 @@ function isTournamentReferenceCodeLine(value: string): boolean {
   const n = normalizeName(text);
   if (!n) return true;
   if (/^(?:[a-z]\d+|\d+\s*(?:a|o)?\s+[a-z]|[a-z]\s*\d+)\s*(?:[-\u2013\u2014/]|vs)\s*(?:[a-z]\d+|\d+\s*(?:a|o)?\s+[a-z]|[a-z]\s*\d+)$/i.test(text)) return true;
-  if (/^\d+\s*(?:a|o)?\s+classificat[ao]\s+girone\s+[a-z0-9]+$/i.test(text)) return true;
-  if (/^\d+\s*(?:a|o)?\s+girone\s+[a-z0-9]+$/i.test(text)) return true;
+  if (/^\d+\s*(?:\^|°|º|a|o)?\s+classificat[aoe]?\s+girone\s+[a-z0-9]+$/i.test(text)) return true;
+  if (/^\d+\s*(?:\^|°|º|a|o)?\s+girone\s+[a-z0-9]+$/i.test(text)) return true;
   return false;
 }
 
@@ -1116,6 +1116,11 @@ function parseUnifiedTournamentProgramLines(
     }
     return pairs;
   };
+
+  currentGroup = null;
+  currentPhase = null;
+  currentDateIso = null;
+
   const addProgramEntry = (date: string, homeRaw: string, awayRaw: string, phase: string | null, group: string | null) => {
     const score = parseTournamentTrailingScore(`${homeRaw} - ${awayRaw}`);
     let homeSource = homeRaw;
@@ -1155,6 +1160,11 @@ function parseUnifiedTournamentProgramLines(
     const line = normalizedLines[i] ?? "";
     if (!line || isPageFooterOrNoise(line)) continue;
     currentPhase = detectTournamentPhase(line, currentPhase);
+    const detectedGroupLabel = extractTournamentGroupLabel(line);
+    if (detectedGroupLabel) {
+      currentGroup = detectedGroupLabel;
+      currentPhase = "Gironi";
+    }
     const compositionEntries = parseTournamentCompositionLine(line, currentPhase, currentDateIso ?? options.fallbackDateIso ?? null);
     if (compositionEntries.length > 0) {
       for (const entry of compositionEntries) {
@@ -1165,7 +1175,7 @@ function parseUnifiedTournamentProgramLines(
       }
       continue;
     }
-    const rowGroup = extractTournamentGroupLabel(line) ?? currentGroup ?? currentPhase?.match(/\b(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}/i)?.[0] ?? null;
+    const rowGroup = detectedGroupLabel ?? currentGroup ?? currentPhase?.match(/\b(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}/i)?.[0] ?? null;
     const numericDateIso = parseDateTimeIso(line);
     const namedDateIso = parseItalianNamedDateIso(line, fallbackYear);
     if (numericDateIso || namedDateIso) currentDateIso = numericDateIso ?? namedDateIso;
@@ -1742,7 +1752,7 @@ async function pageToLines(page: PDFPageProxy): Promise<string[]> {
  */
 async function pageToLinesWithYs(
   page: PDFPageProxy,
-  options: { includeTournamentTableLines?: boolean } = {},
+  options: { includeTournamentTableLines?: boolean; tournamentFallbackDateIso?: string | null } = {},
 ): Promise<{ lines: string[]; ys: number[] }> {
   const content = await page.getTextContent();
   const items: { str: string; x: number; y: number }[] = [];
@@ -1803,14 +1813,14 @@ async function pageToLinesWithYs(
   }
   flushRow();
   if (options.includeTournamentTableLines) {
-    const synthetic = buildTournamentTableSyntheticLines(items);
+    const synthetic = buildTournamentTableSyntheticLines(items, options.tournamentFallbackDateIso);
     for (const line of synthetic.lines) lines.push(line);
     for (const y of synthetic.ys) ys.push(y);
   }
   return { lines, ys };
 }
 
-function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: number }[]): {
+function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: number }[], fallbackDateIso?: string | null): {
   lines: string[];
   ys: number[];
 } {
@@ -1860,6 +1870,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
     .flatMap((row) => row.cells)
     .map((cell) => parseItalianNamedDateIso(cell.str, undefined) ?? parseDateTimeIso(cell.str))
     .find(Boolean);
+  const fallbackDateCell = fallbackDateIso ? formatIsoDateForPdfLine(fallbackDateIso) : "";
 
   const groupForScheduleRow = (rowY: number, rowX?: number): string | null => {
     const above = groupHeadings
@@ -1906,7 +1917,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
 
   const dateRe = /\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/;
   const timeRe = /\b\d{1,2}[:.]\d{2}\b/;
-  let currentTableDate = pageDateCell ? formatIsoDateForPdfLine(pageDateCell) : "";
+  let currentTableDate = pageDateCell ? formatIsoDateForPdfLine(pageDateCell) : fallbackDateCell;
   let pendingTimeCells: { x: number; time: string; date: string }[] = [];
 
   const isUsefulTournamentFixtureCell = (value: string): boolean => {
@@ -2755,7 +2766,10 @@ export async function parseMatchCalendarPdfFile(
   const perPage: { lines: string[]; ys: number[] }[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    perPage.push(await pageToLinesWithYs(page, { includeTournamentTableLines: options.unifiedTournamentProgram === true }));
+    perPage.push(await pageToLinesWithYs(page, {
+      includeTournamentTableLines: options.unifiedTournamentProgram === true,
+      tournamentFallbackDateIso: options.fallbackDateIso,
+    }));
   }
 
   const nativeFullText = perPage.map((p) => p.lines.join(" ")).join("\n");
