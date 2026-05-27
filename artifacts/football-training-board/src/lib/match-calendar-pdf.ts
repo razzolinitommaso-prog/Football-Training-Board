@@ -1182,6 +1182,24 @@ function parseUnifiedTournamentProgramLines(
     const restSource = keepGroupLabels
       ? afterTime
       : afterTime.replace(/\b(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[a-z0-9]+(?:\s+[a-z0-9]+){0,2}\b/i, "").replace(/^\s*[a-z]\s+/i, "");
+    const finalLabel = cleanTournamentFixtureRest(restSource);
+    if (isTournamentPlacementFinalLabel(finalLabel)) {
+      const finalName = cleanTournamentPlacementFinalLabel(finalLabel);
+      const key = `${base.toISOString()}|${normalizeName(finalName)}|da completare`;
+      if (!seenProgram.has(key)) {
+        seenProgram.add(key);
+        tournamentProgram.push({
+          id: key,
+          date: base.toISOString(),
+          homeTeam: finalName.slice(0, 120),
+          awayTeam: "da completare",
+          phase: currentPhase ?? "Finale",
+          group: "Finali",
+          kind: "match",
+        });
+      }
+      continue;
+    }
     const pairs = splitPairs(cleanTournamentFixtureRest(restSource));
     if (pairs.length === 0) {
       discarded++;
@@ -1230,6 +1248,22 @@ function parseAnyTournamentProgramLine(
   const hour = Number(m[1]);
   const minute = Number(m[2]);
   const rest = cleanTournamentTeamName(m[3] ?? "");
+  const base = new Date(currentDateIso);
+  if (Number.isNaN(base.getTime())) return null;
+  base.setHours(hour, minute, 0, 0);
+  const phase = currentPhase?.trim() || null;
+  const group = phase?.match(/\b(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[a-z0-9]+/i)?.[0] ?? (/final/i.test(phase ?? "") ? "Finali" : null);
+  if (isTournamentPlacementFinalLabel(rest)) {
+    return {
+      id: "",
+      date: base.toISOString(),
+      homeTeam: cleanTournamentPlacementFinalLabel(rest).slice(0, 120),
+      awayTeam: "da completare",
+      phase: phase ?? "Finale",
+      group: group ?? "Finali",
+      kind: "match",
+    };
+  }
   const pair = rest.match(/^(.+?)\s*(?:\bvs\.?\b|[\u2013\u2014-]|=+>)\s*(.+?)\s*(?:\d+\s*[-:]\s*\d+)?$/i);
   if (!pair) return null;
   const score = (() => {
@@ -1239,11 +1273,6 @@ function parseAnyTournamentProgramLine(
   const homeTeam = cleanOcrTournamentOpponentName(pair[1] ?? "");
   const awayTeam = cleanOcrTournamentOpponentName(pair[2] ?? "");
   if (!homeTeam || !awayTeam) return null;
-  const base = new Date(currentDateIso);
-  if (Number.isNaN(base.getTime())) return null;
-  base.setHours(hour, minute, 0, 0);
-  const phase = currentPhase?.trim() || null;
-  const group = phase?.match(/\b(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[a-z0-9]+/i)?.[0] ?? null;
   return {
     id: "",
     date: base.toISOString(),
@@ -1273,7 +1302,20 @@ function parseAnyTournamentProgramLines(
   if (Number.isNaN(base.getTime())) return entries;
   base.setHours(hour, minute, 0, 0);
   const phase = currentPhase?.trim() || null;
-  const group = phase?.match(/\b(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[a-z0-9]+/i)?.[0] ?? null;
+  const group = phase?.match(/\b(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[a-z0-9]+/i)?.[0] ?? (/final/i.test(phase ?? "") ? "Finali" : null);
+
+  if (isTournamentPlacementFinalLabel(rest)) {
+    entries.push({
+      id: "",
+      date: base.toISOString(),
+      homeTeam: cleanTournamentPlacementFinalLabel(rest).slice(0, 120),
+      awayTeam: "da completare",
+      phase: phase ?? "Finale",
+      group: group ?? "Finali",
+      kind: "match",
+    });
+    return entries;
+  }
 
   for (const pair of rest.matchAll(pairRe)) {
     const homeTeam = cleanOcrTournamentOpponentName(pair[1] ?? "");
