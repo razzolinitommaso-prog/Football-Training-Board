@@ -1716,7 +1716,16 @@ function parseTournamentImageTextLines(
     tournamentProgram.splice(0, tournamentProgram.length, ...knownProgram);
   }
 
-  const cleanTournamentProgram = sanitizeTournamentProgramEntries(tournamentProgram);
+  let cleanTournamentProgram = sanitizeTournamentProgramEntries(tournamentProgram);
+  if (options.parserVariant === "clone") {
+    const rosterFallbackIso =
+      knownProgramDateIso ??
+      recognized.find((row) => importRowHasDateForProgram(row.date))?.date ??
+      null;
+    cleanTournamentProgram = cloneAttachGroupRosterCompositions(allLines, cleanTournamentProgram, {
+      fallbackDateIso: rosterFallbackIso,
+    });
+  }
   const imageDistinctiveTokens = buildCloneDistinctiveClubTokens(options.aliasNorms);
   const imageAliasEnrichment =
     options.parserVariant === "clone"
@@ -3407,6 +3416,187 @@ function cloneMergeProgramWithPreprocessed(
   return Array.from(merged.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 }
 
+function cloneIsFuturePhaseGroupLabel(groupLabel: string): boolean {
+  const n = normalizeName(groupLabel);
+  if (/^girone\s+[m-v]$/.test(n)) return true;
+  if (/^girone\s+argento\b/.test(n)) return true;
+  if (/^girone\s+gold\b/.test(n)) return true;
+  if (/^triangolare\s+\d+$/.test(n)) return true;
+  if (/^quadrangolare\s+\d+$/.test(n)) return true;
+  if (n === "sesti di finale" || n === "finali") return true;
+  return false;
+}
+
+function cloneExtractRosterGroupHeader(line: string): { group: string; phase: string } | null {
+  const trimmed = line.replace(/\s+/g, " ").trim();
+  if (!trimmed) return null;
+  const n = normalizeName(trimmed);
+  const triQuad = trimmed.match(/^\s*(triangolare|quadrangolare)\s+(\d+)\s*$/i);
+  if (triQuad) {
+    const kind = String(triQuad[1] ?? "").toLowerCase();
+    const num = String(triQuad[2] ?? "");
+    return {
+      group: kind === "triangolare" ? `Triangolare ${num}` : `Quadrangolare ${num}`,
+      phase: kind === "triangolare" ? "Triangolari" : "Quadrangolari",
+    };
+  }
+  if (/\bsesti\s+di\s+finale\b/.test(n)) {
+    return { group: "Sesti di finale", phase: "Sesti di finale" };
+  }
+  if (
+    (n === "finali" || (/\bfinali\b/.test(n) && trimmed.length < 48)) &&
+    !/\d{1,2}[:.]\d{2}/.test(trimmed) &&
+    !/[-\u2013\u2014]/.test(trimmed)
+  ) {
+    return { group: "Finali", phase: "Finali" };
+  }
+  const groupLabel = extractTournamentGroupLabel(trimmed);
+  if (groupLabel && cloneIsFuturePhaseGroupLabel(groupLabel)) {
+    return { group: groupLabel, phase: detectTournamentPhase(trimmed, null) ?? "Fase futura" };
+  }
+  return null;
+}
+
+function cloneIsRosterSlotLine(line: string): boolean {
+  const clean = normalizeTournamentPlacementText(line.replace(/\s+/g, " ").trim());
+  if (!clean || isPageFooterOrNoise(clean)) return false;
+  const n = normalizeName(clean);
+  if (/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(clean)) return false;
+  if (/\bvincente\s+gara\b/.test(n)) return true;
+  if (isTournamentReferenceCodeLine(clean)) return true;
+  if (/\bclassificat[aoe]?\b/.test(n)) return true;
+  if (/\b\d+\s*\^?\s*(?:classificat[aoe]?|class\.?)?\s*(?:del\s+|della\s+|di\s+)?(?:girone\s+)?[a-z0-9]{1,3}(?:\s+(?:oro|argento|bronzo|platino|gold|silver|bronze|platinum))?\b/i.test(clean)) {
+    return true;
+  }
+  return false;
+}
+
+function cloneNormalizeRosterSlotLabel(line: string): string {
+  const clean = normalizeTournamentPlacementText(line.replace(/\s+/g, " ").trim());
+  const refs = parseTournamentCompositionRefs(clean);
+  if (refs.length > 0) return refs[0] ?? clean;
+  const n = normalizeName(clean);
+  const winner = n.match(/\bvincente\s+gara\s+(\d+)\b/);
+  if (winner) return `Vincente gara ${winner[1]}`;
+  if (isTournamentReferenceCodeLine(clean)) {
+    const shortRefs = parseTournamentCompositionRefs(`1^ classificata ${clean}`);
+    if (shortRefs.length > 0) return shortRefs[0] ?? clean;
+  }
+  return cleanTournamentTeamName(clean);
+}
+
+function cloneIsRosterSeedTeamLine(line: string): boolean {
+  const clean = cleanTournamentTeamName(line.replace(/\s+/g, " ").trim());
+  if (!clean || cloneIsRosterSlotLine(line)) return false;
+  if (!looksLikeStandaloneTournamentTeamLine(clean)) return false;
+  if (isSuspiciousTournamentProgramSide(clean)) return false;
+  if (/\bclassificat[aoe]?\b/.test(normalizeName(clean))) return false;
+  return clean.length >= 3 && clean.length <= 48;
+}
+
+function cloneCompositionSlotsByGroup(program: TournamentProgramEntry[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const entry of program) {
+    if (entry.kind !== "composition") continue;
+    const group = String(entry.group ?? "Senza gruppo").trim();
+    if (!out[group]) out[group] = [];
+    const slot = String(entry.homeTeam ?? "").trim();
+    if (slot) out[group].push(slot);
+  }
+  return out;
+}
+
+function cloneFuturePhaseGroupsSummary(byGroup: Record<string, string[]>): Record<string, string[]> {
+  const summary: Record<string, string[]> = {};
+  for (const [group, slots] of Object.entries(byGroup)) {
+    if (cloneIsFuturePhaseGroupLabel(group)) summary[group] = slots;
+  }
+  return summary;
+}
+
+function cloneLogCompositionAttachDiagnostics(program: TournamentProgramEntry[], addedCount: number): void {
+  const byGroup = cloneCompositionSlotsByGroup(program);
+  const compositionCount = program.filter((entry) => entry.kind === "composition").length;
+  console.log("[CLONE-RUNTIME-CHECK] composition slots parsed count", compositionCount);
+  console.log("[CLONE-RUNTIME-CHECK] composition slots added count", addedCount);
+  console.log("[CLONE-RUNTIME-CHECK] composition slots by group JSON", JSON.stringify(byGroup, null, 2));
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future phase groups M-V ARGENTO GOLD summary JSON",
+    JSON.stringify(cloneFuturePhaseGroupsSummary(byGroup), null, 2),
+  );
+}
+
+function cloneAttachGroupRosterCompositions(
+  lines: string[],
+  program: TournamentProgramEntry[],
+  options: { fallbackDateIso?: string | null } = {},
+): TournamentProgramEntry[] {
+  const normalizedLines = lines.map((raw) => String(raw ?? "").replace(/\s+/g, " ").trim()).filter(Boolean);
+  const existingCompositionKeys = new Set<string>();
+  for (const entry of program) {
+    if (entry.kind !== "composition") continue;
+    const key = `${normalizeName(String(entry.group ?? ""))}|${normalizeName(String(entry.homeTeam ?? ""))}`;
+    existingCompositionKeys.add(key);
+  }
+  const additions: TournamentProgramEntry[] = [];
+  let currentGroup: string | null = null;
+  let currentPhase: string | null = null;
+  let inFutureRoster = false;
+  const dateIso =
+    options.fallbackDateIso && !Number.isNaN(new Date(options.fallbackDateIso).getTime())
+      ? options.fallbackDateIso
+      : new Date(new Date().getFullYear(), 0, 1, 10, 0, 0, 0).toISOString();
+
+  const pushComposition = (group: string, phase: string | null, slotLabel: string) => {
+    const homeTeam = normalizeTournamentPlacementText(slotLabel).slice(0, 120);
+    if (!homeTeam) return;
+    const key = `${normalizeName(group)}|${normalizeName(homeTeam)}`;
+    if (existingCompositionKeys.has(key)) return;
+    existingCompositionKeys.add(key);
+    additions.push({
+      id: `composition|${normalizeName(group)}|${normalizeName(homeTeam)}`,
+      date: dateIso,
+      homeTeam,
+      awayTeam: "da completare",
+      phase: phase ?? "Fase futura",
+      group,
+      kind: "composition",
+    });
+  };
+
+  for (const line of normalizedLines) {
+    if (isPageFooterOrNoise(line)) continue;
+    const header = cloneExtractRosterGroupHeader(line);
+    if (header) {
+      currentGroup = header.group;
+      currentPhase = header.phase;
+      inFutureRoster = true;
+      continue;
+    }
+    const earlyGroup = extractTournamentGroupLabel(line);
+    if (earlyGroup && !cloneIsFuturePhaseGroupLabel(earlyGroup)) {
+      inFutureRoster = false;
+      currentGroup = null;
+      currentPhase = null;
+      continue;
+    }
+    if (!inFutureRoster || !currentGroup) continue;
+    if (/\b\d{1,2}[:.]\d{2}\b/.test(line) && !cloneIsRosterSlotLine(line)) continue;
+    if (cloneIsRosterSlotLine(line)) {
+      pushComposition(currentGroup, currentPhase, cloneNormalizeRosterSlotLabel(line));
+      continue;
+    }
+    if (cloneIsRosterSeedTeamLine(line)) {
+      pushComposition(currentGroup, currentPhase, cleanTournamentTeamName(line));
+    }
+  }
+
+  if (additions.length === 0) return program;
+  const merged = [...program, ...additions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  cloneLogCompositionAttachDiagnostics(merged, additions.length);
+  return merged;
+}
+
 function cloneCanonicalRecordsFromPreprocessed(program: TournamentProgramEntry[]): CloneCanonicalRecord[] {
   return program.map((entry) => ({
     id: `preprocessed|${cloneProgramEntryMergeKey(entry)}`,
@@ -4110,11 +4300,21 @@ export function parseMatchCalendarTextLines(
           clonePrimaryConfidence,
           cloneSecondaryConfidence,
         );
+        const mergedProgramWithRoster = cloneAttachGroupRosterCompositions(
+          workingLines,
+          mergedClone.tournamentProgram ?? [],
+          { fallbackDateIso: explicitTournamentFallbackIso },
+        );
+        const mergedCloneWithRoster: MatchPdfImportResult = {
+          ...mergedClone,
+          tournamentProgram: mergedProgramWithRoster,
+          tournamentScores: scoresFromParsedTournamentProgram(mergedProgramWithRoster),
+        };
         const canonicalRecords = [
           ...buildCloneCanonicalRecords(unifiedWithOwnClub, "unified", unifiedCloneQuality.perRowConfidence),
           ...buildCloneCanonicalRecords(standardWithOwnClub, "standard", standardCloneQuality.perRowConfidence),
           ...cloneCanonicalRecordsFromPreprocessed(clonePreprocessedProgram),
-          ...buildCloneCanonicalRecords(mergedClone, "merged", {
+          ...buildCloneCanonicalRecords(mergedCloneWithRoster, "merged", {
             ...unifiedCloneQuality.perRowConfidence,
             ...standardCloneQuality.perRowConfidence,
           }),
@@ -4124,17 +4324,17 @@ export function parseMatchCalendarTextLines(
           ...standardCloneQuality.perRowConfidence,
         };
         const mergedContextTokens = buildCloneOwnClubContextTokens({
-          recognized: mergedClone.recognized,
-          tournamentProgram: mergedClone.tournamentProgram,
+          recognized: mergedCloneWithRoster.recognized,
+          tournamentProgram: mergedCloneWithRoster.tournamentProgram,
         });
         const mergedAliasEnrichment = enrichCloneAliasesFromTournamentTeams(
           tournamentAliases,
           distinctiveClubTokens,
-          mergedClone.tournamentProgram ?? [],
+          mergedCloneWithRoster.tournamentProgram ?? [],
         );
         const mergedOwnClubFilter = cloneFilterRecognizedRowsForOwnClub({
-          rows: mergedClone.recognized,
-          program: mergedClone.tournamentProgram ?? [],
+          rows: mergedCloneWithRoster.recognized,
+          program: mergedCloneWithRoster.tournamentProgram ?? [],
           matchedTournamentTeams: mergedAliasEnrichment.matchedTournamentTeams,
           aliases: mergedAliasEnrichment.aliases,
           contextTokens: mergedContextTokens,
@@ -4165,10 +4365,10 @@ export function parseMatchCalendarTextLines(
           "[CLONE-RUNTIME-CHECK] matchedTournamentTeams JSON",
           JSON.stringify(mergedAliasEnrichment.matchedTournamentTeams, null, 2),
         );
-        console.log("[CLONE-RUNTIME-CHECK] tournament fixtures count", (mergedClone.tournamentProgram ?? []).length);
+        console.log("[CLONE-RUNTIME-CHECK] tournament fixtures count", (mergedCloneWithRoster.tournamentProgram ?? []).length);
         console.log(
           "[CLONE-RUNTIME-CHECK] tournamentProgram summary JSON",
-          JSON.stringify(cloneProgramSummary(mergedClone.tournamentProgram ?? []), null, 2),
+          JSON.stringify(cloneProgramSummary(mergedCloneWithRoster.tournamentProgram ?? []), null, 2),
         );
         console.log(
           "[CLONE-RUNTIME-CHECK] canonicalRecords JSON",
@@ -4176,13 +4376,13 @@ export function parseMatchCalendarTextLines(
         );
         console.log(
           "[CLONE-RUNTIME-CHECK] normalized fixtures JSON",
-          JSON.stringify(cloneProgramSummary(mergedClone.tournamentProgram ?? []).normalizedFixtures, null, 2),
+          JSON.stringify(cloneProgramSummary(mergedCloneWithRoster.tournamentProgram ?? []).normalizedFixtures, null, 2),
         );
-        console.log("[CLONE-RUNTIME-CHECK] recognized before own filter", mergedClone.recognized.length);
+        console.log("[CLONE-RUNTIME-CHECK] recognized before own filter", mergedCloneWithRoster.recognized.length);
         console.log("[CLONE-RUNTIME-CHECK] recognized after own filter", filteredRecognized.length);
-        if ((mergedClone.tournamentProgram?.length ?? 0) > 0 || mergedClone.recognized.length > 0) {
+        if ((mergedCloneWithRoster.tournamentProgram?.length ?? 0) > 0 || mergedCloneWithRoster.recognized.length > 0) {
           return {
-            ...mergedClone,
+            ...mergedCloneWithRoster,
             recognized: filteredRecognized,
             parserDebug: {
               variant: "clone",
