@@ -385,6 +385,17 @@ function groupProgramEntries(entries: TournamentProgramEntry[]): { label: string
     .sort((a, b) => groupRank(a.label) - groupRank(b.label) || a.label.localeCompare(b.label));
 }
 
+function groupCompositionSlotsByGroup(program: TournamentProgramEntry[]): { label: string; slots: string[] }[] {
+  const compositionEntries = program.filter((entry) => entry.kind === "composition");
+  if (compositionEntries.length === 0) return [];
+  return groupProgramEntries(compositionEntries)
+    .map((group) => ({
+      label: group.label,
+      slots: group.entries.map((entry) => String(entry.homeTeam ?? "").trim()).filter(Boolean),
+    }))
+    .filter((group) => group.slots.length > 0);
+}
+
 function parseTournamentPlacementRef(value: string): { position: number; groupLabel: string } | null {
   const n = normalizeSide(value)
     .replace(/\b(\d+)\s*\^\b/g, "$1 ")
@@ -994,6 +1005,7 @@ export function TournamentGroupedCards({
         const clubAlreadyVisible = summaryGroups.some((group) =>
           group.rows.some((row) => sideMatchesClub(row.team, clubLabel)),
         );
+        const compositionGroups = groupCompositionSlotsByGroup(program);
 
         return (
           <Card key={g.competition} className="min-w-0 overflow-hidden border-violet-500/20 shadow-sm">
@@ -1188,6 +1200,25 @@ export function TournamentGroupedCards({
                   </div>
                 )}
               </div>
+              {compositionGroups.length > 0 ? (
+                <div className="rounded-md border border-dashed border-violet-300/50 bg-muted/15 p-3 text-xs space-y-3">
+                  <p className="font-semibold text-foreground">Composizione gironi / Fasi future</p>
+                  <div className={compositionGroups.length > 1 ? "grid gap-3 md:grid-cols-2" : "space-y-3"}>
+                    {compositionGroups.map((group) => (
+                      <div key={group.label} className="min-w-0 rounded border border-border/60 bg-background/70 p-2">
+                        <p className="mb-1.5 font-semibold text-foreground/90">{group.label}</p>
+                        <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
+                          {group.slots.map((slot) => (
+                            <li key={`${group.label}-${slot}`} className="truncate">
+                              {slot}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </CardHeader>
             {expanded && (
             <CardContent className="space-y-4 pt-0">
