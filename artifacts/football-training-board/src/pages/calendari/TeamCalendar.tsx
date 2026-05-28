@@ -26,7 +26,9 @@ import {
 } from "@/lib/match-calendar-excel";
 import {
   parseMatchCalendarPdfFile,
+  parseMatchCalendarPdfFileClone,
   parseTournamentImageFile,
+  parseTournamentImageFileClone,
   buildPdfImportSearchTerms,
   cleanImageTournamentImportNotes,
   discoverPdfSectionTitles,
@@ -3531,6 +3533,86 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       });
   }
 
+  async function parseTournamentProgramCloneFileWithTwinEngines(
+    file: File,
+    title = "Analisi programma torneo clone",
+  ) {
+      if (!team) throw new Error("Squadra non valida");
+      pdfImportModeRef.current = "tournament";
+      setPdfImportMode("tournament");
+      setPdfOcrStatus(null);
+      setImageOcrStatus(null);
+
+      const isImage =
+        file.type.startsWith("image/") ||
+        /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name);
+
+      if (isImage) {
+        setImageOcrStatus("Lettura programma torneo clone da immagine in corso...");
+        toast({
+          title,
+          description: "Lettura dell'immagine clone in corso...",
+        });
+        const parsed = await parseTournamentImageFileClone(file, {
+          teamName: team.name,
+          clubName: clubLabel,
+          societyHint: clubLabel,
+          documentMode: "tournament",
+          unifiedTournamentProgram: true,
+        });
+        if (parsed.parserDebug) console.info("[tournament-clone-parser]", parsed.parserDebug);
+        const fallbackProgram = maybeBuildKnownEsordientiProgram(file.name, parsed);
+        return fallbackProgram.length > 0 ? { ...parsed, tournamentProgram: fallbackProgram } : parsed;
+      }
+
+      setPdfOcrStatus("Lettura programma torneo clone da PDF in corso...");
+      toast({
+        title,
+        description: "Lettura del PDF clone in corso...",
+      });
+      const searchTerms = buildPdfImportSearchTerms({
+        categoryLine: team.name,
+        clubLine: clubLabel,
+        teamName: team.name,
+        clubName: clubLabel,
+      });
+      const parsed = await parseMatchCalendarPdfFileClone(file, {
+        teamName: team.name,
+        clubName: clubLabel,
+        searchTerms,
+        sectionTitleHints: [],
+        societyHint: clubLabel,
+        documentMode: "tournament",
+        unifiedTournamentProgram: true,
+        ocrProgress: (event) => {
+          console.info("[pdf-ocr-clone]", event);
+          switch (event.phase) {
+            case "loading":
+              setPdfOcrStatus("Preparazione OCR clone in corso...");
+              break;
+            case "processing":
+              setPdfOcrStatus(`Lettura OCR clone pagina ${event.page}/${event.totalPages}...`);
+              break;
+            case "done":
+              setPdfOcrStatus(
+                event.addedDateLines > 0
+                  ? `OCR clone completato: ${event.addedDateLines} righe data aggiunte.`
+                  : "OCR clone completato: nessuna data aggiuntiva trovata.",
+              );
+              break;
+            case "skipped":
+              setPdfOcrStatus(`OCR clone non eseguito: ${event.reason}`);
+              break;
+            case "error":
+              setPdfOcrStatus(`OCR clone non disponibile: ${event.reason}`);
+              break;
+          }
+        },
+      });
+      if (parsed.parserDebug) console.info("[tournament-clone-parser]", parsed.parserDebug);
+      return parsed;
+  }
+
   const importTournamentProgramMutation = useMutation({
     mutationFn: async (file: File) => {
       return parseTournamentProgramFileWithTwinEngines(file);
@@ -3566,7 +3648,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
   const importTournamentProgramCloneMutation = useMutation({
     mutationFn: async (file: File) => {
-      return parseTournamentProgramFileWithTwinEngines(file, "Analisi programma torneo clone");
+      return parseTournamentProgramCloneFileWithTwinEngines(file, "Analisi programma torneo clone");
     },
     onSuccess: (parsed) => {
       setPendingTournamentProgram(parsed.tournamentProgram ?? []);

@@ -38,6 +38,15 @@ type ParsePdfOptions = {
   unifiedTournamentProgram?: boolean;
   /** Callback per stato OCR (caricamento, pagina in lavorazione, completato, errore). */
   ocrProgress?: OcrProgressCallback;
+  /** Variante parser usata dal clone: non altera il flusso standard. */
+  parserVariant?: "default" | "clone";
+};
+
+type ParserDebugInfo = {
+  variant: "default" | "clone";
+  engineScores?: Record<string, number>;
+  perRowConfidence?: Record<string, number>;
+  notes?: string[];
 };
 
 export type MatchPdfImportResult = {
@@ -46,6 +55,7 @@ export type MatchPdfImportResult = {
   totalDateLines: number;
   tournamentProgram?: TournamentProgramEntry[];
   tournamentScores?: Record<string, { homeScore: number | null; awayScore: number | null }>;
+  parserDebug?: ParserDebugInfo;
 };
 
 export type TournamentProgramEntry = {
@@ -1593,6 +1603,7 @@ function parseTournamentImageTextLines(
     tournamentName: string;
     fallbackYearHint?: number | null;
     unifiedTournamentProgram?: boolean;
+    parserVariant?: "default" | "clone";
   },
 ): MatchPdfImportResult {
   const recognized: MatchImportRow[] = [];
@@ -1669,6 +1680,13 @@ function parseTournamentImageTextLines(
     totalDateLines,
     tournamentProgram: cleanTournamentProgram,
     tournamentScores: scoresFromParsedTournamentProgram(cleanTournamentProgram),
+    parserDebug:
+      options.parserVariant === "clone"
+        ? {
+            variant: "clone",
+            notes: ["clone parser immagine: confidenza disponibile sul ramo PDF/tabellare"],
+          }
+        : undefined,
   };
 }
 
@@ -2892,6 +2910,7 @@ export async function parseTournamentImageFile(
       tournamentName,
       fallbackYearHint,
       unifiedTournamentProgram: options.unifiedTournamentProgram === true,
+      parserVariant: options.parserVariant ?? "default",
     });
   } finally {
     await worker.terminate();
@@ -2920,6 +2939,51 @@ function tournamentParseQuality(result: MatchPdfImportResult): number {
     score += isBad ? -5 : 3;
   }
   return score;
+}
+
+function tournamentCloneEntryConfidence(entry: TournamentProgramEntry): number {
+  if (entry.kind === "composition") return 72;
+  let score = 50;
+  const dateOk = Boolean(entry.date && !Number.isNaN(new Date(entry.date).getTime()));
+  const homeNorm = normalizeName(String(entry.homeTeam ?? ""));
+  const awayNorm = normalizeName(String(entry.awayTeam ?? ""));
+  if (dateOk) score += 22;
+  if (String(entry.group ?? "").trim()) score += 8;
+  if (String(entry.phase ?? "").trim()) score += 7;
+  if (entry.homeScore != null || entry.awayScore != null) score += 6;
+  const hasFinalsSignal = /\b(finale|semifinale|quarti|ottavi|spareggio)\b/.test(
+    `${normalizeName(String(entry.phase ?? ""))} ${normalizeName(String(entry.group ?? ""))}`,
+  );
+  if (hasFinalsSignal) score += 5;
+  if (isSuspiciousTournamentProgramSide(String(entry.homeTeam ?? ""))) score -= 25;
+  if (isSuspiciousTournamentProgramSide(String(entry.awayTeam ?? ""))) score -= 25;
+  if (isTournamentReferenceCodeLine(String(entry.homeTeam ?? ""))) score -= 25;
+  if (isTournamentReferenceCodeLine(String(entry.awayTeam ?? ""))) score -= 25;
+  if (!looksLikeStandaloneTournamentTeamLine(String(entry.homeTeam ?? ""))) score -= 15;
+  if (!looksLikeStandaloneTournamentTeamLine(String(entry.awayTeam ?? ""))) score -= 15;
+  if (homeNorm && awayNorm && homeNorm === awayNorm) score -= 20;
+  return Math.max(0, Math.min(100, score));
+}
+
+function tournamentCloneParseQuality(result: MatchPdfImportResult): {
+  score: number;
+  perRowConfidence: Record<string, number>;
+} {
+  const program = result.tournamentProgram ?? [];
+  const perRowConfidence: Record<string, number> = {};
+  let score = result.recognized.length * 3;
+  let structureBonus = 0;
+  for (const entry of program) {
+    const key = tournamentEntryMergeKey(entry) || entry.id;
+    const confidence = tournamentCloneEntryConfidence(entry);
+    perRowConfidence[key] = Math.max(perRowConfidence[key] ?? 0, confidence);
+    score += Math.round((confidence - 45) / 6);
+    if (entry.kind === "composition") structureBonus += 2;
+    if (String(entry.group ?? "").trim()) structureBonus += 1;
+    if (String(entry.phase ?? "").trim()) structureBonus += 1;
+  }
+  score += Math.min(20, structureBonus);
+  return { score, perRowConfidence };
 }
 
 function tournamentEntryMergeKey(entry: TournamentProgramEntry): string {
@@ -2979,6 +3043,67 @@ function mergeTournamentParseResults(
     discarded: Math.min(preferred.discarded, fallback.discarded),
     totalDateLines: Math.max(preferred.totalDateLines, fallback.totalDateLines),
     tournamentProgram: program.length > 0 ? sanitizeTournamentProgramEntries(program) : undefined,
+    tournamentScores: { ...(fallback.tournamentScores ?? {}), ...(preferred.tournamentScores ?? {}) },
+  };
+}
+
+function mergeTournamentCloneResults(
+  preferred: MatchPdfImportResult,
+  fallback: MatchPdfImportResult,
+  preferredConfidence: Record<string, number>,
+  fallbackConfidence: Record<string, number>,
+): MatchPdfImportResult {
+  const programByKey = new Map<string, TournamentProgramEntry>();
+  const upsert = (entry: TournamentProgramEntry, source: "preferred" | "fallback") => {
+    const key = tournamentEntryMergeKey(entry);
+    const nextConf = (source === "preferred" ? preferredConfidence[key] : fallbackConfidence[key]) ?? 0;
+    const existing = programByKey.get(key);
+    if (!existing) {
+      programByKey.set(key, entry);
+      return;
+    }
+    const existingConf = Math.max(preferredConfidence[key] ?? 0, fallbackConfidence[key] ?? 0);
+    const takeNext = nextConf > existingConf;
+    if (takeNext) {
+      programByKey.set(key, { ...existing, ...entry });
+      return;
+    }
+    programByKey.set(key, {
+      ...existing,
+      date: existing.date && !Number.isNaN(new Date(existing.date).getTime()) ? existing.date : entry.date,
+      phase: existing.phase ?? entry.phase,
+      group: existing.group ?? entry.group,
+      homeScore: existing.homeScore ?? entry.homeScore,
+      awayScore: existing.awayScore ?? entry.awayScore,
+      kind: existing.kind ?? entry.kind,
+    });
+  };
+  (preferred.tournamentProgram ?? []).forEach((entry) => upsert(entry, "preferred"));
+  (fallback.tournamentProgram ?? []).forEach((entry) => upsert(entry, "fallback"));
+
+  const byRecognized = new Map<string, MatchImportRow>();
+  for (const row of [...preferred.recognized, ...fallback.recognized]) {
+    const key = tournamentImportRowMergeKey(row);
+    const existing = byRecognized.get(key);
+    if (!existing) {
+      byRecognized.set(key, row);
+      continue;
+    }
+    const existingDateOk = Boolean(existing.date && !Number.isNaN(new Date(existing.date).getTime()));
+    const nextDateOk = Boolean(row.date && !Number.isNaN(new Date(row.date).getTime()));
+    if (!existingDateOk && nextDateOk) {
+      byRecognized.set(key, row);
+      continue;
+    }
+    if ((row.notes?.length ?? 0) > (existing.notes?.length ?? 0)) byRecognized.set(key, row);
+  }
+
+  const mergedProgram = sanitizeTournamentProgramEntries(Array.from(programByKey.values()));
+  return {
+    recognized: Array.from(byRecognized.values()),
+    discarded: Math.min(preferred.discarded, fallback.discarded),
+    totalDateLines: Math.max(preferred.totalDateLines, fallback.totalDateLines),
+    tournamentProgram: mergedProgram.length > 0 ? mergedProgram : undefined,
     tournamentScores: { ...(fallback.tournamentScores ?? {}), ...(preferred.tournamentScores ?? {}) },
   };
 }
@@ -3050,6 +3175,39 @@ export function parseMatchCalendarTextLines(
             fallbackYearHint,
           })
         : { recognized: [], discarded: 0, totalDateLines: 0 };
+      if (options.parserVariant === "clone") {
+        const unifiedCloneQuality = tournamentCloneParseQuality(unifiedResult);
+        const standardCloneQuality = tournamentCloneParseQuality(standardResult);
+        const clonePrimary = unifiedCloneQuality.score >= standardCloneQuality.score ? unifiedResult : standardResult;
+        const cloneSecondary = clonePrimary === unifiedResult ? standardResult : unifiedResult;
+        const clonePrimaryConfidence =
+          clonePrimary === unifiedResult ? unifiedCloneQuality.perRowConfidence : standardCloneQuality.perRowConfidence;
+        const cloneSecondaryConfidence =
+          clonePrimary === unifiedResult ? standardCloneQuality.perRowConfidence : unifiedCloneQuality.perRowConfidence;
+        const mergedClone = mergeTournamentCloneResults(
+          clonePrimary,
+          cloneSecondary,
+          clonePrimaryConfidence,
+          cloneSecondaryConfidence,
+        );
+        if ((mergedClone.tournamentProgram?.length ?? 0) > 0 || mergedClone.recognized.length > 0) {
+          return {
+            ...mergedClone,
+            parserDebug: {
+              variant: "clone",
+              engineScores: {
+                unified: unifiedCloneQuality.score,
+                standard: standardCloneQuality.score,
+              },
+              perRowConfidence: { ...unifiedCloneQuality.perRowConfidence, ...standardCloneQuality.perRowConfidence },
+              notes: [
+                "clone parser: ranking per motore con confidence per riga",
+                "merge clone: preferenza per metadati piu' ricchi (fase/girone/risultati/date)",
+              ],
+            },
+          };
+        }
+      }
       const unifiedQuality = tournamentParseQuality(unifiedResult);
       const standardQuality = tournamentParseQuality(standardResult);
       const primaryResult = standardQuality > unifiedQuality ? standardResult : unifiedResult;
@@ -3159,4 +3317,24 @@ export function parseMatchCalendarTextLines(
   }
 
   return { recognized, discarded, totalDateLines };
+}
+
+export async function parseMatchCalendarPdfFileClone(
+  file: File,
+  options: ParsePdfOptions = {},
+): Promise<MatchPdfImportResult> {
+  return parseMatchCalendarPdfFile(file, {
+    ...options,
+    parserVariant: "clone",
+  });
+}
+
+export async function parseTournamentImageFileClone(
+  file: File,
+  options: ParsePdfOptions = {},
+): Promise<MatchPdfImportResult> {
+  return parseTournamentImageFile(file, {
+    ...options,
+    parserVariant: "clone",
+  });
 }
