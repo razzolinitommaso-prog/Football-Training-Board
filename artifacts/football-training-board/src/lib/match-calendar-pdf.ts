@@ -51,9 +51,11 @@ type ParserDebugInfo = {
     aliases: string[];
     decisions: Array<{
       text: string;
+      alias?: string;
       matched: boolean;
       confidence: number;
       evidence: string;
+      decision: CloneOwnClubDecisionOutcome;
       sourceEngine: "standard" | "unified" | "merged";
     }>;
   };
@@ -80,6 +82,10 @@ type CloneCanonicalRecord = {
   confidence: number;
   evidence: string;
 };
+
+type CloneOwnClubDecisionOutcome = "accepted" | "rejected_low_confidence" | "rejected_generic_alias";
+
+const CLONE_OWN_CLUB_MIN_CONFIDENCE = 68;
 
 export type MatchPdfImportResult = {
   recognized: MatchImportRow[];
@@ -1725,19 +1731,29 @@ function parseTournamentImageTextLines(
       : [];
   const imageOwnClubDecisions =
     options.parserVariant === "clone"
-      ? recognized.slice(0, 80).map((row) => {
+      ? recognized.slice(0, 120).map((row) => {
           const decision = cloneOwnClubDecision(row.opponent, options.aliasNorms);
+          const finalDecision = cloneOwnClubFinalDecision(decision);
           return {
             text: row.opponent,
+            alias: decision.alias,
             matched: decision.matched,
             confidence: decision.confidence,
             evidence: decision.evidence,
+            decision: finalDecision,
             sourceEngine: "merged" as const,
           };
         })
       : [];
+  const filteredRecognized =
+    options.parserVariant === "clone"
+      ? recognized.filter((row) => {
+          const decision = cloneOwnClubDecision(row.opponent, options.aliasNorms);
+          return decision.matched;
+        })
+      : recognized;
   return {
-    recognized,
+    recognized: filteredRecognized,
     discarded,
     totalDateLines,
     tournamentProgram: cleanTournamentProgram,
@@ -1754,7 +1770,7 @@ function parseTournamentImageTextLines(
             },
             notes: [
               "clone parser immagine: modello canonico base + confidence per record",
-              "clone alias resolver: spiegazione match societa' su righe riconosciute",
+              `clone alias resolver: soglia own-club ${CLONE_OWN_CLUB_MIN_CONFIDENCE} con righe scartate tracciate nel debug`,
             ],
           }
         : undefined,
@@ -3073,12 +3089,17 @@ function cloneSocietyNoiseToken(token: string): boolean {
     "sc",
     "calcio",
     "club",
+    "scuola",
     "sport",
     "sporting",
+    "sportiva",
     "societa",
     "polisportiva",
     "associazione",
     "dilettantistica",
+    "firenze",
+    "settore",
+    "giovanile",
   ]).has(token);
 }
 
@@ -3091,34 +3112,51 @@ function buildCloneSocietyAliases(sources: Array<string | undefined | null>): st
     if (tokens.length === 0) continue;
     aliases.add(tokens.join(" "));
     if (tokens.length >= 2) aliases.add(tokens.slice(0, 2).join(" "));
-    for (const token of tokens) if (token.length >= 4) aliases.add(token);
+    for (const token of tokens) {
+      if (token.length >= 5 && !cloneSocietyNoiseToken(token)) aliases.add(token);
+    }
   }
-  return Array.from(aliases).filter((alias) => alias.length >= 3);
+  return Array.from(aliases).filter((alias) => {
+    if (alias.length < 3) return false;
+    const aliasTokens = alias.split(/\s+/).filter(Boolean);
+    if (aliasTokens.length === 0) return false;
+    const specificTokens = aliasTokens.filter((token) => !cloneSocietyNoiseToken(token));
+    return specificTokens.length > 0;
+  });
 }
 
 function cloneOwnClubDecision(
   text: string,
   aliases: string[],
-): { matched: boolean; confidence: number; evidence: string } {
+): { matched: boolean; confidence: number; evidence: string; alias?: string; genericAlias: boolean } {
   const n = normalizeName(text);
-  if (!n) return { matched: false, confidence: 0, evidence: "testo vuoto/non normalizzabile" };
+  if (!n) return { matched: false, confidence: 0, evidence: "testo vuoto/non normalizzabile", genericAlias: false };
   let bestScore = 0;
   let bestEvidence = "nessun alias compatibile";
+  let bestAlias: string | undefined;
+  let bestAliasGeneric = false;
   for (const alias of aliases) {
     if (!alias) continue;
     const aliasTokens = alias.split(/\s+/).filter(Boolean);
+    const specificAliasTokens = aliasTokens.filter((token) => !cloneSocietyNoiseToken(token));
+    const genericOnlyAlias = specificAliasTokens.length === 0;
     const overlap = aliasTokens.filter((token) => n.includes(token)).length;
     const overlapRatio = aliasTokens.length > 0 ? overlap / aliasTokens.length : 0;
     const exact = n === alias;
     const contains = n.includes(alias) || alias.includes(n);
+    const specificOverlap = specificAliasTokens.filter((token) => n.includes(token)).length;
     const score = Math.round(
       (exact ? 100 : 0) +
         (contains ? 40 : 0) +
         Math.min(40, overlap * 15) +
-        Math.round(overlapRatio * 20),
+        Math.round(overlapRatio * 20) +
+        Math.min(35, specificOverlap * 17) -
+        (genericOnlyAlias ? 45 : 0),
     );
     if (score > bestScore) {
       bestScore = score;
+      bestAlias = alias;
+      bestAliasGeneric = genericOnlyAlias;
       bestEvidence =
         exact
           ? `match esatto alias "${alias}"`
@@ -3127,11 +3165,24 @@ function cloneOwnClubDecision(
             : `overlap token ${overlap}/${aliasTokens.length} con alias "${alias}"`;
     }
   }
+  const boundedScore = Math.max(0, Math.min(100, bestScore));
+  const matched = boundedScore >= CLONE_OWN_CLUB_MIN_CONFIDENCE && !bestAliasGeneric;
   return {
-    matched: bestScore >= 55,
-    confidence: Math.max(0, Math.min(100, bestScore)),
-    evidence: bestEvidence,
+    matched,
+    confidence: boundedScore,
+    evidence: bestAliasGeneric ? `${bestEvidence} (alias troppo generico)` : bestEvidence,
+    alias: bestAlias,
+    genericAlias: bestAliasGeneric,
   };
+}
+
+function cloneOwnClubFinalDecision(input: {
+  matched: boolean;
+  genericAlias: boolean;
+}): CloneOwnClubDecisionOutcome {
+  if (input.matched) return "accepted";
+  if (input.genericAlias) return "rejected_generic_alias";
+  return "rejected_low_confidence";
 }
 
 function buildCloneCanonicalRecords(
@@ -3434,19 +3485,27 @@ export function parseMatchCalendarTextLines(
           ...unifiedCloneQuality.perRowConfidence,
           ...standardCloneQuality.perRowConfidence,
         };
-        const ownClubDecisions = mergedClone.recognized.slice(0, 80).map((row) => {
+        const ownClubDecisions = mergedClone.recognized.slice(0, 140).map((row) => {
           const decision = cloneOwnClubDecision(row.opponent, tournamentAliases);
+          const finalDecision = cloneOwnClubFinalDecision(decision);
           return {
             text: row.opponent,
+            alias: decision.alias,
             matched: decision.matched,
             confidence: decision.confidence,
             evidence: decision.evidence,
+            decision: finalDecision,
             sourceEngine: "merged" as const,
           };
+        });
+        const filteredRecognized = mergedClone.recognized.filter((row) => {
+          const decision = cloneOwnClubDecision(row.opponent, tournamentAliases);
+          return decision.matched;
         });
         if ((mergedClone.tournamentProgram?.length ?? 0) > 0 || mergedClone.recognized.length > 0) {
           return {
             ...mergedClone,
+            recognized: filteredRecognized,
             parserDebug: {
               variant: "clone",
               engineScores: {
@@ -3462,7 +3521,7 @@ export function parseMatchCalendarTextLines(
               notes: [
                 "clone parser: ranking per motore con confidence per riga",
                 "merge clone: preferenza per metadati piu' ricchi (fase/girone/risultati/date)",
-                "clone alias resolver: alias societa' estesi e scoring spiegabile per riconoscimento societa'",
+                `clone alias resolver: soglia own-club ${CLONE_OWN_CLUB_MIN_CONFIDENCE}, con decisione accepted/rejected nel debug`,
               ],
             },
           };
