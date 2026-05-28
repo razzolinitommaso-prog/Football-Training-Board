@@ -82,7 +82,7 @@ type CloneCanonicalRecord = {
   phase?: string | null;
   homeTeam?: string;
   awayTeam?: string;
-  sourceEngine: "standard" | "unified" | "merged";
+  sourceEngine: "standard" | "unified" | "merged" | "preprocessed";
   confidence: number;
   evidence: string;
 };
@@ -3320,6 +3320,108 @@ function cloneSegmentTournamentLinesFromPdf(
   };
 }
 
+function cloneProgramEntryMergeKey(entry: TournamentProgramEntry): string {
+  return [
+    entry.date,
+    normalizeName(String(entry.homeTeam ?? "")),
+    normalizeName(String(entry.awayTeam ?? "")),
+    normalizeName(String(entry.group ?? "")),
+  ].join("|");
+}
+
+function cloneBuildProgramFromPreprocessedFixtures(lines: string[]): TournamentProgramEntry[] {
+  const entries: TournamentProgramEntry[] = [];
+  const fixtureWithDateRe = /^(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})\s+(\d{1,2}[:.]\d{2})\s+((?:(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[\p{L}0-9]+)\s+)?(.+?)\s*[-\u2013\u2014]\s*(.+)$/iu;
+  const fixtureWithTimeRe = /^(\d{1,2}[:.]\d{2})\s+((?:(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[\p{L}0-9]+)\s+)?(.+?)\s*[-\u2013\u2014]\s*(.+)$/iu;
+  let currentDateIso: string | null = null;
+  for (const raw of lines) {
+    const line = String(raw ?? "").replace(/\s+/g, " ").trim();
+    if (!line) continue;
+    const withDate = line.match(fixtureWithDateRe);
+    if (withDate) {
+      const dateIso = parseDateTimeIso(`${withDate[1]} ${String(withDate[2]).replace(".", ":")}`);
+      if (!dateIso) continue;
+      currentDateIso = dateIso;
+      const group = String(withDate[3] ?? "").trim() || "Gironi";
+      const homeTeam = cleanTournamentTeamName(String(withDate[4] ?? ""));
+      const awayTeam = cleanTournamentTeamName(String(withDate[5] ?? ""));
+      if (!homeTeam || !awayTeam) continue;
+      entries.push({
+        id: `${dateIso}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}|${normalizeName(group)}`,
+        date: dateIso,
+        homeTeam,
+        awayTeam,
+        group,
+        phase: "Gironi",
+        kind: "match",
+      });
+      continue;
+    }
+    const withTime = line.match(fixtureWithTimeRe);
+    if (withTime && currentDateIso) {
+      const base = new Date(currentDateIso);
+      if (Number.isNaN(base.getTime())) continue;
+      const [hRaw, mRaw] = String(withTime[1]).replace(".", ":").split(":");
+      base.setHours(Number(hRaw), Number(mRaw), 0, 0);
+      const dateIso = base.toISOString();
+      const group = String(withTime[2] ?? "").trim() || "Gironi";
+      const homeTeam = cleanTournamentTeamName(String(withTime[3] ?? ""));
+      const awayTeam = cleanTournamentTeamName(String(withTime[4] ?? ""));
+      if (!homeTeam || !awayTeam) continue;
+      entries.push({
+        id: `${dateIso}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}|${normalizeName(group)}`,
+        date: dateIso,
+        homeTeam,
+        awayTeam,
+        group,
+        phase: "Gironi",
+        kind: "match",
+      });
+    }
+  }
+  const byKey = new Map<string, TournamentProgramEntry>();
+  for (const entry of entries) byKey.set(cloneProgramEntryMergeKey(entry), entry);
+  return Array.from(byKey.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+function cloneProgramLooksSuspicious(program: TournamentProgramEntry[], extractedCount: number): boolean {
+  if (extractedCount < 4) return false;
+  if (program.length <= 1) return true;
+  const sameTeamRows = program.filter((entry) => normalizeName(entry.homeTeam) === normalizeName(entry.awayTeam)).length;
+  return sameTeamRows >= Math.ceil(program.length * 0.5);
+}
+
+function cloneMergeProgramWithPreprocessed(
+  structured: TournamentProgramEntry[] | undefined,
+  preprocessed: TournamentProgramEntry[],
+): TournamentProgramEntry[] {
+  const structuredSafe = structured ?? [];
+  if (preprocessed.length === 0) return structuredSafe;
+  if (cloneProgramLooksSuspicious(structuredSafe, preprocessed.length)) return preprocessed;
+  const merged = new Map<string, TournamentProgramEntry>();
+  for (const entry of structuredSafe) merged.set(cloneProgramEntryMergeKey(entry), entry);
+  for (const entry of preprocessed) {
+    const key = cloneProgramEntryMergeKey(entry);
+    if (!merged.has(key)) merged.set(key, entry);
+  }
+  return Array.from(merged.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+function cloneCanonicalRecordsFromPreprocessed(program: TournamentProgramEntry[]): CloneCanonicalRecord[] {
+  return program.map((entry) => ({
+    id: `preprocessed|${cloneProgramEntryMergeKey(entry)}`,
+    type: "match_fixture",
+    date: entry.date,
+    group: entry.group ?? null,
+    phase: entry.phase ?? null,
+    homeTeam: entry.homeTeam,
+    awayTeam: entry.awayTeam,
+    sourceEngine: "preprocessed",
+    confidence: 82,
+    evidence: "fixture estratta da pattern esplicito data/ora/girone/team-team",
+  }));
+}
+
 function buildCloneDistinctiveClubTokens(sources: Array<string | undefined | null>): string[] {
   const out = new Set<string>();
   for (const source of sources) {
@@ -3713,6 +3815,7 @@ export function parseMatchCalendarTextLines(
     options.parserVariant === "clone" && (options.documentMode ?? "auto") === "tournament"
       ? cloneSegmentTournamentLinesFromPdf(allPageLines)
       : null;
+  const clonePreprocessedProgram = cloneBuildProgramFromPreprocessedFixtures(clonePreprocessed?.extractedFixtures ?? []);
   const workingLines = clonePreprocessed?.segmentedLines ?? allPageLines;
   const blobs = pageBlobs && pageBlobs.length > 0 ? pageBlobs : [allPageLines.join("\n")];
   const fullText = blobs.join("\n");
@@ -3776,6 +3879,14 @@ export function parseMatchCalendarTextLines(
         "[CLONE-RUNTIME-CHECK] fixtures extracted from preprocessing JSON",
         JSON.stringify(clonePreprocessed.extractedFixtures, null, 2),
       );
+      console.log(
+        "[CLONE-RUNTIME-CHECK] preprocessing fixtures parsed count",
+        clonePreprocessedProgram.length,
+      );
+      console.log(
+        "[CLONE-RUNTIME-CHECK] preprocessing fixtures parsed JSON",
+        JSON.stringify(clonePreprocessedProgram, null, 2),
+      );
     }
     console.log(
       "[CLONE-RUNTIME-CHECK] keyword lines JSON",
@@ -3802,24 +3913,42 @@ export function parseMatchCalendarTextLines(
           })
         : { recognized: [], discarded: 0, totalDateLines: 0 };
       if (options.parserVariant === "clone") {
+        const unifiedMergedProgram = cloneMergeProgramWithPreprocessed(
+          unifiedResult.tournamentProgram,
+          clonePreprocessedProgram,
+        );
+        const standardMergedProgram = cloneMergeProgramWithPreprocessed(
+          standardResult.tournamentProgram,
+          clonePreprocessedProgram,
+        );
+        const unifiedAugmented: MatchPdfImportResult = {
+          ...unifiedResult,
+          tournamentProgram: unifiedMergedProgram,
+          tournamentScores: scoresFromParsedTournamentProgram(unifiedMergedProgram),
+        };
+        const standardAugmented: MatchPdfImportResult = {
+          ...standardResult,
+          tournamentProgram: standardMergedProgram,
+          tournamentScores: scoresFromParsedTournamentProgram(standardMergedProgram),
+        };
         const unifiedAliasEnrichment = enrichCloneAliasesFromTournamentTeams(
           tournamentAliases,
           distinctiveClubTokens,
-          unifiedResult.tournamentProgram ?? [],
+          unifiedAugmented.tournamentProgram ?? [],
         );
         const standardAliasEnrichment = enrichCloneAliasesFromTournamentTeams(
           tournamentAliases,
           distinctiveClubTokens,
-          standardResult.tournamentProgram ?? [],
+          standardAugmented.tournamentProgram ?? [],
         );
         const unifiedRecognizedFromProgram = cloneRecognizedRowsFromTournamentProgram(
-          unifiedResult.tournamentProgram ?? [],
+          unifiedAugmented.tournamentProgram ?? [],
           unifiedAliasEnrichment.aliases,
           tournamentName,
           tournamentTitle,
         );
         const standardRecognizedFromProgram = cloneRecognizedRowsFromTournamentProgram(
-          standardResult.tournamentProgram ?? [],
+          standardAugmented.tournamentProgram ?? [],
           standardAliasEnrichment.aliases,
           tournamentName,
           tournamentTitle,
@@ -3830,12 +3959,12 @@ export function parseMatchCalendarTextLines(
             return arr.findIndex((x) => `${x.date}|${normalizeName(x.opponent)}|${x.homeAway}` === key) === idx;
           });
         const unifiedWithOwnClub = {
-          ...unifiedResult,
-          recognized: dedupeRows([...unifiedResult.recognized, ...unifiedRecognizedFromProgram]),
+          ...unifiedAugmented,
+          recognized: dedupeRows([...(unifiedAugmented.recognized ?? []), ...unifiedRecognizedFromProgram]),
         };
         const standardWithOwnClub = {
-          ...standardResult,
-          recognized: dedupeRows([...standardResult.recognized, ...standardRecognizedFromProgram]),
+          ...standardAugmented,
+          recognized: dedupeRows([...(standardAugmented.recognized ?? []), ...standardRecognizedFromProgram]),
         };
         const unifiedCloneQuality = tournamentCloneParseQuality(unifiedWithOwnClub);
         const standardCloneQuality = tournamentCloneParseQuality(standardWithOwnClub);
@@ -3852,8 +3981,9 @@ export function parseMatchCalendarTextLines(
           cloneSecondaryConfidence,
         );
         const canonicalRecords = [
-          ...buildCloneCanonicalRecords(unifiedResult, "unified", unifiedCloneQuality.perRowConfidence),
-          ...buildCloneCanonicalRecords(standardResult, "standard", standardCloneQuality.perRowConfidence),
+          ...buildCloneCanonicalRecords(unifiedWithOwnClub, "unified", unifiedCloneQuality.perRowConfidence),
+          ...buildCloneCanonicalRecords(standardWithOwnClub, "standard", standardCloneQuality.perRowConfidence),
+          ...cloneCanonicalRecordsFromPreprocessed(clonePreprocessedProgram),
           ...buildCloneCanonicalRecords(mergedClone, "merged", {
             ...unifiedCloneQuality.perRowConfidence,
             ...standardCloneQuality.perRowConfidence,
