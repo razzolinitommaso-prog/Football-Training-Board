@@ -1729,10 +1729,17 @@ function parseTournamentImageTextLines(
           imageConfidence,
         )
       : [];
+  const imageContextTokens =
+    options.parserVariant === "clone"
+      ? buildCloneOwnClubContextTokens({
+          recognized,
+          tournamentProgram: cleanTournamentProgram,
+        })
+      : new Set<string>();
   const imageOwnClubDecisions =
     options.parserVariant === "clone"
       ? recognized.slice(0, 120).map((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, options.aliasNorms);
+          const decision = cloneOwnClubDecision(row.opponent, options.aliasNorms, imageContextTokens);
           const finalDecision = cloneOwnClubFinalDecision(decision);
           return {
             text: row.opponent,
@@ -1748,7 +1755,7 @@ function parseTournamentImageTextLines(
   const filteredRecognized =
     options.parserVariant === "clone"
       ? recognized.filter((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, options.aliasNorms);
+          const decision = cloneOwnClubDecision(row.opponent, options.aliasNorms, imageContextTokens);
           return decision.matched;
         })
       : recognized;
@@ -3125,9 +3132,32 @@ function buildCloneSocietyAliases(sources: Array<string | undefined | null>): st
   });
 }
 
+function cloneDistinctiveTokensFromText(value: string): string[] {
+  return normalizeName(value)
+    .split(/\s+/)
+    .filter((token) => token.length >= 4 && !cloneSocietyNoiseToken(token));
+}
+
+function buildCloneOwnClubContextTokens(input: {
+  recognized?: MatchImportRow[];
+  tournamentProgram?: TournamentProgramEntry[];
+}): Set<string> {
+  const out = new Set<string>();
+  for (const row of input.recognized ?? []) {
+    for (const token of cloneDistinctiveTokensFromText(row.opponent)) out.add(token);
+  }
+  for (const entry of input.tournamentProgram ?? []) {
+    for (const token of cloneDistinctiveTokensFromText(entry.homeTeam)) out.add(token);
+    for (const token of cloneDistinctiveTokensFromText(entry.awayTeam)) out.add(token);
+    for (const token of cloneDistinctiveTokensFromText(String(entry.group ?? ""))) out.add(token);
+  }
+  return out;
+}
+
 function cloneOwnClubDecision(
   text: string,
   aliases: string[],
+  contextTokens: Set<string> = new Set<string>(),
 ): { matched: boolean; confidence: number; evidence: string; alias?: string; genericAlias: boolean } {
   const n = normalizeName(text);
   if (!n) return { matched: false, confidence: 0, evidence: "testo vuoto/non normalizzabile", genericAlias: false };
@@ -3145,13 +3175,23 @@ function cloneOwnClubDecision(
     const exact = n === alias;
     const contains = n.includes(alias) || alias.includes(n);
     const specificOverlap = specificAliasTokens.filter((token) => n.includes(token)).length;
+    const exactContextTokenHit = specificAliasTokens.some((token) => contextTokens.has(token) && n.split(/\s+/).includes(token));
+    const nearContextTokenHit = specificAliasTokens.some((token) =>
+      Array.from(contextTokens).some(
+        (ctx) =>
+          ctx !== token &&
+          ((ctx.startsWith(token) || token.startsWith(ctx)) && Math.abs(ctx.length - token.length) <= 2),
+      ),
+    );
+    const contextBonus = exactContextTokenHit ? 22 : nearContextTokenHit ? 10 : 0;
     const score = Math.round(
       (exact ? 100 : 0) +
         (contains ? 40 : 0) +
         Math.min(40, overlap * 15) +
         Math.round(overlapRatio * 20) +
         Math.min(35, specificOverlap * 17) -
-        (genericOnlyAlias ? 45 : 0),
+        (genericOnlyAlias ? 45 : 0) +
+        contextBonus,
     );
     if (score > bestScore) {
       bestScore = score;
@@ -3163,6 +3203,11 @@ function cloneOwnClubDecision(
           : contains
             ? `contenimento alias "${alias}"`
             : `overlap token ${overlap}/${aliasTokens.length} con alias "${alias}"`;
+      if (contextBonus > 0) {
+        bestEvidence += exactContextTokenHit
+          ? ` + bonus contesto (token distintivo presente in girone/fixture)`
+          : ` + bonus contesto (quasi-match token distintivo)`;
+      }
     }
   }
   const boundedScore = Math.max(0, Math.min(100, bestScore));
@@ -3485,8 +3530,12 @@ export function parseMatchCalendarTextLines(
           ...unifiedCloneQuality.perRowConfidence,
           ...standardCloneQuality.perRowConfidence,
         };
+        const mergedContextTokens = buildCloneOwnClubContextTokens({
+          recognized: mergedClone.recognized,
+          tournamentProgram: mergedClone.tournamentProgram,
+        });
         const ownClubDecisions = mergedClone.recognized.slice(0, 140).map((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, tournamentAliases);
+          const decision = cloneOwnClubDecision(row.opponent, tournamentAliases, mergedContextTokens);
           const finalDecision = cloneOwnClubFinalDecision(decision);
           return {
             text: row.opponent,
@@ -3499,7 +3548,7 @@ export function parseMatchCalendarTextLines(
           };
         });
         const filteredRecognized = mergedClone.recognized.filter((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, tournamentAliases);
+          const decision = cloneOwnClubDecision(row.opponent, tournamentAliases, mergedContextTokens);
           return decision.matched;
         });
         if ((mergedClone.tournamentProgram?.length ?? 0) > 0 || mergedClone.recognized.length > 0) {
