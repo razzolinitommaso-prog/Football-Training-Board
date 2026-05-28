@@ -1721,7 +1721,7 @@ function parseTournamentImageTextLines(
   const imageAliasEnrichment =
     options.parserVariant === "clone"
       ? enrichCloneAliasesFromTournamentTeams(options.aliasNorms, imageDistinctiveTokens, cleanTournamentProgram)
-      : { aliases: options.aliasNorms, matchedTournamentTeams: [], tournamentTeamTokens: [] };
+      : { aliases: options.aliasNorms, tournamentTeams: [], matchedTournamentTeams: [], tournamentTeamTokens: [] };
   const imageOwnClubAliases = imageAliasEnrichment.aliases;
   const recognizedFromProgram =
     options.parserVariant === "clone"
@@ -1784,8 +1784,28 @@ function parseTournamentImageTextLines(
   if (options.parserVariant === "clone") {
     console.log("[CLONE-RUNTIME-CHECK] clubNameUsed", options.clubNameUsed);
     console.log("[CLONE-RUNTIME-CHECK] aliases", imageOwnClubAliases);
+    console.log("[CLONE-RUNTIME-CHECK] aliases JSON", JSON.stringify(imageOwnClubAliases, null, 2));
+    console.log("[CLONE-RUNTIME-CHECK] distinctiveTokens JSON", JSON.stringify(imageDistinctiveTokens, null, 2));
+    console.log("[CLONE-RUNTIME-CHECK] tournamentTeamTokens JSON", JSON.stringify(imageAliasEnrichment.tournamentTeamTokens, null, 2));
+    console.log("[CLONE-RUNTIME-CHECK] tournament teams JSON", JSON.stringify(imageAliasEnrichment.tournamentTeams, null, 2));
     console.log("[CLONE-RUNTIME-CHECK] matchedTournamentTeams", imageAliasEnrichment.matchedTournamentTeams);
+    console.log(
+      "[CLONE-RUNTIME-CHECK] matchedTournamentTeams JSON",
+      JSON.stringify(imageAliasEnrichment.matchedTournamentTeams, null, 2),
+    );
     console.log("[CLONE-RUNTIME-CHECK] tournament fixtures count", cleanTournamentProgram.length);
+    console.log(
+      "[CLONE-RUNTIME-CHECK] tournamentProgram summary JSON",
+      JSON.stringify(cloneProgramSummary(cleanTournamentProgram), null, 2),
+    );
+    console.log(
+      "[CLONE-RUNTIME-CHECK] canonicalRecords JSON",
+      JSON.stringify(imageCanonicalRecords.slice(0, 250), null, 2),
+    );
+    console.log(
+      "[CLONE-RUNTIME-CHECK] keyword lines JSON",
+      JSON.stringify(cloneKeywordLines(allLines), null, 2),
+    );
     console.log("[CLONE-RUNTIME-CHECK] recognized before own filter", recognizedForClone.length);
     console.log("[CLONE-RUNTIME-CHECK] recognized after own filter", filteredRecognized.length);
   }
@@ -2936,6 +2956,27 @@ export async function parseMatchCalendarPdfFile(
   const nativeFullText = perPage.map((p) => p.lines.join(" ")).join("\n");
   const nativeHasDate = textHasAnyDate(nativeFullText);
   const ocrCandidate = ocrEnabled && documentMode !== "federation" && !nativeHasDate;
+  if (options.parserVariant === "clone") {
+    console.log(
+      "[CLONE-RUNTIME-CHECK] pdf extraction mode JSON",
+      JSON.stringify(
+        {
+          fileName: file.name,
+          documentMode,
+          nativeHasDate,
+          ocrEnabled,
+          ocrCandidate,
+          pages: perPage.length,
+        },
+        null,
+        2,
+      ),
+    );
+    console.log(
+      "[CLONE-RUNTIME-CHECK] pdf keyword lines JSON",
+      JSON.stringify(cloneKeywordLines(nativeFullText.split(/\r?\n/)), null, 2),
+    );
+  }
 
   if (!ocrCandidate) {
     if (!ocrEnabled) {
@@ -3173,6 +3214,60 @@ function cloneDistinctiveTokensFromText(value: string): string[] {
     .filter((token) => token.length >= 4 && !cloneSocietyNoiseToken(token));
 }
 
+function cloneKeywordLines(lines: string[]): string[] {
+  const keywords = ["gavinana", "firenze", "verona"];
+  return lines
+    .map((line) => String(line ?? "").trim())
+    .filter(Boolean)
+    .filter((line) => {
+      const n = normalizeName(line);
+      return keywords.some((k) => n.includes(k));
+    })
+    .slice(0, 120);
+}
+
+function cloneProgramSummary(program: TournamentProgramEntry[]): {
+  groups: string[];
+  teamsByGroup: Record<string, string[]>;
+  fixtures: Array<{
+    date: string;
+    homeTeam: string;
+    awayTeam: string;
+    group: string | null;
+    phase: string | null;
+  }>;
+  normalizedFixtures: string[];
+} {
+  const groups = new Set<string>();
+  const teamsByGroup: Record<string, Set<string>> = {};
+  const fixtures = program.map((entry) => {
+    const group = String(entry.group ?? "").trim() || null;
+    const phase = String(entry.phase ?? "").trim() || null;
+    if (group) groups.add(group);
+    const groupKey = group ?? "Senza gruppo";
+    if (!teamsByGroup[groupKey]) teamsByGroup[groupKey] = new Set<string>();
+    if (String(entry.homeTeam ?? "").trim()) teamsByGroup[groupKey]!.add(String(entry.homeTeam).trim());
+    if (String(entry.awayTeam ?? "").trim()) teamsByGroup[groupKey]!.add(String(entry.awayTeam).trim());
+    return {
+      date: entry.date,
+      homeTeam: entry.homeTeam,
+      awayTeam: entry.awayTeam,
+      group,
+      phase,
+    };
+  });
+  const normalizedFixtures = program.map(
+    (entry) =>
+      `${entry.date}|${normalizeName(String(entry.homeTeam ?? ""))}|${normalizeName(String(entry.awayTeam ?? ""))}|${normalizeName(String(entry.group ?? entry.phase ?? ""))}`,
+  );
+  return {
+    groups: Array.from(groups),
+    teamsByGroup: Object.fromEntries(Object.entries(teamsByGroup).map(([k, v]) => [k, Array.from(v)])),
+    fixtures,
+    normalizedFixtures,
+  };
+}
+
 function buildCloneDistinctiveClubTokens(sources: Array<string | undefined | null>): string[] {
   const out = new Set<string>();
   for (const source of sources) {
@@ -3204,7 +3299,7 @@ function enrichCloneAliasesFromTournamentTeams(
   aliases: string[],
   distinctiveClubTokens: string[],
   program: TournamentProgramEntry[],
-): { aliases: string[]; matchedTournamentTeams: string[]; tournamentTeamTokens: string[] } {
+): { aliases: string[]; tournamentTeams: string[]; matchedTournamentTeams: string[]; tournamentTeamTokens: string[] } {
   const tournamentTeams = collectCloneTournamentTeams(program);
   const tournamentTeamTokens = collectCloneTournamentTeamTokens(program);
   const matchedTournamentTeams = new Set<string>();
@@ -3229,6 +3324,7 @@ function enrichCloneAliasesFromTournamentTeams(
   }
   return {
     aliases: Array.from(enriched),
+    tournamentTeams,
     matchedTournamentTeams: Array.from(matchedTournamentTeams),
     tournamentTeamTokens,
   };
@@ -3611,6 +3707,12 @@ export function parseMatchCalendarTextLines(
   const tournamentProgram = tournamentLooksValid && tournamentAliases.length > 0;
   const tournamentName = inferTournamentName(options.fileName, allPageLines);
   const tournamentTitle = extractTournamentTitle(allPageLines);
+  if (options.parserVariant === "clone") {
+    console.log(
+      "[CLONE-RUNTIME-CHECK] keyword lines JSON",
+      JSON.stringify(cloneKeywordLines(allPageLines), null, 2),
+    );
+  }
 
   if (documentMode === "tournament") {
     if (options.unifiedTournamentProgram) {
@@ -3720,8 +3822,34 @@ export function parseMatchCalendarTextLines(
         });
         console.log("[CLONE-RUNTIME-CHECK] clubNameUsed", clubNameUsed);
         console.log("[CLONE-RUNTIME-CHECK] aliases", mergedAliasEnrichment.aliases);
+        console.log("[CLONE-RUNTIME-CHECK] aliases JSON", JSON.stringify(mergedAliasEnrichment.aliases, null, 2));
+        console.log("[CLONE-RUNTIME-CHECK] distinctiveTokens JSON", JSON.stringify(distinctiveClubTokens, null, 2));
+        console.log(
+          "[CLONE-RUNTIME-CHECK] tournamentTeamTokens JSON",
+          JSON.stringify(mergedAliasEnrichment.tournamentTeamTokens, null, 2),
+        );
+        console.log(
+          "[CLONE-RUNTIME-CHECK] tournament teams JSON",
+          JSON.stringify(mergedAliasEnrichment.tournamentTeams, null, 2),
+        );
         console.log("[CLONE-RUNTIME-CHECK] matchedTournamentTeams", mergedAliasEnrichment.matchedTournamentTeams);
+        console.log(
+          "[CLONE-RUNTIME-CHECK] matchedTournamentTeams JSON",
+          JSON.stringify(mergedAliasEnrichment.matchedTournamentTeams, null, 2),
+        );
         console.log("[CLONE-RUNTIME-CHECK] tournament fixtures count", (mergedClone.tournamentProgram ?? []).length);
+        console.log(
+          "[CLONE-RUNTIME-CHECK] tournamentProgram summary JSON",
+          JSON.stringify(cloneProgramSummary(mergedClone.tournamentProgram ?? []), null, 2),
+        );
+        console.log(
+          "[CLONE-RUNTIME-CHECK] canonicalRecords JSON",
+          JSON.stringify(canonicalRecords.slice(0, 250), null, 2),
+        );
+        console.log(
+          "[CLONE-RUNTIME-CHECK] normalized fixtures JSON",
+          JSON.stringify(cloneProgramSummary(mergedClone.tournamentProgram ?? []).normalizedFixtures, null, 2),
+        );
         console.log("[CLONE-RUNTIME-CHECK] recognized before own filter", mergedClone.recognized.length);
         console.log("[CLONE-RUNTIME-CHECK] recognized after own filter", filteredRecognized.length);
         if ((mergedClone.tournamentProgram?.length ?? 0) > 0 || mergedClone.recognized.length > 0) {
