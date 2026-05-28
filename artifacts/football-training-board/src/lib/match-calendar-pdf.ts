@@ -3268,6 +3268,58 @@ function cloneProgramSummary(program: TournamentProgramEntry[]): {
   };
 }
 
+function cloneSegmentTournamentLinesFromPdf(
+  lines: string[],
+): { segmentedLines: string[]; extractedFixtures: string[] } {
+  const segmentedLines: string[] = [];
+  const extractedFixtures: string[] = [];
+  const fixtureWithDateRe = /(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})\s+(\d{1,2}[:.]\d{2})\s+((?:(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[\p{L}0-9]+)\s+)?([\p{L}0-9.' ]{2,80})\s*[-\u2013\u2014]\s*([\p{L}0-9.' ]{2,80})(?=\s+\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\s+\d{1,2}[:.]\d{2}\b|$)/giu;
+  const fixtureWithTimeRe = /(\d{1,2}[:.]\d{2})\s+((?:(?:girone|raggruppament[oi]|triangolare|quadrangolare)\s+[\p{L}0-9]+)\s+)?([\p{L}0-9.' ]{2,80})\s*[-\u2013\u2014]\s*([\p{L}0-9.' ]{2,80})(?=\s+\d{1,2}[:.]\d{2}\b|$)/giu;
+
+  for (const raw of lines) {
+    const normalized = String(raw ?? "").replace(/\s+/g, " ").trim();
+    if (!normalized) continue;
+    let added = false;
+    const dateMatches = Array.from(normalized.matchAll(fixtureWithDateRe));
+    if (dateMatches.length > 0) {
+      for (const match of dateMatches) {
+        const date = String(match[1] ?? "").trim();
+        const time = String(match[2] ?? "").trim();
+        const group = String(match[3] ?? "").trim();
+        const home = cleanTournamentTeamName(String(match[4] ?? "").trim());
+        const away = cleanTournamentTeamName(String(match[5] ?? "").trim());
+        if (!home || !away) continue;
+        const fixture = `${date} ${time} ${group ? `${group} ` : ""}${home} - ${away}`.replace(/\s+/g, " ").trim();
+        segmentedLines.push(fixture);
+        extractedFixtures.push(fixture);
+      }
+      added = true;
+    }
+    if (!added) {
+      const timeMatches = Array.from(normalized.matchAll(fixtureWithTimeRe));
+      if (timeMatches.length > 0) {
+        for (const match of timeMatches) {
+          const time = String(match[1] ?? "").trim();
+          const group = String(match[2] ?? "").trim();
+          const home = cleanTournamentTeamName(String(match[3] ?? "").trim());
+          const away = cleanTournamentTeamName(String(match[4] ?? "").trim());
+          if (!home || !away) continue;
+          const fixture = `${time} ${group ? `${group} ` : ""}${home} - ${away}`.replace(/\s+/g, " ").trim();
+          segmentedLines.push(fixture);
+          extractedFixtures.push(fixture);
+        }
+        added = true;
+      }
+    }
+    if (!added) segmentedLines.push(normalized);
+  }
+
+  return {
+    segmentedLines: segmentedLines.length > 0 ? segmentedLines : lines,
+    extractedFixtures,
+  };
+}
+
 function buildCloneDistinctiveClubTokens(sources: Array<string | undefined | null>): string[] {
   const out = new Set<string>();
   for (const source of sources) {
@@ -3657,6 +3709,11 @@ export function parseMatchCalendarTextLines(
   pageBlobs?: string[],
   options: ParseTextOptions = {},
 ): MatchPdfImportResult {
+  const clonePreprocessed =
+    options.parserVariant === "clone" && (options.documentMode ?? "auto") === "tournament"
+      ? cloneSegmentTournamentLinesFromPdf(allPageLines)
+      : null;
+  const workingLines = clonePreprocessed?.segmentedLines ?? allPageLines;
   const blobs = pageBlobs && pageBlobs.length > 0 ? pageBlobs : [allPageLines.join("\n")];
   const fullText = blobs.join("\n");
   const termNorms = (options.searchTerms ?? []).map((t) => normalizeName(String(t))).filter((t) => t.length >= 2);
@@ -3708,15 +3765,27 @@ export function parseMatchCalendarTextLines(
   const tournamentName = inferTournamentName(options.fileName, allPageLines);
   const tournamentTitle = extractTournamentTitle(allPageLines);
   if (options.parserVariant === "clone") {
+    if (clonePreprocessed) {
+      console.log("[CLONE-RUNTIME-CHECK] raw lines count before segmentation", allPageLines.length);
+      console.log("[CLONE-RUNTIME-CHECK] expanded/segmented lines count after", workingLines.length);
+      console.log(
+        "[CLONE-RUNTIME-CHECK] first segmented lines JSON",
+        JSON.stringify(workingLines.slice(0, 20), null, 2),
+      );
+      console.log(
+        "[CLONE-RUNTIME-CHECK] fixtures extracted from preprocessing JSON",
+        JSON.stringify(clonePreprocessed.extractedFixtures, null, 2),
+      );
+    }
     console.log(
       "[CLONE-RUNTIME-CHECK] keyword lines JSON",
-      JSON.stringify(cloneKeywordLines(allPageLines), null, 2),
+      JSON.stringify(cloneKeywordLines(workingLines), null, 2),
     );
   }
 
   if (documentMode === "tournament") {
     if (options.unifiedTournamentProgram) {
-      const unifiedResult = parseUnifiedTournamentProgramLines(allPageLines, {
+      const unifiedResult = parseUnifiedTournamentProgramLines(workingLines, {
         aliasNorms: tournamentAliases,
         tournamentTitle,
         tournamentName,
@@ -3724,7 +3793,7 @@ export function parseMatchCalendarTextLines(
         fallbackYearHint,
       });
       const standardResult = tournamentLooksValid
-        ? parseTournamentProgramLines(allPageLines, {
+        ? parseTournamentProgramLines(workingLines, {
             aliasNorms: tournamentAliases,
             tournamentTitle,
             tournamentName,
@@ -3891,7 +3960,7 @@ export function parseMatchCalendarTextLines(
       }
     }
     return tournamentLooksValid
-      ? parseTournamentProgramLines(allPageLines, {
+      ? parseTournamentProgramLines(workingLines, {
           aliasNorms: tournamentAliases,
           tournamentTitle,
           tournamentName,
@@ -3902,7 +3971,7 @@ export function parseMatchCalendarTextLines(
   }
 
   if (tournamentProgram) {
-    return parseTournamentProgramLines(allPageLines, {
+    return parseTournamentProgramLines(workingLines, {
       aliasNorms: tournamentAliases,
       tournamentTitle,
       tournamentName,
