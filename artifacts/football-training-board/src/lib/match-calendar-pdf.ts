@@ -48,7 +48,11 @@ type ParserDebugInfo = {
   perRowConfidence?: Record<string, number>;
   canonicalRecords?: CloneCanonicalRecord[];
   ownClubAliasProfile?: {
+    clubNameUsed?: string;
     aliases: string[];
+    distinctiveTokens?: string[];
+    tournamentTeamTokens?: string[];
+    matchedTournamentTeams?: string[];
     decisions: Array<{
       text: string;
       alias?: string;
@@ -1639,6 +1643,7 @@ function parseTournamentImageTextLines(
   options: {
     aliasNorms: string[];
     tournamentName: string;
+    clubNameUsed?: string;
     fallbackYearHint?: number | null;
     unifiedTournamentProgram?: boolean;
     parserVariant?: "default" | "clone";
@@ -1712,6 +1717,23 @@ function parseTournamentImageTextLines(
   }
 
   const cleanTournamentProgram = sanitizeTournamentProgramEntries(tournamentProgram);
+  const imageDistinctiveTokens = buildCloneDistinctiveClubTokens(options.aliasNorms);
+  const imageAliasEnrichment =
+    options.parserVariant === "clone"
+      ? enrichCloneAliasesFromTournamentTeams(options.aliasNorms, imageDistinctiveTokens, cleanTournamentProgram)
+      : { aliases: options.aliasNorms, matchedTournamentTeams: [], tournamentTeamTokens: [] };
+  const imageOwnClubAliases = imageAliasEnrichment.aliases;
+  const recognizedFromProgram =
+    options.parserVariant === "clone"
+      ? cloneRecognizedRowsFromTournamentProgram(cleanTournamentProgram, imageOwnClubAliases, options.tournamentName, null)
+      : [];
+  const recognizedForClone =
+    options.parserVariant === "clone"
+      ? [...recognized, ...recognizedFromProgram].filter((row, idx, arr) => {
+          const key = `${row.date}|${normalizeName(row.opponent)}|${row.homeAway}`;
+          return arr.findIndex((x) => `${x.date}|${normalizeName(x.opponent)}|${x.homeAway}` === key) === idx;
+        })
+      : recognized;
   const imageConfidence = Object.fromEntries(
     cleanTournamentProgram.map((entry) => [tournamentEntryMergeKey(entry), tournamentCloneEntryConfidence(entry)]),
   );
@@ -1719,7 +1741,7 @@ function parseTournamentImageTextLines(
     options.parserVariant === "clone"
       ? buildCloneCanonicalRecords(
           {
-            recognized,
+            recognized: recognizedForClone,
             discarded,
             totalDateLines,
             tournamentProgram: cleanTournamentProgram,
@@ -1732,14 +1754,14 @@ function parseTournamentImageTextLines(
   const imageContextTokens =
     options.parserVariant === "clone"
       ? buildCloneOwnClubContextTokens({
-          recognized,
+          recognized: recognizedForClone,
           tournamentProgram: cleanTournamentProgram,
         })
       : new Set<string>();
   const imageOwnClubDecisions =
     options.parserVariant === "clone"
-      ? recognized.slice(0, 120).map((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, options.aliasNorms, imageContextTokens);
+      ? recognizedForClone.slice(0, 160).map((row) => {
+          const decision = cloneOwnClubDecision(row.opponent, imageOwnClubAliases, imageContextTokens);
           const finalDecision = cloneOwnClubFinalDecision(decision);
           return {
             text: row.opponent,
@@ -1754,11 +1776,11 @@ function parseTournamentImageTextLines(
       : [];
   const filteredRecognized =
     options.parserVariant === "clone"
-      ? recognized.filter((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, options.aliasNorms, imageContextTokens);
+      ? recognizedForClone.filter((row) => {
+          const decision = cloneOwnClubDecision(row.opponent, imageOwnClubAliases, imageContextTokens);
           return decision.matched;
         })
-      : recognized;
+      : recognizedForClone;
   return {
     recognized: filteredRecognized,
     discarded,
@@ -1772,7 +1794,11 @@ function parseTournamentImageTextLines(
             perRowConfidence: imageConfidence,
             canonicalRecords: imageCanonicalRecords,
             ownClubAliasProfile: {
-              aliases: options.aliasNorms,
+              clubNameUsed: options.clubNameUsed,
+              aliases: imageOwnClubAliases,
+              distinctiveTokens: imageDistinctiveTokens,
+              tournamentTeamTokens: imageAliasEnrichment.tournamentTeamTokens,
+              matchedTournamentTeams: imageAliasEnrichment.matchedTournamentTeams,
               decisions: imageOwnClubDecisions,
             },
             notes: [
@@ -3002,6 +3028,7 @@ export async function parseTournamentImageFile(
     return parseTournamentImageTextLines(lines, {
       aliasNorms,
       tournamentName,
+      clubNameUsed: societyDisplay,
       fallbackYearHint,
       unifiedTournamentProgram: options.unifiedTournamentProgram === true,
       parserVariant: options.parserVariant ?? "default",
@@ -3136,6 +3163,96 @@ function cloneDistinctiveTokensFromText(value: string): string[] {
   return normalizeName(value)
     .split(/\s+/)
     .filter((token) => token.length >= 4 && !cloneSocietyNoiseToken(token));
+}
+
+function buildCloneDistinctiveClubTokens(sources: Array<string | undefined | null>): string[] {
+  const out = new Set<string>();
+  for (const source of sources) {
+    for (const token of cloneDistinctiveTokensFromText(String(source ?? ""))) out.add(token);
+  }
+  return Array.from(out);
+}
+
+function collectCloneTournamentTeams(program: TournamentProgramEntry[]): string[] {
+  const out = new Set<string>();
+  for (const entry of program) {
+    const home = cleanTournamentTeamName(String(entry.homeTeam ?? "")).trim();
+    const away = cleanTournamentTeamName(String(entry.awayTeam ?? "")).trim();
+    if (home && !isImageTournamentEmptyTeam(home)) out.add(home);
+    if (away && !isImageTournamentEmptyTeam(away)) out.add(away);
+  }
+  return Array.from(out);
+}
+
+function collectCloneTournamentTeamTokens(program: TournamentProgramEntry[]): string[] {
+  const out = new Set<string>();
+  for (const team of collectCloneTournamentTeams(program)) {
+    for (const token of cloneDistinctiveTokensFromText(team)) out.add(token);
+  }
+  return Array.from(out);
+}
+
+function enrichCloneAliasesFromTournamentTeams(
+  aliases: string[],
+  distinctiveClubTokens: string[],
+  program: TournamentProgramEntry[],
+): { aliases: string[]; matchedTournamentTeams: string[]; tournamentTeamTokens: string[] } {
+  const tournamentTeams = collectCloneTournamentTeams(program);
+  const tournamentTeamTokens = collectCloneTournamentTeamTokens(program);
+  const matchedTournamentTeams = new Set<string>();
+  const enriched = new Set(aliases);
+  for (const team of tournamentTeams) {
+    const teamNorm = normalizeName(team);
+    if (!teamNorm) continue;
+    const teamTokens = cloneDistinctiveTokensFromText(teamNorm);
+    const matchesDistinctive = teamTokens.some((teamToken) =>
+      distinctiveClubTokens.some(
+        (clubToken) =>
+          clubToken === teamToken ||
+          (teamToken.startsWith(clubToken) || clubToken.startsWith(teamToken)) && Math.abs(teamToken.length - clubToken.length) <= 2,
+      ),
+    );
+    if (!matchesDistinctive) continue;
+    matchedTournamentTeams.add(team);
+    enriched.add(teamNorm);
+    for (const token of teamTokens) {
+      if (token.length >= 4 && !cloneSocietyNoiseToken(token)) enriched.add(token);
+    }
+  }
+  return {
+    aliases: Array.from(enriched),
+    matchedTournamentTeams: Array.from(matchedTournamentTeams),
+    tournamentTeamTokens,
+  };
+}
+
+function cloneRecognizedRowsFromTournamentProgram(
+  program: TournamentProgramEntry[],
+  aliases: string[],
+  tournamentName: string,
+  tournamentTitle: string | null,
+): MatchImportRow[] {
+  const rows: MatchImportRow[] = [];
+  const seen = new Set<string>();
+  for (const entry of program) {
+    const leftOwn = tournamentAliasMatchesSide(normalizeName(entry.homeTeam), aliases);
+    const rightOwn = tournamentAliasMatchesSide(normalizeName(entry.awayTeam), aliases);
+    if (leftOwn === rightOwn) continue;
+    const opponent = leftOwn ? entry.awayTeam : entry.homeTeam;
+    const homeAway = leftOwn ? "home" : "away";
+    const key = `${entry.date}|${normalizeName(opponent)}|${homeAway}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      date: entry.date,
+      opponent,
+      homeAway,
+      competition: `Torneo: ${tournamentName}`,
+      location: null,
+      notes: tournamentTitle ? `Programma torneo - ${tournamentTitle}` : "Programma torneo",
+    });
+  }
+  return rows;
 }
 
 function buildCloneOwnClubContextTokens(input: {
@@ -3472,6 +3589,8 @@ export function parseMatchCalendarTextLines(
     documentMode === "tournament"
       ? [options.societyHint, options.clubName, societyDisplay]
       : [options.societyHint, options.clubName, options.teamName, societyDisplay];
+  const clubNameUsed = (options.societyHint?.trim() || options.clubName?.trim() || options.teamName?.trim() || societyDisplay || "").trim();
+  const distinctiveClubTokens = buildCloneDistinctiveClubTokens([options.societyHint, options.clubName, options.teamName, societyDisplay]);
   const baseTournamentAliases = [...new Set(tournamentAliasSources.filter(Boolean).map((value) => normalizeName(String(value))))].filter(
     (value) => value.length >= 3,
   );
@@ -3504,17 +3623,52 @@ export function parseMatchCalendarTextLines(
           })
         : { recognized: [], discarded: 0, totalDateLines: 0 };
       if (options.parserVariant === "clone") {
-        const unifiedCloneQuality = tournamentCloneParseQuality(unifiedResult);
-        const standardCloneQuality = tournamentCloneParseQuality(standardResult);
-        const clonePrimary = unifiedCloneQuality.score >= standardCloneQuality.score ? unifiedResult : standardResult;
-        const cloneSecondary = clonePrimary === unifiedResult ? standardResult : unifiedResult;
+        const unifiedAliasEnrichment = enrichCloneAliasesFromTournamentTeams(
+          tournamentAliases,
+          distinctiveClubTokens,
+          unifiedResult.tournamentProgram ?? [],
+        );
+        const standardAliasEnrichment = enrichCloneAliasesFromTournamentTeams(
+          tournamentAliases,
+          distinctiveClubTokens,
+          standardResult.tournamentProgram ?? [],
+        );
+        const unifiedRecognizedFromProgram = cloneRecognizedRowsFromTournamentProgram(
+          unifiedResult.tournamentProgram ?? [],
+          unifiedAliasEnrichment.aliases,
+          tournamentName,
+          tournamentTitle,
+        );
+        const standardRecognizedFromProgram = cloneRecognizedRowsFromTournamentProgram(
+          standardResult.tournamentProgram ?? [],
+          standardAliasEnrichment.aliases,
+          tournamentName,
+          tournamentTitle,
+        );
+        const dedupeRows = (rows: MatchImportRow[]) =>
+          rows.filter((row, idx, arr) => {
+            const key = `${row.date}|${normalizeName(row.opponent)}|${row.homeAway}`;
+            return arr.findIndex((x) => `${x.date}|${normalizeName(x.opponent)}|${x.homeAway}` === key) === idx;
+          });
+        const unifiedWithOwnClub = {
+          ...unifiedResult,
+          recognized: dedupeRows([...unifiedResult.recognized, ...unifiedRecognizedFromProgram]),
+        };
+        const standardWithOwnClub = {
+          ...standardResult,
+          recognized: dedupeRows([...standardResult.recognized, ...standardRecognizedFromProgram]),
+        };
+        const unifiedCloneQuality = tournamentCloneParseQuality(unifiedWithOwnClub);
+        const standardCloneQuality = tournamentCloneParseQuality(standardWithOwnClub);
+        const clonePrimary = unifiedCloneQuality.score >= standardCloneQuality.score ? unifiedWithOwnClub : standardWithOwnClub;
+        const cloneSecondaryResolved = clonePrimary === unifiedWithOwnClub ? standardWithOwnClub : unifiedWithOwnClub;
         const clonePrimaryConfidence =
-          clonePrimary === unifiedResult ? unifiedCloneQuality.perRowConfidence : standardCloneQuality.perRowConfidence;
+          clonePrimary === unifiedWithOwnClub ? unifiedCloneQuality.perRowConfidence : standardCloneQuality.perRowConfidence;
         const cloneSecondaryConfidence =
-          clonePrimary === unifiedResult ? standardCloneQuality.perRowConfidence : unifiedCloneQuality.perRowConfidence;
+          clonePrimary === unifiedWithOwnClub ? standardCloneQuality.perRowConfidence : unifiedCloneQuality.perRowConfidence;
         const mergedClone = mergeTournamentCloneResults(
           clonePrimary,
-          cloneSecondary,
+          cloneSecondaryResolved,
           clonePrimaryConfidence,
           cloneSecondaryConfidence,
         );
@@ -3534,8 +3688,13 @@ export function parseMatchCalendarTextLines(
           recognized: mergedClone.recognized,
           tournamentProgram: mergedClone.tournamentProgram,
         });
+        const mergedAliasEnrichment = enrichCloneAliasesFromTournamentTeams(
+          tournamentAliases,
+          distinctiveClubTokens,
+          mergedClone.tournamentProgram ?? [],
+        );
         const ownClubDecisions = mergedClone.recognized.slice(0, 140).map((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, tournamentAliases, mergedContextTokens);
+          const decision = cloneOwnClubDecision(row.opponent, mergedAliasEnrichment.aliases, mergedContextTokens);
           const finalDecision = cloneOwnClubFinalDecision(decision);
           return {
             text: row.opponent,
@@ -3548,7 +3707,7 @@ export function parseMatchCalendarTextLines(
           };
         });
         const filteredRecognized = mergedClone.recognized.filter((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, tournamentAliases, mergedContextTokens);
+          const decision = cloneOwnClubDecision(row.opponent, mergedAliasEnrichment.aliases, mergedContextTokens);
           return decision.matched;
         });
         if ((mergedClone.tournamentProgram?.length ?? 0) > 0 || mergedClone.recognized.length > 0) {
@@ -3564,7 +3723,11 @@ export function parseMatchCalendarTextLines(
               perRowConfidence: mergedConfidence,
               canonicalRecords,
               ownClubAliasProfile: {
-                aliases: tournamentAliases,
+                clubNameUsed,
+                aliases: mergedAliasEnrichment.aliases,
+                distinctiveTokens: distinctiveClubTokens,
+                tournamentTeamTokens: mergedAliasEnrichment.tournamentTeamTokens,
+                matchedTournamentTeams: mergedAliasEnrichment.matchedTournamentTeams,
                 decisions: ownClubDecisions,
               },
               notes: [
