@@ -46,7 +46,39 @@ type ParserDebugInfo = {
   variant: "default" | "clone";
   engineScores?: Record<string, number>;
   perRowConfidence?: Record<string, number>;
+  canonicalRecords?: CloneCanonicalRecord[];
+  ownClubAliasProfile?: {
+    aliases: string[];
+    decisions: Array<{
+      text: string;
+      matched: boolean;
+      confidence: number;
+      evidence: string;
+      sourceEngine: "standard" | "unified" | "merged";
+    }>;
+  };
   notes?: string[];
+};
+
+type CloneCanonicalRecordType =
+  | "group_header"
+  | "match_fixture"
+  | "composition_slot"
+  | "phase_transition"
+  | "result_line"
+  | "ranking_hint";
+
+type CloneCanonicalRecord = {
+  id: string;
+  type: CloneCanonicalRecordType;
+  date?: string;
+  group?: string | null;
+  phase?: string | null;
+  homeTeam?: string;
+  awayTeam?: string;
+  sourceEngine: "standard" | "unified" | "merged";
+  confidence: number;
+  evidence: string;
 };
 
 export type MatchPdfImportResult = {
@@ -1674,6 +1706,36 @@ function parseTournamentImageTextLines(
   }
 
   const cleanTournamentProgram = sanitizeTournamentProgramEntries(tournamentProgram);
+  const imageConfidence = Object.fromEntries(
+    cleanTournamentProgram.map((entry) => [tournamentEntryMergeKey(entry), tournamentCloneEntryConfidence(entry)]),
+  );
+  const imageCanonicalRecords =
+    options.parserVariant === "clone"
+      ? buildCloneCanonicalRecords(
+          {
+            recognized,
+            discarded,
+            totalDateLines,
+            tournamentProgram: cleanTournamentProgram,
+            tournamentScores: scoresFromParsedTournamentProgram(cleanTournamentProgram),
+          },
+          "merged",
+          imageConfidence,
+        )
+      : [];
+  const imageOwnClubDecisions =
+    options.parserVariant === "clone"
+      ? recognized.slice(0, 80).map((row) => {
+          const decision = cloneOwnClubDecision(row.opponent, options.aliasNorms);
+          return {
+            text: row.opponent,
+            matched: decision.matched,
+            confidence: decision.confidence,
+            evidence: decision.evidence,
+            sourceEngine: "merged" as const,
+          };
+        })
+      : [];
   return {
     recognized,
     discarded,
@@ -1684,7 +1746,16 @@ function parseTournamentImageTextLines(
       options.parserVariant === "clone"
         ? {
             variant: "clone",
-            notes: ["clone parser immagine: confidenza disponibile sul ramo PDF/tabellare"],
+            perRowConfidence: imageConfidence,
+            canonicalRecords: imageCanonicalRecords,
+            ownClubAliasProfile: {
+              aliases: options.aliasNorms,
+              decisions: imageOwnClubDecisions,
+            },
+            notes: [
+              "clone parser immagine: modello canonico base + confidence per record",
+              "clone alias resolver: spiegazione match societa' su righe riconosciute",
+            ],
           }
         : undefined,
   };
@@ -2986,6 +3057,162 @@ function tournamentCloneParseQuality(result: MatchPdfImportResult): {
   return { score, perRowConfidence };
 }
 
+function cloneSocietyNoiseToken(token: string): boolean {
+  return new Set([
+    "asd",
+    "ssd",
+    "usd",
+    "ssdrl",
+    "srl",
+    "spa",
+    "a",
+    "s",
+    "d",
+    "ac",
+    "fc",
+    "sc",
+    "calcio",
+    "club",
+    "sport",
+    "sporting",
+    "societa",
+    "polisportiva",
+    "associazione",
+    "dilettantistica",
+  ]).has(token);
+}
+
+function buildCloneSocietyAliases(sources: Array<string | undefined | null>): string[] {
+  const raw = sources.map((value) => normalizeName(String(value ?? ""))).filter(Boolean);
+  const aliases = new Set<string>();
+  for (const source of raw) {
+    aliases.add(source);
+    const tokens = source.split(/\s+/).filter((token) => token.length >= 2 && !cloneSocietyNoiseToken(token));
+    if (tokens.length === 0) continue;
+    aliases.add(tokens.join(" "));
+    if (tokens.length >= 2) aliases.add(tokens.slice(0, 2).join(" "));
+    for (const token of tokens) if (token.length >= 4) aliases.add(token);
+  }
+  return Array.from(aliases).filter((alias) => alias.length >= 3);
+}
+
+function cloneOwnClubDecision(
+  text: string,
+  aliases: string[],
+): { matched: boolean; confidence: number; evidence: string } {
+  const n = normalizeName(text);
+  if (!n) return { matched: false, confidence: 0, evidence: "testo vuoto/non normalizzabile" };
+  let bestScore = 0;
+  let bestEvidence = "nessun alias compatibile";
+  for (const alias of aliases) {
+    if (!alias) continue;
+    const aliasTokens = alias.split(/\s+/).filter(Boolean);
+    const overlap = aliasTokens.filter((token) => n.includes(token)).length;
+    const overlapRatio = aliasTokens.length > 0 ? overlap / aliasTokens.length : 0;
+    const exact = n === alias;
+    const contains = n.includes(alias) || alias.includes(n);
+    const score = Math.round(
+      (exact ? 100 : 0) +
+        (contains ? 40 : 0) +
+        Math.min(40, overlap * 15) +
+        Math.round(overlapRatio * 20),
+    );
+    if (score > bestScore) {
+      bestScore = score;
+      bestEvidence =
+        exact
+          ? `match esatto alias "${alias}"`
+          : contains
+            ? `contenimento alias "${alias}"`
+            : `overlap token ${overlap}/${aliasTokens.length} con alias "${alias}"`;
+    }
+  }
+  return {
+    matched: bestScore >= 55,
+    confidence: Math.max(0, Math.min(100, bestScore)),
+    evidence: bestEvidence,
+  };
+}
+
+function buildCloneCanonicalRecords(
+  result: MatchPdfImportResult,
+  sourceEngine: "standard" | "unified" | "merged",
+  perRowConfidence: Record<string, number>,
+): CloneCanonicalRecord[] {
+  const records: CloneCanonicalRecord[] = [];
+  const seen = new Set<string>();
+  for (const entry of result.tournamentProgram ?? []) {
+    const key = tournamentEntryMergeKey(entry);
+    const confidence = perRowConfidence[key] ?? tournamentCloneEntryConfidence(entry);
+    const phaseNorm = normalizeName(String(entry.phase ?? ""));
+    const groupNorm = normalizeName(String(entry.group ?? ""));
+    const hasResult = entry.homeScore != null || entry.awayScore != null;
+    const isRankingHint =
+      entry.kind === "composition" ||
+      /\bclassificat[aoe]?\b/.test(normalizeName(`${entry.homeTeam} ${entry.awayTeam}`));
+    if (entry.group && !seen.has(`group_header|${groupNorm}`)) {
+      seen.add(`group_header|${groupNorm}`);
+      records.push({
+        id: `group_header|${groupNorm}`,
+        type: "group_header",
+        group: entry.group,
+        phase: entry.phase,
+        sourceEngine,
+        confidence: Math.max(confidence - 10, 0),
+        evidence: `girone/raggruppamento rilevato da entry programma (${entry.group})`,
+      });
+    }
+    if (entry.phase && !seen.has(`phase_transition|${phaseNorm}`)) {
+      seen.add(`phase_transition|${phaseNorm}`);
+      records.push({
+        id: `phase_transition|${phaseNorm}`,
+        type: "phase_transition",
+        phase: entry.phase,
+        sourceEngine,
+        confidence: Math.max(confidence - 12, 0),
+        evidence: `fase rilevata: ${entry.phase}`,
+      });
+    }
+    const type: CloneCanonicalRecordType = isRankingHint
+      ? "composition_slot"
+      : hasResult
+        ? "result_line"
+        : "match_fixture";
+    const id = `${type}|${entry.id || key}`;
+    records.push({
+      id,
+      type,
+      date: entry.date,
+      group: entry.group,
+      phase: entry.phase,
+      homeTeam: entry.homeTeam,
+      awayTeam: entry.awayTeam,
+      sourceEngine,
+      confidence,
+      evidence:
+        type === "composition_slot"
+          ? "placeholder/composizione fase (classificata/finale)"
+          : hasResult
+            ? "riga con punteggio finale rilevato"
+            : "accoppiamento gara riconosciuto",
+    });
+    if (isRankingHint) {
+      records.push({
+        id: `ranking_hint|${entry.id || key}`,
+        type: "ranking_hint",
+        group: entry.group,
+        phase: entry.phase,
+        homeTeam: entry.homeTeam,
+        awayTeam: entry.awayTeam,
+        sourceEngine,
+        confidence: Math.max(confidence - 8, 0),
+        evidence: "hint classifica utile per composizioni/finali",
+      });
+    }
+  }
+  return records;
+}
+
 function tournamentEntryMergeKey(entry: TournamentProgramEntry): string {
   const sides = [normalizeName(entry.homeTeam), normalizeName(entry.awayTeam)].sort();
   return [
@@ -3149,9 +3376,14 @@ export function parseMatchCalendarTextLines(
     documentMode === "tournament"
       ? [options.societyHint, options.clubName, societyDisplay]
       : [options.societyHint, options.clubName, options.teamName, societyDisplay];
-  const tournamentAliases = [...new Set(tournamentAliasSources.filter(Boolean).map((value) => normalizeName(String(value))))].filter(
+  const baseTournamentAliases = [...new Set(tournamentAliasSources.filter(Boolean).map((value) => normalizeName(String(value))))].filter(
     (value) => value.length >= 3,
   );
+  const cloneTournamentAliases =
+    options.parserVariant === "clone"
+      ? buildCloneSocietyAliases([options.societyHint, options.clubName, options.teamName, societyDisplay])
+      : [];
+  const tournamentAliases = [...new Set([...baseTournamentAliases, ...cloneTournamentAliases])];
   const tournamentLooksValid = looksLikeTournamentProgram(fullText);
   const tournamentProgram = tournamentLooksValid && tournamentAliases.length > 0;
   const tournamentName = inferTournamentName(options.fileName, allPageLines);
@@ -3190,6 +3422,28 @@ export function parseMatchCalendarTextLines(
           clonePrimaryConfidence,
           cloneSecondaryConfidence,
         );
+        const canonicalRecords = [
+          ...buildCloneCanonicalRecords(unifiedResult, "unified", unifiedCloneQuality.perRowConfidence),
+          ...buildCloneCanonicalRecords(standardResult, "standard", standardCloneQuality.perRowConfidence),
+          ...buildCloneCanonicalRecords(mergedClone, "merged", {
+            ...unifiedCloneQuality.perRowConfidence,
+            ...standardCloneQuality.perRowConfidence,
+          }),
+        ];
+        const mergedConfidence = {
+          ...unifiedCloneQuality.perRowConfidence,
+          ...standardCloneQuality.perRowConfidence,
+        };
+        const ownClubDecisions = mergedClone.recognized.slice(0, 80).map((row) => {
+          const decision = cloneOwnClubDecision(row.opponent, tournamentAliases);
+          return {
+            text: row.opponent,
+            matched: decision.matched,
+            confidence: decision.confidence,
+            evidence: decision.evidence,
+            sourceEngine: "merged" as const,
+          };
+        });
         if ((mergedClone.tournamentProgram?.length ?? 0) > 0 || mergedClone.recognized.length > 0) {
           return {
             ...mergedClone,
@@ -3199,10 +3453,16 @@ export function parseMatchCalendarTextLines(
                 unified: unifiedCloneQuality.score,
                 standard: standardCloneQuality.score,
               },
-              perRowConfidence: { ...unifiedCloneQuality.perRowConfidence, ...standardCloneQuality.perRowConfidence },
+              perRowConfidence: mergedConfidence,
+              canonicalRecords,
+              ownClubAliasProfile: {
+                aliases: tournamentAliases,
+                decisions: ownClubDecisions,
+              },
               notes: [
                 "clone parser: ranking per motore con confidence per riga",
                 "merge clone: preferenza per metadati piu' ricchi (fase/girone/risultati/date)",
+                "clone alias resolver: alias societa' estesi e scoring spiegabile per riconoscimento societa'",
               ],
             },
           };
