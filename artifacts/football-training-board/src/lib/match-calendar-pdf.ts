@@ -1758,29 +1758,29 @@ function parseTournamentImageTextLines(
           tournamentProgram: cleanTournamentProgram,
         })
       : new Set<string>();
+  const imageOwnClubFilter =
+    options.parserVariant === "clone"
+      ? cloneFilterRecognizedRowsForOwnClub({
+          rows: recognizedForClone,
+          program: cleanTournamentProgram,
+          matchedTournamentTeams: imageAliasEnrichment.matchedTournamentTeams,
+          aliases: imageOwnClubAliases,
+          contextTokens: imageContextTokens,
+        })
+      : { kept: recognizedForClone, audits: [] as CloneRecognizedRowOwnClubFilterAudit[] };
   const imageOwnClubDecisions =
     options.parserVariant === "clone"
-      ? recognizedForClone.slice(0, 160).map((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, imageOwnClubAliases, imageContextTokens);
-          const finalDecision = cloneOwnClubFinalDecision(decision);
-          return {
-            text: row.opponent,
-            alias: decision.alias,
-            matched: decision.matched,
-            confidence: decision.confidence,
-            evidence: decision.evidence,
-            decision: finalDecision,
-            sourceEngine: "merged" as const,
-          };
-        })
+      ? imageOwnClubFilter.audits.slice(0, 160).map((audit) => ({
+          text: audit.opponent,
+          matched: audit.decision === "accepted",
+          confidence: audit.containsMatchedTournamentTeam ? 100 : audit.decision === "accepted" ? 68 : 0,
+          evidence: audit.reason,
+          decision: audit.decision,
+          sourceEngine: "merged" as const,
+        }))
       : [];
   const filteredRecognized =
-    options.parserVariant === "clone"
-      ? recognizedForClone.filter((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, imageOwnClubAliases, imageContextTokens);
-          return decision.matched;
-        })
-      : recognizedForClone;
+    options.parserVariant === "clone" ? imageOwnClubFilter.kept : recognizedForClone;
   if (options.parserVariant === "clone") {
     console.log("[CLONE-RUNTIME-CHECK] clubNameUsed", options.clubNameUsed);
     console.log("[CLONE-RUNTIME-CHECK] aliases", imageOwnClubAliases);
@@ -3513,6 +3513,136 @@ function cloneRecognizedRowsFromTournamentProgram(
   return rows;
 }
 
+type CloneRecognizedRowOwnClubFilterAudit = {
+  opponent: string;
+  homeAway: "home" | "away";
+  date: string;
+  homeTeam: string;
+  awayTeam: string;
+  group: string | null;
+  matchedTournamentTeams: string[];
+  normalizedHome: string;
+  normalizedAway: string;
+  containsMatchedTournamentTeam: boolean;
+  decision: CloneOwnClubDecisionOutcome;
+  reason: string;
+};
+
+function cloneNormalizeFixtureSide(value: string): string {
+  return normalizeName(cleanTournamentTeamName(String(value ?? "").trim()));
+}
+
+function cloneOpponentMatchesFixtureSide(opponent: string, side: string): boolean {
+  const opponentNorm = cloneNormalizeFixtureSide(opponent);
+  const sideNorm = cloneNormalizeFixtureSide(side);
+  if (!opponentNorm || !sideNorm) return false;
+  if (opponentNorm === sideNorm) return true;
+  return opponentNorm.includes(sideNorm) || sideNorm.includes(opponentNorm);
+}
+
+function cloneResolveFixtureSidesForRecognizedRow(
+  row: MatchImportRow,
+  program: TournamentProgramEntry[],
+): { homeTeam: string; awayTeam: string; group: string | null } | null {
+  for (const entry of program) {
+    if (entry.date !== row.date) continue;
+    const homeSide = String(entry.homeTeam ?? "");
+    const awaySide = String(entry.awayTeam ?? "");
+    if (row.homeAway === "home") {
+      if (cloneOpponentMatchesFixtureSide(row.opponent, awaySide)) {
+        return { homeTeam: homeSide, awayTeam: awaySide, group: entry.group ?? null };
+      }
+    } else if (cloneOpponentMatchesFixtureSide(row.opponent, homeSide)) {
+      return { homeTeam: homeSide, awayTeam: awaySide, group: entry.group ?? null };
+    }
+  }
+  return null;
+}
+
+function cloneSideMatchesMatchedTournamentTeam(side: string, matchedTournamentTeams: string[]): boolean {
+  const sideNorm = cloneNormalizeFixtureSide(side);
+  if (!sideNorm || sideNorm.length < 3) return false;
+  return matchedTournamentTeams.some((team) => {
+    const teamNorm = cloneNormalizeFixtureSide(team);
+    if (!teamNorm) return false;
+    if (sideNorm === teamNorm) return true;
+    if (sideNorm.length >= 5 && teamNorm.length >= 5 && (sideNorm.includes(teamNorm) || teamNorm.includes(sideNorm))) {
+      return true;
+    }
+    return tournamentAliasMatchesSide(sideNorm, [teamNorm]);
+  });
+}
+
+function cloneRecognizedRowContainsMatchedTournamentTeam(
+  homeTeam: string,
+  awayTeam: string,
+  matchedTournamentTeams: string[],
+): boolean {
+  if (matchedTournamentTeams.length === 0) return false;
+  return (
+    cloneSideMatchesMatchedTournamentTeam(homeTeam, matchedTournamentTeams) ||
+    cloneSideMatchesMatchedTournamentTeam(awayTeam, matchedTournamentTeams)
+  );
+}
+
+function cloneFilterRecognizedRowsForOwnClub(input: {
+  rows: MatchImportRow[];
+  program: TournamentProgramEntry[];
+  matchedTournamentTeams: string[];
+  aliases: string[];
+  contextTokens: Set<string>;
+}): { kept: MatchImportRow[]; audits: CloneRecognizedRowOwnClubFilterAudit[] } {
+  const kept: MatchImportRow[] = [];
+  const audits: CloneRecognizedRowOwnClubFilterAudit[] = [];
+  for (const row of input.rows) {
+    const sides = cloneResolveFixtureSidesForRecognizedRow(row, input.program);
+    const homeTeam = sides?.homeTeam ?? "";
+    const awayTeam = sides?.awayTeam ?? "";
+    const group = sides?.group ?? null;
+    const normalizedHome = cloneNormalizeFixtureSide(homeTeam);
+    const normalizedAway = cloneNormalizeFixtureSide(awayTeam);
+    const containsMatchedTournamentTeam = cloneRecognizedRowContainsMatchedTournamentTeam(
+      homeTeam,
+      awayTeam,
+      input.matchedTournamentTeams,
+    );
+    let decision: CloneOwnClubDecisionOutcome;
+    let reason: string;
+    let accept: boolean;
+    if (containsMatchedTournamentTeam) {
+      accept = true;
+      decision = "accepted";
+      reason = `fixture con matchedTournamentTeam (${homeTeam || "?"} - ${awayTeam || "?"})`;
+    } else {
+      const aliasDecision = cloneOwnClubDecision(row.opponent, input.aliases, input.contextTokens);
+      accept = aliasDecision.matched;
+      decision = cloneOwnClubFinalDecision({
+        matched: aliasDecision.matched,
+        genericAlias: aliasDecision.genericAlias,
+      });
+      reason = aliasDecision.evidence;
+    }
+    const audit: CloneRecognizedRowOwnClubFilterAudit = {
+      opponent: row.opponent,
+      homeAway: row.homeAway,
+      date: row.date,
+      homeTeam,
+      awayTeam,
+      group,
+      matchedTournamentTeams: input.matchedTournamentTeams,
+      normalizedHome,
+      normalizedAway,
+      containsMatchedTournamentTeam,
+      decision,
+      reason,
+    };
+    audits.push(audit);
+    console.log("[CLONE-RUNTIME-CHECK] recognized row own-club filter", JSON.stringify(audit));
+    if (accept) kept.push(row);
+  }
+  return { kept, audits };
+}
+
 function buildCloneOwnClubContextTokens(input: {
   recognized?: MatchImportRow[];
   tournamentProgram?: TournamentProgramEntry[];
@@ -4002,23 +4132,22 @@ export function parseMatchCalendarTextLines(
           distinctiveClubTokens,
           mergedClone.tournamentProgram ?? [],
         );
-        const ownClubDecisions = mergedClone.recognized.slice(0, 140).map((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, mergedAliasEnrichment.aliases, mergedContextTokens);
-          const finalDecision = cloneOwnClubFinalDecision(decision);
-          return {
-            text: row.opponent,
-            alias: decision.alias,
-            matched: decision.matched,
-            confidence: decision.confidence,
-            evidence: decision.evidence,
-            decision: finalDecision,
-            sourceEngine: "merged" as const,
-          };
+        const mergedOwnClubFilter = cloneFilterRecognizedRowsForOwnClub({
+          rows: mergedClone.recognized,
+          program: mergedClone.tournamentProgram ?? [],
+          matchedTournamentTeams: mergedAliasEnrichment.matchedTournamentTeams,
+          aliases: mergedAliasEnrichment.aliases,
+          contextTokens: mergedContextTokens,
         });
-        const filteredRecognized = mergedClone.recognized.filter((row) => {
-          const decision = cloneOwnClubDecision(row.opponent, mergedAliasEnrichment.aliases, mergedContextTokens);
-          return decision.matched;
-        });
+        const ownClubDecisions = mergedOwnClubFilter.audits.slice(0, 140).map((audit) => ({
+          text: audit.opponent,
+          matched: audit.decision === "accepted",
+          confidence: audit.containsMatchedTournamentTeam ? 100 : audit.decision === "accepted" ? 68 : 0,
+          evidence: audit.reason,
+          decision: audit.decision,
+          sourceEngine: "merged" as const,
+        }));
+        const filteredRecognized = mergedOwnClubFilter.kept;
         console.log("[CLONE-RUNTIME-CHECK] clubNameUsed", clubNameUsed);
         console.log("[CLONE-RUNTIME-CHECK] aliases", mergedAliasEnrichment.aliases);
         console.log("[CLONE-RUNTIME-CHECK] aliases JSON", JSON.stringify(mergedAliasEnrichment.aliases, null, 2));
