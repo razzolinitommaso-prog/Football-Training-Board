@@ -3185,6 +3185,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const importPdfFileRef = useRef<HTMLInputElement>(null);
   const importTournamentImageRef = useRef<HTMLInputElement>(null);
   const importTournamentProgramRef = useRef<HTMLInputElement>(null);
+  const importTournamentProgramCloneRef = useRef<HTMLInputElement>(null);
   /** Evita di azzerare il file PDF quando si passa dal filtro al dialog scelta sezione. */
   const pdfKeepPendingWhilePickerRef = useRef(false);
   const pdfImportModeRef = useRef<"federation" | "tournament">("federation");
@@ -3456,8 +3457,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     onSettled: () => setImageOcrStatus(null),
   });
 
-  const importTournamentProgramMutation = useMutation({
-    mutationFn: async (file: File) => {
+  async function parseTournamentProgramFileWithTwinEngines(file: File, title = "Analisi programma torneo") {
       if (!team) throw new Error("Squadra non valida");
       pdfImportModeRef.current = "tournament";
       setPdfImportMode("tournament");
@@ -3471,7 +3471,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       if (isImage) {
         setImageOcrStatus("Lettura programma torneo da immagine in corso...");
         toast({
-          title: "Analisi programma torneo",
+          title,
           description: "Lettura dell'immagine in corso...",
         });
         const parsed = await parseTournamentImageFile(file, {
@@ -3487,7 +3487,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
       setPdfOcrStatus("Lettura programma torneo da PDF in corso...");
       toast({
-        title: "Analisi programma torneo",
+        title,
         description: "Lettura del PDF in corso...",
       });
       const searchTerms = buildPdfImportSearchTerms({
@@ -3529,6 +3529,11 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           }
         },
       });
+  }
+
+  const importTournamentProgramMutation = useMutation({
+    mutationFn: async (file: File) => {
+      return parseTournamentProgramFileWithTwinEngines(file);
     },
     onSuccess: (parsed) => {
       setPendingTournamentProgram(parsed.tournamentProgram ?? []);
@@ -3552,6 +3557,39 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     },
     onError: (e: Error) => {
       toast({ title: e.message || "Errore analisi programma torneo", variant: "destructive" });
+    },
+    onSettled: () => {
+      setPdfOcrStatus(null);
+      setImageOcrStatus(null);
+    },
+  });
+
+  const importTournamentProgramCloneMutation = useMutation({
+    mutationFn: async (file: File) => {
+      return parseTournamentProgramFileWithTwinEngines(file, "Analisi programma torneo clone");
+    },
+    onSuccess: (parsed) => {
+      setPendingTournamentProgram(parsed.tournamentProgram ?? []);
+      setPendingTournamentScores(parsed.tournamentScores ?? {});
+      if (parsed.recognized.length === 0) {
+        toast({
+          title: "Programma torneo clone non importabile automaticamente",
+          description:
+            (parsed.tournamentProgram?.length ?? 0) > 0
+              ? "Il programma e' stato letto dal clone, ma non sono state trovate partite della societa' da importare."
+              : "File non leggibile in modo affidabile dal clone: carica il torneo manualmente o prova un file piu' chiaro.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setPreviewSource("programma");
+      setPreviewRows(parsed.recognized);
+      setPreviewBulkDate("");
+      setSelectedRows(parsed.recognized.map(() => true));
+      setPreviewOpen(true);
+    },
+    onError: (e: Error) => {
+      toast({ title: e.message || "Errore analisi programma torneo clone", variant: "destructive" });
     },
     onSettled: () => {
       setPdfOcrStatus(null);
@@ -4249,6 +4287,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     importPdfMutation.isPending ||
     importTournamentImageMutation.isPending ||
     importTournamentProgramMutation.isPending ||
+    importTournamentProgramCloneMutation.isPending ||
     applyImportMutation.isPending ||
     bulkDeleteMutation.isPending ||
     deleteTournamentMutation.isPending;
@@ -4422,6 +4461,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               >
                 <Upload className="w-3.5 h-3.5" />
                 {importTournamentProgramMutation.isPending ? "Analisi programma..." : "Carica programma torneo"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5 border-sky-300 text-sky-700 hover:bg-sky-50"
+                disabled={importActionsBusy || importTournamentProgramCloneMutation.isPending}
+                onClick={() => importTournamentProgramCloneRef.current?.click()}
+                title="Clone di prova del parser torneo: usa gli stessi due motori, separato dal tasto principale."
+              >
+                <Upload className="w-3.5 h-3.5" />
+                {importTournamentProgramCloneMutation.isPending ? "Analisi clone..." : "Carica programma torneo clone"}
               </Button>
               <Button
                 type="button"
@@ -4671,6 +4722,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           e.target.value = "";
           if (!picked) return;
           importTournamentProgramMutation.mutate(picked);
+        }}
+      />
+      <input
+        ref={importTournamentProgramCloneRef}
+        type="file"
+        accept=".pdf,application/pdf,.jpg,.jpeg,.png,.webp,image/*"
+        className="hidden"
+        onChange={async (e) => {
+          const picked = e.target.files?.[0];
+          e.target.value = "";
+          if (!picked) return;
+          importTournamentProgramCloneMutation.mutate(picked);
         }}
       />
       <div className="mt-5 sm:mt-6 min-w-0">
