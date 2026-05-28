@@ -3538,6 +3538,10 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     title = "Analisi programma torneo clone",
   ) {
       if (!team) throw new Error("Squadra non valida");
+      console.log("[CLONE-RUNTIME-CHECK] parser clone called", {
+        parserVariant: "clone",
+        fileName: file.name,
+      });
       pdfImportModeRef.current = "tournament";
       setPdfImportMode("tournament");
       setPdfOcrStatus(null);
@@ -3560,6 +3564,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           documentMode: "tournament",
           unifiedTournamentProgram: true,
         });
+        console.log("[CLONE-RUNTIME-CHECK] final importable rows", parsed.recognized.length);
         if (parsed.parserDebug) console.info("[tournament-clone-parser]", parsed.parserDebug);
         const fallbackProgram = maybeBuildKnownEsordientiProgram(file.name, parsed);
         return fallbackProgram.length > 0 ? { ...parsed, tournamentProgram: fallbackProgram } : parsed;
@@ -3609,6 +3614,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           }
         },
       });
+      console.log("[CLONE-RUNTIME-CHECK] final importable rows", parsed.recognized.length);
       if (parsed.parserDebug) console.info("[tournament-clone-parser]", parsed.parserDebug);
       return parsed;
   }
@@ -3651,6 +3657,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       return parseTournamentProgramCloneFileWithTwinEngines(file, "Analisi programma torneo clone");
     },
     onSuccess: (parsed) => {
+      console.log("[CLONE-RUNTIME-CHECK] final importable rows", parsed.recognized.length);
       setPendingTournamentProgram(parsed.tournamentProgram ?? []);
       setPendingTournamentScores(parsed.tournamentScores ?? {});
       if (parsed.recognized.length === 0) {
@@ -4550,7 +4557,10 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                 size="sm"
                 className="h-8 text-xs gap-1.5 border-sky-300 text-sky-700 hover:bg-sky-50"
                 disabled={importActionsBusy || importTournamentProgramCloneMutation.isPending}
-                onClick={() => importTournamentProgramCloneRef.current?.click()}
+                onClick={() => {
+                  console.log("[CLONE-RUNTIME-CHECK] button clone clicked");
+                  importTournamentProgramCloneRef.current?.click();
+                }}
                 title="Clone di prova del parser torneo: usa gli stessi due motori, separato dal tasto principale."
               >
                 <Upload className="w-3.5 h-3.5" />
@@ -4815,6 +4825,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           const picked = e.target.files?.[0];
           e.target.value = "";
           if (!picked) return;
+          console.log("[CLONE-RUNTIME-CHECK] button clone clicked");
           importTournamentProgramCloneMutation.mutate(picked);
         }}
       />

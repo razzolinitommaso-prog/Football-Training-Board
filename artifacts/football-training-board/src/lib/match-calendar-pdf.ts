@@ -1781,6 +1781,14 @@ function parseTournamentImageTextLines(
           return decision.matched;
         })
       : recognizedForClone;
+  if (options.parserVariant === "clone") {
+    console.log("[CLONE-RUNTIME-CHECK] clubNameUsed", options.clubNameUsed);
+    console.log("[CLONE-RUNTIME-CHECK] aliases", imageOwnClubAliases);
+    console.log("[CLONE-RUNTIME-CHECK] matchedTournamentTeams", imageAliasEnrichment.matchedTournamentTeams);
+    console.log("[CLONE-RUNTIME-CHECK] tournament fixtures count", cleanTournamentProgram.length);
+    console.log("[CLONE-RUNTIME-CHECK] recognized before own filter", recognizedForClone.length);
+    console.log("[CLONE-RUNTIME-CHECK] recognized after own filter", filteredRecognized.length);
+  }
   return {
     recognized: filteredRecognized,
     discarded,
@@ -3710,6 +3718,12 @@ export function parseMatchCalendarTextLines(
           const decision = cloneOwnClubDecision(row.opponent, mergedAliasEnrichment.aliases, mergedContextTokens);
           return decision.matched;
         });
+        console.log("[CLONE-RUNTIME-CHECK] clubNameUsed", clubNameUsed);
+        console.log("[CLONE-RUNTIME-CHECK] aliases", mergedAliasEnrichment.aliases);
+        console.log("[CLONE-RUNTIME-CHECK] matchedTournamentTeams", mergedAliasEnrichment.matchedTournamentTeams);
+        console.log("[CLONE-RUNTIME-CHECK] tournament fixtures count", (mergedClone.tournamentProgram ?? []).length);
+        console.log("[CLONE-RUNTIME-CHECK] recognized before own filter", mergedClone.recognized.length);
+        console.log("[CLONE-RUNTIME-CHECK] recognized after own filter", filteredRecognized.length);
         if ((mergedClone.tournamentProgram?.length ?? 0) > 0 || mergedClone.recognized.length > 0) {
           return {
             ...mergedClone,
@@ -3854,6 +3868,10 @@ export async function parseMatchCalendarPdfFileClone(
   file: File,
   options: ParsePdfOptions = {},
 ): Promise<MatchPdfImportResult> {
+  console.log("[CLONE-RUNTIME-CHECK] parser clone called", {
+    parserVariant: "clone",
+    fileName: file.name,
+  });
   return parseMatchCalendarPdfFile(file, {
     ...options,
     parserVariant: "clone",
@@ -3864,6 +3882,10 @@ export async function parseTournamentImageFileClone(
   file: File,
   options: ParsePdfOptions = {},
 ): Promise<MatchPdfImportResult> {
+  console.log("[CLONE-RUNTIME-CHECK] parser clone called", {
+    parserVariant: "clone",
+    fileName: file.name,
+  });
   return parseTournamentImageFile(file, {
     ...options,
     parserVariant: "clone",
