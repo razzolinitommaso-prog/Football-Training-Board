@@ -121,10 +121,29 @@ type OcrModule = {
   createWorker: (lang: string) => Promise<OcrWorker>;
 };
 
+type ClonePdfLayoutLineRecord = {
+  page: number | null;
+  y: number | null;
+  lineIndex: number;
+  source: "allPageLines" | "workingLines" | "synthetic";
+  rawText: string;
+  normalizedText: string;
+  hasTab: boolean;
+  hasMultipleSpaces: boolean;
+  containsDash: boolean;
+};
+
+type ClonePdfLayoutMeta = {
+  allPageRecords: ClonePdfLayoutLineRecord[];
+  syntheticRecords: ClonePdfLayoutLineRecord[];
+};
+
 type ParseTextOptions = ParsePdfOptions & {
   fileName?: string;
   lastModified?: number;
   sourceLabel?: string;
+  /** TEMP clone diagnostics: page/y metadata from PDF extraction. */
+  clonePdfLayoutMeta?: ClonePdfLayoutMeta;
 };
 
 const MISSING_IMAGE_DATE_PREFIX = "__IMAGE_TOURNAMENT_TIME__:";
@@ -1942,8 +1961,12 @@ async function pageToLines(page: PDFPageProxy): Promise<string[]> {
  */
 async function pageToLinesWithYs(
   page: PDFPageProxy,
-  options: { includeTournamentTableLines?: boolean; tournamentFallbackDateIso?: string | null } = {},
-): Promise<{ lines: string[]; ys: number[] }> {
+  options: {
+    includeTournamentTableLines?: boolean;
+    tournamentFallbackDateIso?: string | null;
+    capturePreCollapseRaw?: boolean;
+  } = {},
+): Promise<{ lines: string[]; ys: number[]; preCollapseLines?: string[]; syntheticLines?: string[] }> {
   const content = await page.getTextContent();
   const items: { str: string; x: number; y: number }[] = [];
   for (const item of content.items) {
@@ -1962,6 +1985,7 @@ async function pageToLinesWithYs(
   const yTol = 4;
   const lines: string[] = [];
   const ys: number[] = [];
+  const preCollapseLines: string[] = [];
   let rowBuf: { str: string; x: number }[] = [];
   let curY = NaN;
 
@@ -1985,10 +2009,12 @@ async function pageToLinesWithYs(
       }
       parts.push(rowBuf[i].str);
     }
-    const line = parts.join("").replace(/ +/g, " ").trim();
+    const preCollapse = parts.join("").trim();
+    const line = preCollapse.replace(/ +/g, " ").trim();
     if (line) {
       lines.push(line);
       ys.push(curY);
+      if (options.capturePreCollapseRaw) preCollapseLines.push(preCollapse);
     }
   };
 
@@ -2002,17 +2028,25 @@ async function pageToLinesWithYs(
     }
   }
   flushRow();
+  let syntheticLines: string[] = [];
   if (options.includeTournamentTableLines) {
     const synthetic = buildTournamentTableSyntheticLines(items, options.tournamentFallbackDateIso);
+    syntheticLines = synthetic.syntheticOnly;
     for (const line of synthetic.lines) lines.push(line);
     for (const y of synthetic.ys) ys.push(y);
   }
-  return { lines, ys };
+  return {
+    lines,
+    ys,
+    ...(options.capturePreCollapseRaw ? { preCollapseLines } : {}),
+    ...(syntheticLines.length > 0 ? { syntheticLines } : {}),
+  };
 }
 
 function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: number }[], fallbackDateIso?: string | null): {
   lines: string[];
   ys: number[];
+  syntheticOnly: string[];
 } {
   const yTol = 4;
   const rows: { y: number; cells: { str: string; x: number }[] }[] = [];
@@ -2029,6 +2063,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
 
   const lines: string[] = [];
   const ys: number[] = [];
+  const syntheticOnly: string[] = [];
   const seen = new Set<string>();
   const pushLine = (line: string, y: number) => {
     const clean = line.replace(/\s+/g, " ").trim();
@@ -2037,6 +2072,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
     seen.add(key);
     lines.push(clean);
     ys.push(y);
+    syntheticOnly.push(line.trim());
   };
 
   const groupHeadings: { group: string; x: number; y: number }[] = [];
@@ -2267,7 +2303,7 @@ function buildTournamentTableSyntheticLines(items: { str: string; x: number; y: 
     pushLine(`${dateCell.str} ${timeCell.str} ${groupLabel} ${homeClean} - ${awayClean}`, row.y + 0.04);
   }
 
-  return { lines, ys };
+  return { lines, ys, syntheticOnly };
 }
 
 function isPageFooterOrNoise(line: string): boolean {
@@ -2952,14 +2988,25 @@ export async function parseMatchCalendarPdfFile(
       ? new Date(Number(file.lastModified)).getFullYear()
       : null);
 
+  const captureCloneLayoutDiagnostics =
+    options.parserVariant === "clone" && (options.documentMode ?? "auto") === "tournament";
+
   /** Estrazione testo nativa (pdfjs) per ogni pagina. */
-  const perPage: { lines: string[]; ys: number[] }[] = [];
+  const perPage: {
+    lines: string[];
+    ys: number[];
+    preCollapseLines?: string[];
+    syntheticLines?: string[];
+  }[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    perPage.push(await pageToLinesWithYs(page, {
-      includeTournamentTableLines: options.unifiedTournamentProgram === true,
-      tournamentFallbackDateIso: options.fallbackDateIso,
-    }));
+    perPage.push(
+      await pageToLinesWithYs(page, {
+        includeTournamentTableLines: options.unifiedTournamentProgram === true,
+        tournamentFallbackDateIso: options.fallbackDateIso,
+        capturePreCollapseRaw: captureCloneLayoutDiagnostics,
+      }),
+    );
   }
 
   const nativeFullText = perPage.map((p) => p.lines.join(" ")).join("\n");
@@ -3046,11 +3093,52 @@ export async function parseMatchCalendarPdfFile(
     pageBlobs.push(p.lines.join(" "));
   }
 
+  let clonePdfLayoutMeta: ClonePdfLayoutMeta | undefined;
+  if (captureCloneLayoutDiagnostics) {
+    const allPageRecords: ClonePdfLayoutLineRecord[] = [];
+    const syntheticRecords: ClonePdfLayoutLineRecord[] = [];
+    let globalLineIndex = 0;
+    for (let pageIndex = 0; pageIndex < perPage.length; pageIndex += 1) {
+      const pageData = perPage[pageIndex];
+      if (!pageData) continue;
+      const pageNum = pageIndex + 1;
+      for (let lineOffset = 0; lineOffset < pageData.lines.length; lineOffset += 1) {
+        const normalizedText = pageData.lines[lineOffset] ?? "";
+        const rawText = pageData.preCollapseLines?.[lineOffset] ?? normalizedText;
+        allPageRecords.push(
+          cloneBuildPdfLayoutLineRecord({
+            page: pageNum,
+            y: pageData.ys[lineOffset] ?? null,
+            lineIndex: globalLineIndex,
+            source: "allPageLines",
+            rawText,
+            normalizedText,
+          }),
+        );
+        globalLineIndex += 1;
+      }
+      for (let synIndex = 0; synIndex < (pageData.syntheticLines?.length ?? 0); synIndex += 1) {
+        const synRaw = pageData.syntheticLines?.[synIndex] ?? "";
+        syntheticRecords.push(
+          cloneBuildPdfLayoutLineRecord({
+            page: pageNum,
+            y: null,
+            lineIndex: synIndex,
+            source: "synthetic",
+            rawText: synRaw,
+          }),
+        );
+      }
+    }
+    clonePdfLayoutMeta = { allPageRecords, syntheticRecords };
+  }
+
   return parseMatchCalendarTextLines(allPageLines, pageBlobs, {
     ...options,
     fileName: file.name,
     lastModified: file.lastModified,
     sourceLabel: "PDF",
+    clonePdfLayoutMeta,
   });
 }
 
@@ -3233,6 +3321,156 @@ function cloneKeywordLines(lines: string[]): string[] {
       return keywords.some((k) => n.includes(k));
     })
     .slice(0, 120);
+}
+
+const CLONE_VERONA_LAYOUT_DIAG_KEYWORDS = [
+  "girone m",
+  "girone n",
+  "girone p",
+  "girone gold a",
+  "girone gold b",
+  "union brescia",
+  "trento",
+  "carpi",
+  "renate",
+  "como",
+  "alcione",
+  "sesti di finale",
+  "triangolari di semifinale",
+  "triangolare 1",
+  "triangolare 2",
+  "finali",
+] as const;
+
+function cloneLineTextDiagnostics(rawText: string, normalizedOverride?: string): {
+  rawText: string;
+  normalizedText: string;
+  hasTab: boolean;
+  hasMultipleSpaces: boolean;
+  containsDash: boolean;
+} {
+  const raw = String(rawText ?? "");
+  const normalizedText = normalizedOverride ?? raw.replace(/\s+/g, " ").trim();
+  return {
+    rawText: raw,
+    normalizedText,
+    hasTab: /\t/.test(raw),
+    hasMultipleSpaces: /\s{2,}/.test(raw),
+    containsDash: /[-\u2013\u2014]/.test(raw),
+  };
+}
+
+function cloneMatchVeronaLayoutDiagKeyword(line: string): string | null {
+  const n = normalizeName(line);
+  for (const keyword of CLONE_VERONA_LAYOUT_DIAG_KEYWORDS) {
+    if (n.includes(normalizeName(keyword))) return keyword;
+  }
+  return null;
+}
+
+function cloneBuildPdfLayoutLineRecord(input: {
+  page: number | null;
+  y: number | null;
+  lineIndex: number;
+  source: ClonePdfLayoutLineRecord["source"];
+  rawText: string;
+  normalizedText?: string;
+}): ClonePdfLayoutLineRecord {
+  const diag = cloneLineTextDiagnostics(input.rawText, input.normalizedText);
+  return {
+    page: input.page,
+    y: input.y,
+    lineIndex: input.lineIndex,
+    source: input.source,
+    ...diag,
+  };
+}
+
+function cloneLogVeronaPdfLayoutDiagnostics(input: {
+  allPageLines: string[];
+  workingLines: string[];
+  layoutMeta?: ClonePdfLayoutMeta | null;
+}): void {
+  console.log("[CLONE-RUNTIME-CHECK] layout diagnostics allPageLines count", input.allPageLines.length);
+  console.log(
+    "[CLONE-RUNTIME-CHECK] layout diagnostics allPageLines dump JSON",
+    JSON.stringify(input.allPageLines, null, 2),
+  );
+  console.log("[CLONE-RUNTIME-CHECK] layout diagnostics workingLines count", input.workingLines.length);
+  console.log(
+    "[CLONE-RUNTIME-CHECK] layout diagnostics workingLines dump JSON",
+    JSON.stringify(input.workingLines, null, 2),
+  );
+
+  const keywordHits: Array<ClonePdfLayoutLineRecord & { matchedKeyword: string }> = [];
+  for (const record of input.layoutMeta?.allPageRecords ?? []) {
+    const matchedKeyword =
+      cloneMatchVeronaLayoutDiagKeyword(record.normalizedText) ?? cloneMatchVeronaLayoutDiagKeyword(record.rawText);
+    if (matchedKeyword) keywordHits.push({ ...record, matchedKeyword });
+  }
+  for (let lineIndex = 0; lineIndex < input.workingLines.length; lineIndex += 1) {
+    const line = input.workingLines[lineIndex] ?? "";
+    const matchedKeyword = cloneMatchVeronaLayoutDiagKeyword(line);
+    if (!matchedKeyword) continue;
+    keywordHits.push({
+      ...cloneBuildPdfLayoutLineRecord({
+        page: null,
+        y: null,
+        lineIndex,
+        source: "workingLines",
+        rawText: line,
+        normalizedText: line,
+      }),
+      matchedKeyword,
+    });
+  }
+  for (const record of input.layoutMeta?.syntheticRecords ?? []) {
+    const matchedKeyword =
+      cloneMatchVeronaLayoutDiagKeyword(record.normalizedText) ?? cloneMatchVeronaLayoutDiagKeyword(record.rawText);
+    if (matchedKeyword) keywordHits.push({ ...record, matchedKeyword });
+  }
+  console.log(
+    "[CLONE-RUNTIME-CHECK] layout diagnostics keyword hits JSON",
+    JSON.stringify(keywordHits, null, 2),
+  );
+  console.log(
+    "[CLONE-RUNTIME-CHECK] layout diagnostics synthetic lines JSON",
+    JSON.stringify(input.layoutMeta?.syntheticRecords ?? [], null, 2),
+  );
+
+  const summarizeBucket = (
+    label: string,
+    records: ClonePdfLayoutLineRecord[],
+    workingSubset: string[],
+  ) => {
+    const withSeparators = records.filter((record) => record.hasTab || record.hasMultipleSpaces);
+    console.log(
+      `[CLONE-RUNTIME-CHECK] layout comparison ${label} JSON`,
+      JSON.stringify(
+        {
+          allPageCount: records.length,
+          allPageWithSeparators: withSeparators.length,
+          allPageSample: records.slice(0, 60),
+          workingCount: workingSubset.length,
+          workingSample: workingSubset.slice(0, 60).map((line) => cloneLineTextDiagnostics(line)),
+        },
+        null,
+        2,
+      ),
+    );
+  };
+
+  const allPageRecords = input.layoutMeta?.allPageRecords ?? [];
+  summarizeBucket(
+    "gold allPage vs working",
+    allPageRecords.filter((record) => /\bgirone\s+gold\b/i.test(record.normalizedText)),
+    input.workingLines.filter((line) => /\bgirone\s+gold\b/i.test(line)),
+  );
+  summarizeBucket(
+    "m-v allPage vs working",
+    allPageRecords.filter((record) => /\bgirone\s+[m-v]\b/i.test(record.normalizedText)),
+    input.workingLines.filter((line) => /\bgirone\s+[m-v]\b/i.test(line)),
+  );
 }
 
 function cloneProgramSummary(program: TournamentProgramEntry[]): {
@@ -4351,6 +4589,13 @@ export function parseMatchCalendarTextLines(
       : null;
   const clonePreprocessedProgram = cloneBuildProgramFromPreprocessedFixtures(clonePreprocessed?.extractedFixtures ?? []);
   const workingLines = clonePreprocessed?.segmentedLines ?? allPageLines;
+  if (options.parserVariant === "clone" && (options.documentMode ?? "auto") === "tournament") {
+    cloneLogVeronaPdfLayoutDiagnostics({
+      allPageLines,
+      workingLines,
+      layoutMeta: options.clonePdfLayoutMeta,
+    });
+  }
   const blobs = pageBlobs && pageBlobs.length > 0 ? pageBlobs : [allPageLines.join("\n")];
   const fullText = blobs.join("\n");
   const termNorms = (options.searchTerms ?? []).map((t) => normalizeName(String(t))).filter((t) => t.length >= 2);
