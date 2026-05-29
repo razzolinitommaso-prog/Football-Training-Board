@@ -3533,50 +3533,85 @@ function clonePhaseLabelForFutureGroup(groupName: string): string {
   return "Fase futura";
 }
 
-function cloneExtractFuturePhaseTitleFromCell(cell: string): string | null {
-  const trimmed = String(cell ?? "").trim();
-  if (!trimmed) return null;
+function cloneNormalizeFutureLayoutCell(cell: string): string {
+  return String(cell ?? "").replace(/\s+/g, " ").trim();
+}
+
+function cloneCellHasFutureHeaderPayload(cell: string): boolean {
+  const trimmed = cloneNormalizeFutureLayoutCell(cell);
+  if (!trimmed) return true;
   const n = normalizeName(trimmed);
-  if (/\btriangolari\s+di\s+semifinale\b/.test(n)) return "Triangolari di semifinale";
-  if (/\bsesti\s+di\s+finale\b/.test(n) && !/\bgirone\b/.test(n)) return "Sesti di finale";
-  if ((n === "finali" || (/\bfinali\b/.test(n) && trimmed.length < 48)) && !/\bgirone\b/.test(n)) return "Finali";
+  if (/\bclassificat[aoe]?\b/.test(n)) return true;
+  if (/\bvincente\s+gara\b/.test(n)) return true;
+  if (/\b\d+\s*\^/.test(trimmed)) return true;
+  if (/[-\u2013\u2014]/.test(trimmed)) return true;
+  if (/\bgara\b/.test(n) && !/^girone\s+[m-v]$/i.test(trimmed)) return true;
+  const gironeCount = (trimmed.match(/\bgirone\b/gi) ?? []).length;
+  const triCount = (trimmed.match(/\btriangolare\b/gi) ?? []).length;
+  const quadCount = (trimmed.match(/\bquadrangolare\b/gi) ?? []).length;
+  if (gironeCount > 1 || triCount > 1 || quadCount > 1) return true;
+  if ((gironeCount > 0 && triCount > 0) || (gironeCount > 0 && quadCount > 0)) return true;
+  return false;
+}
+
+function cloneExtractFuturePhaseTitleFromCell(cell: string): string | null {
+  const trimmed = cloneNormalizeFutureLayoutCell(cell);
+  if (!trimmed || cloneCellHasFutureHeaderPayload(trimmed)) return null;
+  if (/^triangolari\s+di\s+semifinale$/i.test(trimmed)) return "Triangolari di semifinale";
+  if (/^sesti\s+di\s+finale$/i.test(trimmed)) return "Sesti di finale";
+  if (/^finali$/i.test(trimmed)) return "Finali";
   return null;
 }
 
 function cloneExtractFutureHeaderGroupFromCell(cell: string): string | null {
-  const trimmed = String(cell ?? "").trim();
-  if (!trimmed) return null;
+  const trimmed = cloneNormalizeFutureLayoutCell(cell);
+  if (!trimmed || cloneCellHasFutureHeaderPayload(trimmed)) return null;
   if (cloneExtractFuturePhaseTitleFromCell(trimmed)) return null;
-  const tri = trimmed.match(/\b(triangolare|quadrangolare)\s+(\d+)\b/i);
-  if (tri) {
-    return cloneRosterHeaderFromTriQuad(String(tri[1] ?? ""), String(tri[2] ?? "")).group;
+
+  const triOnly = trimmed.match(/^(triangolare|quadrangolare)\s+(\d+)\s*$/i);
+  if (triOnly) {
+    return cloneRosterHeaderFromTriQuad(String(triOnly[1] ?? ""), String(triOnly[2] ?? "")).group;
   }
-  const normalizedCell = trimmed.replace(/\s+/g, " ").trim();
-  const groupLabel = extractTournamentGroupLabel(normalizedCell);
-  if (groupLabel && cloneIsFuturePhaseGroupLabel(groupLabel)) return groupLabel;
-  const shortGirone = normalizedCell.match(/\bgirone\s+(argento\s+[a-z]|gold\s+[a-z]|[m-v])\b/i);
-  if (shortGirone) {
-    const rebuilt = extractTournamentGroupLabel(`Girone ${String(shortGirone[1] ?? "").toUpperCase()}`);
-    if (rebuilt && cloneIsFuturePhaseGroupLabel(rebuilt)) return rebuilt;
-  }
+
+  const gironeGold = trimmed.match(/^girone\s+gold\s+([a-z])\s*$/i);
+  if (gironeGold) return `Girone GOLD ${String(gironeGold[1] ?? "").toUpperCase()}`;
+
+  const gironeArgento = trimmed.match(/^girone\s+argento\s+([a-z])\s*$/i);
+  if (gironeArgento) return `Girone ARGENTO ${String(gironeArgento[1] ?? "").toUpperCase()}`;
+
+  const gironeLetter = trimmed.match(/^girone\s+([m-v])\s*$/i);
+  if (gironeLetter) return `Girone ${String(gironeLetter[1] ?? "").toUpperCase()}`;
+
   return null;
+}
+
+function cloneIsPureFutureLayoutHeaderCell(cell: string): boolean {
+  return cloneExtractFuturePhaseTitleFromCell(cell) != null || cloneExtractFutureHeaderGroupFromCell(cell) != null;
+}
+
+function cloneSplitFutureLayoutCells(raw: string): string[] {
+  const text = String(raw ?? "");
+  if (/\t/.test(text)) return text.split(/\t+/).map((c) => c.trim()).filter(Boolean);
+  return [text.trim()].filter(Boolean);
 }
 
 function cloneIsFutureLayoutHeaderRecord(record: ClonePdfLayoutLineRecord): boolean {
   if (record.page == null || record.y == null) return false;
   const raw = String(record.rawText ?? "");
-  const cells = /\t/.test(raw) ? raw.split(/\t+/).map((c) => c.trim()).filter(Boolean) : [raw.trim()];
-  for (const cell of cells) {
-    if (cloneExtractFuturePhaseTitleFromCell(cell)) return true;
-    if (cloneExtractFutureHeaderGroupFromCell(cell)) return true;
+  const cells = cloneSplitFutureLayoutCells(raw);
+  if (cells.length === 0) return false;
+  if (!/\t/.test(raw)) {
+    if (cells.length !== 1) return false;
+    return cloneIsPureFutureLayoutHeaderCell(cells[0] ?? "");
   }
-  return false;
+  return cells.every((cell) => cloneIsPureFutureLayoutHeaderCell(cell));
 }
 
 function cloneDetectFutureHeadersFromRecord(record: ClonePdfLayoutLineRecord): CloneFutureLayoutHeader[] {
   if (record.page == null || record.y == null) return [];
+  if (!cloneIsFutureLayoutHeaderRecord(record)) return [];
   const raw = String(record.rawText ?? "");
-  const cells = /\t/.test(raw) ? raw.split(/\t+/).map((c) => c.trim()).filter(Boolean) : [raw.trim()];
+  const cells = cloneSplitFutureLayoutCells(raw);
   const headers: CloneFutureLayoutHeader[] = [];
   for (const cell of cells) {
     const phaseTitle = cloneExtractFuturePhaseTitleFromCell(cell);
@@ -3614,16 +3649,28 @@ function cloneDetectFutureHeadersFromRecord(record: ClonePdfLayoutLineRecord): C
 function cloneBuildFutureLayoutIntervals(headers: CloneFutureLayoutHeader[]): CloneFutureLayoutInterval[] {
   const groupHeaders = headers.filter((header) => !header.isPhaseTitle);
   const sorted = [...groupHeaders].sort((a, b) => a.page - b.page || b.y - a.y || a.groupName.localeCompare(b.groupName));
+  const headerRowYsByPage = new Map<number, number[]>();
+  for (const header of sorted) {
+    const rows = headerRowYsByPage.get(header.page) ?? [];
+    if (!rows.some((y) => Math.abs(y - header.y) < 0.01)) rows.push(header.y);
+    headerRowYsByPage.set(header.page, rows);
+  }
+  for (const [page, rows] of headerRowYsByPage.entries()) {
+    rows.sort((a, b) => b - a);
+    headerRowYsByPage.set(page, rows);
+  }
+
   const intervals: CloneFutureLayoutInterval[] = [];
-  for (let index = 0; index < sorted.length; index += 1) {
-    const header = sorted[index]!;
-    const nextOnPage = sorted.slice(index + 1).find((candidate) => candidate.page === header.page && candidate.y < header.y) ?? null;
+  for (const header of sorted) {
+    const rowYs = headerRowYsByPage.get(header.page) ?? [];
+    const rowIndex = rowYs.findIndex((y) => Math.abs(y - header.y) < 0.01);
+    const nextRowY = rowIndex >= 0 && rowIndex < rowYs.length - 1 ? rowYs[rowIndex + 1] ?? null : null;
     intervals.push({
       groupName: header.groupName,
       phase: header.phase,
       page: header.page,
       yHeader: header.y,
-      yMinExclusive: nextOnPage ? nextOnPage.y : null,
+      yMinExclusive: nextRowY,
       yMaxExclusive: header.y,
       rawHeaderText: header.rawText,
     });
