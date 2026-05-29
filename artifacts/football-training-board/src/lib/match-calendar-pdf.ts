@@ -3423,43 +3423,123 @@ function cloneIsFuturePhaseGroupLabel(groupLabel: string): boolean {
   if (/^girone\s+gold\b/.test(n)) return true;
   if (/^triangolare\s+\d+$/.test(n)) return true;
   if (/^quadrangolare\s+\d+$/.test(n)) return true;
-  if (n === "sesti di finale" || n === "finali") return true;
   return false;
 }
 
+function cloneRosterHeaderFromTriQuad(kindRaw: string, numRaw: string): { group: string; phase: string } {
+  const kind = kindRaw.toLowerCase();
+  const num = String(numRaw ?? "").trim();
+  return {
+    group: kind === "triangolare" ? `Triangolare ${num}` : `Quadrangolare ${num}`,
+    phase: kind === "triangolare" ? "Triangolari" : "Quadrangolari",
+  };
+}
+
+function cloneExtractTriangolareHeader(line: string): { group: string; phase: string } | null {
+  const trimmed = line.replace(/\s+/g, " ").trim();
+  if (!trimmed) return null;
+  if (/\btriangolari\s+di\s+semifinale\b/i.test(normalizeName(trimmed))) return null;
+  const match = trimmed.match(/\b(triangolare|quadrangolare)\s+(\d+)\b/i);
+  if (!match) return null;
+  return cloneRosterHeaderFromTriQuad(String(match[1] ?? ""), String(match[2] ?? ""));
+}
+
+function cloneExtractFutureGroupHeader(line: string): { group: string; phase: string } | null {
+  if (cloneExtractTriangolareHeader(line)) return null;
+  const trimmed = line.replace(/\s+/g, " ").trim();
+  const groupLabel = extractTournamentGroupLabel(trimmed);
+  if (!groupLabel || !cloneIsFuturePhaseGroupLabel(groupLabel)) return null;
+  return { group: groupLabel, phase: detectTournamentPhase(trimmed, null) ?? "Fase futura" };
+}
+
 function cloneExtractRosterGroupHeader(line: string): { group: string; phase: string } | null {
+  return cloneExtractTriangolareHeader(line) ?? cloneExtractFutureGroupHeader(line);
+}
+
+function cloneIsPhaseTitleLine(line: string): string | null {
   const trimmed = line.replace(/\s+/g, " ").trim();
   if (!trimmed) return null;
   const n = normalizeName(trimmed);
-  const triQuad = trimmed.match(/^\s*(triangolare|quadrangolare)\s+(\d+)\s*$/i);
-  if (triQuad) {
-    const kind = String(triQuad[1] ?? "").toLowerCase();
-    const num = String(triQuad[2] ?? "");
-    return {
-      group: kind === "triangolare" ? `Triangolare ${num}` : `Quadrangolare ${num}`,
-      phase: kind === "triangolare" ? "Triangolari" : "Quadrangolari",
-    };
+  if (cloneExtractTriangolareHeader(trimmed)) return null;
+  if (cloneExtractFutureGroupHeader(trimmed)) return null;
+  if (/\bvincente\s+gara\b/.test(n)) return null;
+  if (/\bclassificat[aoe]?\b/.test(n)) return null;
+  if (/[-\u2013\u2014]/.test(trimmed)) return null;
+  if (/\btriangolari\s+di\s+semifinale\b/.test(n) && trimmed.length < 72) return "Triangolari di semifinale";
+  if ((n === "sesti di finale" || (/\bsesti\s+di\s+finale\b/.test(n) && trimmed.length < 44)) && !/\bgirone\b/.test(n)) {
+    return "Sesti di finale";
   }
-  if (/\bsesti\s+di\s+finale\b/.test(n)) {
-    return { group: "Sesti di finale", phase: "Sesti di finale" };
-  }
-  if (
-    (n === "finali" || (/\bfinali\b/.test(n) && trimmed.length < 48)) &&
-    !/\d{1,2}[:.]\d{2}/.test(trimmed) &&
-    !/[-\u2013\u2014]/.test(trimmed)
-  ) {
-    return { group: "Finali", phase: "Finali" };
-  }
-  const groupLabel = extractTournamentGroupLabel(trimmed);
-  if (groupLabel && cloneIsFuturePhaseGroupLabel(groupLabel)) {
-    return { group: groupLabel, phase: detectTournamentPhase(trimmed, null) ?? "Fase futura" };
-  }
+  if ((n === "finali" || (/\bfinali\b/.test(n) && trimmed.length < 36)) && !/\bgirone\b/.test(n)) return "Finali";
   return null;
 }
 
+function cloneIsRosterSectionStopLine(line: string): boolean {
+  const trimmed = line.replace(/\s+/g, " ").trim();
+  if (!trimmed) return false;
+  const n = normalizeName(trimmed);
+  if (/\bvincente\s+gara\b/.test(n)) return false;
+  if (cloneIsRosterFixturePlaceholderLine(trimmed)) return false;
+  if (cloneExtractTriangolareHeader(trimmed) || cloneExtractFutureGroupHeader(trimmed)) return false;
+  if (n === "gara" || /^gara\s*\d{0,2}$/i.test(trimmed)) return true;
+  if (/\bpartite\b/.test(n) && trimmed.length < 40) return true;
+  if (/\bdata\s+ora\s+campo\b/.test(n)) return true;
+  if (/\bdata\b/.test(n) && /\bora\b/.test(n) && trimmed.length < 64) return true;
+  if (/\bcampo\b/.test(n) && (/\bdata\b/.test(n) || /\bora\b/.test(n)) && trimmed.length < 64) return true;
+  if (/^(?:sq|pt|gf|gs|dr)\b/.test(n) || /\bsq\s+pt\b/.test(n)) return true;
+  if (/\brisultat[oi]\b/.test(n) && trimmed.length < 32 && !/\bclassificat/.test(n)) return true;
+  return false;
+}
+
+function cloneSideLooksLikePlacementOrWinner(side: string): boolean {
+  const clean = normalizeTournamentPlacementText(side.replace(/\s+/g, " ").trim());
+  if (!clean) return false;
+  const n = normalizeName(clean);
+  if (/\bvincente\s+gara\s+\d+\b/.test(n)) return true;
+  if (parseTournamentCompositionRefs(clean).length > 0) return true;
+  if (isTournamentReferenceCodeLine(clean)) return true;
+  if (/\b\d+\s*(?:\^|°|º|a|o)?\s*(?:classificat[aoe]?)?\s*girone\s+[a-z0-9]+\b/i.test(clean)) return true;
+  return false;
+}
+
+function cloneIsRosterFixturePlaceholderLine(line: string): boolean {
+  const clean = line.replace(/\s+/g, " ").trim();
+  if (!/[-\u2013\u2014]/.test(clean)) return false;
+  if (isTournamentReferenceCodeLine(clean)) return true;
+  const parts = clean.split(/\s*[-\u2013\u2014]\s*/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return false;
+  const left = parts[0] ?? "";
+  const right = parts[parts.length - 1] ?? "";
+  return cloneSideLooksLikePlacementOrWinner(left) && cloneSideLooksLikePlacementOrWinner(right);
+}
+
+function cloneHasReliableColumnSeparator(rawLine: string): boolean {
+  const raw = String(rawLine ?? "");
+  if (/\t/.test(raw)) return true;
+  return /\s{2,}/.test(raw);
+}
+
+function cloneSplitSeedPartsFromRaw(rawLine: string): string[] {
+  if (!cloneHasReliableColumnSeparator(rawLine)) return [];
+  const parts = (/\t/.test(rawLine) ? rawLine.split(/\t+/) : rawLine.split(/\s{2,}/))
+    .map((part) => cleanTournamentTeamName(part))
+    .filter((part) => part.length >= 3 && looksLikeStandaloneTournamentTeamLine(part));
+  return parts;
+}
+
+function cloneIsAmbiguousFusedSeedLine(rawLine: string, normalizedLine: string, currentGroup: string | null): boolean {
+  if (cloneHasReliableColumnSeparator(rawLine)) return false;
+  if (!cloneIsRosterSeedTeamLine(normalizedLine)) return false;
+  const groupNorm = normalizeName(currentGroup ?? "");
+  if (!/^girone\s+gold\s+[a-z]$/.test(groupNorm)) return false;
+  const words = cleanTournamentTeamName(normalizedLine).split(/\s+/).filter(Boolean);
+  return words.length >= 3;
+}
+
 function cloneIsRosterSlotLine(line: string): boolean {
+  if (cloneIsRosterFixturePlaceholderLine(line)) return false;
   const clean = normalizeTournamentPlacementText(line.replace(/\s+/g, " ").trim());
   if (!clean || isPageFooterOrNoise(clean)) return false;
+  if (/[-\u2013\u2014]/.test(clean)) return false;
   const n = normalizeName(clean);
   if (/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(clean)) return false;
   if (/\bvincente\s+gara\b/.test(n)) return true;
@@ -3514,12 +3594,41 @@ function cloneFuturePhaseGroupsSummary(byGroup: Record<string, string[]>): Recor
   return summary;
 }
 
-function cloneLogCompositionAttachDiagnostics(program: TournamentProgramEntry[], addedCount: number): void {
+type CloneRosterAttachLog = {
+  rosterStops: Array<{ group: string; line: string }>;
+  phaseTitles: Array<{ phase: string; previousGroup: string | null }>;
+  fixtureSkipped: Array<{ group: string; line: string }>;
+  compositionAdded: Array<{ group: string; slot: string }>;
+  compositionSkipped: Array<{ group: string; reason: string }>;
+  seedSplits: Array<{ group: string; parts: string[]; rawSnippet: string }>;
+  seedAmbiguous: Array<{ group: string; line: string; reason: string }>;
+  triangolareOpened: Array<{ group: string; line: string }>;
+};
+
+function cloneLogCompositionAttachDiagnostics(
+  program: TournamentProgramEntry[],
+  addedCount: number,
+  attachLog: CloneRosterAttachLog,
+): void {
   const byGroup = cloneCompositionSlotsByGroup(program);
   const compositionCount = program.filter((entry) => entry.kind === "composition").length;
   console.log("[CLONE-RUNTIME-CHECK] composition slots parsed count", compositionCount);
   console.log("[CLONE-RUNTIME-CHECK] composition slots added count", addedCount);
-  console.log("[CLONE-RUNTIME-CHECK] composition slots by group JSON", JSON.stringify(byGroup, null, 2));
+  console.log("[CLONE-RUNTIME-CHECK] roster section stop JSON", JSON.stringify(attachLog.rosterStops, null, 2));
+  console.log("[CLONE-RUNTIME-CHECK] phase title detected JSON", JSON.stringify(attachLog.phaseTitles, null, 2));
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future fixture placeholder skipped JSON",
+    JSON.stringify(attachLog.fixtureSkipped, null, 2),
+  );
+  console.log("[CLONE-RUNTIME-CHECK] composition slot added JSON", JSON.stringify(attachLog.compositionAdded, null, 2));
+  console.log(
+    "[CLONE-RUNTIME-CHECK] composition slot skipped JSON",
+    JSON.stringify(attachLog.compositionSkipped, null, 2),
+  );
+  console.log("[CLONE-RUNTIME-CHECK] seed split from raw JSON", JSON.stringify(attachLog.seedSplits, null, 2));
+  console.log("[CLONE-RUNTIME-CHECK] seed ambiguous skipped JSON", JSON.stringify(attachLog.seedAmbiguous, null, 2));
+  console.log("[CLONE-RUNTIME-CHECK] triangolare header opened JSON", JSON.stringify(attachLog.triangolareOpened, null, 2));
+  console.log("[CLONE-RUNTIME-CHECK] final composition slots by group JSON", JSON.stringify(byGroup, null, 2));
   console.log(
     "[CLONE-RUNTIME-CHECK] future phase groups M-V ARGENTO GOLD summary JSON",
     JSON.stringify(cloneFuturePhaseGroupsSummary(byGroup), null, 2),
@@ -3531,7 +3640,12 @@ function cloneAttachGroupRosterCompositions(
   program: TournamentProgramEntry[],
   options: { fallbackDateIso?: string | null } = {},
 ): TournamentProgramEntry[] {
-  const normalizedLines = lines.map((raw) => String(raw ?? "").replace(/\s+/g, " ").trim()).filter(Boolean);
+  const linePairs = lines
+    .map((raw) => {
+      const rawLine = String(raw ?? "");
+      return { rawLine, line: rawLine.replace(/\s+/g, " ").trim() };
+    })
+    .filter((pair) => pair.line);
   const existingCompositionKeys = new Set<string>();
   for (const entry of program) {
     if (entry.kind !== "composition") continue;
@@ -3542,16 +3656,32 @@ function cloneAttachGroupRosterCompositions(
   let currentGroup: string | null = null;
   let currentPhase: string | null = null;
   let inFutureRoster = false;
+  const attachLog: CloneRosterAttachLog = {
+    rosterStops: [],
+    phaseTitles: [],
+    fixtureSkipped: [],
+    compositionAdded: [],
+    compositionSkipped: [],
+    seedSplits: [],
+    seedAmbiguous: [],
+    triangolareOpened: [],
+  };
   const dateIso =
     options.fallbackDateIso && !Number.isNaN(new Date(options.fallbackDateIso).getTime())
       ? options.fallbackDateIso
       : new Date(new Date().getFullYear(), 0, 1, 10, 0, 0, 0).toISOString();
 
-  const pushComposition = (group: string, phase: string | null, slotLabel: string) => {
+  const pushComposition = (group: string, phase: string | null, slotLabel: string): void => {
     const homeTeam = normalizeTournamentPlacementText(slotLabel).slice(0, 120);
-    if (!homeTeam) return;
+    if (!homeTeam) {
+      attachLog.compositionSkipped.push({ group, reason: "empty slot label" });
+      return;
+    }
     const key = `${normalizeName(group)}|${normalizeName(homeTeam)}`;
-    if (existingCompositionKeys.has(key)) return;
+    if (existingCompositionKeys.has(key)) {
+      attachLog.compositionSkipped.push({ group, reason: `duplicate:${homeTeam}` });
+      return;
+    }
     existingCompositionKeys.add(key);
     additions.push({
       id: `composition|${normalizeName(group)}|${normalizeName(homeTeam)}`,
@@ -3562,38 +3692,122 @@ function cloneAttachGroupRosterCompositions(
       group,
       kind: "composition",
     });
+    attachLog.compositionAdded.push({ group, slot: homeTeam });
   };
 
-  for (const line of normalizedLines) {
-    if (isPageFooterOrNoise(line)) continue;
-    const header = cloneExtractRosterGroupHeader(line);
-    if (header) {
-      currentGroup = header.group;
-      currentPhase = header.phase;
-      inFutureRoster = true;
-      continue;
+  const closeRoster = () => {
+    inFutureRoster = false;
+  };
+
+  const processRosterBodyLine = (line: string, rawLine: string): boolean => {
+    if (!inFutureRoster || !currentGroup) return false;
+
+    if (cloneIsRosterSectionStopLine(line)) {
+      attachLog.rosterStops.push({ group: currentGroup, line: line.slice(0, 120) });
+      closeRoster();
+      return true;
     }
-    const earlyGroup = extractTournamentGroupLabel(line);
-    if (earlyGroup && !cloneIsFuturePhaseGroupLabel(earlyGroup)) {
-      inFutureRoster = false;
-      currentGroup = null;
-      currentPhase = null;
-      continue;
+
+    if (cloneIsRosterFixturePlaceholderLine(line)) {
+      attachLog.fixtureSkipped.push({ group: currentGroup, line: line.slice(0, 120) });
+      return true;
     }
-    if (!inFutureRoster || !currentGroup) continue;
-    if (/\b\d{1,2}[:.]\d{2}\b/.test(line) && !cloneIsRosterSlotLine(line)) continue;
+
+    if (/\b\d{1,2}[:.]\d{2}\b/.test(line) && !cloneIsRosterSlotLine(line)) return true;
+
     if (cloneIsRosterSlotLine(line)) {
       pushComposition(currentGroup, currentPhase, cloneNormalizeRosterSlotLabel(line));
-      continue;
+      return true;
     }
+
+    const seedParts = cloneSplitSeedPartsFromRaw(rawLine);
+    if (seedParts.length >= 2) {
+      attachLog.seedSplits.push({
+        group: currentGroup,
+        parts: seedParts,
+        rawSnippet: rawLine.slice(0, 120),
+      });
+      pushComposition(currentGroup, currentPhase, seedParts[0]!);
+      attachLog.seedAmbiguous.push({
+        group: currentGroup,
+        line: line.slice(0, 120),
+        reason: `second seed not assigned:${seedParts.slice(1).join(" | ")}`,
+      });
+      return true;
+    }
+
+    if (seedParts.length === 1) {
+      attachLog.seedSplits.push({
+        group: currentGroup,
+        parts: seedParts,
+        rawSnippet: rawLine.slice(0, 120),
+      });
+      pushComposition(currentGroup, currentPhase, seedParts[0]!);
+      return true;
+    }
+
+    if (cloneIsAmbiguousFusedSeedLine(rawLine, line, currentGroup)) {
+      attachLog.seedAmbiguous.push({
+        group: currentGroup,
+        line: line.slice(0, 120),
+        reason: "no column separator (fused gold seed)",
+      });
+      return true;
+    }
+
     if (cloneIsRosterSeedTeamLine(line)) {
       pushComposition(currentGroup, currentPhase, cleanTournamentTeamName(line));
+      return true;
     }
+
+    return false;
+  };
+
+  for (const { rawLine, line } of linePairs) {
+    if (isPageFooterOrNoise(line)) continue;
+
+    const phaseTitle = cloneIsPhaseTitleLine(line);
+    if (phaseTitle) {
+      attachLog.phaseTitles.push({ phase: phaseTitle, previousGroup: currentGroup });
+      currentPhase = phaseTitle;
+      currentGroup = null;
+      closeRoster();
+      continue;
+    }
+
+    const earlyGroup = extractTournamentGroupLabel(line);
+    if (earlyGroup && !cloneIsFuturePhaseGroupLabel(earlyGroup)) {
+      currentGroup = null;
+      currentPhase = null;
+      closeRoster();
+      continue;
+    }
+
+    const triHeader = cloneExtractTriangolareHeader(line);
+    if (triHeader) {
+      currentGroup = triHeader.group;
+      currentPhase = triHeader.phase;
+      inFutureRoster = true;
+      attachLog.triangolareOpened.push({ group: triHeader.group, line: line.slice(0, 120) });
+      processRosterBodyLine(line, rawLine);
+      continue;
+    }
+
+    const futureHeader = cloneExtractFutureGroupHeader(line);
+    if (futureHeader) {
+      currentGroup = futureHeader.group;
+      currentPhase = futureHeader.phase;
+      inFutureRoster = true;
+      processRosterBodyLine(line, rawLine);
+      continue;
+    }
+
+    if (processRosterBodyLine(line, rawLine)) continue;
   }
 
   if (additions.length === 0) return program;
   const merged = [...program, ...additions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  cloneLogCompositionAttachDiagnostics(merged, additions.length);
+  cloneLogCompositionAttachDiagnostics(merged, additions.length, attachLog);
   return merged;
 }
 
