@@ -196,6 +196,33 @@ type CloneFutureLayoutRejectedRow = {
   targetGroup: string | null;
 };
 
+type CloneFutureLayoutPhaseInterval = {
+  phase: string;
+  page: number;
+  yHeader: number;
+  yMinExclusive: number | null;
+  yMaxExclusive: number;
+  rawHeaderText: string;
+};
+
+type CloneFuturePhaseFixtureDraft = {
+  phase: string;
+  homeRef: string;
+  awayRef: string;
+  rawLine: string;
+  page: number;
+  y: number;
+};
+
+type CloneFuturePhaseFixtureRejectedRow = {
+  page: number;
+  y: number;
+  rawText: string;
+  cellText: string;
+  reason: string;
+  targetPhase: string | null;
+};
+
 type ParseTextOptions = ParsePdfOptions & {
   fileName?: string;
   lastModified?: number;
@@ -4026,6 +4053,148 @@ function clonePopulateFutureStructureFromLayoutRecords(input: {
   };
 }
 
+const CLONE_FUTURE_LAYOUT_PHASE_INTERVAL_LABELS = [
+  "Sesti di finale",
+  "Triangolari di semifinale",
+  "Finali",
+] as const;
+
+function cloneBuildFutureLayoutPhaseIntervals(headers: CloneFutureLayoutHeader[]): CloneFutureLayoutPhaseInterval[] {
+  const allowedPhases = new Set(CLONE_FUTURE_LAYOUT_PHASE_INTERVAL_LABELS.map((label) => normalizeName(label)));
+  const phaseHeaders = headers
+    .filter((header) => header.isPhaseTitle && allowedPhases.has(normalizeName(header.groupName)))
+    .sort((a, b) => a.page - b.page || b.y - a.y || a.groupName.localeCompare(b.groupName));
+
+  const headersByPage = new Map<number, CloneFutureLayoutHeader[]>();
+  for (const header of phaseHeaders) {
+    const pageHeaders = headersByPage.get(header.page) ?? [];
+    pageHeaders.push(header);
+    headersByPage.set(header.page, pageHeaders);
+  }
+
+  const intervals: CloneFutureLayoutPhaseInterval[] = [];
+  for (const [page, pageHeaders] of headersByPage.entries()) {
+    pageHeaders.sort((a, b) => b.y - a.y);
+    for (let index = 0; index < pageHeaders.length; index += 1) {
+      const header = pageHeaders[index]!;
+      const nextHeader = pageHeaders[index + 1] ?? null;
+      intervals.push({
+        phase: header.groupName,
+        page,
+        yHeader: header.y,
+        yMinExclusive: nextHeader ? nextHeader.y : null,
+        yMaxExclusive: header.y,
+        rawHeaderText: header.rawText,
+      });
+    }
+  }
+
+  intervals.sort((a, b) => a.page - b.page || b.yHeader - a.yHeader);
+  return intervals;
+}
+
+function cloneFindMatchingFutureLayoutPhaseIntervals(
+  record: ClonePdfLayoutLineRecord,
+  phaseIntervals: CloneFutureLayoutPhaseInterval[],
+): CloneFutureLayoutPhaseInterval[] {
+  const page = record.page;
+  const y = record.y;
+  if (page == null || y == null) return [];
+  return phaseIntervals.filter(
+    (interval) =>
+      interval.page === page &&
+      (interval.yMinExclusive == null || y > interval.yMinExclusive) &&
+      y < interval.yMaxExclusive,
+  );
+}
+
+function clonePopulateFutureLayoutPhaseFixturesDraft(input: {
+  layoutMeta: ClonePdfLayoutMeta;
+  phaseIntervals: CloneFutureLayoutPhaseInterval[];
+}): {
+  fixtures: CloneFuturePhaseFixtureDraft[];
+  rejectedRows: CloneFuturePhaseFixtureRejectedRow[];
+} {
+  const fixtures: CloneFuturePhaseFixtureDraft[] = [];
+  const rejectedRows: CloneFuturePhaseFixtureRejectedRow[] = [];
+  const seen = new Set<string>();
+
+  const records = [...input.layoutMeta.allPageRecords]
+    .filter((record) => record.source === "allPageLines" && record.page != null && record.y != null)
+    .sort((a, b) => a.page! - b.page! || b.y! - a.y! || a.lineIndex - b.lineIndex);
+
+  for (const record of records) {
+    const matchingIntervals = cloneFindMatchingFutureLayoutPhaseIntervals(record, input.phaseIntervals);
+    if (matchingIntervals.length === 0) continue;
+
+    const phaseInterval = matchingIntervals[0]!;
+    const raw = String(record.rawText ?? "");
+    const cells = cloneSplitFutureLayoutCells(raw);
+    const hasTab = /\t/.test(raw);
+    const cellEntries = hasTab
+      ? cells.map((cell, columnIndex) => ({ cell, columnIndex }))
+      : [{ cell: cells[0] ?? raw.trim(), columnIndex: 0 }];
+
+    for (const { cell } of cellEntries) {
+      if (!cell) continue;
+
+      const reject = (reason: string, targetPhase: string | null = phaseInterval.phase) => {
+        rejectedRows.push({
+          page: record.page!,
+          y: record.y!,
+          rawText: raw,
+          cellText: cell,
+          reason,
+          targetPhase,
+        });
+      };
+
+      if (cloneIsPureFutureLayoutHeaderCell(cell)) {
+        reject("pure_header");
+        continue;
+      }
+      if (cloneExtractFuturePhaseTitleFromCell(cell)) {
+        reject("phase_title");
+        continue;
+      }
+      if (cloneIsFutureLayoutHeaderAsSlotCell(cell)) {
+        reject("header_as_slot");
+        continue;
+      }
+
+      if (!/[-\u2013\u2014]/.test(cell)) {
+        if (cloneNormalizeFutureLayoutCompositionSlot(cell)) {
+          reject("composition_not_phase_fixture");
+        } else {
+          reject("not_phase_fixture");
+        }
+        continue;
+      }
+
+      const placeholder = cloneParseFutureLayoutMatchPlaceholder(cell, record.page!, record.y!, null);
+      if (!placeholder) {
+        reject("dash_not_phase_fixture");
+        continue;
+      }
+
+      const fixtureKey = `${normalizeName(phaseInterval.phase)}|${normalizeName(placeholder.homeRef)}|${normalizeName(placeholder.awayRef)}|${record.page}|${record.y}`;
+      if (seen.has(fixtureKey)) continue;
+      seen.add(fixtureKey);
+
+      fixtures.push({
+        phase: phaseInterval.phase,
+        homeRef: placeholder.homeRef,
+        awayRef: placeholder.awayRef,
+        rawLine: placeholder.rawLine,
+        page: record.page!,
+        y: record.y!,
+      });
+    }
+  }
+
+  return { fixtures, rejectedRows };
+}
+
 function cloneBuildFutureStructureFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta): CloneFutureStructureDraft {
   const headers: CloneFutureLayoutHeader[] = [];
   for (const record of layoutMeta.allPageRecords) {
@@ -4093,6 +4262,21 @@ function cloneBuildFutureStructureFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta)
   console.log(
     "[CLONE-RUNTIME-CHECK] future structure populated draft JSON",
     JSON.stringify(populated.phases, null, 2),
+  );
+
+  const phaseIntervals = cloneBuildFutureLayoutPhaseIntervals(dedupedHeaders);
+  const phaseFixtures = clonePopulateFutureLayoutPhaseFixturesDraft({
+    layoutMeta,
+    phaseIntervals,
+  });
+  console.log("[CLONE-RUNTIME-CHECK] future layout phase intervals", JSON.stringify(phaseIntervals, null, 2));
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future layout phase fixtures draft",
+    JSON.stringify(phaseFixtures.fixtures, null, 2),
+  );
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future layout phase fixture rejected rows",
+    JSON.stringify(phaseFixtures.rejectedRows, null, 2),
   );
 
   return draft;
