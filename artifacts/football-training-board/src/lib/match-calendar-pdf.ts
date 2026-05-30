@@ -4098,6 +4098,84 @@ function cloneBuildFutureStructureFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta)
   return draft;
 }
 
+function cloneApplyFutureLayoutCompositionDraft(
+  program: TournamentProgramEntry[],
+  draftPhases: CloneFuturePhaseStructure[],
+  options: { fallbackDateIso?: string | null } = {},
+): TournamentProgramEntry[] {
+  const dateIso =
+    options.fallbackDateIso && !Number.isNaN(new Date(options.fallbackDateIso).getTime())
+      ? options.fallbackDateIso
+      : new Date(new Date().getFullYear(), 0, 1, 10, 0, 0, 0).toISOString();
+
+  const kept = program.filter(
+    (entry) => !(entry.kind === "composition" && cloneIsFuturePhaseGroupLabel(String(entry.group ?? ""))),
+  );
+
+  const existingCompositionKeys = new Set<string>();
+  for (const entry of kept) {
+    if (entry.kind !== "composition") continue;
+    existingCompositionKeys.add(
+      `${normalizeName(String(entry.group ?? ""))}|${normalizeName(String(entry.homeTeam ?? ""))}`,
+    );
+  }
+
+  const additions: TournamentProgramEntry[] = [];
+  const applied: Array<{ group: string; slot: string }> = [];
+
+  for (const phase of draftPhases) {
+    for (const group of phase.groups) {
+      if (!cloneIsFuturePhaseGroupLabel(group.name)) continue;
+      const phaseLabel = clonePhaseLabelForFutureGroup(group.name);
+      for (const slotLabel of group.compositionSlots) {
+        const homeTeam = normalizeTournamentPlacementText(slotLabel).slice(0, 120);
+        if (!homeTeam) continue;
+        const key = `${normalizeName(group.name)}|${normalizeName(homeTeam)}`;
+        if (existingCompositionKeys.has(key)) continue;
+        existingCompositionKeys.add(key);
+        additions.push({
+          id: `composition|layout|${normalizeName(group.name)}|${normalizeName(homeTeam)}`,
+          date: dateIso,
+          homeTeam,
+          awayTeam: "da completare",
+          phase: phaseLabel,
+          group: group.name,
+          kind: "composition",
+        });
+        applied.push({ group: group.name, slot: homeTeam });
+      }
+    }
+  }
+
+  const merged = [...kept, ...additions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future layout compositions applied JSON",
+    JSON.stringify(applied, null, 2),
+  );
+  console.log(
+    "[CLONE-RUNTIME-CHECK] final future phase groups after layout apply JSON",
+    JSON.stringify(cloneFuturePhaseGroupsSummary(cloneCompositionSlotsByGroup(merged)), null, 2),
+  );
+  return merged;
+}
+
+function cloneFinalizeCloneTournamentProgram(
+  program: TournamentProgramEntry[],
+  workingLines: string[],
+  options: {
+    fallbackDateIso?: string | null;
+    layoutDraft?: CloneFutureStructureDraft | null;
+  },
+): TournamentProgramEntry[] {
+  const withAttach = cloneAttachGroupRosterCompositions(workingLines, program, {
+    fallbackDateIso: options.fallbackDateIso,
+  });
+  if (!options.layoutDraft) return withAttach;
+  return cloneApplyFutureLayoutCompositionDraft(withAttach, options.layoutDraft.phases, {
+    fallbackDateIso: options.fallbackDateIso,
+  });
+}
+
 function cloneProgramSummary(program: TournamentProgramEntry[]): {
   groups: string[];
   teamsByGroup: Record<string, string[]>;
@@ -4535,6 +4613,10 @@ function cloneAttachGroupRosterCompositions(
       : new Date(new Date().getFullYear(), 0, 1, 10, 0, 0, 0).toISOString();
 
   const pushComposition = (group: string, phase: string | null, slotLabel: string): void => {
+    if (cloneIsFuturePhaseGroupLabel(group)) {
+      attachLog.compositionSkipped.push({ group, reason: "future_phase_deferred_to_layout_builder" });
+      return;
+    }
     const homeTeam = normalizeTournamentPlacementText(slotLabel).slice(0, 120);
     if (!homeTeam) {
       attachLog.compositionSkipped.push({ group, reason: "empty slot label" });
@@ -5214,6 +5296,7 @@ export function parseMatchCalendarTextLines(
       : null;
   const clonePreprocessedProgram = cloneBuildProgramFromPreprocessedFixtures(clonePreprocessed?.extractedFixtures ?? []);
   const workingLines = clonePreprocessed?.segmentedLines ?? allPageLines;
+  let cloneLayoutDraft: CloneFutureStructureDraft | null = null;
   if (options.parserVariant === "clone" && (options.documentMode ?? "auto") === "tournament") {
     cloneLogVeronaPdfLayoutDiagnostics({
       allPageLines,
@@ -5221,7 +5304,7 @@ export function parseMatchCalendarTextLines(
       layoutMeta: options.clonePdfLayoutMeta,
     });
     if (options.clonePdfLayoutMeta) {
-      cloneBuildFutureStructureFromLayoutMeta(options.clonePdfLayoutMeta);
+      cloneLayoutDraft = cloneBuildFutureStructureFromLayoutMeta(options.clonePdfLayoutMeta);
     }
   }
   const blobs = pageBlobs && pageBlobs.length > 0 ? pageBlobs : [allPageLines.join("\n")];
@@ -5387,10 +5470,13 @@ export function parseMatchCalendarTextLines(
           clonePrimaryConfidence,
           cloneSecondaryConfidence,
         );
-        const mergedProgramWithRoster = cloneAttachGroupRosterCompositions(
-          workingLines,
+        const mergedProgramWithRoster = cloneFinalizeCloneTournamentProgram(
           mergedClone.tournamentProgram ?? [],
-          { fallbackDateIso: explicitTournamentFallbackIso },
+          workingLines,
+          {
+            fallbackDateIso: explicitTournamentFallbackIso,
+            layoutDraft: cloneLayoutDraft,
+          },
         );
         const mergedCloneWithRoster: MatchPdfImportResult = {
           ...mergedClone,
