@@ -187,6 +187,15 @@ type CloneFutureStructureDraft = {
   phases: CloneFuturePhaseStructure[];
 };
 
+type CloneFutureLayoutRejectedRow = {
+  page: number;
+  y: number;
+  rawText: string;
+  cellText: string;
+  reason: string;
+  targetGroup: string | null;
+};
+
 type ParseTextOptions = ParsePdfOptions & {
   fileName?: string;
   lastModified?: number;
@@ -3710,6 +3719,313 @@ function cloneBuildFutureStructurePhasesDraft(headers: CloneFutureLayoutHeader[]
   return phases;
 }
 
+function cloneFindMatchingFutureLayoutIntervals(
+  record: ClonePdfLayoutLineRecord,
+  intervals: CloneFutureLayoutInterval[],
+): CloneFutureLayoutInterval[] {
+  const page = record.page;
+  const y = record.y;
+  if (page == null || y == null) return [];
+  return intervals.filter(
+    (interval) =>
+      interval.page === page &&
+      (interval.yMinExclusive == null || y > interval.yMinExclusive) &&
+      y < interval.yMaxExclusive,
+  );
+}
+
+function cloneBuildFutureLayoutColumnMaps(headers: CloneFutureLayoutHeader[]): Map<string, string[]> {
+  const byRow = new Map<string, CloneFutureLayoutHeader[]>();
+  for (const header of headers) {
+    if (header.isPhaseTitle) continue;
+    const key = `${header.page}|${header.y}`;
+    const row = byRow.get(key) ?? [];
+    row.push(header);
+    byRow.set(key, row);
+  }
+
+  const columnMaps = new Map<string, string[]>();
+  for (const [key, rowHeaders] of byRow.entries()) {
+    rowHeaders.sort((a, b) => {
+      const raw = a.rawText || b.rawText;
+      const aIdx = raw.indexOf(a.cellText);
+      const bIdx = raw.indexOf(b.cellText);
+      return (aIdx >= 0 ? aIdx : 0) - (bIdx >= 0 ? bIdx : 0) || a.groupName.localeCompare(b.groupName);
+    });
+    columnMaps.set(key, rowHeaders.map((header) => header.groupName));
+  }
+  return columnMaps;
+}
+
+function cloneExtractFutureSlotGroupHintFromCell(cell: string): string | null {
+  const trimmed = cloneNormalizeFutureLayoutCell(cell);
+  if (!trimmed) return null;
+  const triMatch = trimmed.match(/^(triangolare|quadrangolare)\s+(\d+)\b/i);
+  if (triMatch) {
+    const group = cloneRosterHeaderFromTriQuad(String(triMatch[1] ?? ""), String(triMatch[2] ?? "")).group;
+    return cloneIsFuturePhaseGroupLabel(group) ? group : null;
+  }
+  const groupLabel = extractTournamentGroupLabel(trimmed);
+  if (groupLabel && cloneIsFuturePhaseGroupLabel(groupLabel)) return groupLabel;
+  return null;
+}
+
+function cloneIsFutureLayoutHeaderAsSlotCell(cell: string): boolean {
+  const trimmed = cloneNormalizeFutureLayoutCell(cell);
+  if (!trimmed || cloneIsPureFutureLayoutHeaderCell(trimmed)) return false;
+  const n = normalizeName(trimmed);
+  if (/\bclassificat[aoe]?\b/.test(n)) return false;
+  if (/[-\u2013\u2014]/.test(trimmed)) return false;
+  if (/\bvincente\s+gara\b/.test(n)) return false;
+
+  const groupLabels = new Set<string>();
+  for (const match of trimmed.matchAll(/\b(?:girone|triangolare|quadrangolare)\s+(?:gold\s+|argento\s+)?[a-z0-9]+\b/gi)) {
+    const label = extractTournamentGroupLabel(String(match[0] ?? ""));
+    if (label && cloneIsFuturePhaseGroupLabel(label)) groupLabels.add(normalizeName(label));
+  }
+  if (groupLabels.size >= 2) return true;
+
+  const upperCodes = trimmed.match(/\bGIRONE\s+(?:GOLD\s+|ARGENTO\s+)?[A-Z]\b/g) ?? [];
+  if (upperCodes.length >= 2 && !/\bclassificat[aoe]?\b/.test(n)) return true;
+  return false;
+}
+
+function cloneNormalizeFutureLayoutCompositionSlot(cell: string): string | null {
+  const trimmed = cloneNormalizeFutureLayoutCell(cell);
+  if (!trimmed) return null;
+  if (cloneIsPureFutureLayoutHeaderCell(trimmed)) return null;
+  if (cloneExtractFuturePhaseTitleFromCell(trimmed)) return null;
+  if (cloneIsFutureLayoutHeaderAsSlotCell(trimmed)) return null;
+  if (/[-\u2013\u2014]/.test(trimmed)) return null;
+
+  const refs = parseTournamentCompositionRefs(trimmed);
+  if (refs.length > 0) return refs[0] ?? null;
+
+  const winner = normalizeName(trimmed).match(/\bvincente\s+gara\s+(\d+)\b/);
+  if (winner) return `Vincente gara ${winner[1]}`;
+
+  const groupHint = cloneExtractFutureSlotGroupHintFromCell(trimmed);
+  let payload = trimmed;
+  if (groupHint) {
+    const escaped = groupHint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    payload = trimmed.replace(new RegExp(`^${escaped}\\s+`, "i"), "").trim();
+    if (payload === trimmed) {
+      payload = trimmed
+        .replace(/^(?:girone|triangolare|quadrangolare)\s+(?:gold\s+|argento\s+)?[a-z0-9]+\s+/i, "")
+        .trim();
+    }
+  }
+
+  const seed = cleanTournamentTeamName(payload);
+  if (
+    seed &&
+    looksLikeStandaloneTournamentTeamLine(seed) &&
+    !isSuspiciousTournamentProgramSide(seed) &&
+    !/\bclassificat[aoe]?\b/.test(normalizeName(seed))
+  ) {
+    return seed;
+  }
+  return null;
+}
+
+function cloneParseFutureLayoutMatchPlaceholder(
+  cell: string,
+  page: number,
+  y: number,
+  groupName: string | null,
+): CloneFutureMatchPlaceholder | null {
+  const trimmed = cloneNormalizeFutureLayoutCell(cell);
+  if (!trimmed || !/[-\u2013\u2014]/.test(trimmed)) return null;
+  if (!cloneIsRosterFixturePlaceholderLine(trimmed)) return null;
+  const parts = trimmed.split(/\s*[-\u2013\u2014]\s*/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  return {
+    homeRef: parts[0] ?? trimmed,
+    awayRef: parts[parts.length - 1] ?? trimmed,
+    rawLine: trimmed,
+    page,
+    y,
+    groupName,
+  };
+}
+
+function cloneResolveTargetGroupForLayoutCell(
+  cell: string,
+  columnIndex: number,
+  columnGroups: string[],
+  matchingIntervals: CloneFutureLayoutInterval[],
+  hasTab: boolean,
+): string | null {
+  const hint = cloneExtractFutureSlotGroupHintFromCell(cell);
+  if (hasTab && columnGroups.length > 0 && columnGroups[columnIndex]) {
+    return columnGroups[columnIndex] ?? null;
+  }
+  if (hint) {
+    const hinted = matchingIntervals.find((interval) => normalizeName(interval.groupName) === normalizeName(hint));
+    if (hinted) return hinted.groupName;
+  }
+  if (matchingIntervals.length === 1) return matchingIntervals[0]!.groupName;
+  return hint;
+}
+
+function clonePopulateFutureStructureFromLayoutRecords(input: {
+  layoutMeta: ClonePdfLayoutMeta;
+  intervals: CloneFutureLayoutInterval[];
+  headers: CloneFutureLayoutHeader[];
+  phases: CloneFuturePhaseStructure[];
+}): {
+  phases: CloneFuturePhaseStructure[];
+  compositionDraft: Record<string, string[]>;
+  futureMatchesDraft: CloneFutureMatchPlaceholder[];
+  rejectedRows: CloneFutureLayoutRejectedRow[];
+} {
+  const columnMaps = cloneBuildFutureLayoutColumnMaps(input.headers);
+  const groupIndex = new Map<string, CloneFutureGroupStructure>();
+  const populatedPhases = input.phases.map((phase) => ({
+    ...phase,
+    groups: phase.groups.map((group) => ({
+      ...group,
+      compositionSlots: [...group.compositionSlots],
+      futureMatches: [...group.futureMatches],
+    })),
+  }));
+
+  for (const phase of populatedPhases) {
+    for (const group of phase.groups) {
+      groupIndex.set(normalizeName(group.name), group);
+    }
+  }
+
+  const rejectedRows: CloneFutureLayoutRejectedRow[] = [];
+  const futureMatchesDraft: CloneFutureMatchPlaceholder[] = [];
+  const compositionDraft: Record<string, string[]> = {};
+  const slotKeys = new Set<string>();
+
+  const assignCompositionSlot = (groupName: string, slotLabel: string) => {
+    const group = groupIndex.get(normalizeName(groupName));
+    if (!group) return;
+    const slotKey = `${normalizeName(groupName)}|${normalizeName(slotLabel)}`;
+    if (slotKeys.has(slotKey)) return;
+    slotKeys.add(slotKey);
+    group.compositionSlots.push(slotLabel);
+    if (!compositionDraft[groupName]) compositionDraft[groupName] = [];
+    compositionDraft[groupName]!.push(slotLabel);
+  };
+
+  const assignFutureMatch = (groupName: string | null, placeholder: CloneFutureMatchPlaceholder) => {
+    futureMatchesDraft.push(placeholder);
+    if (!groupName) return;
+    const group = groupIndex.get(normalizeName(groupName));
+    if (!group) return;
+    group.futureMatches.push(placeholder);
+  };
+
+  const records = [...input.layoutMeta.allPageRecords]
+    .filter((record) => record.source === "allPageLines" && record.page != null && record.y != null)
+    .sort((a, b) => a.page! - b.page! || b.y! - a.y! || a.lineIndex - b.lineIndex);
+
+  for (const record of records) {
+    const raw = String(record.rawText ?? "");
+    const matchingIntervals = cloneFindMatchingFutureLayoutIntervals(record, input.intervals);
+    if (matchingIntervals.length === 0) continue;
+
+    const bandHeaderY = matchingIntervals[0]?.yMaxExclusive ?? null;
+    const columnGroups =
+      bandHeaderY != null ? columnMaps.get(`${record.page}|${bandHeaderY}`) ?? [] : [];
+    const hasTab = /\t/.test(raw);
+    const cells = cloneSplitFutureLayoutCells(raw);
+    const cellEntries = hasTab
+      ? cells.map((cell, columnIndex) => ({ cell, columnIndex }))
+      : [{ cell: cells[0] ?? raw.trim(), columnIndex: 0 }];
+
+    for (const { cell, columnIndex } of cellEntries) {
+      if (!cell) continue;
+
+      const reject = (reason: string, targetGroup: string | null = null) => {
+        rejectedRows.push({
+          page: record.page!,
+          y: record.y!,
+          rawText: raw,
+          cellText: cell,
+          reason,
+          targetGroup,
+        });
+      };
+
+      if (cloneIsPureFutureLayoutHeaderCell(cell)) {
+        reject("pure_header");
+        continue;
+      }
+      if (cloneExtractFuturePhaseTitleFromCell(cell)) {
+        reject("phase_title");
+        continue;
+      }
+      if (cloneIsFutureLayoutHeaderAsSlotCell(cell)) {
+        reject("header_as_slot");
+        continue;
+      }
+
+      const targetGroup = cloneResolveTargetGroupForLayoutCell(
+        cell,
+        columnIndex,
+        columnGroups,
+        matchingIntervals,
+        hasTab,
+      );
+
+      if (/[-\u2013\u2014]/.test(cell)) {
+        const placeholder = cloneParseFutureLayoutMatchPlaceholder(cell, record.page!, record.y!, targetGroup);
+        if (placeholder) {
+          if (
+            targetGroup &&
+            !matchingIntervals.some((interval) => normalizeName(interval.groupName) === normalizeName(targetGroup))
+          ) {
+            reject("future_match_outside_interval", targetGroup);
+            continue;
+          }
+          assignFutureMatch(targetGroup, placeholder);
+        } else {
+          reject("dash_not_fixture", targetGroup);
+        }
+        continue;
+      }
+
+      const slotLabel = cloneNormalizeFutureLayoutCompositionSlot(cell);
+      if (!slotLabel) {
+        reject("not_composition_slot", targetGroup);
+        continue;
+      }
+      if (!targetGroup) {
+        reject("no_target_group");
+        continue;
+      }
+      if (!matchingIntervals.some((interval) => normalizeName(interval.groupName) === normalizeName(targetGroup))) {
+        reject("composition_outside_interval", targetGroup);
+        continue;
+      }
+
+      const hint = cloneExtractFutureSlotGroupHintFromCell(cell);
+      if (hint && normalizeName(hint) !== normalizeName(targetGroup)) {
+        reject("composition_group_mismatch", targetGroup);
+        continue;
+      }
+
+      assignCompositionSlot(targetGroup, slotLabel);
+    }
+  }
+
+  for (const group of groupIndex.values()) {
+    compositionDraft[group.name] = [...group.compositionSlots];
+  }
+
+  return {
+    phases: populatedPhases,
+    compositionDraft,
+    futureMatchesDraft,
+    rejectedRows,
+  };
+}
+
 function cloneBuildFutureStructureFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta): CloneFutureStructureDraft {
   const headers: CloneFutureLayoutHeader[] = [];
   for (const record of layoutMeta.allPageRecords) {
@@ -3730,11 +4046,17 @@ function cloneBuildFutureStructureFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta)
 
   const intervals = cloneBuildFutureLayoutIntervals(dedupedHeaders);
   const phases = cloneBuildFutureStructurePhasesDraft(dedupedHeaders);
+  const populated = clonePopulateFutureStructureFromLayoutRecords({
+    layoutMeta,
+    intervals,
+    headers: dedupedHeaders,
+    phases,
+  });
 
   const draft: CloneFutureStructureDraft = {
     headers: dedupedHeaders,
     intervals,
-    phases,
+    phases: populated.phases,
   };
 
   console.log(
@@ -3756,6 +4078,22 @@ function cloneBuildFutureStructureFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta)
   );
   console.log("[CLONE-RUNTIME-CHECK] future layout intervals", JSON.stringify(intervals, null, 2));
   console.log("[CLONE-RUNTIME-CHECK] future structure draft JSON", JSON.stringify(phases, null, 2));
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future layout assigned composition draft",
+    JSON.stringify(populated.compositionDraft, null, 2),
+  );
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future layout future matches draft",
+    JSON.stringify(populated.futureMatchesDraft, null, 2),
+  );
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future layout rejected rows",
+    JSON.stringify(populated.rejectedRows, null, 2),
+  );
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future structure populated draft JSON",
+    JSON.stringify(populated.phases, null, 2),
+  );
 
   return draft;
 }
