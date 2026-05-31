@@ -4343,6 +4343,270 @@ function cloneApplyFutureLayoutCompositionDraft(
   return merged;
 }
 
+function cloneIsPhase1QualifyingGroupLabel(groupLabel: string): boolean {
+  const n = normalizeName(groupLabel);
+  if (/^girone\s+[m-v]$/.test(n)) return false;
+  if (/^girone\s+argento\b/.test(n)) return false;
+  if (/^girone\s+gold\b/.test(n)) return false;
+  if (/^triangolare\s+\d+$/.test(n)) return false;
+  if (/^quadrangolare\s+\d+$/.test(n)) return false;
+  return /^girone\s+[a-hl]$/.test(n);
+}
+
+function cloneLevenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const prev = new Array<number>(b.length + 1);
+  const curr = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j += 1) prev[j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1]! + 1, prev[j]! + 1, prev[j - 1]! + cost);
+    }
+    for (let j = 0; j <= b.length; j += 1) prev[j] = curr[j]!;
+  }
+  return prev[b.length] ?? 0;
+}
+
+function cloneTeamNameIsReconciliationExcluded(team: string): boolean {
+  const trimmed = String(team ?? "").trim();
+  if (!trimmed) return true;
+  const n = normalizeName(trimmed);
+  if (isSuspiciousTournamentProgramSide(trimmed)) return true;
+  if (isImageTournamentEmptyTeam(trimmed)) return true;
+  if (isTournamentReferenceCodeLine(trimmed)) return true;
+  if (/\bclassificat[aoe]?\b/.test(n)) return true;
+  if (/\bvincente\s+gara\b/.test(n)) return true;
+  if (/\bda completare\b/.test(n)) return true;
+  if (/^x$/i.test(trimmed)) return true;
+  return false;
+}
+
+function cloneExtractPhase1RosterEntryFromLayoutRecord(
+  record: ClonePdfLayoutLineRecord,
+): { group: string; team: string } | null {
+  const text = String(record.normalizedText ?? record.rawText ?? "").replace(/\s+/g, " ").trim();
+  if (!text || /[-\u2013\u2014]/.test(text)) return null;
+  if (/\b\d{1,2}[:.]\d{2}\b/.test(text)) return null;
+  if (/\b\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/.test(text)) return null;
+
+  const groupLabel = extractTournamentGroupLabel(text);
+  if (!groupLabel || !cloneIsPhase1QualifyingGroupLabel(groupLabel)) return null;
+
+  const groupMatch = text.match(/\b(?:girone|raggruppament[oi])\s+[a-hl]\b/i);
+  if (!groupMatch) return null;
+
+  let teamPart = text.slice((groupMatch.index ?? 0) + groupMatch[0].length).trim();
+  teamPart = cleanOcrTournamentOpponentName(teamPart.replace(/\s*\([^)]*\)\s*$/g, "").trim());
+  if (!teamPart || cloneTeamNameIsReconciliationExcluded(teamPart)) return null;
+  if (!looksLikeStandaloneTournamentTeamLine(teamPart)) return null;
+  return { group: groupLabel, team: teamPart };
+}
+
+function cloneBuildPhase1RosterByGroupFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta): Record<string, string[]> {
+  const byGroupLabel = new Map<string, Map<string, string>>();
+
+  for (const record of layoutMeta.allPageRecords) {
+    if (record.source !== "allPageLines") continue;
+    const item = cloneExtractPhase1RosterEntryFromLayoutRecord(record);
+    if (!item) continue;
+    const teams = byGroupLabel.get(item.group) ?? new Map<string, string>();
+    const teamNorm = normalizeName(item.team);
+    const existing = teams.get(teamNorm);
+    if (!existing || item.team.length > existing.length) teams.set(teamNorm, item.team);
+    byGroupLabel.set(item.group, teams);
+  }
+
+  const rosterByGroup: Record<string, string[]> = {};
+  for (const [groupLabel, teams] of byGroupLabel.entries()) {
+    rosterByGroup[groupLabel] = [...teams.values()].sort((a, b) => a.localeCompare(b));
+  }
+  return rosterByGroup;
+}
+
+function cloneFindRosterCanonicalTeamName(
+  team: string,
+  roster: string[],
+): { canonical: string | null; reason: string } {
+  const normTeam = normalizeName(team);
+  if (!normTeam) return { canonical: null, reason: "empty" };
+
+  for (const rosterTeam of roster) {
+    if (normalizeName(rosterTeam) === normTeam) {
+      return rosterTeam === team
+        ? { canonical: null, reason: "already_canonical" }
+        : { canonical: rosterTeam, reason: "exact_normalized" };
+    }
+  }
+
+  const teamTokens = normTeam.split(/\s+/).filter(Boolean);
+  const firstToken = teamTokens[0] ?? "";
+  const candidates: Array<{ rosterTeam: string; distance: number; ratio: number }> = [];
+
+  for (const rosterTeam of roster) {
+    const normRoster = normalizeName(rosterTeam);
+    if (!normRoster || normRoster === normTeam) continue;
+    const rosterFirst = normRoster.split(/\s+/).filter(Boolean)[0] ?? "";
+    const sameFirstToken = firstToken.length >= 3 && rosterFirst === firstToken;
+    const distance = cloneLevenshteinDistance(normTeam, normRoster);
+    const maxLen = Math.max(normTeam.length, normRoster.length, 1);
+    const ratio = 1 - distance / maxLen;
+    const lenDiff = Math.abs(normTeam.length - normRoster.length);
+    if (distance > 2 || ratio < 0.88 || lenDiff > 3) continue;
+    if (!sameFirstToken && ratio < 0.92) continue;
+    candidates.push({ rosterTeam, distance, ratio });
+  }
+
+  if (candidates.length === 0) return { canonical: null, reason: "no_match" };
+  candidates.sort((a, b) => a.distance - b.distance || b.ratio - a.ratio || a.rosterTeam.localeCompare(b.rosterTeam));
+
+  const best = candidates[0]!;
+  const second = candidates[1];
+  if (second && second.distance <= 2 && second.ratio >= 0.88) {
+    const tied =
+      second.distance === best.distance &&
+      Math.abs(second.ratio - best.ratio) < 0.02;
+    if (tied || (second.ratio >= best.ratio - 0.01 && normalizeName(second.rosterTeam) !== normalizeName(best.rosterTeam))) {
+      return { canonical: null, reason: "ambiguous" };
+    }
+  }
+
+  return { canonical: best.rosterTeam, reason: "fuzzy_match" };
+}
+
+function cloneDedupeReconciledProgramEntries(program: TournamentProgramEntry[]): TournamentProgramEntry[] {
+  const seen = new Map<string, TournamentProgramEntry>();
+  for (const entry of program) {
+    if (entry.kind === "composition") {
+      const key = entry.id || `composition|${normalizeName(String(entry.group ?? ""))}|${normalizeName(String(entry.homeTeam ?? ""))}`;
+      if (!seen.has(key)) seen.set(key, entry);
+      continue;
+    }
+    const key = tournamentEntryMergeKey(entry);
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, entry);
+      continue;
+    }
+    seen.set(key, {
+      ...existing,
+      date: existing.date && !Number.isNaN(new Date(existing.date).getTime()) ? existing.date : entry.date,
+      phase: existing.phase ?? entry.phase,
+      group: existing.group ?? entry.group,
+      homeScore: existing.homeScore ?? entry.homeScore,
+      awayScore: existing.awayScore ?? entry.awayScore,
+      kind: existing.kind ?? entry.kind,
+    });
+  }
+  return [...seen.values()].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+function cloneReconcilePhase1TeamNamesWithGroupRoster(
+  program: TournamentProgramEntry[],
+  layoutMeta: ClonePdfLayoutMeta | null | undefined,
+): TournamentProgramEntry[] {
+  if (!layoutMeta) return program;
+
+  const rosterByGroup = cloneBuildPhase1RosterByGroupFromLayoutMeta(layoutMeta);
+  console.log(
+    "[CLONE-RUNTIME-CHECK] team reconciliation roster by group",
+    JSON.stringify(rosterByGroup, null, 2),
+  );
+
+  const applied: Array<{
+    group: string;
+    side: "home" | "away";
+    from: string;
+    to: string;
+    entryId: string;
+    reason: string;
+  }> = [];
+  const skipped: Array<{
+    group: string;
+    side: "home" | "away";
+    team: string;
+    reason: string;
+    entryId: string;
+  }> = [];
+
+  const rosterLookup = new Map<string, string[]>();
+  for (const [groupLabel, teams] of Object.entries(rosterByGroup)) {
+    rosterLookup.set(normalizeName(groupLabel), teams);
+  }
+
+  const reconciled = program.map((entry) => {
+    if (entry.kind === "composition") return entry;
+    if (entry.kind && entry.kind !== "match") return entry;
+
+    const group = String(entry.group ?? "").trim();
+    if (!group || !cloneIsPhase1QualifyingGroupLabel(group)) return entry;
+
+    const roster = rosterLookup.get(normalizeName(group)) ?? [];
+    if (roster.length === 0) return entry;
+
+    let homeTeam = entry.homeTeam;
+    let awayTeam = entry.awayTeam;
+    let changed = false;
+
+    const reconcileSide = (side: "home" | "away", team: string) => {
+      if (cloneTeamNameIsReconciliationExcluded(team)) {
+        skipped.push({ group, side, team, reason: "excluded_side", entryId: entry.id });
+        return team;
+      }
+      const match = cloneFindRosterCanonicalTeamName(team, roster);
+      if (match.canonical) {
+        applied.push({
+          group,
+          side,
+          from: team,
+          to: match.canonical,
+          entryId: entry.id,
+          reason: match.reason,
+        });
+        changed = true;
+        return match.canonical;
+      }
+      if (match.reason !== "already_canonical") {
+        skipped.push({ group, side, team, reason: match.reason, entryId: entry.id });
+      }
+      return team;
+    };
+
+    homeTeam = reconcileSide("home", homeTeam);
+    awayTeam = reconcileSide("away", awayTeam);
+    if (!changed) return entry;
+
+    const nextId = `${entry.date}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`;
+    return {
+      ...entry,
+      id: nextId,
+      homeTeam: homeTeam.slice(0, 120),
+      awayTeam: awayTeam.slice(0, 120),
+    };
+  });
+
+  const beforeCount = reconciled.length;
+  const deduped = cloneDedupeReconciledProgramEntries(reconciled);
+  const summary = {
+    rosterGroups: Object.keys(rosterByGroup).length,
+    rosterTeams: Object.values(rosterByGroup).reduce((sum, teams) => sum + teams.length, 0),
+    applied: applied.length,
+    skipped: skipped.length,
+    entriesBefore: beforeCount,
+    entriesAfter: deduped.length,
+    dedupedRemoved: beforeCount - deduped.length,
+  };
+
+  console.log("[CLONE-RUNTIME-CHECK] team reconciliation applied", JSON.stringify(applied, null, 2));
+  console.log("[CLONE-RUNTIME-CHECK] team reconciliation skipped", JSON.stringify(skipped.slice(0, 120), null, 2));
+  console.log("[CLONE-RUNTIME-CHECK] team reconciliation summary", JSON.stringify(summary, null, 2));
+
+  return deduped;
+}
+
 function cloneFinalizeCloneTournamentProgram(
   program: TournamentProgramEntry[],
   workingLines: string[],
@@ -5654,8 +5918,12 @@ export function parseMatchCalendarTextLines(
           clonePrimaryConfidence,
           cloneSecondaryConfidence,
         );
-        const mergedProgramWithRoster = cloneFinalizeCloneTournamentProgram(
+        const mergedProgramReconciled = cloneReconcilePhase1TeamNamesWithGroupRoster(
           mergedClone.tournamentProgram ?? [],
+          options.clonePdfLayoutMeta,
+        );
+        const mergedProgramWithRoster = cloneFinalizeCloneTournamentProgram(
+          mergedProgramReconciled,
           workingLines,
           {
             fallbackDateIso: explicitTournamentFallbackIso,
