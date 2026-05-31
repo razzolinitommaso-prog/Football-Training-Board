@@ -109,7 +109,7 @@ export type TournamentProgramEntry = {
   group?: string | null;
   homeScore?: number | null;
   awayScore?: number | null;
-  kind?: "match" | "composition";
+  kind?: "match" | "composition" | "fixture_placeholder";
 };
 
 type OcrWorker = {
@@ -185,6 +185,7 @@ type CloneFutureStructureDraft = {
   headers: CloneFutureLayoutHeader[];
   intervals: CloneFutureLayoutInterval[];
   phases: CloneFuturePhaseStructure[];
+  phaseFixtures: CloneFuturePhaseFixtureDraft[];
 };
 
 type CloneFutureLayoutRejectedRow = {
@@ -1027,6 +1028,25 @@ function sanitizeTournamentProgramEntries(program: TournamentProgramEntry[]): To
     return matches.length >= 2;
   };
   for (const entry of program) {
+    if (entry.kind === "fixture_placeholder") {
+      const homeTeam = normalizeTournamentPlacementText(String(entry.homeTeam ?? "").trim());
+      const awayTeam = normalizeTournamentPlacementText(String(entry.awayTeam ?? "").trim());
+      const phase = String(entry.phase ?? "").trim();
+      if (!homeTeam || !awayTeam || !phase) continue;
+      const key =
+        entry.id ||
+        `fixture|${normalizeName(phase)}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      clean.push({
+        ...entry,
+        id: key,
+        homeTeam: homeTeam.slice(0, 120),
+        awayTeam: awayTeam.slice(0, 120),
+        kind: "fixture_placeholder",
+      });
+      continue;
+    }
     if (entry.kind === "composition") {
       const homeTeam = normalizeTournamentPlacementText(String(entry.homeTeam ?? "").trim());
       const awayTeam = String(entry.awayTeam ?? "da completare").trim() || "da completare";
@@ -4222,10 +4242,17 @@ function cloneBuildFutureStructureFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta)
     phases,
   });
 
+  const phaseIntervals = cloneBuildFutureLayoutPhaseIntervals(dedupedHeaders);
+  const phaseFixtures = clonePopulateFutureLayoutPhaseFixturesDraft({
+    layoutMeta,
+    phaseIntervals,
+  });
+
   const draft: CloneFutureStructureDraft = {
     headers: dedupedHeaders,
     intervals,
     phases: populated.phases,
+    phaseFixtures: phaseFixtures.fixtures,
   };
 
   console.log(
@@ -4263,12 +4290,6 @@ function cloneBuildFutureStructureFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta)
     "[CLONE-RUNTIME-CHECK] future structure populated draft JSON",
     JSON.stringify(populated.phases, null, 2),
   );
-
-  const phaseIntervals = cloneBuildFutureLayoutPhaseIntervals(dedupedHeaders);
-  const phaseFixtures = clonePopulateFutureLayoutPhaseFixturesDraft({
-    layoutMeta,
-    phaseIntervals,
-  });
   console.log("[CLONE-RUNTIME-CHECK] future layout phase intervals", JSON.stringify(phaseIntervals, null, 2));
   console.log(
     "[CLONE-RUNTIME-CHECK] future layout phase fixtures draft",
@@ -4280,6 +4301,109 @@ function cloneBuildFutureStructureFromLayoutMeta(layoutMeta: ClonePdfLayoutMeta)
   );
 
   return draft;
+}
+
+function cloneFutureFixturesByPhaseSummary(
+  program: TournamentProgramEntry[],
+): Record<string, Array<{ homeTeam: string; awayTeam: string }>> {
+  const summary: Record<string, Array<{ homeTeam: string; awayTeam: string }>> = {};
+  for (const entry of program) {
+    if (entry.kind !== "fixture_placeholder") continue;
+    const phase = String(entry.phase ?? "Fase futura").trim() || "Fase futura";
+    if (!summary[phase]) summary[phase] = [];
+    summary[phase].push({ homeTeam: entry.homeTeam, awayTeam: entry.awayTeam });
+  }
+  return summary;
+}
+
+function cloneApplyFutureLayoutFixtureDraft(
+  program: TournamentProgramEntry[],
+  phaseFixturesDraft: CloneFuturePhaseFixtureDraft[],
+  options: { fallbackDateIso?: string | null } = {},
+): TournamentProgramEntry[] {
+  if (phaseFixturesDraft.length === 0) {
+    console.warn(
+      "[CLONE-RUNTIME-CHECK] future layout fixtures skipped JSON",
+      JSON.stringify({ reason: "empty_draft" }, null, 2),
+    );
+    return program;
+  }
+
+  const dateIso =
+    options.fallbackDateIso && !Number.isNaN(new Date(options.fallbackDateIso).getTime())
+      ? options.fallbackDateIso
+      : new Date(new Date().getFullYear(), 0, 1, 10, 0, 0, 0).toISOString();
+
+  const allowedPhases = new Set(CLONE_FUTURE_LAYOUT_PHASE_INTERVAL_LABELS.map((label) => normalizeName(label)));
+  const kept = program.filter((entry) => entry.kind !== "fixture_placeholder");
+  const existingKeys = new Set<string>();
+  const additions: TournamentProgramEntry[] = [];
+  const applied: Array<{ phase: string; homeTeam: string; awayTeam: string }> = [];
+  const skipped: Array<{ phase: string; homeRef: string; awayRef: string; reason: string }> = [];
+
+  for (const fixture of phaseFixturesDraft) {
+    const phaseNorm = normalizeName(fixture.phase);
+    if (!allowedPhases.has(phaseNorm)) {
+      skipped.push({
+        phase: fixture.phase,
+        homeRef: fixture.homeRef,
+        awayRef: fixture.awayRef,
+        reason: "invalid_phase",
+      });
+      continue;
+    }
+
+    const homeTeam = normalizeTournamentPlacementText(String(fixture.homeRef ?? "").trim()).slice(0, 120);
+    const awayTeam = normalizeTournamentPlacementText(String(fixture.awayRef ?? "").trim()).slice(0, 120);
+    if (!homeTeam || !awayTeam) {
+      skipped.push({
+        phase: fixture.phase,
+        homeRef: fixture.homeRef,
+        awayRef: fixture.awayRef,
+        reason: "ambiguous_side",
+      });
+      continue;
+    }
+    if (normalizeName(homeTeam) === normalizeName(awayTeam)) {
+      skipped.push({
+        phase: fixture.phase,
+        homeRef: fixture.homeRef,
+        awayRef: fixture.awayRef,
+        reason: "identical_sides",
+      });
+      continue;
+    }
+
+    const key = `${phaseNorm}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`;
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+
+    additions.push({
+      id: `fixture|layout|${phaseNorm}|${normalizeName(homeTeam)}|${normalizeName(awayTeam)}`,
+      date: dateIso,
+      homeTeam,
+      awayTeam,
+      phase: fixture.phase,
+      group: null,
+      kind: "fixture_placeholder",
+    });
+    applied.push({ phase: fixture.phase, homeTeam, awayTeam });
+  }
+
+  const merged = [...kept, ...additions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future layout fixtures applied JSON",
+    JSON.stringify(applied, null, 2),
+  );
+  console.log(
+    "[CLONE-RUNTIME-CHECK] future layout fixtures skipped JSON",
+    JSON.stringify(skipped, null, 2),
+  );
+  console.log(
+    "[CLONE-RUNTIME-CHECK] final future fixtures by phase JSON",
+    JSON.stringify(cloneFutureFixturesByPhaseSummary(merged), null, 2),
+  );
+  return merged;
 }
 
 function cloneApplyFutureLayoutCompositionDraft(
@@ -4619,7 +4743,10 @@ function cloneFinalizeCloneTournamentProgram(
     fallbackDateIso: options.fallbackDateIso,
   });
   if (!options.layoutDraft) return withAttach;
-  return cloneApplyFutureLayoutCompositionDraft(withAttach, options.layoutDraft.phases, {
+  const withCompositions = cloneApplyFutureLayoutCompositionDraft(withAttach, options.layoutDraft.phases, {
+    fallbackDateIso: options.fallbackDateIso,
+  });
+  return cloneApplyFutureLayoutFixtureDraft(withCompositions, options.layoutDraft.phaseFixtures ?? [], {
     fallbackDateIso: options.fallbackDateIso,
   });
 }
@@ -5290,6 +5417,7 @@ function cloneRecognizedRowsFromTournamentProgram(
   const rows: MatchImportRow[] = [];
   const seen = new Set<string>();
   for (const entry of program) {
+    if (entry.kind === "composition" || entry.kind === "fixture_placeholder") continue;
     const leftOwn = tournamentAliasMatchesSide(normalizeName(entry.homeTeam), aliases);
     const rightOwn = tournamentAliasMatchesSide(normalizeName(entry.awayTeam), aliases);
     if (leftOwn === rightOwn) continue;
@@ -5547,6 +5675,7 @@ function buildCloneCanonicalRecords(
     const hasResult = entry.homeScore != null || entry.awayScore != null;
     const isRankingHint =
       entry.kind === "composition" ||
+      entry.kind === "fixture_placeholder" ||
       /\bclassificat[aoe]?\b/.test(normalizeName(`${entry.homeTeam} ${entry.awayTeam}`));
     if (entry.group && !seen.has(`group_header|${groupNorm}`)) {
       seen.add(`group_header|${groupNorm}`);

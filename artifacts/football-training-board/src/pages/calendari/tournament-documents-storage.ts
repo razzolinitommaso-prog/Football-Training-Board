@@ -18,7 +18,7 @@ export type TournamentProgramEntry = {
   awayTeam: string;
   phase?: string | null;
   group?: string | null;
-  kind?: "match" | "composition";
+  kind?: "match" | "composition" | "fixture_placeholder";
 };
 
 export type TournamentProgramScore = {

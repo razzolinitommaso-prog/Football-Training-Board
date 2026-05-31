@@ -208,7 +208,7 @@ function isPlaceholderTournamentTeam(value: string): boolean {
   );
 }
 function isFinalPlaceholderEntry(entry: TournamentProgramEntry): boolean {
-  if (entry.kind === "composition") return true;
+  if (entry.kind === "composition" || entry.kind === "fixture_placeholder") return true;
   return isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam) || /final/i.test(entry.group ?? "");
 }
 
@@ -224,7 +224,7 @@ function standingsFor(
     return table.get(key)!;
   };
   for (const entry of entries) {
-    if (entry.kind === "composition") continue;
+    if (entry.kind === "composition" || entry.kind === "fixture_placeholder") continue;
     if (isFinalPlaceholderEntry(entry)) continue;
     if (isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam)) continue;
     const home = ensure(entry.homeTeam);
@@ -397,7 +397,12 @@ function groupCompositionSlotsByGroup(program: TournamentProgramEntry[]): { labe
 }
 
 type FutureCompositionGroupView = { label: string; slots: string[] };
-type FutureCompositionPhaseView = { phase: string; phaseOrder: number; groups: FutureCompositionGroupView[] };
+type FutureCompositionPhaseView = {
+  phase: string;
+  phaseOrder: number;
+  groups: FutureCompositionGroupView[];
+  fixtures: string[];
+};
 
 const FUTURE_COMPOSITION_PHASE_ORDER: Record<string, number> = {
   [normalizeSide("2ª fase qualificazioni")]: 1,
@@ -476,9 +481,39 @@ function groupFutureCompositionSlotsByPhase(program: TournamentProgramEntry[]): 
       phase,
       phaseOrder: futureCompositionPhaseOrder(phase),
       groups,
+      fixtures: [],
     });
   }
 
+  phases.sort((a, b) => a.phaseOrder - b.phaseOrder || a.phase.localeCompare(b.phase));
+  return phases;
+}
+
+function groupFutureLayoutByPhase(program: TournamentProgramEntry[]): FutureCompositionPhaseView[] {
+  const compositionPhases = groupFutureCompositionSlotsByPhase(program);
+  const phaseMap = new Map<string, FutureCompositionPhaseView>();
+  for (const phase of compositionPhases) {
+    phaseMap.set(phase.phase, { ...phase, fixtures: [...phase.fixtures] });
+  }
+
+  for (const entry of program) {
+    if (entry.kind !== "fixture_placeholder") continue;
+    const homeTeam = String(entry.homeTeam ?? "").trim();
+    const awayTeam = String(entry.awayTeam ?? "").trim();
+    if (!homeTeam || !awayTeam) continue;
+    const phaseLabel = String(entry.phase ?? "").trim() || "Fase futura";
+    if (!phaseMap.has(phaseLabel)) {
+      phaseMap.set(phaseLabel, {
+        phase: phaseLabel,
+        phaseOrder: futureCompositionPhaseOrder(phaseLabel),
+        groups: [],
+        fixtures: [],
+      });
+    }
+    phaseMap.get(phaseLabel)!.fixtures.push(`${homeTeam} - ${awayTeam}`);
+  }
+
+  const phases = [...phaseMap.values()].filter((phase) => phase.groups.length > 0 || phase.fixtures.length > 0);
   phases.sort((a, b) => a.phaseOrder - b.phaseOrder || a.phase.localeCompare(b.phase));
   return phases;
 }
@@ -1044,16 +1079,23 @@ export function TournamentGroupedCards({
         const rawProgramByView = filterProgramEntriesByView(program, progVal);
         const clubOnly = !!clubOnlyByCompetition[g.competition];
         const expanded = expandedByCompetition[g.competition] ?? false;
-        const baseStandingsGroups = groupProgramEntries(rawProgramByView.filter((entry) => entry.kind !== "composition")).map((group) => ({
+        const baseStandingsGroups = groupProgramEntries(
+          rawProgramByView.filter((entry) => entry.kind !== "composition" && entry.kind !== "fixture_placeholder"),
+        ).map((group) => ({
           label: group.label,
           rows: standingsFor(group.entries, scores, pointsRule),
         }));
         const programByView = resolveTournamentProgramPlaceholders(rawProgramByView, baseStandingsGroups);
+        const matchProgramByView = programByView.filter(
+          (entry) => entry.kind !== "composition" && entry.kind !== "fixture_placeholder",
+        );
         const visibleProgram = clubOnly
-          ? programByView.filter((entry) => sideMatchesClub(entry.homeTeam, clubLabel) || sideMatchesClub(entry.awayTeam, clubLabel))
-          : programByView;
+          ? matchProgramByView.filter((entry) => sideMatchesClub(entry.homeTeam, clubLabel) || sideMatchesClub(entry.awayTeam, clubLabel))
+          : matchProgramByView;
         const programGroups = groupProgramEntries(visibleProgram);
-        const standingsGroups = groupProgramEntries(programByView.filter((entry) => entry.kind !== "composition")).map((group) => ({
+        const standingsGroups = groupProgramEntries(
+          programByView.filter((entry) => entry.kind !== "composition" && entry.kind !== "fixture_placeholder"),
+        ).map((group) => ({
           label: group.label,
           rows: standingsFor(group.entries, scores, pointsRule),
         }));
@@ -1111,6 +1153,7 @@ export function TournamentGroupedCards({
           group.rows.some((row) => sideMatchesClub(row.team, clubLabel)),
         );
         const compositionPhases = groupFutureCompositionSlotsByPhase(program);
+        const futureLayoutPhases = groupFutureLayoutByPhase(program);
         const suppressAutoGeneratedFinals = tournamentSuppressesAutoGeneratedFinals(program, compositionPhases);
 
         return (
@@ -1306,28 +1349,45 @@ export function TournamentGroupedCards({
                   </div>
                 )}
               </div>
-              {compositionPhases.length > 0 ? (
+              {futureLayoutPhases.length > 0 ? (
                 <div className="rounded-md border border-dashed border-violet-300/50 bg-muted/15 p-3 text-xs space-y-4">
                   <p className="font-semibold text-foreground">Composizione gironi / Fasi future</p>
-                  {compositionPhases.map((phaseBlock) => (
+                  {futureLayoutPhases.map((phaseBlock) => (
                     <div key={phaseBlock.phase} className="space-y-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {phaseBlock.phase}
                       </p>
-                      <div className={phaseBlock.groups.length > 1 ? "grid gap-3 md:grid-cols-2" : "space-y-3"}>
-                        {phaseBlock.groups.map((group) => (
-                          <div key={`${phaseBlock.phase}-${group.label}`} className="min-w-0 rounded border border-border/60 bg-background/70 p-2">
-                            <p className="mb-1.5 font-semibold text-foreground/90">{group.label}</p>
-                            <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
-                              {group.slots.map((slot) => (
-                                <li key={`${phaseBlock.phase}-${group.label}-${slot}`} className="truncate">
-                                  {slot}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
+                      {phaseBlock.groups.length > 0 ? (
+                        <div className={phaseBlock.groups.length > 1 ? "grid gap-3 md:grid-cols-2" : "space-y-3"}>
+                          {phaseBlock.groups.map((group) => (
+                            <div key={`${phaseBlock.phase}-${group.label}`} className="min-w-0 rounded border border-border/60 bg-background/70 p-2">
+                              <p className="mb-1.5 font-semibold text-foreground/90">{group.label}</p>
+                              <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
+                                {group.slots.map((slot) => (
+                                  <li key={`${phaseBlock.phase}-${group.label}-${slot}`} className="truncate">
+                                    {slot}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      {phaseBlock.fixtures.length > 0 ? (
+                        <ul className="space-y-1.5">
+                          {phaseBlock.fixtures.map((fixture) => (
+                            <li
+                              key={`${phaseBlock.phase}-${fixture}`}
+                              className="flex items-center justify-between gap-2 rounded border border-border/60 bg-background/70 px-2 py-1.5 text-muted-foreground"
+                            >
+                              <span className="truncate font-medium text-foreground/90">{fixture}</span>
+                              <span className="shrink-0 rounded-md border bg-muted/30 px-2 py-0.5 text-[11px] font-medium">
+                                in attesa
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </div>
                   ))}
                 </div>
