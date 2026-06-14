@@ -14,12 +14,10 @@ import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
 
-const SCHEDULE_ROLES = ["secretary", "director", "admin"];
-const MATCH_CREATE_DELETE_ROLES = ["secretary", "director", "admin", "presidente"];
+const SCHEDULE_ROLES = ["secretary"];
+const MATCH_CREATE_DELETE_ROLES = ["secretary"];
 const POST_NOTES_ROLES = [
   "secretary",
-  "director",
-  "admin",
   "coach",
   "fitness_coach",
   "athletic_director",

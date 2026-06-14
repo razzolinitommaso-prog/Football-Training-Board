@@ -14,6 +14,14 @@ import { withApi } from "@/lib/api-base";
 interface Equipment { id: number; playerId: number; playerName?: string; kitAssigned?: string; trainingKit?: string; matchKit?: string; notes?: string; }
 interface Player { id: number; firstName: string; lastName: string; }
 
+function playerName(player: Player): string {
+  return [player.lastName, player.firstName].filter(Boolean).join(" ");
+}
+
+function sortPlayersBySurname<T extends Player>(players: T[]): T[] {
+  return [...players].sort((a, b) => playerName(a).localeCompare(playerName(b), "it", { sensitivity: "base", numeric: true }));
+}
+
 async function apiFetch(url: string, options?: RequestInit) {
   const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) throw new Error(await res.text());
@@ -54,7 +62,7 @@ export default function EquipmentPage() {
     save.mutate({ playerId: editPlayer.id, kitAssigned: kitAssigned || null, trainingKit: trainingKit || null, matchKit: matchKit || null, notes: notes || null });
   }
 
-  const playersWithEquipment = players.map(p => ({ ...p, eq: equipment.find(e => e.playerId === p.id) }));
+  const playersWithEquipment = sortPlayersBySurname(players.map(p => ({ ...p, eq: equipment.find(e => e.playerId === p.id) })));
   const filteredPlayers = selectedPlayer !== "all" ? playersWithEquipment.filter(p => String(p.id) === selectedPlayer) : playersWithEquipment;
 
   return (
@@ -69,7 +77,7 @@ export default function EquipmentPage() {
           <SelectTrigger className="w-64"><SelectValue placeholder="Filtra per giocatore..." /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t.all ?? "All"}</SelectItem>
-            {players.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.firstName} {p.lastName}</SelectItem>)}
+            {sortPlayersBySurname(players).map(p => <SelectItem key={p.id} value={String(p.id)}>{playerName(p)}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -82,7 +90,7 @@ export default function EquipmentPage() {
               <Card key={id} className={eq ? "border-primary/30" : ""}>
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold">{firstName} {lastName}</CardTitle>
+                    <CardTitle className="text-sm font-semibold">{lastName} {firstName}</CardTitle>
                     <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit({ id, firstName, lastName })}>
                       <Edit3 className="w-4 h-4" />
                     </Button>

@@ -75,10 +75,10 @@ function ProtectedAppRoutes() {
           <ProtectedRoute><TrainingList /></ProtectedRoute>
         </Route>
         <Route path="/club">
-          <ProtectedRoute allowedRoles={["admin"]}><ClubSettings /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente"]}><ClubSettings /></ProtectedRoute>
         </Route>
         <Route path="/members">
-          <ProtectedRoute allowedRoles={["admin", "secretary"]}><MembersList /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "secretary", "director", "technical_director"]}><MembersList /></ProtectedRoute>
         </Route>
         <Route path="/tactical-board">
           <ProtectedRoute allowedRoles={["admin", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
@@ -182,7 +182,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute><TeamDetail /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/players">
-          <ProtectedRoute><PlayersList /></ProtectedRoute>
+          <ProtectedRoute><PlayersList section="scuola_calcio" /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/training">
           <ProtectedRoute><TrainingList /></ProtectedRoute>

@@ -16,6 +16,16 @@ export interface Club {
   /** @nullable */
   logoUrl?: string | null;
   /** @nullable */
+  primaryColor?: string | null;
+  /** @nullable */
+  secondaryColor?: string | null;
+  /** @nullable */
+  backgroundLogoEnabled?: number | null;
+  /** @nullable */
+  backgroundLogoMode?: string | null;
+  /** @nullable */
+  backgroundLogoOpacity?: number | null;
+  /** @nullable */
   foundedYear?: number | null;
   /** @nullable */
   description?: string | null;

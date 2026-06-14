@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from "react";
 import { Shield, MapPin, Calendar, Check, Upload, X, Palette } from "lucide-react";
@@ -29,6 +30,9 @@ const clubSchema = z.object({
   logoUrl: z.string().optional().nullable(),
   primaryColor: z.string().optional().nullable(),
   secondaryColor: z.string().optional().nullable(),
+  backgroundLogoEnabled: z.coerce.number().optional().nullable(),
+  backgroundLogoMode: z.enum(["large", "repeat"]).optional().nullable(),
+  backgroundLogoOpacity: z.coerce.number().min(0).max(30).optional().nullable(),
 });
 
 type FormData = z.infer<typeof clubSchema>;
@@ -99,6 +103,9 @@ export default function ClubSettings() {
   const form = useForm<FormData>({
     resolver: zodResolver(clubSchema),
   });
+  const backgroundEnabled = form.watch("backgroundLogoEnabled") !== 0;
+  const backgroundMode = form.watch("backgroundLogoMode") ?? "large";
+  const backgroundOpacity = form.watch("backgroundLogoOpacity") ?? 8;
 
   useEffect(() => {
     if (club) {
@@ -111,6 +118,9 @@ export default function ClubSettings() {
         logoUrl: club.logoUrl,
         primaryColor: (club as any).primaryColor,
         secondaryColor: (club as any).secondaryColor,
+        backgroundLogoEnabled: (club as any).backgroundLogoEnabled ?? 1,
+        backgroundLogoMode: (club as any).backgroundLogoMode ?? "large",
+        backgroundLogoOpacity: (club as any).backgroundLogoOpacity ?? 8,
       });
       if (club.logoUrl) setLogoPreview(club.logoUrl);
       if ((club as any).primaryColor) setPrimaryColor((club as any).primaryColor);
@@ -341,6 +351,104 @@ export default function ClubSettings() {
                   Salva logo
                 </Button>
               )}
+            </CardContent>
+          </Card>
+
+          {/* App background */}
+          <Card className="border-border/50 shadow-md">
+            <CardHeader>
+              <CardTitle>Sfondo app</CardTitle>
+              <CardDescription>
+                Decidi se usare il logo societa come sfondo dell'app e con quale intensita.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="flex items-center justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+                <div>
+                  <Label htmlFor="background-logo-enabled" className="font-semibold">Mostra logo sullo sfondo</Label>
+                  <p className="text-xs text-muted-foreground mt-1">Se spento, l'app resta con sfondo pulito.</p>
+                </div>
+                <Switch
+                  id="background-logo-enabled"
+                  checked={backgroundEnabled}
+                  onCheckedChange={(checked) => form.setValue("backgroundLogoEnabled", checked ? 1 : 0, { shouldDirty: true })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Modalita sfondo</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={backgroundMode === "large" ? "default" : "outline"}
+                    disabled={!backgroundEnabled}
+                    onClick={() => form.setValue("backgroundLogoMode", "large", { shouldDirty: true })}
+                  >
+                    Grande centrale
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={backgroundMode === "repeat" ? "default" : "outline"}
+                    disabled={!backgroundEnabled}
+                    onClick={() => form.setValue("backgroundLogoMode", "repeat", { shouldDirty: true })}
+                  >
+                    Ripetuto
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="background-logo-opacity">Opacita</Label>
+                  <span className="text-sm font-mono text-muted-foreground">{backgroundOpacity}%</span>
+                </div>
+                <Input
+                  id="background-logo-opacity"
+                  type="range"
+                  min="0"
+                  max="30"
+                  step="1"
+                  disabled={!backgroundEnabled}
+                  value={backgroundOpacity}
+                  onChange={(event) => form.setValue("backgroundLogoOpacity", Number(event.target.value), { shouldDirty: true })}
+                />
+              </div>
+
+              {logoPreview && backgroundEnabled && (
+                <div className="relative h-36 overflow-hidden rounded-xl border bg-background">
+                  {backgroundMode === "large" ? (
+                    <img
+                      src={logoPreview}
+                      alt=""
+                      className="absolute left-1/2 top-1/2 h-56 w-auto -translate-x-1/2 -translate-y-1/2"
+                      style={{ opacity: backgroundOpacity / 100 }}
+                    />
+                  ) : (
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        opacity: backgroundOpacity / 100,
+                        backgroundImage: `url(${logoPreview})`,
+                        backgroundRepeat: "repeat",
+                        backgroundSize: "96px 96px",
+                        backgroundPosition: "center",
+                      }}
+                    />
+                  )}
+                  <div className="relative z-10 m-4 rounded-lg border bg-card/90 p-3 text-sm shadow-sm">Anteprima sfondo app</div>
+                </div>
+              )}
+
+              <Button
+                type="button"
+                disabled={updateMutation.isPending}
+                onClick={() => form.handleSubmit(onSubmit)()}
+                className="gap-2"
+                size="sm"
+              >
+                <Check className="w-4 h-4" />
+                Salva sfondo
+              </Button>
             </CardContent>
           </Card>
 

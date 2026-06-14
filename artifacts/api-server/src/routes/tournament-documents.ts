@@ -23,7 +23,7 @@ type TournamentProgramEntry = {
   awayTeam: string;
   phase?: string | null;
   group?: string | null;
-  kind?: "match" | "composition";
+  kind?: "match" | "composition" | "fixture_placeholder";
 };
 
 type TournamentProgramScore = {
@@ -61,6 +61,17 @@ function normalizeTournamentKeyPart(value: unknown): string {
   return s || "unknown";
 }
 
+function tournamentProgramDedupeKey(entry: TournamentProgramEntry): string {
+  return [
+    entry.kind ?? "match",
+    entry.date,
+    normalizeTournamentKeyPart(entry.phase ?? ""),
+    normalizeTournamentKeyPart(entry.group ?? ""),
+    normalizeTournamentKeyPart(entry.homeTeam),
+    normalizeTournamentKeyPart(entry.awayTeam),
+  ].join("|");
+}
+
 function parseBase64Payload(raw: string): { base64: string; mimeFromDataUrl?: string } {
   const s = String(raw ?? "").trim();
   if (s.startsWith("data:")) {
@@ -76,6 +87,7 @@ function parseBase64Payload(raw: string): { base64: string; mimeFromDataUrl?: st
 
 function normalizeProgram(value: unknown): TournamentProgramEntry[] {
   if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
   return value.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
     const row = item as Record<string, unknown>;
@@ -84,15 +96,23 @@ function normalizeProgram(value: unknown): TournamentProgramEntry[] {
     const homeTeam = String(row.homeTeam ?? "").trim();
     const awayTeam = String(row.awayTeam ?? "").trim();
     if (!id || !date || !homeTeam || !awayTeam) return [];
-    return [{
+    const kind: TournamentProgramEntry["kind"] =
+      row.kind === "composition" || row.kind === "fixture_placeholder"
+        ? row.kind
+        : "match";
+    const entry: TournamentProgramEntry = {
       id,
       date,
       homeTeam,
       awayTeam,
       phase: row.phase == null ? null : String(row.phase),
       group: row.group == null ? null : String(row.group),
-      kind: row.kind === "composition" ? "composition" : "match",
-    }];
+      kind,
+    };
+    const key = tournamentProgramDedupeKey(entry);
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [entry];
   });
 }
 

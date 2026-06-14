@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useGetMyClub } from "@workspace/api-client-react";
 import {
   LayoutDashboard,
   Users,
@@ -92,6 +93,8 @@ const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof Users
 export function AppSidebar() {
   const [location] = useLocation();
   const { role, section, club } = useAuth();
+  const { data: liveClub } = useGetMyClub();
+  const activeClub = liveClub ?? club;
   const { t } = useLanguage();
   const { isMobile, setOpenMobile, toggleSidebar } = useSidebar();
 
@@ -237,11 +240,19 @@ export function AppSidebar() {
         <div className="p-5 pb-2">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground shadow-inner shrink-0">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-              </div>
+              {activeClub?.logoUrl ? (
+                <img
+                  src={activeClub.logoUrl}
+                  alt={activeClub.name || "Logo societa"}
+                  className="h-10 w-10 shrink-0 rounded-lg bg-white object-contain p-0.5 shadow-inner"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground shadow-inner shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+                </div>
+              )}
               <span className="font-display font-bold text-xl tracking-tight text-sidebar-foreground truncate">
-                FT Board
+                {activeClub?.name || "FT Board"}
               </span>
             </div>
             <Button

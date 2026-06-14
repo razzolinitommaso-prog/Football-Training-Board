@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { date, pgTable, text, serial, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { clubsTable } from "./clubs";
@@ -14,7 +14,9 @@ export const teamsTable = pgTable("teams", {
   ageGroup: text("age_group"),
   category: text("category"),
   clubSection: text("club_section").notNull().default("scuola_calcio"),
-  trainingSchedule: jsonb("training_schedule").$type<{ day: string; startTime: string; endTime: string }[]>(),
+  seasonTrainingStartDate: date("season_training_start_date"),
+  officialTrainingEndDate: date("official_training_end_date"),
+  trainingSchedule: jsonb("training_schedule").$type<{ day: string; startTime: string; endTime: string; campo?: string | null }[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

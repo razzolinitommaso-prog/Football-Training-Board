@@ -76,6 +76,11 @@ export const LoginUserResponse = zod.object({
     city: zod.string().nullish(),
     country: zod.string().nullish(),
     logoUrl: zod.string().nullish(),
+    primaryColor: zod.string().nullish(),
+    secondaryColor: zod.string().nullish(),
+    backgroundLogoEnabled: zod.number().nullish(),
+    backgroundLogoMode: zod.string().nullish(),
+    backgroundLogoOpacity: zod.number().nullish(),
     foundedYear: zod.number().nullish(),
     description: zod.string().nullish(),
     createdAt: zod.date(),
@@ -107,6 +112,11 @@ export const GetCurrentUserResponse = zod.object({
     city: zod.string().nullish(),
     country: zod.string().nullish(),
     logoUrl: zod.string().nullish(),
+    primaryColor: zod.string().nullish(),
+    secondaryColor: zod.string().nullish(),
+    backgroundLogoEnabled: zod.number().nullish(),
+    backgroundLogoMode: zod.string().nullish(),
+    backgroundLogoOpacity: zod.number().nullish(),
     foundedYear: zod.number().nullish(),
     description: zod.string().nullish(),
     createdAt: zod.date(),
@@ -140,6 +150,9 @@ export const GetMyClubResponse = zod.object({
   logoUrl: zod.string().nullish(),
   primaryColor: zod.string().nullish(),
   secondaryColor: zod.string().nullish(),
+  backgroundLogoEnabled: zod.number().nullish(),
+  backgroundLogoMode: zod.string().nullish(),
+  backgroundLogoOpacity: zod.number().nullish(),
   foundedYear: zod.number().nullish(),
   description: zod.string().nullish(),
   createdAt: zod.date(),
@@ -155,6 +168,9 @@ export const UpdateMyClubBody = zod.object({
   logoUrl: zod.string().nullish(),
   primaryColor: zod.string().nullish(),
   secondaryColor: zod.string().nullish(),
+  backgroundLogoEnabled: zod.number().nullish(),
+  backgroundLogoMode: zod.string().nullish(),
+  backgroundLogoOpacity: zod.number().nullish(),
   foundedYear: zod.number().nullish(),
   description: zod.string().nullish(),
 });
@@ -167,6 +183,9 @@ export const UpdateMyClubResponse = zod.object({
   logoUrl: zod.string().nullish(),
   primaryColor: zod.string().nullish(),
   secondaryColor: zod.string().nullish(),
+  backgroundLogoEnabled: zod.number().nullish(),
+  backgroundLogoMode: zod.string().nullish(),
+  backgroundLogoOpacity: zod.number().nullish(),
   foundedYear: zod.number().nullish(),
   description: zod.string().nullish(),
   createdAt: zod.date(),
@@ -281,9 +300,11 @@ export const ListTeamsResponseItem = zod.object({
   seasonId: zod.number().nullish(),
   seasonName: zod.string().nullish(),
   clubSection: zod.string().nullish(),
+  seasonTrainingStartDate: zod.string().nullish(),
+  officialTrainingEndDate: zod.string().nullish(),
   playerCount: zod.number(),
   assignedStaff: zod.array(TeamAssignedStaff).optional(),
-  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string() })).nullish(),
+  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string(), campo: zod.string().nullish() })).nullish(),
   createdAt: zod.date(),
 });
 export const ListTeamsResponse = zod.array(ListTeamsResponseItem);
@@ -295,6 +316,7 @@ export const TrainingSlot = zod.object({
   day: zod.string(),
   startTime: zod.string(),
   endTime: zod.string(),
+  campo: zod.string().nullish(),
 });
 
 export const CreateTeamBody = zod.object({
@@ -303,6 +325,8 @@ export const CreateTeamBody = zod.object({
   category: zod.string().nullish(),
   coachId: zod.number().nullish(),
   trainingSchedule: zod.array(TrainingSlot).nullish(),
+  seasonTrainingStartDate: zod.string().nullish(),
+  officialTrainingEndDate: zod.string().nullish(),
   clubSection: zod.enum(["scuola_calcio", "settore_giovanile", "prima_squadra"]).optional(),
 });
 
@@ -322,9 +346,11 @@ export const GetTeamResponse = zod.object({
   coachId: zod.number().nullish(),
   coachName: zod.string().nullish(),
   clubSection: zod.string().nullish(),
+  seasonTrainingStartDate: zod.string().nullish(),
+  officialTrainingEndDate: zod.string().nullish(),
   playerCount: zod.number(),
   assignedStaff: zod.array(TeamAssignedStaff).optional(),
-  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string() })).nullish(),
+  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string(), campo: zod.string().nullish() })).nullish(),
   createdAt: zod.date(),
 });
 
@@ -341,6 +367,9 @@ export const UpdateTeamBody = zod.object({
   category: zod.string().nullish(),
   coachId: zod.number().nullish(),
   trainingSchedule: zod.array(TrainingSlot).nullish(),
+  seasonTrainingStartDate: zod.string().nullish(),
+  officialTrainingEndDate: zod.string().nullish(),
+  clubSection: zod.enum(["scuola_calcio", "settore_giovanile", "prima_squadra"]).optional(),
 });
 
 export const UpdateTeamResponse = zod.object({
@@ -352,9 +381,11 @@ export const UpdateTeamResponse = zod.object({
   coachId: zod.number().nullish(),
   coachName: zod.string().nullish(),
   clubSection: zod.string().nullish(),
+  seasonTrainingStartDate: zod.string().nullish(),
+  officialTrainingEndDate: zod.string().nullish(),
   playerCount: zod.number(),
   assignedStaff: zod.array(TeamAssignedStaff).optional(),
-  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string() })).nullish(),
+  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string(), campo: zod.string().nullish() })).nullish(),
   createdAt: zod.date(),
 });
 

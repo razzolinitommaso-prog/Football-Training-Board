@@ -42,6 +42,8 @@ type DashboardTeam = {
   id: number;
   name: string;
   clubSection?: string | null;
+  seasonTrainingStartDate?: string | null;
+  officialTrainingEndDate?: string | null;
   trainingSchedule?: TrainingSlot[] | null;
 };
 
@@ -344,6 +346,13 @@ function parseDashboardTournamentDate(value?: string | null): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseDashboardDateOnly(value?: string | null, endOfDay = false): Date | null {
+  const raw = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const parsed = new Date(`${raw}T${endOfDay ? "23:59:59" : "00:00:00"}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function decodeDashboardTournamentLogistics(notes?: string | null): { startDate?: string; endDate?: string; departureDate?: string; returnDate?: string } | null {
   const raw = String(notes ?? "").split(/\r?\n/).find((line) => line.startsWith(DASHBOARD_TOURNAMENT_LOGISTICS_PREFIX));
   if (!raw) return null;
@@ -540,6 +549,32 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   return null;
 }
 
+function dashboardTeamCategoryRank(name?: string | null): number {
+  const text = String(name ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (text.includes("piccoli amici")) return 0;
+  if (text.includes("primi calci")) return 1;
+  if (text.includes("pulcini")) return 2;
+  if (text.includes("esordienti")) return 3;
+  if (text.includes("giovanissimi")) return 4;
+  if (text.includes("allievi") || text.includes("alievi")) return 5;
+  if (text.includes("juniores") || text.includes("juniors")) return 6;
+  if (text.includes("prima squadra")) return 7;
+  return 99;
+}
+
+function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number {
+  const categoryDiff = dashboardTeamCategoryRank(a.name) - dashboardTeamCategoryRank(b.name);
+  if (categoryDiff !== 0) return categoryDiff;
+
+  const yearDiff = (dashboardTeamYearRank(a.name) ?? 99) - (dashboardTeamYearRank(b.name) ?? 99);
+  if (yearDiff !== 0) return yearDiff;
+
+  return a.name.localeCompare(b.name, "it", { numeric: true, sensitivity: "base" });
+}
+
   const teamsForCalendarImport = ((allTeams ?? []) as any[]).filter((team) => Number(team?.id) > 0);
   const openCalendarPdfImport = (mode: "federation" | "tournament") => {
     setCalendarImportMode(mode);
@@ -619,6 +654,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   const [selectedCalendarItem, setSelectedCalendarItem] = useState<DashboardCalendarItem | null>(null);
   const [dashboardCalendarMonth, setDashboardCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [dashboardCalendarCollapsed, setDashboardCalendarCollapsed] = useState(false);
+  const [matchCalendarsCollapsed, setMatchCalendarsCollapsed] = useState(true);
   const [dashboardSelectedTeamIds, setDashboardSelectedTeamIds] = useState<Set<number>>(new Set());
   const [phaseTeamPicker, setPhaseTeamPicker] = useState<null | { phase: DashboardMatchPhase; title: string }>(null);
   const [calendarEditDate, setCalendarEditDate] = useState("");
@@ -655,7 +691,9 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   });
 
   const dashboardTeams = useMemo(
-    () => ((allTeams ?? []) as DashboardTeam[]).filter((team) => Number(team?.id) > 0),
+    () => ((allTeams ?? []) as DashboardTeam[])
+      .filter((team) => Number(team?.id) > 0)
+      .sort(compareDashboardTeamsByYear),
     [allTeams],
   );
 
@@ -907,6 +945,8 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
     });
 
     teams.forEach((team) => {
+      const trainingStart = parseDashboardDateOnly(team.seasonTrainingStartDate);
+      const trainingEnd = parseDashboardDateOnly(team.officialTrainingEndDate, true);
       (team.trainingSchedule ?? []).forEach((slot) => {
         const dayMap: Record<string, number> = {
           "Domenica": 0,
@@ -927,6 +967,9 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
         const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
         monthDays.forEach((day) => {
           if (day.getDay() !== targetDay) return;
+          const dayStart = startOfDay(day);
+          if (trainingStart && dayStart < startOfDay(trainingStart)) return;
+          if (trainingEnd && dayStart > startOfDay(trainingEnd)) return;
           const at = combineLocalDateAndTime(day, slot.startTime);
           if (at > maxDay) return;
           const originalDate = format(day, "yyyy-MM-dd");
@@ -1337,6 +1380,42 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
     };
   }, [dashboardMatches]);
 
+  const dashboardMatchPhaseCountsByTeam = useMemo(() => {
+    const counts = new Map<number, Record<DashboardMatchPhase, number>>();
+    const tournamentKeysByTeam = new Map<number, Set<string>>();
+
+    dashboardMatches.forEach((match) => {
+      const teamId = Number(match.teamId ?? 0);
+      if (!teamId) return;
+
+      const phase = dashboardMatchPhase(match);
+      if (phase === "tornei") {
+        const competition = normalCompetition(match.competition) || "Torneo";
+        if (!tournamentKeysByTeam.has(teamId)) tournamentKeysByTeam.set(teamId, new Set());
+        tournamentKeysByTeam.get(teamId)?.add(competition.toLowerCase());
+        return;
+      }
+
+      const current = counts.get(teamId) ?? { autunnale: 0, primaverile: 0, tornei: 0, amichevoli: 0 };
+      current[phase] += 1;
+      counts.set(teamId, current);
+    });
+
+    tournamentKeysByTeam.forEach((keys, teamId) => {
+      const current = counts.get(teamId) ?? { autunnale: 0, primaverile: 0, tornei: 0, amichevoli: 0 };
+      current.tornei = keys.size;
+      counts.set(teamId, current);
+    });
+
+    return counts;
+  }, [dashboardMatches]);
+
+  function dashboardPhaseCountLabel(count: number, phase: DashboardMatchPhase): string {
+    if (phase === "tornei") return `${count} ${count === 1 ? "torneo" : "tornei"}`;
+    if (phase === "amichevoli") return `${count} ${count === 1 ? "amichevole" : "amichevoli"}`;
+    return `${count} ${count === 1 ? "partita" : "partite"}`;
+  }
+
   const dashboardTeamCount = useMemo(() => {
     const fromApi = stats?.totalTeams ?? 0;
     const n = allTeams?.length ?? 0;
@@ -1425,6 +1504,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
   const dashboardStaffCount = dashboardMembers.length || stats?.totalMembers || 0;
 
   const [alertDismissed, setAlertDismissed] = useState(false);
+  const [unavailableAlertOpen, setUnavailableAlertOpen] = useState(false);
 
   // --- Notifications state ---
   const [notifications, setNotifications] = useState<ClubNotification[]>([]);
@@ -1691,12 +1771,41 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
 
   const showUnavailableAlert = !alertDismissed && (
     nr === "coach" || nr === "technical_director" || nr === "fitness_coach" ||
-    nr === "admin" || nr === "athletic_director"
+    nr === "admin" || nr === "presidente" || nr === "athletic_director"
   );
 
   const unavailablePlayers = (allPlayers as any[] | undefined)?.filter(
     (p: any) => p.status !== "inactive" && p.available === false
   ) ?? [];
+
+  const unavailablePlayersByAnnata = useMemo(() => {
+    const groups = new Map<string, any[]>();
+    unavailablePlayers.forEach((player: any) => {
+      const key = String(player.teamName ?? "").trim() || "Senza squadra";
+      const list = groups.get(key) ?? [];
+      list.push(player);
+      groups.set(key, list);
+    });
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => {
+        const teamA = dashboardTeams.find((team) => team.name === a);
+        const teamB = dashboardTeams.find((team) => team.name === b);
+        if (teamA && teamB) return compareDashboardTeamsByYear(teamA, teamB);
+        if (teamA) return -1;
+        if (teamB) return 1;
+        return a.localeCompare(b, "it", { sensitivity: "base", numeric: true });
+      })
+      .map(([teamName, players]) => ({
+        teamName,
+        players: players.sort((a: any, b: any) =>
+          `${String(a.lastName ?? "")} ${String(a.firstName ?? "")}`.localeCompare(
+            `${String(b.lastName ?? "")} ${String(b.firstName ?? "")}`,
+            "it",
+            { sensitivity: "base", numeric: true },
+          ),
+        ),
+      }));
+  }, [dashboardTeams, unavailablePlayers]);
 
   const chartDataEn = [
     { name: "Mon", sessions: 2 },
@@ -1779,6 +1888,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
       </div>
 
 {/* QUICK ACTIONS — Lavagna/Esercitazione solo staff tecnico; Pianifica settimana fuori card solo non-segreteria */}
+{(canQuickCreateTrainingTools || (nr !== "secretary" && nr !== "presidente" && nr !== "admin")) && (
 <div
   className={cn(
     "grid grid-cols-1 gap-3",
@@ -1799,7 +1909,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
       </Link>
     </>
   )}
-  {nr !== "secretary" && (
+  {nr !== "secretary" && nr !== "presidente" && nr !== "admin" && (
     <Link href="/training">
       <Button variant="outline" className="w-full h-12 text-sm font-semibold">
         📅 Pianifica Settimana
@@ -1807,6 +1917,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
     </Link>
   )}
 </div>
+)}
 
       {/* Notifications Panel */}
       <Card className="shadow-md border-border/50">
@@ -2277,21 +2388,31 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            {dashboardTeams.map((team) => (
-              <Button
-                key={team.id}
-                type="button"
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => {
-                  if (!phaseTeamPicker) return;
-                  setLocation(`/calendari/${team.id}?phase=${phaseTeamPicker.phase}`);
-                  setPhaseTeamPicker(null);
-                }}
-              >
-                {team.name}
-              </Button>
-            ))}
+            {dashboardTeams.map((team) => {
+              const phase = phaseTeamPicker?.phase;
+              const count = phase ? (dashboardMatchPhaseCountsByTeam.get(Number(team.id))?.[phase] ?? 0) : 0;
+
+              return (
+                <Button
+                  key={team.id}
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between gap-3"
+                  onClick={() => {
+                    if (!phaseTeamPicker) return;
+                    setLocation(`/calendari/${team.id}?phase=${phaseTeamPicker.phase}`);
+                    setPhaseTeamPicker(null);
+                  }}
+                >
+                  <span className="truncate text-left">{team.name}</span>
+                  {phase && (
+                    <Badge variant={count > 0 ? "default" : "secondary"} className="shrink-0">
+                      {dashboardPhaseCountLabel(count, phase)}
+                    </Badge>
+                  )}
+                </Button>
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>
@@ -2559,153 +2680,6 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
           </div>
         </CardContent>
       </Card>
-
-      {showSecretaryFilesCard && (
-        <>
-          <Card className="shadow-md border-border/50 border-emerald-500/20 bg-emerald-500/[0.03]">
-            <CardHeader className="pb-2 border-b border-emerald-500/10">
-              <div className="flex items-center gap-2">
-                <FileUp className="w-5 h-5 text-emerald-600" />
-                <CardTitle className="text-base font-display">File per pianificazione e calendari</CardTitle>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Importa i PDF nel calendario della squadra corretta: scegli annata/squadra, carica il file e conferma le partite riconosciute.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-3 pt-4">
-              <div className="flex flex-wrap gap-2">
-                <Link href={nr === "secretary" ? "/scuola-calcio/calendar" : "/training"}>
-                  <Button type="button" variant="outline" size="sm" className="gap-2">
-                    <CalendarDays className="w-4 h-4" />
-                    {nr === "secretary" ? "Apri Calendario" : "Pianifica Settimana"}
-                  </Button>
-                </Link>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  disabled={uploadSecretaryFileMutation.isPending}
-                  onClick={() => openCalendarPdfImport("federation")}
-                >
-                  <FileText className="w-4 h-4" />
-                  PDF federazione
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  disabled={uploadSecretaryFileMutation.isPending}
-                  onClick={() => openCalendarPdfImport("tournament")}
-                >
-                  <Trophy className="w-4 h-4" />
-                  PDF tornei
-                </Button>
-                <input
-                  id="secretary-file-input"
-                  type="file"
-                  className="hidden"
-                  accept=".pdf,application/pdf"
-                  onChange={async (e) => {
-                    const input = e.target;
-                    const file = input.files?.[0];
-                    input.value = "";
-                    if (!file) return;
-                    handleSecretaryReferenceUpload(file, secretaryUploadKind);
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="gap-2"
-                  disabled={secretaryFiles.length === 0 || uploadSecretaryFileMutation.isPending}
-                  onClick={async () => {
-                    try {
-                      const bundle = await fetchJsonOrThrow<
-                        { id: number; name: string; mimeType: string; createdAt: string; dataUrl: string }[]
-                      >("/api/secretary/club-files/export-bundle");
-                      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = `ftb-file-condivisione-club-${clubIdNum}.json`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    } catch {
-                      /* toast optional */
-                    }
-                  }}
-                >
-                  <Download className="w-4 h-4" />
-                  Esporta elenco
-                </Button>
-              </div>
-              {secretaryFiles.length > 0 ? (
-                <ul className="divide-y rounded-lg border text-sm">
-                  {secretaryFiles.map((f) => (
-                    <li key={f.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                      <button
-                        type="button"
-                        className="text-primary hover:underline truncate min-w-0 text-left"
-                        onClick={() => void secretaryDownloadFile(f.id, f.originalFilename)}
-                      >
-                        {f.originalFilename}
-                      </button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                        disabled={deleteSecretaryFileMutation.isPending}
-                        onClick={() => deleteSecretaryFileMutation.mutate(f.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </CardContent>
-          </Card>
-          <Dialog open={calendarImportMode !== null} onOpenChange={(open) => !open && setCalendarImportMode(null)}>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>
-                  {calendarImportMode === "tournament" ? "Import PDF tornei" : "Import PDF federazione"}
-                </DialogTitle>
-                <DialogDescription>
-                  Seleziona la squadra/annata in cui inserire le partite del PDF.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-2">
-                <Label htmlFor="calendar-import-team">Squadra / annata</Label>
-                <Select value={calendarImportTeamId} onValueChange={setCalendarImportTeamId}>
-                  <SelectTrigger id="calendar-import-team">
-                    <SelectValue placeholder="Scegli squadra" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {teamsForCalendarImport.map((team) => (
-                      <SelectItem key={team.id} value={String(team.id)}>
-                        {team.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setCalendarImportMode(null)}>
-                  Annulla
-                </Button>
-                <Button type="button" disabled={!calendarImportTeamId} onClick={startCalendarPdfImport}>
-                  Continua
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </>
-      )}
 
       <Dialog open={selectedCalendarItem !== null} onOpenChange={(open) => !open && setSelectedCalendarItem(null)}>
         <DialogContent className="max-w-lg">
@@ -3132,8 +3106,19 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
                 <Trophy className="w-5 h-5 text-primary" />
                 <CardTitle className="text-base font-display">Calendari Partite</CardTitle>
               </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title={matchCalendarsCollapsed ? "Apri calendari partite" : "Chiudi calendari partite"}
+                onClick={() => setMatchCalendarsCollapsed((collapsed) => !collapsed)}
+              >
+                {matchCalendarsCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+              </Button>
             </div>
           </CardHeader>
+          {!matchCalendarsCollapsed && (
           <CardContent className="p-5">
             {(() => {
               const teams = (allTeams ?? []) as any[];
@@ -3221,6 +3206,7 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
               );
             })()}
           </CardContent>
+          )}
         </Card>
       )}
 
@@ -3434,7 +3420,45 @@ function dashboardTeamYearRank(name?: string | null): 1 | 2 | null {
               <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5 mb-3">
                 {t.unavailablePlayersAlert}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mb-3 h-7 border-amber-300 text-xs text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                onClick={() => setUnavailableAlertOpen((open) => !open)}
+              >
+                {unavailableAlertOpen ? "Chiudi elenco" : "Apri elenco per annata"}
+                {unavailableAlertOpen ? <ChevronUp className="ml-1 h-3.5 w-3.5" /> : <ChevronDown className="ml-1 h-3.5 w-3.5" />}
+              </Button>
+              {unavailableAlertOpen && (
+                <div className="space-y-3">
+                  {unavailablePlayersByAnnata.map((group) => (
+                    <div key={group.teamName} className="rounded-lg border border-amber-200 bg-white/70 p-2 dark:border-amber-800 dark:bg-amber-950/40">
+                      <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                        <h4 className="text-xs font-bold uppercase tracking-wide text-amber-900 dark:text-amber-200">{group.teamName}</h4>
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">{group.players.length}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {group.players.map((p: any) => (
+                          <div
+                            key={p.id}
+                            className="bg-white dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-xs"
+                          >
+                            <div className="font-semibold text-amber-900 dark:text-amber-200">
+                              {String(p.lastName ?? "").trim()} {String(p.firstName ?? "").trim()}
+                            </div>
+                            <div className="flex flex-wrap gap-x-3 mt-1 text-amber-700 dark:text-amber-300">
+                              {p.unavailabilityReason && <span>{reasonLabel(p.unavailabilityReason, t)}</span>}
+                              {p.expectedReturn && <span>{p.expectedReturn}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="hidden">
                 {unavailablePlayers.map((p: any) => (
                   <div
                     key={p.id}

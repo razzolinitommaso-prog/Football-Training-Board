@@ -16,6 +16,14 @@ interface Registration { id: number; playerId: number; playerName?: string; stat
 interface Player { id: number; firstName: string; lastName: string; }
 interface Season { id: number; name: string; }
 
+function playerName(player: Player): string {
+  return [player.lastName, player.firstName].filter(Boolean).join(" ");
+}
+
+function sortPlayersBySurname(players: Player[]): Player[] {
+  return [...players].sort((a, b) => playerName(a).localeCompare(playerName(b), "it", { sensitivity: "base", numeric: true }));
+}
+
 async function apiFetch(url: string, options?: RequestInit) {
   const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) throw new Error(await res.text());
@@ -71,7 +79,7 @@ export default function RegistrationsPage() {
                 <Label>{t.player}</Label>
                 <Select value={playerId} onValueChange={setPlayerId} required>
                   <SelectTrigger><SelectValue placeholder={t.selectPlayer ?? "Select player"} /></SelectTrigger>
-                  <SelectContent>{players.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.firstName} {p.lastName}</SelectItem>)}</SelectContent>
+                  <SelectContent>{sortPlayersBySurname(players).map(p => <SelectItem key={p.id} value={String(p.id)}>{playerName(p)}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">

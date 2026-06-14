@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useListTeams, useCreateTeam, useDeleteTeam, useUpdateTeam } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,8 +21,20 @@ import { normalizeSessionRole } from "@/lib/session-role";
 import { exportToExcel, mapTeamsForExcel } from "@/lib/excel-export";
 import { mapExcelRowToTeam, isValidTeamRow, downloadTeamTemplate } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
+import { withApi } from "@/lib/api-base";
 
 const GIORNI_SETTIMANA = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"];
+
+const CAMPI_ALLENAMENTO = [
+  "Campo 1",
+  "Campo 2",
+  "Campo 3",
+  "Tendone",
+  "Palestra",
+  "Meta Campo 1",
+  "Meta Campo 2",
+  "Meta Campo 3",
+] as const;
 
 const SEZIONI = [
   { value: "scuola_calcio", label: "Scuola Calcio" },
@@ -32,6 +44,47 @@ const SEZIONI = [
 
 function sectionLabel(val?: string | null) {
   return SEZIONI.find(s => s.value === val)?.label ?? val ?? "";
+}
+
+function sectionPlayersPath(val?: string | null) {
+  if (val === "settore_giovanile") return "/settore-giovanile/players";
+  if (val === "prima_squadra") return "/prima-squadra/players";
+  return "/scuola-calcio/players";
+}
+
+function normalizeTeamLabel(value?: string | null): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function teamCategoryRank(value?: string | null): number {
+  const text = normalizeTeamLabel(value);
+  if (text.includes("piccoli amici")) return 0;
+  if (text.includes("primi calci")) return 1;
+  if (text.includes("pulcini")) return 2;
+  if (text.includes("esordienti")) return 3;
+  return 99;
+}
+
+function teamYearRank(value?: string | null): number {
+  const text = normalizeTeamLabel(value);
+  if (/(^|\s)1\s*[^\s\w]*\s*(?:o\s*)?anno\b/.test(text) || /(^|\s)1\s*(?:°|º|o)(\s|$)/.test(text)) return 1;
+  if (/(^|\s)2\s*[^\s\w]*\s*(?:o\s*)?anno\b/.test(text) || /(^|\s)2\s*(?:°|º|o)(\s|$)/.test(text)) return 2;
+  return 99;
+}
+
+function compareTeamCategoryLabels(a: string, b: string): number {
+  const categoryDiff = teamCategoryRank(a) - teamCategoryRank(b);
+  if (categoryDiff !== 0) return categoryDiff;
+  const yearDiff = teamYearRank(a) - teamYearRank(b);
+  if (yearDiff !== 0) return yearDiff;
+  return a.localeCompare(b, "it", { numeric: true, sensitivity: "base" });
+}
+
+function isKnownCampo(value?: string | null): boolean {
+  return CAMPI_ALLENAMENTO.some((campo) => campo === value);
 }
 
 const STAFF_ROLE_ICONS: Record<string, string> = {
@@ -58,6 +111,7 @@ function staffRoleLabel(role: string, t: ReturnType<typeof useLanguage>["t"]) {
 }
 
 type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
+type TeamTrainingSlot = TrainingSlot & { campo?: string | null };
 
 interface TeamsListProps {
   section?: ClubSection;
@@ -65,25 +119,36 @@ interface TeamsListProps {
 
 export default function TeamsList({ section }: TeamsListProps = {}) {
   const { t } = useLanguage();
-  const { role } = useAuth();
+  const { role, section: loginSection } = useAuth();
   const nr = normalizeSessionRole(role);
   const { data: allTeams, isLoading } = useListTeams();
-  const teams = section ? allTeams?.filter(t => t.clubSection === section) : allTeams;
+  const { data: seasons = [] } = useQuery<Array<{ id: number; name: string; startDate: string; endDate: string; isActive: boolean }>>({
+    queryKey: ["/api/seasons"],
+    queryFn: async () => {
+      const res = await fetch(withApi("/api/seasons"), { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  const activeSeason = seasons.find((season) => season.isActive) ?? seasons[seasons.length - 1] ?? null;
   const [search, setSearch] = useState("");
   const [ageGroupFilter, setAgeGroupFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [scheduleTeam, setScheduleTeam] = useState<{ id: number; name: string } | null>(null);
-  const [scheduleRows, setScheduleRows] = useState<TrainingSlot[]>([]);
+  const [scheduleRows, setScheduleRows] = useState<TeamTrainingSlot[]>([]);
   const [editTeam, setEditTeam] = useState<any | null>(null);
-  const [editScheduleRows, setEditScheduleRows] = useState<TrainingSlot[]>([]);
-  const [createScheduleRows, setCreateScheduleRows] = useState<TrainingSlot[]>([]);
+  const [editScheduleRows, setEditScheduleRows] = useState<TeamTrainingSlot[]>([]);
+  const [createScheduleRows, setCreateScheduleRows] = useState<TeamTrainingSlot[]>([]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
   const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
   const canEditSchedule = nr === "admin" || nr === "coach" || nr === "director" || nr === "secretary";
   const canEditTeam = nr === "admin" || nr === "director" || nr === "secretary";
+  const effectiveSection = (section ?? loginSection ?? "") as ClubSection | "";
+  const canChooseTeamSection = !effectiveSection && (nr === "admin" || nr === "director" || nr === "presidente");
+  const teams = effectiveSection ? allTeams?.filter(t => t.clubSection === effectiveSection) : allTeams;
 
   const handleExportTeams = () => {
     if (!teams?.length) return;
@@ -95,6 +160,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     ageGroup: z.string().optional(),
     category: z.string().optional(),
     clubSection: z.enum(["scuola_calcio", "settore_giovanile", "prima_squadra"]).default("scuola_calcio"),
+    seasonTrainingStartDate: z.string().optional(),
+    officialTrainingEndDate: z.string().optional(),
   });
 
   const createMutation = useCreateTeam({
@@ -132,27 +199,31 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     }
   });
 
-  function openScheduleDialog(team: { id: number; name: string; trainingSchedule?: TrainingSlot[] | null }) {
+  function openScheduleDialog(team: { id: number; name: string; trainingSchedule?: TeamTrainingSlot[] | null }) {
     setScheduleTeam({ id: team.id, name: team.name });
     setScheduleRows(team.trainingSchedule ? [...team.trainingSchedule] : []);
   }
 
+  function normalizeScheduleRows(rows: TeamTrainingSlot[]) {
+    return rows.map((row) => ({ ...row, campo: row.campo?.trim() || null }));
+  }
+
   function addScheduleRow() {
-    setScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00" }]);
+    setScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1" }]);
   }
 
   function removeScheduleRow(idx: number) {
     setScheduleRows(prev => prev.filter((_, i) => i !== idx));
   }
 
-  function updateScheduleRow(idx: number, field: keyof TrainingSlot, value: string) {
+  function updateScheduleRow(idx: number, field: keyof TeamTrainingSlot, value: string) {
     setScheduleRows(prev => prev.map((row, i) => i === idx ? { ...row, [field]: value } : row));
   }
 
   function saveSchedule() {
     if (!scheduleTeam) return;
     if (import.meta.env.DEV) console.log("[saveSchedule] id=", scheduleTeam.id, "scheduleRows=", scheduleRows);
-    updateScheduleMutation.mutate({ id: scheduleTeam.id, data: { trainingSchedule: scheduleRows } });
+    updateScheduleMutation.mutate({ id: scheduleTeam.id, data: { trainingSchedule: normalizeScheduleRows(scheduleRows) } });
   }
 
   const updateTeamMutation = useUpdateTeam({
@@ -171,7 +242,14 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   const editForm = useForm<z.infer<typeof teamSchema>>({
     resolver: zodResolver(teamSchema),
-    defaultValues: { name: "", ageGroup: "", category: "", clubSection: "scuola_calcio" }
+    defaultValues: {
+      name: "",
+      ageGroup: "",
+      category: "",
+      clubSection: "scuola_calcio",
+      seasonTrainingStartDate: "",
+      officialTrainingEndDate: "",
+    }
   });
 
   function openEditDialog(team: any) {
@@ -181,36 +259,55 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
       name: team.name ?? "",
       ageGroup: team.ageGroup ?? "",
       category: team.category ?? "",
-      clubSection: team.clubSection ?? "scuola_calcio",
+      clubSection: effectiveSection || team.clubSection || "scuola_calcio",
+      seasonTrainingStartDate: team.seasonTrainingStartDate ?? activeSeason?.startDate ?? "",
+      officialTrainingEndDate: team.officialTrainingEndDate ?? activeSeason?.endDate ?? "",
     });
+  }
+
+  function normalizeTeamFormData(data: z.infer<typeof teamSchema>) {
+    return {
+      ...data,
+      clubSection: effectiveSection || data.clubSection,
+      seasonTrainingStartDate: data.seasonTrainingStartDate || null,
+      officialTrainingEndDate: data.officialTrainingEndDate || null,
+    };
   }
 
   function saveEditTeam(data: z.infer<typeof teamSchema>) {
     if (!editTeam) return;
     if (import.meta.env.DEV) console.log("[saveEditTeam] id=", editTeam.id, "editScheduleRows=", editScheduleRows, "formData=", data);
-    updateTeamMutation.mutate({ id: editTeam.id, data: { ...data, trainingSchedule: editScheduleRows } });
+    updateTeamMutation.mutate({ id: editTeam.id, data: { ...normalizeTeamFormData(data), trainingSchedule: normalizeScheduleRows(editScheduleRows) } });
   }
 
   function addEditScheduleRow() {
-    setEditScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00" }]);
+    setEditScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1" }]);
   }
 
   function removeEditScheduleRow(idx: number) {
     setEditScheduleRows(prev => prev.filter((_, i) => i !== idx));
   }
 
-  function updateEditScheduleRow(idx: number, field: keyof TrainingSlot, value: string) {
+  function updateEditScheduleRow(idx: number, field: keyof TeamTrainingSlot, value: string) {
     setEditScheduleRows(prev => prev.map((row, i) => i === idx ? { ...row, [field]: value } : row));
   }
 
   const form = useForm<z.infer<typeof teamSchema>>({
     resolver: zodResolver(teamSchema),
-    defaultValues: { name: "", ageGroup: "", category: "", clubSection: section ?? "scuola_calcio" }
+    defaultValues: {
+      name: "",
+      ageGroup: "",
+      category: "",
+      clubSection: section ?? "scuola_calcio",
+      seasonTrainingStartDate: "",
+      officialTrainingEndDate: "",
+    }
   });
 
   useEffect(() => {
-    form.setValue("clubSection", section ?? "scuola_calcio");
-  }, [section]);
+    form.setValue("clubSection", effectiveSection || "scuola_calcio");
+    editForm.setValue("clubSection", effectiveSection || editForm.getValues("clubSection") || "scuola_calcio");
+  }, [effectiveSection]);
 
   const uniqueAgeGroups = Array.from(new Set(teams?.map(t => t.ageGroup).filter(Boolean) as string[])).sort((a, b) => {
     const numA = parseInt(a.replace(/\D/g, ""), 10);
@@ -218,7 +315,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
     return a.localeCompare(b);
   });
-  const uniqueCategories = Array.from(new Set(teams?.map(t => t.category).filter(Boolean) as string[])).sort();
+  const uniqueCategories = Array.from(new Set(teams?.map(t => t.category).filter(Boolean) as string[])).sort(compareTeamCategoryLabels);
 
   const filteredTeams = teams?.filter(t => {
     if (!t.name.toLowerCase().includes(search.toLowerCase())) return false;
@@ -278,15 +375,15 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
             <DialogHeader>
               <DialogTitle>{t.createNewTeam}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={form.handleSubmit((data) => createMutation.mutate({ data: { ...data, trainingSchedule: createScheduleRows } }))} className="space-y-4 pt-4">
+            <form onSubmit={form.handleSubmit((data) => createMutation.mutate({ data: { ...normalizeTeamFormData(data), trainingSchedule: normalizeScheduleRows(createScheduleRows) } }))} className="space-y-4 pt-4">
               <div className="space-y-2">
                 <Label htmlFor="name">{t.teamName} <span className="text-destructive">*</span></Label>
                 <Input id="name" placeholder="e.g. U19 Academy" {...form.register("name")} />
               </div>
-              {section ? (
+              {!canChooseTeamSection ? (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border text-sm">
                   <span className="text-muted-foreground">Sezione:</span>
-                  <span className="font-medium">{sectionLabel(section)}</span>
+                  <span className="font-medium">{sectionLabel(effectiveSection || form.watch("clubSection"))}</span>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -330,7 +427,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                 )}
                 <div className="space-y-2 max-h-[200px] overflow-y-auto">
                   {createScheduleRows.map((row, idx) => (
-                    <div key={idx} className="flex items-center gap-1.5 bg-muted/40 border rounded-lg px-2 py-1.5">
+                    <div key={idx} className="grid grid-cols-1 gap-1.5 bg-muted/40 border rounded-lg px-2 py-2 sm:grid-cols-[110px_92px_12px_92px_auto] sm:items-center">
                       <Select value={row.day} onValueChange={(val) => setCreateScheduleRows(prev => prev.map((r, i) => i === idx ? { ...r, day: val } : r))}>
                         <SelectTrigger className="w-[110px] h-7 text-xs">
                           <SelectValue />
@@ -342,7 +439,31 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                       <Input type="time" value={row.startTime} onChange={(e) => setCreateScheduleRows(prev => prev.map((r, i) => i === idx ? { ...r, startTime: e.target.value } : r))} className="h-7 text-xs flex-1" />
                       <span className="text-muted-foreground text-xs">–</span>
                       <Input type="time" value={row.endTime} onChange={(e) => setCreateScheduleRows(prev => prev.map((r, i) => i === idx ? { ...r, endTime: e.target.value } : r))} className="h-7 text-xs flex-1" />
-                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-destructive hover:bg-destructive/10"
+                      <div className="space-y-1.5 sm:col-span-4">
+                        <Select
+                          value={isKnownCampo(row.campo) ? String(row.campo) : "__custom__"}
+                          onValueChange={(value) => setCreateScheduleRows(prev => prev.map((r, i) => i === idx ? { ...r, campo: value === "__custom__" ? "" : value } : r))}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder="Campo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CAMPI_ALLENAMENTO.map((campo) => (
+                              <SelectItem key={campo} value={campo}>{campo}</SelectItem>
+                            ))}
+                            <SelectItem value="__custom__">Personalizzato...</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {!isKnownCampo(row.campo) && (
+                          <Input
+                            value={row.campo ?? ""}
+                            onChange={(e) => setCreateScheduleRows(prev => prev.map((r, i) => i === idx ? { ...r, campo: e.target.value } : r))}
+                            placeholder="Scrivi nome campo, palestra o tendone"
+                            className="h-7 text-xs"
+                          />
+                        )}
+                      </div>
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-destructive hover:bg-destructive/10 sm:col-start-5 sm:row-start-1 sm:row-span-2"
                         onClick={() => setCreateScheduleRows(prev => prev.filter((_, i) => i !== idx))}>
                         <Trash2 className="w-3 h-3" />
                       </Button>
@@ -350,7 +471,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                   ))}
                 </div>
                 <Button type="button" variant="outline" size="sm" className="w-full gap-2 border-dashed text-xs"
-                  onClick={() => setCreateScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00" }])}>
+                  onClick={() => setCreateScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1" }])}>
                   <PlusCircle className="w-3.5 h-3.5" />
                   Aggiungi sessione
                 </Button>
@@ -488,7 +609,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                       </div>
                     </div>
 
-                    <Link href={`/teams/${team.id}`} className="block group/link">
+                    <Link href={`${sectionPlayersPath(team.clubSection)}?teamId=${team.id}`} className="block group/link">
                       <h3 className="text-xl font-bold font-display group-hover/link:text-primary transition-colors flex items-center gap-2">
                         {team.name}
                         <ChevronRight className="w-4 h-4 opacity-0 -translate-x-2 group-hover/link:opacity-100 group-hover/link:translate-x-0 transition-all" />
@@ -537,11 +658,12 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                         Giorni e orari di allenamento
                       </div>
                       <div className="space-y-1.5">
-                        {((team as any).trainingSchedule as TrainingSlot[]).map((slot, idx) => (
-                          <div key={idx} className="flex items-center justify-between gap-3 text-sm">
-                            <span className="font-medium text-foreground min-w-[80px]">{slot.day}</span>
-                            <span className="text-muted-foreground text-xs tabular-nums">
+                        {((team as any).trainingSchedule as TeamTrainingSlot[]).map((slot, idx) => (
+                          <div key={idx} className="grid grid-cols-[80px_1fr] items-center gap-3 text-sm">
+                            <span className="font-medium text-foreground">{slot.day}</span>
+                            <span className="text-right text-xs tabular-nums text-muted-foreground">
                               {slot.startTime} – {slot.endTime}
+                              {slot.campo ? <span> · {slot.campo}</span> : null}
                             </span>
                           </div>
                         ))}
@@ -554,7 +676,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                       <Users className="w-4 h-4" />
                       <span>{team.playerCount} {t.playerCount}</span>
                     </div>
-                    <Link href={`/teams/${team.id}`} className="font-medium text-primary hover:underline">
+                    <Link href={`${sectionPlayersPath(team.clubSection)}?teamId=${team.id}`} className="font-medium text-primary hover:underline">
                       {t.viewRoster}
                     </Link>
                   </div>
@@ -567,7 +689,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
       {/* Edit Team Dialog — admin, director, secretary */}
       <Dialog open={!!editTeam} onOpenChange={(open) => { if (!open) setEditTeam(null); }}>
-        <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[720px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="w-5 h-5 text-primary" />
@@ -594,24 +716,48 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Sezione</Label>
-              <Controller
-                name="clubSection"
-                control={editForm.control}
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SEZIONI.map(s => (
-                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            {!canChooseTeamSection ? (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2 text-sm">
+                <span className="text-muted-foreground">Sezione:</span>
+                <span className="font-medium">{sectionLabel(effectiveSection || editForm.watch("clubSection"))}</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Sezione</Label>
+                <Controller
+                  name="clubSection"
+                  control={editForm.control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SEZIONI.map(s => (
+                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="edit-seasonTrainingStartDate">Inizio stagione sportiva</Label>
+                <Input id="edit-seasonTrainingStartDate" type="date" {...editForm.register("seasonTrainingStartDate")} />
+                {activeSeason?.startDate && (
+                  <p className="text-xs text-muted-foreground">Stagione attiva: {activeSeason.startDate}</p>
                 )}
-              />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-officialTrainingEndDate">Fine allenamenti ufficiali</Label>
+                <Input id="edit-officialTrainingEndDate" type="date" {...editForm.register("officialTrainingEndDate")} />
+                {activeSeason?.endDate && (
+                  <p className="text-xs text-muted-foreground">Fine stagione: {activeSeason.endDate}</p>
+                )}
+              </div>
             </div>
 
             <div className="space-y-3 border-t pt-4">
@@ -626,9 +772,9 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               )}
               <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
                 {editScheduleRows.map((row, idx) => (
-                  <div key={idx} className="flex items-center gap-2 bg-muted/40 border rounded-lg px-3 py-2">
+                  <div key={idx} className="grid grid-cols-1 gap-1.5 bg-muted/40 border rounded-lg px-3 py-2 md:grid-cols-[130px_96px_12px_96px_auto] md:items-center">
                     <Select value={row.day} onValueChange={(val) => updateEditScheduleRow(idx, "day", val)}>
-                      <SelectTrigger className="w-[120px] h-8 text-sm">
+                      <SelectTrigger className="h-8 text-sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -637,7 +783,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                         ))}
                       </SelectContent>
                     </Select>
-                    <div className="flex items-center gap-1.5 flex-1">
+                    <>
                       <Input
                         type="time"
                         value={row.startTime}
@@ -651,8 +797,32 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                         onChange={(e) => updateEditScheduleRow(idx, "endTime", e.target.value)}
                         className="h-8 text-sm flex-1"
                       />
+                    </>
+                    <div className="space-y-2 md:col-span-4">
+                      <Select
+                        value={isKnownCampo(row.campo) ? String(row.campo) : "__custom__"}
+                        onValueChange={(value) => updateEditScheduleRow(idx, "campo", value === "__custom__" ? "" : value)}
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="Campo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CAMPI_ALLENAMENTO.map((campo) => (
+                            <SelectItem key={campo} value={campo}>{campo}</SelectItem>
+                          ))}
+                          <SelectItem value="__custom__">Personalizzato...</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {!isKnownCampo(row.campo) && (
+                        <Input
+                          value={row.campo ?? ""}
+                          onChange={(e) => updateEditScheduleRow(idx, "campo", e.target.value)}
+                          placeholder="Scrivi nome campo, palestra o tendone"
+                          className="h-8 text-sm"
+                        />
+                      )}
                     </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 md:col-start-5 md:row-start-1 md:row-span-2"
                       type="button"
                       onClick={() => removeEditScheduleRow(idx)}>
                       <Trash2 className="w-3.5 h-3.5" />
@@ -668,7 +838,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
             <DialogFooter className="pt-2">
               <Button type="button" variant="ghost" onClick={() => setEditTeam(null)}>Annulla</Button>
-              <Button type="submit" disabled={updateTeamMutation.isPending}>
+              <Button type="submit" disabled={updateTeamMutation.isPending} className="min-w-[140px]">
                 {updateTeamMutation.isPending ? "Salvataggio..." : "Salva modifiche"}
               </Button>
             </DialogFooter>
@@ -677,7 +847,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
       </Dialog>
 
       <Dialog open={!!scheduleTeam} onOpenChange={(open) => { if (!open) setScheduleTeam(null); }}>
-        <DialogContent className="sm:max-w-[520px]">
+        <DialogContent className="sm:max-w-[720px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-primary" />
@@ -691,9 +861,9 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               </p>
             )}
             {scheduleRows.map((row, idx) => (
-              <div key={idx} className="flex items-center gap-2 bg-muted/40 border rounded-lg px-3 py-2">
+              <div key={idx} className="grid grid-cols-1 gap-1.5 bg-muted/40 border rounded-lg px-3 py-2 md:grid-cols-[130px_96px_12px_96px_auto] md:items-center">
                 <Select value={row.day} onValueChange={(val) => updateScheduleRow(idx, "day", val)}>
-                  <SelectTrigger className="w-[130px] h-8 text-sm">
+                  <SelectTrigger className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -702,7 +872,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                     ))}
                   </SelectContent>
                 </Select>
-                <div className="flex items-center gap-1.5 flex-1">
+                <>
                   <Input
                     type="time"
                     value={row.startTime}
@@ -716,8 +886,32 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                     onChange={(e) => updateScheduleRow(idx, "endTime", e.target.value)}
                     className="h-8 text-sm flex-1"
                   />
+                </>
+                <div className="space-y-2 md:col-span-4">
+                  <Select
+                    value={isKnownCampo(row.campo) ? String(row.campo) : "__custom__"}
+                    onValueChange={(value) => updateScheduleRow(idx, "campo", value === "__custom__" ? "" : value)}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="Campo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CAMPI_ALLENAMENTO.map((campo) => (
+                        <SelectItem key={campo} value={campo}>{campo}</SelectItem>
+                      ))}
+                      <SelectItem value="__custom__">Personalizzato...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {!isKnownCampo(row.campo) && (
+                    <Input
+                      value={row.campo ?? ""}
+                      onChange={(e) => updateScheduleRow(idx, "campo", e.target.value)}
+                      placeholder="Scrivi nome campo, palestra o tendone"
+                      className="h-8 text-sm"
+                    />
+                  )}
                 </div>
-                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 md:col-start-5 md:row-start-1 md:row-span-2"
                   onClick={() => removeScheduleRow(idx)}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
@@ -730,7 +924,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
           </div>
           <DialogFooter className="pt-2">
             <Button variant="ghost" onClick={() => setScheduleTeam(null)}>Annulla</Button>
-            <Button onClick={saveSchedule} disabled={updateScheduleMutation.isPending}>
+            <Button onClick={saveSchedule} disabled={updateScheduleMutation.isPending} className="min-w-[120px]">
               {updateScheduleMutation.isPending ? "Salvataggio..." : "Salva orari"}
             </Button>
           </DialogFooter>

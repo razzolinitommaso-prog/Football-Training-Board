@@ -95,6 +95,19 @@ type Player = {
   expectedReturn?: string | null;
 };
 
+function playerName(player: Pick<Player, "firstName" | "lastName">): string {
+  return [String(player.lastName ?? "").trim(), String(player.firstName ?? "").trim()]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function comparePlayersBySurname(a: Pick<Player, "firstName" | "lastName">, b: Pick<Player, "firstName" | "lastName">): number {
+  return playerName(a).localeCompare(playerName(b), "it", {
+    sensitivity: "base",
+    numeric: true,
+  });
+}
+
 type PlayerNoteRecipient = "secretary" | "technical_director" | "coach_staff";
 type PlayerNoteThreadItem = {
   id: string;
@@ -266,7 +279,7 @@ export default function TeamDetail() {
     updateMutation.mutate({ id: editingPlayer.id, data: payload as any });
   }
 
-  const typedPlayers = (players as Player[] | undefined) ?? [];
+  const typedPlayers = [...((players as Player[] | undefined) ?? [])].sort(comparePlayersBySurname);
   const staff = (team as any)?.assignedStaff as { userId: number; name: string; role: string }[] | undefined;
 
   if (teamLoading) {
@@ -457,7 +470,7 @@ export default function TeamDetail() {
                           {player.jerseyNumber ? `#${player.jerseyNumber}` : `${player.firstName[0]}${player.lastName[0]}`}
                         </div>
                         <div>
-                          <div className="font-semibold">{player.firstName} {player.lastName}</div>
+                          <div className="font-semibold">{playerName(player)}</div>
                           {player.nationality && <div className="text-xs text-muted-foreground">{player.nationality}</div>}
                         </div>
                       </div>

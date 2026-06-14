@@ -30,7 +30,14 @@ import { withApi } from "@/lib/api-base";
 type Section = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 
 interface TrainingSlot { day: string; startTime: string; endTime: string; }
-interface Team { id: number; name: string; category?: string; trainingSchedule?: TrainingSlot[]; }
+interface Team {
+  id: number;
+  name: string;
+  category?: string;
+  seasonTrainingStartDate?: string | null;
+  officialTrainingEndDate?: string | null;
+  trainingSchedule?: TrainingSlot[];
+}
 interface Match { id: number; opponent: string; date: string; homeAway: string; result?: string; teamId?: number; teamName?: string; competition?: string; }
 interface PlayerLite { id: number; firstName?: string; lastName?: string; teamId?: number | null; }
 type ExtraCategory = "allenamento_preparazione" | "camp_estivo" | "partita_interna" | "provino";
@@ -114,6 +121,48 @@ function getInitialMonth(today: Date): Date {
   return new Date(year, month, 1);
 }
 
+function parseDateOnly(value?: string | null, endOfDay = false): Date | null {
+  const raw = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const parsed = new Date(`${raw}T${endOfDay ? "23:59:59" : "00:00:00"}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeTeamOrderLabel(value?: string | null): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function teamCategoryOrderRank(value?: string | null): number {
+  const text = normalizeTeamOrderLabel(value);
+  if (text.includes("piccoli amici")) return 0;
+  if (text.includes("primi calci")) return 1;
+  if (text.includes("pulcini")) return 2;
+  if (text.includes("esordienti")) return 3;
+  if (text.includes("giovanissimi")) return 4;
+  if (text.includes("allievi") || text.includes("alievi")) return 5;
+  if (text.includes("juniores") || text.includes("juniors")) return 6;
+  if (text.includes("prima squadra")) return 7;
+  return 99;
+}
+
+function teamYearOrderRank(value?: string | null): number {
+  const text = normalizeTeamOrderLabel(value);
+  if (/(^|\s)1\s*[^\s\w]*\s*(?:o\s*)?anno\b/.test(text) || /(^|\s)1\s*(?:Â°|Âº|o)(\s|$)/.test(text)) return 1;
+  if (/(^|\s)2\s*[^\s\w]*\s*(?:o\s*)?anno\b/.test(text) || /(^|\s)2\s*(?:Â°|Âº|o)(\s|$)/.test(text)) return 2;
+  return 99;
+}
+
+function compareTeamsBySportPath(a: Team, b: Team): number {
+  const categoryDiff = teamCategoryOrderRank(a.name) - teamCategoryOrderRank(b.name);
+  if (categoryDiff !== 0) return categoryDiff;
+  const yearDiff = teamYearOrderRank(a.name) - teamYearOrderRank(b.name);
+  if (yearDiff !== 0) return yearDiff;
+  return String(a.name ?? "").localeCompare(String(b.name ?? ""), "it", { numeric: true, sensitivity: "base" });
+}
+
 export default function SectionCalendar({ section }: { section: Section }) {
   const { role } = useAuth();
   const { toast } = useToast();
@@ -149,6 +198,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
     queryKey: ["/api/teams", section],
     queryFn: () => apiFetch(`/api/teams?section=${section}`),
   });
+  const orderedTeams = useMemo(() => [...allTeams].sort(compareTeamsBySportPath), [allTeams]);
 
   const { data: allMatches = [] } = useQuery<Match[]>({
     queryKey: ["/api/matches"],
@@ -207,11 +257,8 @@ export default function SectionCalendar({ section }: { section: Section }) {
     const seasonStart = schoolYear.start;
     const seasonEnd = schoolYear.end;
     // Scuola calcio: attività allenamento fino a fine seconda settimana di giugno.
-    const trainingEnd = new Date(seasonEnd.getFullYear(), 5, 14);
-
     const addEvent = (date: Date, evt: CalendarEvent) => {
       if (isBefore(date, seasonStart) || isAfter(date, seasonEnd)) return;
-      if (evt.type === "training" && isAfter(date, trainingEnd)) return;
       const key = format(date, "yyyy-MM-dd");
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(evt);
@@ -222,6 +269,10 @@ export default function SectionCalendar({ section }: { section: Section }) {
     calendarDays.forEach(day => {
       const jsDay = getDay(day);
       visibleTeams.forEach(team => {
+        const trainingStart = parseDateOnly(team.seasonTrainingStartDate);
+        const trainingEnd = parseDateOnly(team.officialTrainingEndDate, true);
+        if (trainingStart && isBefore(day, trainingStart)) return;
+        if (trainingEnd && isAfter(day, trainingEnd)) return;
         (team.trainingSchedule ?? []).forEach(slot => {
           const slotDay = ITALIAN_DAY_MAP[slot.day];
           if (slotDay === jsDay) {
@@ -387,7 +438,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
             Calendario — {SECTION_LABELS[section]}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Anno sportivo {schoolYear.label} · 1 settembre – 30 giugno
+            Stagione sportiva {schoolYear.label} · 1 settembre – 30 giugno
           </p>
         </div>
         {canManageExtraEvents && (
@@ -414,7 +465,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
                 variant="outline"
                 size="sm"
                 className="h-8 text-xs"
-                onClick={() => setSelectedTeamIds(new Set(allTeams.map((t) => t.id)))}
+                onClick={() => setSelectedTeamIds(new Set(orderedTeams.map((t) => t.id)))}
               >
                 Tutte
               </Button>
@@ -433,7 +484,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
             Clicca un&apos;annata per includerla o escluderla dal calendario (anche più di una).
           </p>
           <div className="flex flex-wrap gap-2">
-            {allTeams.map((team) => {
+            {orderedTeams.map((team) => {
               const color = teamColorMap.get(team.id);
               const on = selectedTeamIds.has(team.id);
               return (

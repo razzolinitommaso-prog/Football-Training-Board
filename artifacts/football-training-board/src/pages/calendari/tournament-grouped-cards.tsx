@@ -229,11 +229,23 @@ function isRealTournamentMatchEntry(entry: TournamentProgramEntry): boolean {
   if (isTournamentStoredFutureFixtureEntry(entry)) return false;
   if (entry.kind && entry.kind !== "match") return false;
   if (isTournamentFutureFixtureSide(entry.homeTeam) || isTournamentFutureFixtureSide(entry.awayTeam)) return false;
+  if (normalizeSide(entry.homeTeam) === normalizeSide(entry.awayTeam)) return false;
   return true;
 }
 
+function isResolvedTournamentFutureFixtureEntry(entry: TournamentProgramEntry): boolean {
+  if (entry.kind !== "fixture_placeholder" && !isTournamentStoredFutureFixtureEntry(entry)) return false;
+  if (isTournamentFutureFixtureSide(entry.homeTeam) || isTournamentFutureFixtureSide(entry.awayTeam)) return false;
+  if (normalizeSide(entry.homeTeam) === normalizeSide(entry.awayTeam)) return false;
+  return true;
+}
+
+function isScoreableTournamentProgramEntry(entry: TournamentProgramEntry): boolean {
+  return isRealTournamentMatchEntry(entry) || isResolvedTournamentFutureFixtureEntry(entry);
+}
+
 function isFinalPlaceholderEntry(entry: TournamentProgramEntry): boolean {
-  if (!isRealTournamentMatchEntry(entry)) return true;
+  if (!isScoreableTournamentProgramEntry(entry)) return true;
   return isPlaceholderTournamentTeam(entry.homeTeam) || isPlaceholderTournamentTeam(entry.awayTeam) || /final/i.test(entry.group ?? "");
 }
 
@@ -249,7 +261,7 @@ function standingsFor(
     return table.get(key)!;
   };
   for (const entry of entries) {
-    if (!isRealTournamentMatchEntry(entry)) continue;
+    if (!isScoreableTournamentProgramEntry(entry)) continue;
     if (isFinalPlaceholderEntry(entry)) continue;
     const home = ensure(entry.homeTeam);
     const away = ensure(entry.awayTeam);
@@ -591,7 +603,7 @@ function resolveTournamentProgramPlaceholders(
   groups: { label: string; rows: StandingRow[] }[],
 ): TournamentProgramEntry[] {
   return entries.map((entry) => {
-    if (!isRealTournamentMatchEntry(entry)) return entry;
+    if (entry.kind === "composition") return entry;
     const homeResolved = resolveTournamentPlacementRef(entry.homeTeam, groups);
     const awayResolved = resolveTournamentPlacementRef(entry.awayTeam, groups);
     if (!homeResolved && !awayResolved) return entry;
@@ -601,6 +613,29 @@ function resolveTournamentProgramPlaceholders(
       awayTeam: awayResolved ?? entry.awayTeam,
     };
   });
+}
+
+function resolveTournamentProgramPlaceholdersInPasses(
+  entries: TournamentProgramEntry[],
+  scores: Record<string, TournamentProgramScore>,
+  pointsRule: TournamentPointsRule,
+): TournamentProgramEntry[] {
+  let resolved = entries;
+  for (let pass = 0; pass < 6; pass += 1) {
+    const groups = groupProgramEntries(resolved.filter(isScoreableTournamentProgramEntry)).map((group) => ({
+      label: group.label,
+      rows: standingsFor(group.entries, scores, pointsRule),
+    }));
+    const next = resolveTournamentProgramPlaceholders(resolved, groups);
+    const changed = next.some(
+      (entry, index) =>
+        normalizeSide(entry.homeTeam) !== normalizeSide(resolved[index]?.homeTeam ?? "") ||
+        normalizeSide(entry.awayTeam) !== normalizeSide(resolved[index]?.awayTeam ?? ""),
+    );
+    resolved = next;
+    if (!changed) break;
+  }
+  return resolved;
 }
 
 function generatedCrossFinalsFromGroups(groups: { label: string; rows: StandingRow[] }[]) {
@@ -1106,17 +1141,13 @@ export function TournamentGroupedCards({
         const rawProgramByView = filterProgramEntriesByView(program, progVal);
         const clubOnly = !!clubOnlyByCompetition[g.competition];
         const expanded = expandedByCompetition[g.competition] ?? false;
-        const baseStandingsGroups = groupProgramEntries(rawProgramByView.filter(isRealTournamentMatchEntry)).map((group) => ({
-          label: group.label,
-          rows: standingsFor(group.entries, scores, pointsRule),
-        }));
-        const programByView = resolveTournamentProgramPlaceholders(rawProgramByView, baseStandingsGroups);
-        const matchProgramByView = programByView.filter(isRealTournamentMatchEntry);
+        const programByView = resolveTournamentProgramPlaceholdersInPasses(rawProgramByView, scores, pointsRule);
+        const matchProgramByView = programByView.filter(isScoreableTournamentProgramEntry);
         const visibleProgram = clubOnly
           ? matchProgramByView.filter((entry) => sideMatchesClub(entry.homeTeam, clubLabel) || sideMatchesClub(entry.awayTeam, clubLabel))
           : matchProgramByView;
         const programGroups = groupProgramEntries(visibleProgram);
-        const standingsGroups = groupProgramEntries(programByView.filter(isRealTournamentMatchEntry))
+        const standingsGroups = groupProgramEntries(programByView.filter(isScoreableTournamentProgramEntry))
           .map((group) => ({
             label: group.label,
             rows: standingsFor(group.entries, scores, pointsRule),
@@ -1149,11 +1180,11 @@ export function TournamentGroupedCards({
         const groupsCount = cardStandingGroups.length;
         const teamsCount = new Set(cardStandingGroups.flatMap((group) => group.rows.map((row) => normalizeSide(row.team))).filter(Boolean)).size;
         const hasFinalEntries = program.some((entry) => /final/i.test(`${entry.phase ?? ""} ${entry.group ?? ""}`));
-        const qualifyingEntries = program.filter(
-          (entry) => isRealTournamentMatchEntry(entry) && isQualifyingRow(programEntrySearchText(entry)),
+        const qualifyingEntries = programByView.filter(
+          (entry) => isScoreableTournamentProgramEntry(entry) && isQualifyingRow(programEntrySearchText(entry)),
         );
-        const finalEntries = program.filter(
-          (entry) => isRealTournamentMatchEntry(entry) && isFinalsRow(programEntrySearchText(entry)),
+        const finalEntries = programByView.filter(
+          (entry) => isScoreableTournamentProgramEntry(entry) && isFinalsRow(programEntrySearchText(entry)),
         );
         const scoredQualifying = qualifyingEntries.filter((entry) => hasCompleteScore(scores[entry.id])).length;
         const scoredFinals = finalEntries.filter((entry) => hasCompleteScore(scores[entry.id])).length;
@@ -1182,6 +1213,7 @@ export function TournamentGroupedCards({
         const compositionPhases = groupFutureCompositionSlotsByPhase(program);
         const futureLayoutPhases = groupFutureLayoutByPhase(program);
         const suppressAutoGeneratedFinals = tournamentSuppressesAutoGeneratedFinals(program, compositionPhases);
+        const resolveFutureSlotLabel = (slot: string) => resolveTournamentPlacementRef(slot, cardStandingGroups) ?? slot;
 
         return (
           <Card key={g.competition} className="min-w-0 overflow-hidden border-violet-500/20 shadow-sm">
@@ -1392,7 +1424,7 @@ export function TournamentGroupedCards({
                               <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
                                 {group.slots.map((slot) => (
                                   <li key={`${phaseBlock.phase}-${group.label}-${slot}`} className="truncate">
-                                    {slot}
+                                    {resolveFutureSlotLabel(slot)}
                                   </li>
                                 ))}
                               </ul>
@@ -1489,7 +1521,8 @@ export function TournamentGroupedCards({
                               const compositionEntry = entry.kind === "composition";
                               const fixturePlaceholderEntry =
                                 entry.kind === "fixture_placeholder" || isTournamentStoredFutureFixtureEntry(entry);
-                              const nonScoreEntry = compositionEntry || fixturePlaceholderEntry;
+                              const scoreableEntry = isScoreableTournamentProgramEntry(entry);
+                              const nonScoreEntry = compositionEntry || !scoreableEntry;
                               const entryLabel = `${entry.homeTeam} - ${entry.awayTeam}`;
                               const generatedFinal = generatedFinalsByEntryId.get(entry.id);
                               const generatedFinalLabel = generatedFinal ? `${generatedFinal.homeTeam} - ${generatedFinal.awayTeam}` : null;
@@ -1511,7 +1544,9 @@ export function TournamentGroupedCards({
                                     <p className="truncate text-[11px] text-muted-foreground">Composizione girone da classifica precedente</p>
                                   ) : null}
                                   {fixturePlaceholderEntry ? (
-                                    <p className="truncate text-[11px] text-muted-foreground">Accoppiamento futuro da programma torneo</p>
+                                    <p className="truncate text-[11px] text-muted-foreground">
+                                      {scoreableEntry ? "Gara futura risolta dal programma torneo" : "Accoppiamento futuro da programma torneo"}
+                                    </p>
                                   ) : null}
                                   {resolvedPlacement && resolvedPlacement !== entryLabel ? (
                                     <p className="truncate text-[11px] font-medium text-primary">{resolvedPlacement}</p>

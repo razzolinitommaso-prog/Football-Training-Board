@@ -356,7 +356,7 @@ export default function AttendancePage() {
                     <CardContent className="py-3 flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Icon className={`w-5 h-5 ${status ? statusColors[status as keyof typeof statusColors] : "text-muted-foreground"}`} />
-                        <span className="font-medium">{player.firstName} {player.lastName}</span>
+                        <span className="font-medium">{player.lastName} {player.firstName}</span>
                       </div>
                       {isTechnicalDirector ? (
                         <Badge variant={status ? "default" : "secondary"}>

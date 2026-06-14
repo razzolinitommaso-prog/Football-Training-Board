@@ -20,6 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
+import { useLocation } from "wouter";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
@@ -90,6 +91,58 @@ type Player = {
   squad?: "A" | "B" | "C" | "D" | null;
   imageUrl?: string | null;
 };
+
+type PlayerNameOrder = "surname_first" | "name_first";
+type PlayerImageBackground = "white" | "club_logo";
+
+function playerName(player: Pick<Player, "firstName" | "lastName">, order: PlayerNameOrder = "surname_first"): string {
+  const firstName = String(player.firstName ?? "").trim();
+  const lastName = String(player.lastName ?? "").trim();
+  const parts = order === "surname_first" ? [lastName, firstName] : [firstName, lastName];
+  return parts.filter(Boolean).join(" ");
+}
+
+function comparePlayersBySurname(a: Pick<Player, "firstName" | "lastName">, b: Pick<Player, "firstName" | "lastName">): number {
+  return playerName(a, "surname_first").localeCompare(playerName(b, "surname_first"), "it", {
+    sensitivity: "base",
+    numeric: true,
+  });
+}
+
+function removeUniformImageBackground(imageData: ImageData): ImageData {
+  const { data, width, height } = imageData;
+  const samples = [
+    0,
+    (width - 1) * 4,
+    (width * (height - 1)) * 4,
+    (width * height - 1) * 4,
+  ];
+  const bg = samples.reduce(
+    (acc, idx) => ({
+      r: acc.r + data[idx],
+      g: acc.g + data[idx + 1],
+      b: acc.b + data[idx + 2],
+    }),
+    { r: 0, g: 0, b: 0 },
+  );
+  const base = { r: bg.r / samples.length, g: bg.g / samples.length, b: bg.b / samples.length };
+  const hard = 34;
+  const soft = 96;
+
+  for (let idx = 0; idx < data.length; idx += 4) {
+    const dr = data[idx] - base.r;
+    const dg = data[idx + 1] - base.g;
+    const db = data[idx + 2] - base.b;
+    const distance = Math.sqrt(dr * dr + dg * dg + db * db);
+    if (distance <= hard) {
+      data[idx + 3] = 0;
+    } else if (distance < soft) {
+      data[idx + 3] = Math.round(data[idx + 3] * ((distance - hard) / (soft - hard)));
+    }
+  }
+
+  return imageData;
+}
 
 function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof useLanguage>["t"]) {
   if (reason === "illness") return t.illness;
@@ -192,12 +245,53 @@ function composePlayerNotes(plainNote: string, thread: PlayerNoteThreadItem[]): 
   return cleanPlain ? `${cleanPlain}\n\n${encoded}` : encoded;
 }
 
+function normalizeTeamLabel(value?: string | null): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function teamCategoryRank(value?: string | null): number {
+  const text = normalizeTeamLabel(value);
+  if (text.includes("piccoli amici")) return 0;
+  if (text.includes("primi calci")) return 1;
+  if (text.includes("pulcini")) return 2;
+  if (text.includes("esordienti")) return 3;
+  if (text.includes("giovanissimi")) return 4;
+  if (text.includes("allievi") || text.includes("alievi")) return 5;
+  if (text.includes("juniores") || text.includes("juniors")) return 6;
+  if (text.includes("prima squadra")) return 7;
+  return 99;
+}
+
+function teamYearRank(value?: string | null): number {
+  const text = normalizeTeamLabel(value);
+  if (/(^|\s)1\s*[^\s\w]*\s*(?:o\s*)?anno\b/.test(text) || /(^|\s)1\s*(?:°|º|o)(\s|$)/.test(text)) return 1;
+  if (/(^|\s)2\s*[^\s\w]*\s*(?:o\s*)?anno\b/.test(text) || /(^|\s)2\s*(?:°|º|o)(\s|$)/.test(text)) return 2;
+  return 99;
+}
+
+function compareTeamsByAnnata(a: TeamWithSeason, b: TeamWithSeason): number {
+  const aLabel = String(a.category ?? a.name ?? "");
+  const bLabel = String(b.category ?? b.name ?? "");
+  const categoryDiff = teamCategoryRank(aLabel) - teamCategoryRank(bLabel);
+  if (categoryDiff !== 0) return categoryDiff;
+  const yearDiff = teamYearRank(aLabel) - teamYearRank(bLabel);
+  if (yearDiff !== 0) return yearDiff;
+  return String(a.name ?? "").localeCompare(String(b.name ?? ""), "it", { numeric: true, sensitivity: "base" });
+}
+
 export default function PlayersList({ section }: PlayersListProps = {}) {
   const { t } = useLanguage();
-  const { role, user } = useAuth();
+  const { role, user, club } = useAuth();
   const nr = normalizeSessionRole(role);
-  const [teamFilter, setTeamFilter] = useState<string>("all");
-  const { data: players, isLoading } = useListPlayers(teamFilter !== "all" ? { teamId: parseInt(teamFilter) } : undefined);
+  const [location] = useLocation();
+  const initialTeamFilter = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("teamId") || "all"
+    : "all";
+  const [teamFilter, setTeamFilter] = useState<string>(initialTeamFilter);
+  const { data: players, isLoading } = useListPlayers();
   const { data: teams } = useListTeams();
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState("all");
@@ -214,7 +308,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [noteRequiresResponse, setNoteRequiresResponse] = useState(false);
   const [noteReplyToId, setNoteReplyToId] = useState<string>("");
   const noteDraftRef = useRef<HTMLTextAreaElement | null>(null);
+  const playerImageInputRef = useRef<HTMLInputElement | null>(null);
   const [lastDeletedPlayer, setLastDeletedPlayer] = useState<Player | null>(null);
+  const [imageCropSource, setImageCropSource] = useState<string | null>(null);
+  const [imageCropSize, setImageCropSize] = useState<{ width: number; height: number } | null>(null);
+  const [imageCropZoom, setImageCropZoom] = useState(1);
+  const [imageCropOffset, setImageCropOffset] = useState({ x: 0, y: 0 });
+  const [imageCropDrag, setImageCropDrag] = useState<null | { x: number; y: number; startX: number; startY: number }>(null);
+  const [imageBackground, setImageBackground] = useState<PlayerImageBackground>("white");
+  const [imageRemoveBackground, setImageRemoveBackground] = useState(false);
+  const [nameOrder, setNameOrder] = useState<PlayerNameOrder>("surname_first");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canDeletePlayer = ["admin", "presidente", "secretary", "director"].includes(nr);
@@ -228,6 +331,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
   const isStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "technical_director" || nr === "athletic_director";
   const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
+  const clubLogoUrl = String((club as { logoUrl?: string | null } | null)?.logoUrl ?? "");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const fromQuery = new URLSearchParams(window.location.search).get("teamId") || "all";
+    setTeamFilter(fromQuery);
+  }, [location]);
 
   const typedTeams = section
     ? ((teams as TeamWithSeason[] | undefined) ?? []).filter((team) => team.clubSection === section)
@@ -363,6 +473,90 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     });
   };
 
+  const openImageCropper = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      if (!value) return;
+      setImageCropSource(value);
+      setImageCropSize(null);
+      setImageCropZoom(1);
+      setImageCropOffset({ x: 0, y: 0 });
+      setImageCropDrag(null);
+      setImageBackground("white");
+      setImageRemoveBackground(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const closeImageCropper = () => {
+    setImageCropSource(null);
+    setImageCropSize(null);
+    setImageCropDrag(null);
+  };
+
+  const applyImageCrop = async () => {
+    if (!imageCropSource) return;
+    const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Immagine non valida"));
+      image.src = src;
+    });
+    const image = await loadImage(imageCropSource);
+
+    const size = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, size, size);
+    if (imageBackground === "club_logo" && clubLogoUrl) {
+      try {
+        const logo = await loadImage(clubLogoUrl);
+        ctx.globalAlpha = 0.12;
+        const logoScale = Math.min(size * 0.62 / logo.width, size * 0.62 / logo.height);
+        const logoWidth = logo.width * logoScale;
+        const logoHeight = logo.height * logoScale;
+        ctx.drawImage(logo, (size - logoWidth) / 2, (size - logoHeight) / 2, logoWidth, logoHeight);
+        ctx.globalAlpha = 1;
+      } catch {
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    const baseScale = Math.max(size / image.width, size / image.height);
+    const scale = baseScale * imageCropZoom;
+    const width = image.width * scale;
+    const height = image.height * scale;
+    const previewToOutput = size / 320;
+
+    const personCanvas = document.createElement("canvas");
+    personCanvas.width = size;
+    personCanvas.height = size;
+    const personCtx = personCanvas.getContext("2d");
+    if (!personCtx) return;
+    personCtx.drawImage(
+      image,
+      (size - width) / 2 + imageCropOffset.x * previewToOutput,
+      (size - height) / 2 + imageCropOffset.y * previewToOutput,
+      width,
+      height,
+    );
+    if (imageRemoveBackground) {
+      const data = personCtx.getImageData(0, 0, size, size);
+      personCtx.putImageData(removeUniformImageBackground(data), 0, 0);
+    }
+    ctx.drawImage(personCanvas, 0, 0);
+
+    editForm.setValue("imageUrl", canvas.toDataURL("image/jpeg", 0.88), { shouldDirty: true });
+    closeImageCropper();
+  };
+
   const getReplyRecipient = (authorRole?: string): PlayerNoteRecipient => {
     const r = normalizeSessionRole(authorRole);
     if (r === "secretary") return "secretary";
@@ -468,8 +662,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     heightMax !== "",
   ].filter(Boolean).length;
 
-  const filteredPlayers = (players as Player[] | undefined)?.filter(p => {
-    const searchMatch = `${p.firstName} ${p.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
+  const playersMatchingFilters = (players as Player[] | undefined)?.filter(p => {
+    const normalizedSearch = search.toLowerCase();
+    const searchMatch = playerName(p, "name_first").toLowerCase().includes(normalizedSearch) ||
+      playerName(p, "surname_first").toLowerCase().includes(normalizedSearch) ||
       (p.position?.toLowerCase().includes(search.toLowerCase()) ?? false);
     if (!searchMatch) return false;
     if (positionFilter !== "all" && p.position !== positionFilter) return false;
@@ -484,6 +680,28 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     }
     return true;
   });
+
+  const filteredPlayers = playersMatchingFilters?.filter(p => {
+    if (teamFilter === "all") return true;
+    if (teamFilter === "unassigned") return !p.teamId;
+    return Number(p.teamId ?? 0) === Number(teamFilter);
+  }).sort(comparePlayersBySurname);
+
+  const teamsByAnnata = [...typedTeams].sort(compareTeamsByAnnata);
+  const playersByTeam = new Map<number, Player[]>();
+  (playersMatchingFilters ?? []).forEach((player) => {
+    const teamId = Number(player.teamId ?? 0);
+    if (!teamId) return;
+    const list = playersByTeam.get(teamId) ?? [];
+    list.push(player);
+    playersByTeam.set(teamId, list);
+  });
+  playersByTeam.forEach((list) => {
+    list.sort(comparePlayersBySurname);
+  });
+  const unassignedPlayers = (playersMatchingFilters ?? [])
+    .filter((player) => !player.teamId)
+    .sort(comparePlayersBySurname);
 
   const statusLabel = (status: string) => {
     if (status === "active") return t.active;
@@ -558,6 +776,20 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <Input id="lastName" {...form.register("lastName")} />
                 </div>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  const firstName = form.getValues("firstName") ?? "";
+                  const lastName = form.getValues("lastName") ?? "";
+                  form.setValue("firstName", lastName, { shouldDirty: true });
+                  form.setValue("lastName", firstName, { shouldDirty: true });
+                }}
+              >
+                Scambia nome/cognome
+              </Button>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -695,31 +927,40 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
                 <div className="space-y-2">
                   <Label>Carica file immagine</Label>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <Input
+                      ref={playerImageInputRef}
                       type="file"
                       accept="image/*"
                       disabled={!canUploadPlayerImage}
+                      className="hidden"
                       onChange={(event) => {
                         const file = event.target.files?.[0];
+                        event.currentTarget.value = "";
                         if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          const value = typeof reader.result === "string" ? reader.result : "";
-                          editForm.setValue("imageUrl", value || null, { shouldDirty: true });
-                        };
-                        reader.readAsDataURL(file);
+                        openImageCropper(file);
                       }}
                     />
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="icon"
+                      variant="outline"
+                      className="w-full justify-center gap-2 sm:w-auto"
+                      disabled={!canUploadPlayerImage}
+                      onClick={() => playerImageInputRef.current?.click()}
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                      Scegli immagine
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-center gap-2 sm:w-auto"
                       disabled={!canUploadPlayerImage}
                       onClick={() => editForm.setValue("imageUrl", null, { shouldDirty: true })}
                       title="Rimuovi immagine"
                     >
                       <X className="h-4 w-4" />
+                      Rimuovi
                     </Button>
                   </div>
                   <p className="text-[11px] text-muted-foreground">Carica immagine profilo giocatore.</p>
@@ -736,6 +977,22 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <Input {...editForm.register("lastName")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
+              {canEditFullPlayer && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  onClick={() => {
+                    const firstName = editForm.getValues("firstName") ?? "";
+                    const lastName = editForm.getValues("lastName") ?? "";
+                    editForm.setValue("firstName", lastName, { shouldDirty: true });
+                    editForm.setValue("lastName", firstName, { shouldDirty: true });
+                  }}
+                >
+                  Scambia nome/cognome
+                </Button>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1073,6 +1330,122 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!imageCropSource} onOpenChange={(open) => !open && closeImageCropper()}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Centra immagine giocatore</DialogTitle>
+          </DialogHeader>
+          {imageCropSource && (
+            <div className="space-y-4">
+              <div
+                className="relative mx-auto h-80 w-80 max-w-full overflow-hidden rounded-xl border bg-white"
+                onPointerDown={(event) => {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  setImageCropDrag({
+                    x: event.clientX,
+                    y: event.clientY,
+                    startX: imageCropOffset.x,
+                    startY: imageCropOffset.y,
+                  });
+                }}
+                onPointerMove={(event) => {
+                  if (!imageCropDrag) return;
+                  setImageCropOffset({
+                    x: imageCropDrag.startX + event.clientX - imageCropDrag.x,
+                    y: imageCropDrag.startY + event.clientY - imageCropDrag.y,
+                  });
+                }}
+                onPointerUp={() => setImageCropDrag(null)}
+                onPointerCancel={() => setImageCropDrag(null)}
+              >
+                {imageBackground === "club_logo" && clubLogoUrl && (
+                  <img
+                    src={clubLogoUrl}
+                    alt="Logo societa"
+                    className="pointer-events-none absolute left-1/2 top-1/2 h-44 w-44 -translate-x-1/2 -translate-y-1/2 object-contain opacity-15"
+                  />
+                )}
+                <img
+                  src={imageCropSource}
+                  alt="Ritaglio giocatore"
+                  draggable={false}
+                  onLoad={(event) => {
+                    setImageCropSize({
+                      width: event.currentTarget.naturalWidth,
+                      height: event.currentTarget.naturalHeight,
+                    });
+                  }}
+                  className="absolute left-1/2 top-1/2 max-w-none select-none"
+                  style={{
+                    width: imageCropSize
+                      ? `${imageCropSize.width * Math.max(320 / imageCropSize.width, 320 / imageCropSize.height) * imageCropZoom}px`
+                      : "auto",
+                    height: imageCropSize
+                      ? `${imageCropSize.height * Math.max(320 / imageCropSize.width, 320 / imageCropSize.height) * imageCropZoom}px`
+                      : "auto",
+                    transform: `translate(calc(-50% + ${imageCropOffset.x}px), calc(-50% + ${imageCropOffset.y}px))`,
+                    cursor: imageCropDrag ? "grabbing" : "grab",
+                  }}
+                />
+                <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-black/10" />
+              </div>
+              <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Sfondo</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={imageBackground === "white" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setImageBackground("white")}
+                    >
+                      Bianco
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={imageBackground === "club_logo" ? "default" : "outline"}
+                      size="sm"
+                      disabled={!clubLogoUrl}
+                      onClick={() => setImageBackground("club_logo")}
+                    >
+                      Logo societa
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <Label htmlFor="remove-player-bg">Rimuovi sfondo semplice</Label>
+                    <p className="text-[11px] text-muted-foreground">Ideale con sfondi uniformi.</p>
+                  </div>
+                  <Switch
+                    id="remove-player-bg"
+                    checked={imageRemoveBackground}
+                    onCheckedChange={setImageRemoveBackground}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="player-image-zoom">Zoom</Label>
+                <Input
+                  id="player-image-zoom"
+                  type="range"
+                  min="1"
+                  max="3"
+                  step="0.05"
+                  value={imageCropZoom}
+                  onChange={(event) => setImageCropZoom(Number(event.target.value))}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Trascina l'immagine per centrare il volto, poi regola lo zoom.</p>
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={closeImageCropper}>Annulla</Button>
+                <Button type="button" onClick={() => void applyImageCrop()}>Usa immagine</Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Filter bar */}
       <div className="space-y-2">
         <div className="flex flex-col sm:flex-row gap-2 bg-card p-2 rounded-xl border shadow-sm">
@@ -1154,6 +1527,79 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         </div>
       </div>
 
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Annate e giocatori assegnati</h2>
+            <p className="text-xs text-muted-foreground">Seleziona un'annata per filtrare rapidamente la lista.</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setNameOrder((current) => current === "surname_first" ? "name_first" : "surname_first")}
+            >
+              {nameOrder === "surname_first" ? "Cognome Nome" : "Nome Cognome"}
+            </Button>
+            <Badge variant="secondary">
+              {(filteredPlayers ?? []).length} giocatori
+            </Badge>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setTeamFilter("all")}
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+              teamFilter === "all"
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Tutte
+            <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] text-foreground">
+              {(playersMatchingFilters ?? []).length}
+            </span>
+          </button>
+          {teamsByAnnata.map((team) => {
+            const teamPlayers = playersByTeam.get(Number(team.id)) ?? [];
+            const selected = teamFilter === String(team.id);
+            return (
+              <button
+                key={team.id}
+                type="button"
+                onClick={() => setTeamFilter(String(team.id))}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                  selected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "bg-card text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span>{team.name}</span>
+                <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] text-foreground">
+                  {teamPlayers.length}
+                </span>
+              </button>
+            );
+          })}
+          {unassignedPlayers.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTeamFilter("unassigned")}
+              className={`inline-flex items-center gap-2 rounded-full border border-dashed px-3 py-1.5 text-xs font-medium transition ${
+                teamFilter === "unassigned"
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "bg-card text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Senza squadra
+              <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] text-foreground">{unassignedPlayers.length}</span>
+            </button>
+          )}
+        </div>
+      </section>
+
       <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
@@ -1207,7 +1653,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         {imageUrl ? (
                           <img
                             src={imageUrl}
-                            alt={`${player.firstName} ${player.lastName}`}
+                            alt={playerName(player, nameOrder)}
                             className="w-10 h-10 rounded-md object-cover border shadow-sm"
                           />
                         ) : (
@@ -1220,7 +1666,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           </div>
                         )}
                         <div>
-                          <div className="font-semibold text-foreground">{player.firstName} {player.lastName}</div>
+                          <div className="font-semibold text-foreground">{playerName(player, nameOrder)}</div>
                           {player.jerseyNumber && <div className="text-xs text-muted-foreground">#{player.jerseyNumber}</div>}
                         </div>
                       </div>

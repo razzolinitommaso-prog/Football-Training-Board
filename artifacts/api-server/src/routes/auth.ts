@@ -316,6 +316,11 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     }
     await saveSession(req);
 
+    const loginClubView = club as typeof club & {
+      backgroundLogoEnabled?: number | null;
+      backgroundLogoMode?: string | null;
+      backgroundLogoOpacity?: number | null;
+    };
     const response = LoginUserResponse.parse({
       user: {
         id: user.id,
@@ -330,6 +335,11 @@ router.post("/auth/login", async (req, res): Promise<void> => {
         city: club.city,
         country: club.country,
         logoUrl: club.logoUrl,
+        primaryColor: club.primaryColor,
+        secondaryColor: club.secondaryColor,
+        backgroundLogoEnabled: loginClubView.backgroundLogoEnabled,
+        backgroundLogoMode: loginClubView.backgroundLogoMode,
+        backgroundLogoOpacity: loginClubView.backgroundLogoOpacity,
         foundedYear: club.foundedYear,
         description: club.description,
         createdAt: club.createdAt,
@@ -402,9 +412,28 @@ router.get("/auth/me", async (req, res): Promise<void> => {
   if (req.session.role === "parent") {
     const [club] = await db.select().from(clubsTable).where(eq(clubsTable.id, req.session.clubId!));
     if (!club) { res.status(401).json({ error: "Not authenticated" }); return; }
+    const parentClubView = club as typeof club & {
+      backgroundLogoEnabled?: number | null;
+      backgroundLogoMode?: string | null;
+      backgroundLogoOpacity?: number | null;
+    };
     res.json({
       user: { id: 0, email: "genitori@club.ftb", firstName: "Area", lastName: "Genitori", createdAt: club.createdAt },
-      club: { id: club.id, name: club.name, city: club.city, country: club.country, logoUrl: club.logoUrl, foundedYear: club.foundedYear, description: club.description, createdAt: club.createdAt },
+      club: {
+        id: club.id,
+        name: club.name,
+        city: club.city,
+        country: club.country,
+        logoUrl: club.logoUrl,
+        primaryColor: club.primaryColor,
+        secondaryColor: club.secondaryColor,
+        backgroundLogoEnabled: parentClubView.backgroundLogoEnabled,
+        backgroundLogoMode: parentClubView.backgroundLogoMode,
+        backgroundLogoOpacity: parentClubView.backgroundLogoOpacity,
+        foundedYear: club.foundedYear,
+        description: club.description,
+        createdAt: club.createdAt,
+      },
       role: "parent",
     });
     return;
@@ -436,6 +465,11 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Club not found" });
     return;
   }
+  const sessionClubView = club as typeof club & {
+    backgroundLogoEnabled?: number | null;
+    backgroundLogoMode?: string | null;
+    backgroundLogoOpacity?: number | null;
+  };
 
   const response = GetCurrentUserResponse.parse({
     user: {
@@ -451,6 +485,11 @@ router.get("/auth/me", async (req, res): Promise<void> => {
       city: club.city,
       country: club.country,
       logoUrl: club.logoUrl,
+      primaryColor: club.primaryColor,
+      secondaryColor: club.secondaryColor,
+      backgroundLogoEnabled: sessionClubView.backgroundLogoEnabled,
+      backgroundLogoMode: sessionClubView.backgroundLogoMode,
+      backgroundLogoOpacity: sessionClubView.backgroundLogoOpacity,
       foundedYear: club.foundedYear,
       description: club.description,
       createdAt: club.createdAt,

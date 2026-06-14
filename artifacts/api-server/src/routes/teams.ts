@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { db, teamsTable, playersTable, usersTable, teamStaffAssignmentsTable, seasonsTable, clubMembershipsTable } from "@workspace/db";
 import { eq, and, sql, inArray, SQL, asc } from "drizzle-orm";
 import {
@@ -19,6 +19,15 @@ import { requireClubAndUserIds } from "../lib/session-context";
 const TEAM_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
 
 const router: IRouter = Router();
+
+function teamPayloadForSession<T extends object>(payload: T, req: Request): T & { clubSection?: string } {
+  const role = normalizeSessionRole(req.session.role ?? "");
+  const sessionSection = typeof req.session.section === "string" ? req.session.section : "";
+  if (sessionSection && role !== "admin" && role !== "presidente") {
+    return { ...payload, clubSection: sessionSection };
+  }
+  return payload;
+}
 
 async function getTeamStaff(teamId: number) {
   const staffRows = await db
@@ -244,9 +253,11 @@ router.post("/teams", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const teamData = teamPayloadForSession(parsed.data, req);
+
   const [team] = await db
     .insert(teamsTable)
-    .values({ ...parsed.data, clubId: req.session.clubId! })
+    .values({ ...teamData, clubId: req.session.clubId! })
     .returning();
 
   let coachName: string | null = null;
@@ -325,9 +336,11 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
     console.log("[PATCH /teams/:id] id=%d parsed.data=%j", params.data.id, parsed.data);
   }
 
+  const teamData = teamPayloadForSession(parsed.data, req);
+
   const [team] = await db
     .update(teamsTable)
-    .set(parsed.data)
+    .set(teamData)
     .where(and(eq(teamsTable.id, params.data.id), eq(teamsTable.clubId, req.session.clubId!)))
     .returning();
 

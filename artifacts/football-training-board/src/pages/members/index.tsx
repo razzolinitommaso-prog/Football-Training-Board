@@ -105,6 +105,19 @@ const editSchema = z.object({
   teamIds: z.array(z.number()).optional(),
 });
 
+const MEMBER_ROLE_ORDER: Record<string, number> = {
+  admin: 0,
+  presidente: 0,
+  director: 1,
+  technical_director: 2,
+  secretary: 3,
+  athletic_director: 4,
+  coach: 5,
+  fitness_coach: 5,
+};
+
+const STAFF_MANAGED_ROLES = ["coach", "fitness_coach", "athletic_director"] as const;
+
 export default function MembersList() {
   const { t, language } = useLanguage();
   const { role } = useAuth();
@@ -121,6 +134,32 @@ export default function MembersList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canExport = role === "admin" || role === "secretary" || role === "director";
+  const currentRoleRank = MEMBER_ROLE_ORDER[role ?? ""] ?? 99;
+  const canInviteMembers = ["admin", "presidente", "director", "technical_director", "secretary"].includes(role ?? "");
+  const roleOptions = [
+    { value: "coach", label: t.coach },
+    { value: "fitness_coach", label: t.fitnessCoach },
+    { value: "athletic_director", label: t.athleticDirector },
+    { value: "secretary", label: t.secretary },
+    { value: "technical_director", label: t.technicalDirector },
+    { value: "director", label: t.director },
+    { value: "admin", label: t.admin },
+  ].filter((option) => {
+    if (role === "admin" || role === "presidente") return true;
+    if (role === "director") return option.value !== "admin" && option.value !== "presidente" && (MEMBER_ROLE_ORDER[option.value] ?? 99) > currentRoleRank;
+    if (role === "technical_director" || role === "secretary") return (STAFF_MANAGED_ROLES as readonly string[]).includes(option.value);
+    return false;
+  });
+
+  const canManageMember = (member: ClubMember | null | undefined) => {
+    if (!member) return false;
+    if (!["admin", "presidente", "director", "technical_director", "secretary"].includes(role ?? "")) return false;
+    const memberRank = MEMBER_ROLE_ORDER[member.role] ?? 99;
+    if (role === "admin" || role === "presidente") return true;
+    if (role === "director") return memberRank > currentRoleRank;
+    if (role === "technical_director" || role === "secretary") return (STAFF_MANAGED_ROLES as readonly string[]).includes(member.role);
+    return false;
+  };
 
   const handleExportMembers = () => {
     if (!members?.length) return;
@@ -180,6 +219,7 @@ export default function MembersList() {
   const watchedInviteDegreeScienzeMoto = inviteForm.watch("degreeScienzeMoto");
 
   function openEdit(member: ClubMember) {
+    if (!canManageMember(member)) return;
     setEditingMember(member);
     editForm.reset({
       firstName: member.firstName,
@@ -338,6 +378,7 @@ export default function MembersList() {
               Esporta Excel
             </Button>
           )}
+          {canInviteMembers && (
           <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
           <DialogTrigger asChild>
             <Button className="shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all">
@@ -349,7 +390,13 @@ export default function MembersList() {
             <DialogHeader>
               <DialogTitle>{t.inviteStaffMember}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={inviteForm.handleSubmit((data) => inviteMutation.mutate({ data }))} className="space-y-4 pt-4">
+            <form onSubmit={inviteForm.handleSubmit((data) => {
+              if (!roleOptions.some((option) => option.value === data.role)) {
+                toast({ title: "Ruolo non consentito", variant: "destructive" });
+                return;
+              }
+              inviteMutation.mutate({ data });
+            })} className="space-y-4 pt-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.firstName}</Label>
@@ -376,13 +423,9 @@ export default function MembersList() {
                     <Select onValueChange={field.onChange} value={field.value}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="coach">{t.coach}</SelectItem>
-                        <SelectItem value="secretary">{t.secretary}</SelectItem>
-                        <SelectItem value="technical_director">{t.technicalDirector}</SelectItem>
-                        <SelectItem value="athletic_director">{t.athleticDirector}</SelectItem>
-                        <SelectItem value="fitness_coach">{t.fitnessCoach}</SelectItem>
-                        <SelectItem value="director">{t.director}</SelectItem>
-                        <SelectItem value="admin">{t.admin}</SelectItem>
+                        {roleOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   )} />
@@ -498,6 +541,7 @@ export default function MembersList() {
             </form>
           </DialogContent>
         </Dialog>
+          )}
         </div>
       </div>
 
@@ -509,6 +553,10 @@ export default function MembersList() {
           </DialogHeader>
           <form onSubmit={editForm.handleSubmit((data) => {
             if (!editingMember) return;
+            if (!canManageMember(editingMember) || !roleOptions.some((option) => option.value === data.role)) {
+              toast({ title: "Modifica non consentita", variant: "destructive" });
+              return;
+            }
             const payload: any = { ...data };
             if (!payload.newPassword) delete payload.newPassword;
             updateMutation.mutate({ userId: editingMember.id, data: payload });
@@ -551,13 +599,9 @@ export default function MembersList() {
                     <Select onValueChange={field.onChange} value={field.value}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="coach">{t.coach}</SelectItem>
-                        <SelectItem value="secretary">{t.secretary}</SelectItem>
-                        <SelectItem value="technical_director">{t.technicalDirector}</SelectItem>
-                        <SelectItem value="athletic_director">{t.athleticDirector}</SelectItem>
-                        <SelectItem value="fitness_coach">{t.fitnessCoach}</SelectItem>
-                        <SelectItem value="director">{t.director}</SelectItem>
-                        <SelectItem value="admin">{t.admin}</SelectItem>
+                        {roleOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   )} />
@@ -878,6 +922,7 @@ export default function MembersList() {
             <p className="text-sm mt-1">Prova a modificare i filtri di ricerca</p>
           </div>
         ) : filteredMembers?.map(member => {
+          const canManageThisMember = canManageMember(member);
           const isAdmin = member.role === "admin";
           const memberSecs: ClubSection[] = Array.isArray(member.clubSection) && member.clubSection.length > 0
             ? (member.clubSection as ClubSection[])
@@ -946,6 +991,7 @@ export default function MembersList() {
                 <p className="text-xs text-muted-foreground mt-1">{member.phone}</p>
               )}
             </div>
+            {canManageThisMember && (
             <div className="flex flex-col gap-1 shrink-0">
               <Button
                 variant="ghost"
@@ -964,6 +1010,7 @@ export default function MembersList() {
                 <Trash2 className="w-4 h-4" />
               </Button>
             </div>
+            )}
             </div>
           </div>
           );

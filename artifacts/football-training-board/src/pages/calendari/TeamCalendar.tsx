@@ -574,6 +574,39 @@ function tournamentProgramEntryLabel(entry: TournamentProgramEntry): string {
   return [entry.homeTeam, entry.awayTeam].map((part) => String(part ?? "").trim()).filter(Boolean).join(" - ");
 }
 
+function tournamentProgramDedupeKey(entry: TournamentProgramEntry): string {
+  return [
+    entry.kind ?? "match",
+    entry.date,
+    normalizeTournamentText(entry.phase ?? ""),
+    normalizeTournamentText(entry.group ?? ""),
+    normalizeTournamentText(entry.homeTeam),
+    normalizeTournamentText(entry.awayTeam),
+  ].join("|");
+}
+
+function isInvalidSelfTournamentMatch(entry: TournamentProgramEntry): boolean {
+  if (entry.kind && entry.kind !== "match") return false;
+  const home = normalizeTournamentText(entry.homeTeam);
+  const away = normalizeTournamentText(entry.awayTeam);
+  return Boolean(home && away && home === away);
+}
+
+function dedupeTournamentProgramEntries(entries: TournamentProgramEntry[]): TournamentProgramEntry[] {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    if (isInvalidSelfTournamentMatch(entry)) return false;
+    const key = tournamentProgramDedupeKey(entry);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function tournamentProgramFutureWeight(entries: TournamentProgramEntry[]): number {
+  return entries.filter((entry) => entry.kind === "composition" || entry.kind === "fixture_placeholder").length;
+}
+
 function tournamentProgramRowMatchesEntry(row: MatchImportRow, entry: TournamentProgramEntry): boolean {
   const rowText = normalizeTournamentText(row.opponent);
   const entryText = normalizeTournamentText(tournamentProgramEntryLabel(entry));
@@ -589,10 +622,10 @@ function mergeTournamentProgramDatesFromPreview(
   rows: MatchImportRow[],
 ): TournamentProgramEntry[] {
   if (program.length === 0 || rows.length === 0) return program;
-  return program.map((entry) => {
+  return dedupeTournamentProgramEntries(program.map((entry) => {
     const matchingRow = rows.find((row) => importRowHasValidDate(row) && tournamentProgramRowMatchesEntry(row, entry));
     return matchingRow ? { ...entry, date: matchingRow.date } : entry;
-  });
+  }));
 }
 
 function tournamentEditRowsFromProgram(program: TournamentProgramEntry[], fallbackMatches: Array<Pick<Match, "id" | "date" | "opponent">>, fallbackDate: string): Pick<ManualTournamentForm, "groups" | "matches" | "finals"> {
@@ -1114,7 +1147,18 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
 
 async function apiFetch(url: string, options?: RequestInit) {
   const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const raw = await res.text();
+    let message = raw.trim();
+    try {
+      const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown };
+      message = String(parsed.error ?? parsed.message ?? message);
+    } catch {
+      message = message.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    }
+    if (message.length > 240) message = `${message.slice(0, 237)}...`;
+    throw new Error(message || "Errore richiesta API");
+  }
   if (res.status === 204) return null;
   return res.json();
 }
@@ -3272,18 +3316,16 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const teamId = overrideTeamId ?? (params?.teamId ? parseInt(params.teamId) : null);
   const isStandalone = !overrideTeamId;
 
-  const canImportExport = ["admin", "director", "secretary", "presidente"].includes(role ?? "");
+  const canImportExport = role === "secretary";
   const canManageTournament = role === "secretary";
 
   // Segreteria, Direttore Sportivo, Amministratore → gestione logistica partita
-  const canEditSchedule  = ["secretary", "director", "admin"].includes(role ?? "");
+  const canEditSchedule  = role === "secretary";
   // stessa categoria: note pre-partita (indicazioni operative/logistiche)
-  const canEditPreNotes  = ["secretary", "director", "admin"].includes(role ?? "");
+  const canEditPreNotes  = role === "secretary";
   // Post-partita: menu completo note/allegati disponibile anche in segreteria.
   const canEditPostNotes = [
     "secretary",
-    "director",
-    "admin",
     "coach",
     "fitness_coach",
     "athletic_director",
@@ -4227,7 +4269,8 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
   function getTournamentProgramForEdit(competition: string): TournamentProgramEntry[] {
     if (!teamId) return [];
-    return getTournamentState(competition)?.program ?? (!tournamentDocsLoaded ? getTournamentProgram(teamId, competition) : []);
+    const program = getTournamentState(competition)?.program ?? (!tournamentDocsLoaded ? getTournamentProgram(teamId, competition) : []);
+    return dedupeTournamentProgramEntries(program);
   }
 
   function getTournamentScoresForEdit(competition: string): Record<string, TournamentProgramScore> {
@@ -4282,9 +4325,16 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     finalsRule: TournamentFinalsRule = getTournamentFinalsRuleForEdit(competition),
   ) {
     if (!teamId) return;
+    const currentProgram = getTournamentProgramForEdit(competition);
+    const cleanProgram = dedupeTournamentProgramEntries(program);
+    const programToSave =
+      currentProgram.length > cleanProgram.length ||
+      tournamentProgramFutureWeight(currentProgram) > tournamentProgramFutureWeight(cleanProgram)
+        ? currentProgram
+        : cleanProgram;
     const state = await apiFetch("/api/tournament-documents/state", {
       method: "PUT",
-      body: JSON.stringify({ teamId, competition, program, scores, pointsRule, finalsRule, pdfReferenceDate }),
+      body: JSON.stringify({ teamId, competition, program: programToSave, scores, pointsRule, finalsRule, pdfReferenceDate }),
     }) as TournamentStateApi;
     applyTournamentStateToCache(state);
     return state;

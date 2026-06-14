@@ -15,6 +15,14 @@ import { withApi } from "@/lib/api-base";
 interface Payment { id: number; playerId: number; playerName?: string; amount: number; status: string; dueDate?: string; paymentDate?: string; description?: string; }
 interface Player { id: number; firstName: string; lastName: string; }
 
+function playerName(player: Player): string {
+  return [player.lastName, player.firstName].filter(Boolean).join(" ");
+}
+
+function sortPlayersBySurname(players: Player[]): Player[] {
+  return [...players].sort((a, b) => playerName(a).localeCompare(playerName(b), "it", { sensitivity: "base", numeric: true }));
+}
+
 async function apiFetch(url: string, options?: RequestInit) {
   const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) throw new Error(await res.text());
@@ -73,7 +81,7 @@ export default function PaymentsPage() {
                 <Label>{t.player}</Label>
                 <Select value={playerId} onValueChange={setPlayerId}>
                   <SelectTrigger><SelectValue placeholder={t.selectPlayer ?? "Select player"} /></SelectTrigger>
-                  <SelectContent>{players.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.firstName} {p.lastName}</SelectItem>)}</SelectContent>
+                  <SelectContent>{sortPlayersBySurname(players).map(p => <SelectItem key={p.id} value={String(p.id)}>{playerName(p)}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="grid grid-cols-2 gap-4">

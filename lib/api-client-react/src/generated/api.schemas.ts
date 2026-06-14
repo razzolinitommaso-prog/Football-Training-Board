@@ -53,6 +53,16 @@ export interface Club {
   /** @nullable */
   logoUrl?: string | null;
   /** @nullable */
+  primaryColor?: string | null;
+  /** @nullable */
+  secondaryColor?: string | null;
+  /** @nullable */
+  backgroundLogoEnabled?: number | null;
+  /** @nullable */
+  backgroundLogoMode?: string | null;
+  /** @nullable */
+  backgroundLogoOpacity?: number | null;
+  /** @nullable */
   foundedYear?: number | null;
   /** @nullable */
   description?: string | null;
@@ -73,6 +83,16 @@ export interface UpdateClubRequest {
   country?: string | null;
   /** @nullable */
   logoUrl?: string | null;
+  /** @nullable */
+  primaryColor?: string | null;
+  /** @nullable */
+  secondaryColor?: string | null;
+  /** @nullable */
+  backgroundLogoEnabled?: number | null;
+  /** @nullable */
+  backgroundLogoMode?: string | null;
+  /** @nullable */
+  backgroundLogoOpacity?: number | null;
   /** @nullable */
   foundedYear?: number | null;
   /** @nullable */
@@ -136,6 +156,8 @@ export interface TrainingSlot {
   day: string;
   startTime: string;
   endTime: string;
+  /** @nullable */
+  campo?: string | null;
 }
 
 export interface Team {
@@ -155,6 +177,10 @@ export interface Team {
   /** @nullable */
   trainingSchedule?: TrainingSlot[] | null;
   /** @nullable */
+  seasonTrainingStartDate?: string | null;
+  /** @nullable */
+  officialTrainingEndDate?: string | null;
+  /** @nullable */
   clubSection?: string | null;
 }
 
@@ -168,6 +194,10 @@ export interface CreateTeamRequest {
   coachId?: number | null;
   /** @nullable */
   trainingSchedule?: TrainingSlot[] | null;
+  /** @nullable */
+  seasonTrainingStartDate?: string | null;
+  /** @nullable */
+  officialTrainingEndDate?: string | null;
   clubSection?: "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 }
 
@@ -181,6 +211,11 @@ export interface UpdateTeamRequest {
   coachId?: number | null;
   /** @nullable */
   trainingSchedule?: TrainingSlot[] | null;
+  /** @nullable */
+  seasonTrainingStartDate?: string | null;
+  /** @nullable */
+  officialTrainingEndDate?: string | null;
+  clubSection?: "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 }
 
 export interface Player {

@@ -16,6 +16,36 @@ import bcrypt from "bcryptjs";
 
 const router: IRouter = Router();
 
+const MEMBER_ROLE_ORDER: Record<string, number> = {
+  admin: 0,
+  presidente: 0,
+  director: 1,
+  technical_director: 2,
+  secretary: 3,
+  athletic_director: 4,
+  coach: 5,
+  fitness_coach: 5,
+};
+
+const STAFF_MANAGED_ROLES = new Set(["coach", "fitness_coach", "athletic_director"]);
+
+function canAssignMemberRole(actorRole?: string | null, targetRole?: string | null): boolean {
+  const actor = actorRole ?? "";
+  const target = targetRole ?? "";
+  if (actor === "admin" || actor === "presidente") return true;
+  if (actor === "director") return (MEMBER_ROLE_ORDER[target] ?? 99) > (MEMBER_ROLE_ORDER[actor] ?? 99);
+  if (actor === "technical_director" || actor === "secretary") return STAFF_MANAGED_ROLES.has(target);
+  return false;
+}
+
+async function getClubMemberRole(userId: number, clubId: number): Promise<string | null> {
+  const [membership] = await db
+    .select({ role: clubMembershipsTable.role })
+    .from(clubMembershipsTable)
+    .where(and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, clubId)));
+  return membership?.role ?? null;
+}
+
 function normalizeClubExactName(value: string): string {
   return value
     .toLowerCase()
@@ -71,6 +101,11 @@ router.get("/clubs/me", requireAuth, async (req, res): Promise<void> => {
     res.status(404).json({ error: "Club not found" });
     return;
   }
+  const clubView = club as typeof club & {
+    backgroundLogoEnabled?: number | null;
+    backgroundLogoMode?: string | null;
+    backgroundLogoOpacity?: number | null;
+  };
   res.json(GetMyClubResponse.parse({
     ...club,
     city: club.city ?? null,
@@ -78,6 +113,9 @@ router.get("/clubs/me", requireAuth, async (req, res): Promise<void> => {
     logoUrl: club.logoUrl ?? null,
     primaryColor: club.primaryColor ?? null,
     secondaryColor: club.secondaryColor ?? null,
+    backgroundLogoEnabled: clubView.backgroundLogoEnabled ?? 1,
+    backgroundLogoMode: clubView.backgroundLogoMode ?? "large",
+    backgroundLogoOpacity: clubView.backgroundLogoOpacity ?? 8,
     foundedYear: club.foundedYear ?? null,
     description: club.description ?? null,
   }));
@@ -103,14 +141,22 @@ router.patch("/clubs/me", requireAuth, async (req, res): Promise<void> => {
   }
 
   const updateData: Record<string, unknown> = {};
-  if (parsed.data.name !== undefined) updateData.name = parsed.data.name;
-  if (parsed.data.city !== undefined) updateData.city = parsed.data.city;
-  if (parsed.data.country !== undefined) updateData.country = parsed.data.country;
-  if (parsed.data.logoUrl !== undefined) updateData.logoUrl = parsed.data.logoUrl;
-  if (parsed.data.primaryColor !== undefined) updateData.primaryColor = parsed.data.primaryColor;
-  if (parsed.data.secondaryColor !== undefined) updateData.secondaryColor = parsed.data.secondaryColor;
-  if (parsed.data.foundedYear !== undefined) updateData.foundedYear = parsed.data.foundedYear;
-  if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
+  const patch = parsed.data as typeof parsed.data & {
+    backgroundLogoEnabled?: number | null;
+    backgroundLogoMode?: string | null;
+    backgroundLogoOpacity?: number | null;
+  };
+  if (patch.name !== undefined) updateData.name = patch.name;
+  if (patch.city !== undefined) updateData.city = patch.city;
+  if (patch.country !== undefined) updateData.country = patch.country;
+  if (patch.logoUrl !== undefined) updateData.logoUrl = patch.logoUrl;
+  if (patch.primaryColor !== undefined) updateData.primaryColor = patch.primaryColor;
+  if (patch.secondaryColor !== undefined) updateData.secondaryColor = patch.secondaryColor;
+  if (patch.backgroundLogoEnabled !== undefined) updateData.backgroundLogoEnabled = patch.backgroundLogoEnabled;
+  if (patch.backgroundLogoMode !== undefined) updateData.backgroundLogoMode = patch.backgroundLogoMode;
+  if (patch.backgroundLogoOpacity !== undefined) updateData.backgroundLogoOpacity = patch.backgroundLogoOpacity;
+  if (patch.foundedYear !== undefined) updateData.foundedYear = patch.foundedYear;
+  if (patch.description !== undefined) updateData.description = patch.description;
 
   const [club] = await db
     .update(clubsTable)
@@ -118,6 +164,11 @@ router.patch("/clubs/me", requireAuth, async (req, res): Promise<void> => {
     .where(eq(clubsTable.id, req.session.clubId!))
     .returning();
 
+  const savedClub = club as typeof club & {
+    backgroundLogoEnabled?: number | null;
+    backgroundLogoMode?: string | null;
+    backgroundLogoOpacity?: number | null;
+  };
   res.json(UpdateMyClubResponse.parse({
     ...club,
     city: club.city ?? null,
@@ -125,6 +176,9 @@ router.patch("/clubs/me", requireAuth, async (req, res): Promise<void> => {
     logoUrl: club.logoUrl ?? null,
     primaryColor: club.primaryColor ?? null,
     secondaryColor: club.secondaryColor ?? null,
+    backgroundLogoEnabled: savedClub.backgroundLogoEnabled ?? 1,
+    backgroundLogoMode: savedClub.backgroundLogoMode ?? "large",
+    backgroundLogoOpacity: savedClub.backgroundLogoOpacity ?? 8,
     foundedYear: club.foundedYear ?? null,
     description: club.description ?? null,
   }));
@@ -189,6 +243,11 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
   }
 
   const { email, firstName, lastName, password, role, clubSection, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType } = parsed.data;
+
+  if (!canAssignMemberRole(req.session.role, role)) {
+    res.status(403).json({ error: "Non puoi creare membri con questo ruolo" });
+    return;
+  }
 
   const existingUser = await db.select().from(usersTable).where(eq(usersTable.email, email));
   
@@ -257,6 +316,16 @@ router.patch("/clubs/me/members/:userId", requireAuth, async (req, res): Promise
   }
 
   const { firstName, lastName, email, newPassword, role, clubSection, staffRole, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
+
+  const currentTargetRole = await getClubMemberRole(userId, req.session.clubId!);
+  if (!currentTargetRole) {
+    res.status(404).json({ error: "Member not found" });
+    return;
+  }
+  if (!canAssignMemberRole(req.session.role, currentTargetRole) || !canAssignMemberRole(req.session.role, role)) {
+    res.status(403).json({ error: "Non puoi modificare questo membro" });
+    return;
+  }
 
   type UserUpdateFields = {
     firstName?: string;
@@ -328,6 +397,16 @@ router.patch("/clubs/me/members/:userId", requireAuth, async (req, res): Promise
 router.delete("/clubs/me/members/:userId", requireAuth, async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
   const userId = parseInt(rawId, 10);
+
+  const currentTargetRole = await getClubMemberRole(userId, req.session.clubId!);
+  if (!currentTargetRole) {
+    res.status(404).json({ error: "Member not found" });
+    return;
+  }
+  if (!canAssignMemberRole(req.session.role, currentTargetRole)) {
+    res.status(403).json({ error: "Non puoi rimuovere questo membro" });
+    return;
+  }
 
   await db
     .delete(clubMembershipsTable)
