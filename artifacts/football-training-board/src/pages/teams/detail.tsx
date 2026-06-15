@@ -268,7 +268,7 @@ export default function TeamDetail() {
       payload.unavailabilityReason = null;
       payload.expectedReturn = null;
     }
-    if (isLimitedEditor) {
+    if (playerDialogMode === "view" || isLimitedEditor) {
       const limitedPayload: Record<string, unknown> = {
         notes: payload.notes,
       };
@@ -557,6 +557,110 @@ export default function TeamDetail() {
             <DialogTitle>{playerDialogMode === "edit" ? t.editPlayer : "Scheda giocatore"}</DialogTitle>
           </DialogHeader>
           {editingPlayer && (
+            playerDialogMode === "view" ? (
+            <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <h3 className="text-base font-semibold">{playerName(editingPlayer)}</h3>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                  <span className="rounded border bg-background px-2 py-0.5">{editingPlayer.position || "Ruolo N/D"}</span>
+                  {editingPlayer.jerseyNumber ? <span className="rounded border bg-background px-2 py-0.5">#{editingPlayer.jerseyNumber}</span> : null}
+                  <span className="rounded border bg-background px-2 py-0.5">{watchAvailable === false ? t.notAvailable : t.available}</span>
+                  <span className="rounded border bg-background px-2 py-0.5">{editingPlayer.registered ? t.registered : "Non tesserato"}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <div>
+                  <Label className="text-sm font-semibold">Comunicazioni</Label>
+                  <p className="text-xs text-muted-foreground">Puoi inviare una nota o rispondere a una richiesta.</p>
+                </div>
+                {(() => {
+                  const parsed = splitPlayerNotes(editForm.watch("notes") ?? "");
+                  return (
+                    <div className="space-y-2">
+                      {parsed.thread.length > 0 && (
+                        <div className="space-y-1 rounded border bg-muted/20 p-2">
+                          {parsed.thread.slice(-3).map((n) => (
+                            <div key={n.id} className="text-xs rounded border px-2 py-1 bg-background">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium">{n.authorName || n.authorRole}</span>
+                                <span className="text-muted-foreground">{new Date(n.createdAt).toLocaleString("it-IT")}</span>
+                              </div>
+                              <div className="text-muted-foreground mt-0.5">
+                                A: {n.recipient === "secretary" ? "Segreteria/DS" : n.recipient === "technical_director" ? "Direttore tecnico" : "Allenatori/Preparatori"}
+                              </div>
+                              <p className="mt-1">{n.body}</p>
+                              {n.requiresResponse && !n.repliedAt && (
+                                <span className="inline-flex mt-1 text-[10px] rounded border px-1.5 py-0.5">In attesa risposta</span>
+                              )}
+                              {n.repliedAt && (
+                                <span className="inline-flex mt-1 text-[10px] rounded border px-1.5 py-0.5 bg-muted">Risposta ricevuta</span>
+                              )}
+                              {!!n.requiresResponse && !n.repliedAt && canWritePlayerNotes && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-[10px] mt-1"
+                                  onClick={() => setNoteReplyToId(n.id)}
+                                >
+                                  Rispondi
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {canWritePlayerNotes && (
+                        <div className="space-y-2 rounded border bg-background p-2">
+                          <Textarea
+                            value={noteDraftText}
+                            onChange={(e) => setNoteDraftText(e.target.value)}
+                            placeholder="Scrivi una comunicazione sul giocatore..."
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Select value={noteRecipient} onValueChange={(v) => setNoteRecipient(v as PlayerNoteRecipient)}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="secretary">Segreteria/DS</SelectItem>
+                                <SelectItem value="technical_director">Direttore tecnico</SelectItem>
+                                <SelectItem value="coach_staff">Allenatori/Preparatori</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <div className="flex items-center gap-2 px-2">
+                              <Checkbox checked={noteRequiresResponse} onCheckedChange={(v) => setNoteRequiresResponse(v === true)} />
+                              <Label className="text-xs">Richiesta risposta</Label>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <details className="rounded-lg border p-3">
+                <summary className="cursor-pointer text-sm font-semibold">Dati principali</summary>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div><span className="text-muted-foreground">Nato il</span><p>{editingPlayer.dateOfBirth || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Nazionalita</span><p>{editingPlayer.nationality || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Altezza</span><p>{editingPlayer.height ? `${editingPlayer.height} cm` : "-"}</p></div>
+                  <div><span className="text-muted-foreground">Peso</span><p>{editingPlayer.weight ? `${editingPlayer.weight} kg` : "-"}</p></div>
+                  <div><span className="text-muted-foreground">Stato</span><p>{editingPlayer.status || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Rientro</span><p>{editingPlayer.expectedReturn || "-"}</p></div>
+                </div>
+              </details>
+
+              <DialogFooter className="pt-2">
+                <Button type="button" variant="outline" onClick={() => setEditingPlayer(null)}>{t.cancel}</Button>
+                {canWritePlayerNotes && (
+                  <Button type="submit" disabled={updateMutation.isPending || !noteDraftText.trim()}>
+                    {updateMutation.isPending ? t.saving : "Invia comunicazione"}
+                  </Button>
+                )}
+              </DialogFooter>
+            </form>
+            ) : (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -776,6 +880,7 @@ export default function TeamDetail() {
                 </Button>
               </DialogFooter>
             </form>
+            )
           )}
         </DialogContent>
       </Dialog>

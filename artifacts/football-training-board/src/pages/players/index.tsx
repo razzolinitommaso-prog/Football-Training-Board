@@ -641,7 +641,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       payload.expectedReturn = null;
     }
 
-    if (isLimitedEditor) {
+    if (playerDialogMode === "view" || isLimitedEditor) {
       const limitedPayload: Record<string, unknown> = {
         notes: payload.notes,
       };
@@ -902,6 +902,146 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
             <DialogTitle>{playerDialogMode === "edit" ? t.editPlayer : "Scheda giocatore"}</DialogTitle>
           </DialogHeader>
           {editingPlayer && (
+            playerDialogMode === "view" ? (
+            <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
+              <div className="flex items-start gap-3 rounded-lg border bg-muted/20 p-3">
+                {editForm.watch("imageUrl") ? (
+                  <img src={editForm.watch("imageUrl") ?? ""} alt="Giocatore" className="h-16 w-16 rounded-md object-cover border" />
+                ) : (
+                  <div className="h-16 w-16 rounded-md border bg-background flex items-center justify-center text-muted-foreground">
+                    <User className="h-7 w-7" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base font-semibold">{playerName(editingPlayer, nameOrder)}</h3>
+                  <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                    <Badge variant="secondary">{editingPlayer.teamName || t.unassigned}</Badge>
+                    <Badge variant="outline">{editingPlayer.position || "Ruolo N/D"}</Badge>
+                    {editingPlayer.jerseyNumber ? <Badge variant="outline">#{editingPlayer.jerseyNumber}</Badge> : null}
+                    <Badge variant={watchAvailable === false ? "destructive" : "secondary"}>
+                      {watchAvailable === false ? t.notAvailable : t.available}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <div>
+                  <Label className="text-sm font-semibold">Comunicazioni</Label>
+                  <p className="text-xs text-muted-foreground">Puoi inviare una nota o rispondere a una richiesta.</p>
+                </div>
+                {(() => {
+                  const parsed = splitPlayerNotes(editForm.watch("notes") ?? "");
+                  const pendingForCurrentUser = parsed.thread.filter((n) =>
+                    !!n.requiresResponse &&
+                    !n.repliedAt &&
+                    (
+                      (n.recipient === "secretary" && (nr === "secretary" || nr === "sporting_director")) ||
+                      (n.recipient === "technical_director" && nr === "technical_director") ||
+                      (n.recipient === "coach_staff" && ["coach", "fitness_coach", "athletic_director"].includes(nr))
+                    )
+                  );
+                  return (
+                    <div className="space-y-2">
+                      {parsed.thread.length > 0 && (
+                        <div className="space-y-1 rounded border bg-muted/20 p-2">
+                          {parsed.thread.slice(-3).map((n) => (
+                            <div key={n.id} className={`text-xs rounded border px-2 py-1 bg-background ${noteReplyToId === n.id ? "border-primary ring-1 ring-primary/30" : ""}`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium">{n.authorName || n.authorRole}</span>
+                                <span className="text-muted-foreground">{new Date(n.createdAt).toLocaleString("it-IT")}</span>
+                              </div>
+                              <div className="text-muted-foreground mt-0.5">
+                                A: {n.recipient === "secretary" ? "Segreteria/DS" : n.recipient === "technical_director" ? "Direttore tecnico" : "Allenatori/Preparatori"}
+                              </div>
+                              <p className="mt-1">{n.body}</p>
+                              {n.requiresResponse && !n.repliedAt && <Badge variant="outline" className="mt-1 text-[10px]">In attesa risposta</Badge>}
+                              {n.repliedAt && <Badge variant="secondary" className="mt-1 text-[10px]">Risposta ricevuta</Badge>}
+                              {!!n.requiresResponse && !n.repliedAt && canWritePlayerNotes && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-[10px] mt-1"
+                                  onClick={() => {
+                                    setNoteReplyToId(n.id);
+                                    setNoteRecipient(getReplyRecipient(n.authorRole));
+                                    setNoteRequiresResponse(false);
+                                    window.setTimeout(() => noteDraftRef.current?.focus(), 0);
+                                  }}
+                                >
+                                  {noteReplyToId === n.id ? "Risposta selezionata" : "Rispondi"}
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {canWritePlayerNotes && (
+                        <div className="space-y-2 rounded border bg-background p-2">
+                          <Textarea
+                            ref={noteDraftRef}
+                            value={noteDraftText}
+                            onChange={(e) => setNoteDraftText(e.target.value)}
+                            spellCheck={false}
+                            placeholder="Scrivi una comunicazione sul giocatore..."
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Select value={noteRecipient} onValueChange={(v) => setNoteRecipient(v as PlayerNoteRecipient)}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="secretary">Segreteria/DS</SelectItem>
+                                <SelectItem value="technical_director">Direttore tecnico</SelectItem>
+                                <SelectItem value="coach_staff">Allenatori/Preparatori</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <div className="flex items-center gap-2 px-2">
+                              <Checkbox checked={noteRequiresResponse} onCheckedChange={(v) => setNoteRequiresResponse(v === true)} />
+                              <Label className="text-xs">Richiesta risposta</Label>
+                            </div>
+                          </div>
+                          {pendingForCurrentUser.length > 0 && (
+                            <p className="text-[11px] text-amber-700">Hai {pendingForCurrentUser.length} richieste di risposta in attesa.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <details className="rounded-lg border p-3">
+                <summary className="cursor-pointer text-sm font-semibold">Dati principali</summary>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div><span className="text-muted-foreground">Nato il</span><p>{editingPlayer.dateOfBirth || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Nazionalita</span><p>{editingPlayer.nationality || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Altezza</span><p>{editingPlayer.height ? `${editingPlayer.height} cm` : "-"}</p></div>
+                  <div><span className="text-muted-foreground">Peso</span><p>{editingPlayer.weight ? `${editingPlayer.weight} kg` : "-"}</p></div>
+                  <div><span className="text-muted-foreground">Tesseramento</span><p>{editingPlayer.registered ? t.registered : "-"}</p></div>
+                  <div><span className="text-muted-foreground">Stato</span><p>{statusLabel(editingPlayer.status)}</p></div>
+                </div>
+              </details>
+
+              {watchAvailable === false && (
+                <details className="rounded-lg border p-3" open>
+                  <summary className="cursor-pointer text-sm font-semibold text-amber-700">Disponibilita</summary>
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div><span className="text-muted-foreground">Motivo</span><p>{reasonLabel(editingPlayer.unavailabilityReason, t)}</p></div>
+                    <div><span className="text-muted-foreground">Rientro previsto</span><p>{editingPlayer.expectedReturn || "-"}</p></div>
+                  </div>
+                </details>
+              )}
+
+              <DialogFooter className="pt-2">
+                <Button type="button" variant="outline" onClick={() => setEditingPlayer(null)}>{t.cancel}</Button>
+                {canWritePlayerNotes && (
+                  <Button type="submit" disabled={updateMutation.isPending || !noteDraftText.trim()}>
+                    {updateMutation.isPending ? t.saving : "Invia comunicazione"}
+                  </Button>
+                )}
+              </DialogFooter>
+            </form>
+            ) : (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1324,6 +1464,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </Button>
               </DialogFooter>
             </form>
+            )
           )}
         </DialogContent>
       </Dialog>
