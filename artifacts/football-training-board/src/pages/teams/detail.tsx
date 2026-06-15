@@ -164,12 +164,13 @@ export default function TeamDetail() {
   const [noteRequiresResponse, setNoteRequiresResponse] = useState(false);
   const [noteReplyToId, setNoteReplyToId] = useState<string>("");
 
-  const canDeletePlayer = ["admin", "presidente", "secretary", "director"].includes(role ?? "");
-  const isLimitedEditor = ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(role ?? "");
-  const canEditFullPlayer = ["admin", "presidente", "secretary", "director"].includes(role ?? "");
-  const canEdit = canEditFullPlayer || isLimitedEditor;
-  const canEditAvailability = canEdit;
-  const canWritePlayerNotes = isLimitedEditor || canEditFullPlayer;
+  const canManagePlayers = role === "secretary";
+  const canDeletePlayer = canManagePlayers;
+  const canEditFullPlayer = canManagePlayers;
+  const canWritePlayerNotes = ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(role ?? "");
+  const isLimitedEditor = !canManagePlayers && canWritePlayerNotes;
+  const canEdit = canManagePlayers || canWritePlayerNotes;
+  const canEditAvailability = canManagePlayers;
 
   const editForm = useForm<EditForm>({ resolver: zodResolver(editSchema) });
   const watchAvailable = editForm.watch("available");
@@ -268,10 +269,6 @@ export default function TeamDetail() {
     if (isLimitedEditor) {
       const limitedPayload: Record<string, unknown> = {
         notes: payload.notes,
-        available: payload.available,
-        unavailabilityReason: payload.unavailabilityReason,
-        expectedReturn: payload.expectedReturn,
-        status: payload.status,
       };
       updateMutation.mutate({ id: editingPlayer.id, data: limitedPayload as any });
       return;
@@ -607,7 +604,7 @@ export default function TeamDetail() {
               <div className="space-y-2">
                 <Label>{t.status}</Label>
                 <Controller control={editForm.control} name="status" render={({ field }) => (
-                  <Select onValueChange={field.onChange} value={field.value || "active"}>
+                  <Select onValueChange={field.onChange} value={field.value || "active"} disabled={!canEditFullPlayer}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="active">{t.active}</SelectItem>
@@ -626,7 +623,7 @@ export default function TeamDetail() {
                       <Textarea
                         value={parsed.plainNote}
                         onChange={(e) => editForm.setValue("notes", composePlayerNotes(e.target.value, parsed.thread))}
-                        disabled={!canWritePlayerNotes}
+                        disabled={!canManagePlayers}
                         placeholder="Nota generale sul giocatore..."
                       />
                       {parsed.thread.length > 0 && (

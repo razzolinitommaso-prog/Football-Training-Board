@@ -18,9 +18,16 @@ import { requireClubAndUserIds } from "../lib/session-context";
 
 /** Il direttore tecnico elenca tutti i giocatori del club; coach/preparatori solo le proprie squadre. */
 const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
-const PLAYER_DELETE_ROLES = ["admin", "presidente", "secretary", "director"];
-const PLAYER_FULL_EDIT_ROLES = ["admin", "presidente", "secretary", "director"];
-const PLAYER_LIMITED_EDIT_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
+const PLAYER_MANAGE_ROLES = ["secretary"];
+const PLAYER_NOTE_ONLY_ROLES = [
+  "admin",
+  "presidente",
+  "director",
+  "technical_director",
+  "coach",
+  "fitness_coach",
+  "athletic_director",
+];
 const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
 const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
 
@@ -81,6 +88,15 @@ function stripMetaFromNotes(raw?: string | null): string {
   if (!full.startsWith(PLAYER_META_MARKER)) return full;
   const nextNewLineIdx = full.indexOf("\n");
   return nextNewLineIdx >= 0 ? full.slice(nextNewLineIdx + 1).trim() : "";
+}
+
+function preserveExistingMetaInNotes(existingRaw?: string | null, incomingRaw?: string | null): string {
+  const cleanIncoming = stripMetaFromNotes(incomingRaw);
+  const existing = String(existingRaw ?? "").trim();
+  if (!existing.startsWith(PLAYER_META_MARKER)) return cleanIncoming;
+  const nextNewLineIdx = existing.indexOf("\n");
+  const existingMeta = nextNewLineIdx >= 0 ? existing.slice(0, nextNewLineIdx).trim() : existing;
+  return cleanIncoming ? `${existingMeta}\n${cleanIncoming}` : existingMeta;
 }
 
 function parsePlayerNotesThread(raw?: string | null): PlayerNoteThreadItem[] {
@@ -178,10 +194,9 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   res.json(ListPlayersResponse.parse(enriched));
 });
 
-const NO_CREATE_ROLES = ["coach", "fitness_coach", "athletic_director"];
-
 router.post("/players", requireAuth, async (req, res): Promise<void> => {
-  if (NO_CREATE_ROLES.includes(req.session.role ?? "")) {
+  const role = normalizeSessionRole(req.session.role);
+  if (!PLAYER_MANAGE_ROLES.includes(role)) {
     res.status(403).json({ error: "Non sei autorizzato ad aggiungere giocatori" });
     return;
   }
@@ -241,7 +256,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const role = req.session.role ?? "";
+  const role = normalizeSessionRole(req.session.role);
   const updateData = { ...parsed.data } as Record<string, unknown>;
   const [existingPlayer] = await db
     .select()
@@ -253,31 +268,19 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  if (PLAYER_LIMITED_EDIT_ROLES.includes(role) && !PLAYER_FULL_EDIT_ROLES.includes(role)) {
-    // Coach/preparatori can update notes, availability, and on-field role classification.
-    const allowed = new Set(["notes", "status", "available", "unavailabilityReason", "expectedReturn", "position"]);
+  if (!PLAYER_MANAGE_ROLES.includes(role)) {
+    if (!PLAYER_NOTE_ONLY_ROLES.includes(role)) {
+      res.status(403).json({ error: "Non autorizzato a modificare questo giocatore" });
+      return;
+    }
+
+    const allowed = new Set(["notes"]);
     for (const k of Object.keys(updateData)) {
       if (!allowed.has(k)) delete updateData[k];
     }
-
-    // Coaches/preparators can modify only players in their assigned teams.
-    if (["coach", "fitness_coach", "athletic_director"].includes(role)) {
-      const assignments = await db
-        .select({ teamId: teamStaffAssignmentsTable.teamId })
-        .from(teamStaffAssignmentsTable)
-        .where(and(
-          eq(teamStaffAssignmentsTable.userId, req.session.userId!),
-          eq(teamStaffAssignmentsTable.clubId, req.session.clubId!),
-        ));
-      const assignedTeamIds = new Set(assignments.map((a) => a.teamId));
-      if (!existingPlayer.teamId || !assignedTeamIds.has(existingPlayer.teamId)) {
-        res.status(403).json({ error: "Non autorizzato a modificare questo giocatore" });
-        return;
-      }
+    if (typeof updateData.notes === "string") {
+      updateData.notes = preserveExistingMetaInNotes(existingPlayer.notes, String(updateData.notes));
     }
-  } else if (!PLAYER_FULL_EDIT_ROLES.includes(role)) {
-    res.status(403).json({ error: "Non autorizzato a modificare questo giocatore" });
-    return;
   }
 
   if (updateData.registered === false) {
@@ -350,8 +353,8 @@ router.delete("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const role = req.session.role ?? "";
-  if (!PLAYER_DELETE_ROLES.includes(role)) {
+  const role = normalizeSessionRole(req.session.role);
+  if (!PLAYER_MANAGE_ROLES.includes(role)) {
     res.status(403).json({ error: "Non autorizzato a eliminare giocatori" });
     return;
   }

@@ -320,13 +320,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [nameOrder, setNameOrder] = useState<PlayerNameOrder>("surname_first");
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canDeletePlayer = ["admin", "presidente", "secretary", "director"].includes(nr);
-  const isLimitedEditor = ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(nr);
-  const canEditFullPlayer = !isLimitedEditor && !!nr;
-  const canEditAvailability = nr === "admin" || nr === "secretary" || nr === "director" || isLimitedEditor;
-  const canEditRoleAndSquad = canEditFullPlayer || isLimitedEditor;
-  const canWritePlayerNotes = isLimitedEditor || nr === "secretary" || nr === "director" || nr === "admin" || nr === "presidente";
-  const canUploadPlayerImage = ["admin", "presidente", "secretary", "director"].includes(nr);
+  const canManagePlayers = nr === "secretary";
+  const canDeletePlayer = canManagePlayers;
+  const canWritePlayerNotes = ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(nr);
+  const isLimitedEditor = !canManagePlayers && canWritePlayerNotes;
+  const canEditFullPlayer = canManagePlayers;
+  const canEditAvailability = canManagePlayers;
+  const canEditRoleAndSquad = canManagePlayers;
+  const canUploadPlayerImage = canManagePlayers;
   const canEditSupplementalTeam = canUploadPlayerImage;
   const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
   const isStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "technical_director" || nr === "athletic_director";
@@ -641,11 +642,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (isLimitedEditor) {
       const limitedPayload: Record<string, unknown> = {
         notes: payload.notes,
-        position: payload.position,
-        available: payload.available,
-        unavailabilityReason: payload.unavailabilityReason,
-        expectedReturn: payload.expectedReturn,
-        status: payload.status,
       };
       updateMutation.mutate({ id: editingPlayer.id, data: limitedPayload as any });
     } else {
@@ -748,7 +744,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
             </>
           )}
           <Dialog open={isCreateOpen} onOpenChange={(o) => { setIsCreateOpen(o); if (!o) { setFormSeasonFilter("all"); form.reset(); } }}>
-          {!["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && (
+          {canManagePlayers && (
           <DialogTrigger asChild>
             <Button className="shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all">
               <Plus className="w-5 h-5 mr-2" />
@@ -1118,7 +1114,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   control={editForm.control}
                   name="status"
                   render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value || "active"}>
+                    <Select onValueChange={field.onChange} value={field.value || "active"} disabled={!canEditFullPlayer}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -1166,7 +1162,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <Textarea
                         value={parsed.plainNote}
                         onChange={(e) => editForm.setValue("notes", composePlayerNotes(e.target.value, parsed.thread))}
-                        disabled={!canWritePlayerNotes}
+                        disabled={!canManagePlayers}
                         spellCheck={false}
                         placeholder="Nota generale sul giocatore..."
                       />
