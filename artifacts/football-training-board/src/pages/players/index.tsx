@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -301,6 +301,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [heightMax, setHeightMax] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [playerDialogMode, setPlayerDialogMode] = useState<"view" | "edit">("view");
   const [openedFromQuery, setOpenedFromQuery] = useState(false);
   const [formSeasonFilter, setFormSeasonFilter] = useState<string>("all");
   const [noteDraftText, setNoteDraftText] = useState("");
@@ -320,14 +321,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [nameOrder, setNameOrder] = useState<PlayerNameOrder>("surname_first");
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canManagePlayers = nr === "secretary";
+  const canManagePlayers = nr === "secretary" || nr === "sporting_director";
   const canDeletePlayer = canManagePlayers;
-  const canWritePlayerNotes = ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(nr);
+  const canWritePlayerNotes = ["admin", "presidente", "director", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(nr);
   const isLimitedEditor = !canManagePlayers && canWritePlayerNotes;
-  const canEditFullPlayer = canManagePlayers;
-  const canEditAvailability = canManagePlayers;
-  const canEditRoleAndSquad = canManagePlayers;
-  const canUploadPlayerImage = canManagePlayers;
+  const canEditFullPlayer = canManagePlayers && playerDialogMode === "edit";
+  const canEditAvailability = canManagePlayers && playerDialogMode === "edit";
+  const canEditRoleAndSquad = canManagePlayers && playerDialogMode === "edit";
+  const canUploadPlayerImage = canManagePlayers && playerDialogMode === "edit";
   const canEditSupplementalTeam = canUploadPlayerImage;
   const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
   const isStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "technical_director" || nr === "athletic_director";
@@ -443,7 +444,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     }
   }, [watchRegisteredCreate, form]);
 
-  const openEdit = (player: Player) => {
+  const openPlayerDialog = (player: Player, mode: "view" | "edit" = "view") => {
+    setPlayerDialogMode(mode);
     setEditingPlayer(player);
     const { notesRaw, meta } = splitPlayerMeta(player.notes ?? "");
     const parsedNotes = splitPlayerNotes(notesRaw);
@@ -574,7 +576,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (!Number.isFinite(openPlayerId) || openPlayerId <= 0) return;
     const target = list.find((p) => p.id === openPlayerId);
     if (!target) return;
-    openEdit(target);
+    openPlayerDialog(target, "view");
     setOpenedFromQuery(true);
     if (params.get("focus") === "notes") {
       window.setTimeout(() => {
@@ -897,7 +899,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       <Dialog open={!!editingPlayer} onOpenChange={(o) => !o && setEditingPlayer(null)}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{t.editPlayer}</DialogTitle>
+            <DialogTitle>{playerDialogMode === "edit" ? t.editPlayer : "Scheda giocatore"}</DialogTitle>
           </DialogHeader>
           {editingPlayer && (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
@@ -1162,7 +1164,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <Textarea
                         value={parsed.plainNote}
                         onChange={(e) => editForm.setValue("notes", composePlayerNotes(e.target.value, parsed.thread))}
-                        disabled={!canManagePlayers}
+                        disabled={!canEditFullPlayer}
                         spellCheck={false}
                         placeholder="Nota generale sul giocatore..."
                       />
@@ -1717,11 +1719,22 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
-                          onClick={() => openEdit(player)}
-                          title={t.editPlayer}
+                          onClick={() => openPlayerDialog(player, "view")}
+                          title="Visualizza scheda"
                         >
-                          <Pencil className="w-4 h-4" />
+                          <Eye className="w-4 h-4" />
                         </Button>
+                        {canManagePlayers && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => openPlayerDialog(player, "edit")}
+                            title={t.editPlayer}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                        )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canDeletePlayer}>

@@ -250,6 +250,7 @@ function dashboardRoleLabel(role: string): string {
     admin: "Admin",
     presidente: "Presidente",
     director: "Direttore",
+    sporting_director: "Direttore sportivo",
     secretary: "Segreteria",
     coach: "Allenatori",
     technical_director: "Direttori tecnici",
@@ -426,7 +427,7 @@ export default function Dashboard() {
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
   const dashboardSection = section || "scuola_calcio";
   const canPrepareFromDashboardCalendar = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director" || nr === "technical_director";
-  const canEditDashboardCalendar = nr === "secretary" || nr === "admin" || nr === "director" || nr === "presidente";
+  const canEditDashboardCalendar = nr === "secretary" || nr === "sporting_director" || nr === "admin" || nr === "director" || nr === "presidente";
 
   const { data: stats, isLoading } = useGetDashboardStats({
     query: {
@@ -451,7 +452,7 @@ export default function Dashboard() {
     nr === "coach" || nr === "fitness_coach" || nr === "technical_director";
 
   const queryClient = useQueryClient();
-  const showSecretaryFilesCard = nr === "secretary" && clubIdNum > 0;
+  const showSecretaryFilesCard = (nr === "secretary" || nr === "sporting_director") && clubIdNum > 0;
   const [secretaryUploadKind, setSecretaryUploadKind] = useState<"federation" | "tournament">("federation");
   const [calendarImportMode, setCalendarImportMode] = useState<"federation" | "tournament" | null>(null);
   const [calendarImportTeamId, setCalendarImportTeamId] = useState("");
@@ -619,7 +620,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
 
   const now = new Date();
   const isTransitionWindow = now.getMonth() >= 6 && now.getMonth() <= 7;
-  const canManageSeasons = nr === "admin" || nr === "secretary";
+  const canManageSeasons = nr === "admin" || nr === "secretary" || nr === "sporting_director";
 
   const myTeams = isStaffViewer && user?.id && nr !== "technical_director"
     ? (allTeams ?? []).filter((team: any) =>
@@ -702,7 +703,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       setLocation(`/scuola-calcio/calendar?phase=${phase}`);
       return;
     }
-    if (nr !== "secretary" && dashboardTeams.length === 1) {
+    if (nr !== "secretary" && nr !== "sporting_director" && dashboardTeams.length === 1) {
       setLocation(`/calendari/${dashboardTeams[0].id}?phase=${phase}`);
       return;
     }
@@ -2305,7 +2306,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
             <span>Non disponibili: <strong className="text-foreground">{dashboardPlayerSummary.unavailable}</strong></span>
           </div>
         </StatCard>
-        {nr === "secretary" ? (
+        {(nr === "secretary" || nr === "sporting_director") ? (
           <StatCard title="Area Genitori" value="App" icon={Heart} link="/secretary/parent-app">
             <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
               <span>Comunicazioni</span>
@@ -3097,6 +3098,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       {(nr === "admin" ||
         nr === "director" ||
         nr === "secretary" ||
+        nr === "sporting_director" ||
         nr === "presidente" ||
         nr === "technical_director") && (
         <Card className="shadow-md border-border/50">
@@ -3299,7 +3301,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
         </Card>
       )}
 
-      {nr !== "secretary" && (
+      {nr !== "secretary" && nr !== "sporting_director" && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 shadow-md border-border/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2">

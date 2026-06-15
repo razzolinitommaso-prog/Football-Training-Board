@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useLocation } from "wouter";
-import { Shield, ArrowLeft, ChevronRight, Users, Loader2, School, GraduationCap, Star, Target, FileText, BarChart3, Dumbbell, Settings, Heart } from "lucide-react";
+import { Shield, ArrowLeft, ChevronRight, Users, Loader2, School, GraduationCap, Star, Target, FileText, BarChart3, Dumbbell, Settings, Heart, BriefcaseBusiness } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { withApi } from "@/lib/api-base";
 
@@ -100,6 +100,18 @@ export default function WorkspaceSectionAreasPage() {
       iconBg: "bg-purple-500/10",
       iconColor: "text-purple-400",
       glow: "hover:shadow-purple-500/10",
+    },
+    {
+      key: "sporting",
+      label: language === "it" ? "Area Direttore Sportivo" : "Sporting Director Area",
+      description: language === "it" ? "Dashboard DS, giocatori, iscrizioni, documenti e operativita sportiva" : "Sporting dashboard, players, registrations, documents and operations",
+      href: "/sporting-director/login",
+      icon: BriefcaseBusiness,
+      gradient: "from-cyan-600/20 to-cyan-600/5",
+      border: "border-cyan-500/20 hover:border-cyan-400/40",
+      iconBg: "bg-cyan-500/10",
+      iconColor: "text-cyan-400",
+      glow: "hover:shadow-cyan-500/10",
     },
     {
       key: "technical",

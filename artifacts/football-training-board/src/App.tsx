@@ -10,7 +10,7 @@ import LandingPage from "@/pages/landing/index";
 import LoginClubPage from "@/pages/login-club/index";
 import WorkspacePage from "@/pages/workspace/index";
 import WorkspaceSectionAreasPage from "@/pages/workspace/section-areas";
-import { CoachLoginPage, SecretaryLoginPage, TechnicalLoginPage, DirectorLoginPage, AdminLoginPage, ParentLoginPage, FitnessLoginPage } from "@/pages/area-login/index";
+import { CoachLoginPage, SecretaryLoginPage, SportingDirectorLoginPage, TechnicalLoginPage, DirectorLoginPage, AdminLoginPage, ParentLoginPage, FitnessLoginPage } from "@/pages/area-login/index";
 import ParentDashboard from "@/pages/parent/index";
 import ParentChildren from "@/pages/parent/children";
 import ParentTeamInfo from "@/pages/parent/team";
@@ -51,7 +51,7 @@ import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import SectionMatchCalendars from "@/pages/matches/SectionMatchCalendars";
 
 const coachingRoles = ["admin", "coach", "technical_director", "director"];
-const secretaryRoles = ["admin", "secretary"];
+const secretaryRoles = ["admin", "secretary", "sporting_director"];
 const fitnessRoles = ["admin", "director", "technical_director", "fitness_coach", "athletic_director"];
 const playerPerformanceRoles = ["admin", "presidente", "director", "technical_director", "fitness_coach", "athletic_director"];
 
@@ -78,7 +78,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={["admin", "presidente"]}><ClubSettings /></ProtectedRoute>
         </Route>
         <Route path="/members">
-          <ProtectedRoute allowedRoles={["admin", "presidente", "secretary", "director", "technical_director"]}><MembersList /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "secretary", "sporting_director", "director", "technical_director"]}><MembersList /></ProtectedRoute>
         </Route>
         <Route path="/tactical-board">
           <ProtectedRoute allowedRoles={["admin", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
@@ -96,16 +96,16 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={playerPerformanceRoles}><PlayerPerformance /></ProtectedRoute>
         </Route>
         <Route path="/seasons">
-          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "technical_director"]}><SeasonsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"]}><SeasonsPage /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/seasons">
-          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "technical_director"]}><SeasonsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"]}><SeasonsPage /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/seasons">
-          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "technical_director"]}><SeasonsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"]}><SeasonsPage /></ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/seasons">
-          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "technical_director"]}><SeasonsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"]}><SeasonsPage /></ProtectedRoute>
         </Route>
         <Route path="/matches">
           <ProtectedRoute allowedRoles={coachingRoles}><MatchesPage /></ProtectedRoute>
@@ -129,19 +129,19 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={secretaryRoles}><EquipmentPage /></ProtectedRoute>
         </Route>
         <Route path="/secretary/parent-app">
-          <ProtectedRoute allowedRoles={["admin", "secretary"]}><SecretaryParentApp /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "secretary", "sporting_director"]}><SecretaryParentApp /></ProtectedRoute>
         </Route>
         <Route path="/billing">
           <ProtectedRoute allowedRoles={["admin"]}><BillingPage /></ProtectedRoute>
         </Route>
         <Route path="/calendari/:teamId">
-          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "coach", "fitness_coach", "athletic_director", "technical_director"]}><TeamCalendar /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}><TeamCalendar /></ProtectedRoute>
         </Route>
         <Route path="/club/credentials">
-          <ProtectedRoute allowedRoles={["admin", "secretary", "director"]}><CredentialsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "secretary", "sporting_director", "director"]}><CredentialsPage /></ProtectedRoute>
         </Route>
         <Route path="/club/platform-notifications">
-          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}><PlatformNotificationsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "secretary", "sporting_director", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}><PlatformNotificationsPage /></ProtectedRoute>
         </Route>
         <Route path="/parent-dashboard">
           <ProtectedRoute allowedRoles={["parent"]}><ParentDashboard /></ProtectedRoute>
@@ -171,7 +171,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={["admin"]}><ParentAdminManagement /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/calendar">
-          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "secretary", "sporting_director", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
             <SectionCalendar section="scuola_calcio" />
           </ProtectedRoute>
         </Route>
@@ -188,7 +188,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute><TrainingList /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/matches">
-          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
             <SectionMatchCalendars section="scuola_calcio" />
           </ProtectedRoute>
         </Route>
@@ -196,7 +196,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={coachingRoles}><AttendancePage /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/calendar">
-          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "secretary", "sporting_director", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
             <SectionCalendar section="settore_giovanile" />
           </ProtectedRoute>
         </Route>
@@ -213,7 +213,7 @@ function ProtectedAppRoutes() {
         <ProtectedRoute><TrainingList section="settore_giovanile" /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/matches">
-          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
             <SectionMatchCalendars section="settore_giovanile" />
           </ProtectedRoute>
         </Route>
@@ -224,7 +224,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={["admin"]}><SettoreGiovanilePage /></ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/calendar">
-          <ProtectedRoute allowedRoles={["admin", "secretary", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "secretary", "sporting_director", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
             <SectionCalendar section="prima_squadra" />
           </ProtectedRoute>
         </Route>
@@ -241,7 +241,7 @@ function ProtectedAppRoutes() {
         <ProtectedRoute><TrainingList section="prima_squadra" /></ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/matches">
-          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
             <SectionMatchCalendars section="prima_squadra" />
           </ProtectedRoute>
         </Route>
@@ -252,7 +252,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={["admin"]}><PrimaSquadraPage /></ProtectedRoute>
         </Route>
         <Route path="/season-transition">
-          <ProtectedRoute allowedRoles={["admin", "presidente", "secretary", "director", "technical_director"]}>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "secretary", "sporting_director", "director", "technical_director"]}>
             <SeasonTransitionPage />
           </ProtectedRoute>
         </Route>
@@ -276,6 +276,7 @@ function Router() {
       <Route path="/workspace/:clubSlug" component={WorkspacePage} />
       <Route path="/coach/login" component={CoachLoginPage} />
       <Route path="/secretary/login" component={SecretaryLoginPage} />
+      <Route path="/sporting-director/login" component={SportingDirectorLoginPage} />
       <Route path="/technical/login" component={TechnicalLoginPage} />
       <Route path="/director/login" component={DirectorLoginPage} />
       <Route path="/admin/login" component={AdminLoginPage} />

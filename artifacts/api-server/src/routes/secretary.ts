@@ -214,7 +214,7 @@ router.post("/equipment", requireAuth, async (req, res): Promise<void> => {
 });
 
 
-const secretaryOrAdmin = ["admin", "presidente", "secretary", "director", "technical_director"];
+const secretaryOrAdmin = ["admin", "presidente", "secretary", "sporting_director", "director", "technical_director"];
 
 const MAX_SECRETARY_FILE_BYTES = 8 * 1024 * 1024;
 
@@ -460,7 +460,7 @@ router.get("/secretary/weekly-schedule", requireAuth, async (req, res): Promise<
   res.json({ sessions: sessionsEnriched, matches: matchesEnriched, from: fromDate, to: toDate });
 });
 
-const clubRoles = ["admin", "secretary", "director", "technical_director", "coach", "fitness_coach", "athletic_director"];
+const clubRoles = ["admin", "secretary", "sporting_director", "director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 
 router.get("/club/platform-announcements", requireAuth, async (req, res): Promise<void> => {
   if (!clubRoles.includes(req.session.role ?? "")) { res.status(403).json({ error: "Non autorizzato" }); return; }

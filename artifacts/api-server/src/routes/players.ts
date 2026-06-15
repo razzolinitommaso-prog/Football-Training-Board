@@ -18,11 +18,12 @@ import { requireClubAndUserIds } from "../lib/session-context";
 
 /** Il direttore tecnico elenca tutti i giocatori del club; coach/preparatori solo le proprie squadre. */
 const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
-const PLAYER_MANAGE_ROLES = ["secretary"];
+const PLAYER_MANAGE_ROLES = ["secretary", "sporting_director"];
 const PLAYER_NOTE_ONLY_ROLES = [
   "admin",
   "presidente",
   "director",
+  "sporting_director",
   "technical_director",
   "coach",
   "fitness_coach",

@@ -4,7 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
-const SEASON_TRANSITION_ROLES = ["admin", "presidente", "director", "secretary", "technical_director"];
+const SEASON_TRANSITION_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"];
 
 function canManageSeasonTransition(role?: string | null): boolean {
   return SEASON_TRANSITION_ROLES.includes(role ?? "");

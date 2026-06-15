@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Users, UserCheck, Pencil, Trash2, AlertTriangle, ShieldOff, UserMinus } from "lucide-react";
+import { ArrowLeft, Users, UserCheck, Pencil, Trash2, AlertTriangle, ShieldOff, UserMinus, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { it as itLocale } from "date-fns/locale";
 import { useState, useEffect } from "react";
@@ -36,7 +36,7 @@ function staffRoleLabel(role: string, t: ReturnType<typeof useLanguage>["t"]) {
     coach: t.coach,
     fitness_coach: t.fitnessCoach,
     technical_director: t.technicalDirector ?? "Direttore Tecnico",
-    athletic_director: t.athleticDirector ?? "Direttore Sportivo",
+    athletic_director: t.athleticDirector ?? "Responsabile Atletico",
     director: t.director ?? "Direttore",
     admin: t.admin ?? "Admin",
     secretary: t.secretary ?? "Segreteria",
@@ -159,18 +159,19 @@ export default function TeamDetail() {
   const { data: players, isLoading: playersLoading } = useListPlayers({ teamId });
 
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [playerDialogMode, setPlayerDialogMode] = useState<"view" | "edit">("view");
   const [noteDraftText, setNoteDraftText] = useState("");
   const [noteRecipient, setNoteRecipient] = useState<PlayerNoteRecipient>("secretary");
   const [noteRequiresResponse, setNoteRequiresResponse] = useState(false);
   const [noteReplyToId, setNoteReplyToId] = useState<string>("");
 
-  const canManagePlayers = role === "secretary";
+  const canManagePlayers = role === "secretary" || role === "sporting_director";
   const canDeletePlayer = canManagePlayers;
-  const canEditFullPlayer = canManagePlayers;
-  const canWritePlayerNotes = ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(role ?? "");
+  const canEditFullPlayer = canManagePlayers && playerDialogMode === "edit";
+  const canWritePlayerNotes = ["admin", "presidente", "director", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(role ?? "");
   const isLimitedEditor = !canManagePlayers && canWritePlayerNotes;
   const canEdit = canManagePlayers || canWritePlayerNotes;
-  const canEditAvailability = canManagePlayers;
+  const canEditAvailability = canManagePlayers && playerDialogMode === "edit";
 
   const editForm = useForm<EditForm>({ resolver: zodResolver(editSchema) });
   const watchAvailable = editForm.watch("available");
@@ -202,7 +203,8 @@ export default function TeamDetail() {
     },
   });
 
-  function openEdit(player: Player) {
+  function openPlayerDialog(player: Player, mode: "view" | "edit" = "view") {
+    setPlayerDialogMode(mode);
     setEditingPlayer(player);
     const parsedNotes = splitPlayerNotes(player.notes ?? "");
     setNoteDraftText("");
@@ -517,9 +519,14 @@ export default function TeamDetail() {
                     {canEdit && (
                       <td className="px-5 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openEdit(player)}>
-                            <Pencil className="w-3.5 h-3.5" />
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openPlayerDialog(player, "view")} title="Visualizza scheda">
+                            <Eye className="w-3.5 h-3.5" />
                           </Button>
+                          {canManagePlayers && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openPlayerDialog(player, "edit")} title={t.editPlayer}>
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -547,7 +554,7 @@ export default function TeamDetail() {
       <Dialog open={!!editingPlayer} onOpenChange={(o) => !o && setEditingPlayer(null)}>
         <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{t.editPlayer}</DialogTitle>
+            <DialogTitle>{playerDialogMode === "edit" ? t.editPlayer : "Scheda giocatore"}</DialogTitle>
           </DialogHeader>
           {editingPlayer && (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
@@ -623,7 +630,7 @@ export default function TeamDetail() {
                       <Textarea
                         value={parsed.plainNote}
                         onChange={(e) => editForm.setValue("notes", composePlayerNotes(e.target.value, parsed.thread))}
-                        disabled={!canManagePlayers}
+                        disabled={!canEditFullPlayer}
                         placeholder="Nota generale sul giocatore..."
                       />
                       {parsed.thread.length > 0 && (

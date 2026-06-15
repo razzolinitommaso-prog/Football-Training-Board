@@ -3,7 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useAuth } from "@/hooks/use-auth";
 import { Link, Redirect } from "wouter";
-import { Loader2, ArrowLeft, Eye, EyeOff, Shield, Target, FileText, BarChart3, Settings, Heart, Dumbbell } from "lucide-react";
+import { Loader2, ArrowLeft, Eye, EyeOff, Shield, Target, FileText, BarChart3, Settings, Heart, Dumbbell, BriefcaseBusiness } from "lucide-react";
 import { useState } from "react";
 import { withApi } from "@/lib/api-base";
 import { setAuthToken } from "@/lib/auth-token";
@@ -48,6 +48,17 @@ const AREA_CONFIGS: Record<string, AreaConfig> = {
     accentBorder: "border-purple-500/20",
     accentGlow: "focus:ring-purple-500/20 focus:border-purple-500/50",
     gradientFrom: "from-purple-950/40",
+  },
+  sporting: {
+    role: "sporting_director",
+    label: "Area Direttore Sportivo",
+    description: "Dashboard DS, giocatori, iscrizioni, documenti e operativita sportiva",
+    Icon: BriefcaseBusiness,
+    accent: "text-cyan-400",
+    accentBg: "bg-cyan-500/10",
+    accentBorder: "border-cyan-500/20",
+    accentGlow: "focus:ring-cyan-500/20 focus:border-cyan-500/50",
+    gradientFrom: "from-cyan-950/30",
   },
   technical: {
     role: "technical_director",
@@ -183,6 +194,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
       const areaRoleMap: Record<string, string[]> = {
         admin: ["admin", "presidente"],
         director: ["director"],
+        sporting: ["sporting_director"],
         secretary: ["secretary"],
         technical: ["technical_director"],
         fitness: ["fitness_coach", "athletic_director"],
@@ -326,6 +338,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
 
 export function CoachLoginPage() { return <AreaLoginPage areaKey="coach" />; }
 export function SecretaryLoginPage() { return <AreaLoginPage areaKey="secretary" />; }
+export function SportingDirectorLoginPage() { return <AreaLoginPage areaKey="sporting" />; }
 export function TechnicalLoginPage() { return <AreaLoginPage areaKey="technical" />; }
 export function DirectorLoginPage() { return <AreaLoginPage areaKey="director" />; }
 export function AdminLoginPage() { return <AreaLoginPage areaKey="admin" />; }

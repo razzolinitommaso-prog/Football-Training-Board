@@ -20,8 +20,9 @@ const MEMBER_ROLE_ORDER: Record<string, number> = {
   admin: 0,
   presidente: 0,
   director: 1,
-  technical_director: 2,
-  secretary: 3,
+  sporting_director: 2,
+  technical_director: 3,
+  secretary: 4,
   athletic_director: 4,
   coach: 5,
   fitness_coach: 5,
@@ -34,7 +35,7 @@ function canAssignMemberRole(actorRole?: string | null, targetRole?: string | nu
   const target = targetRole ?? "";
   if (actor === "admin" || actor === "presidente") return true;
   if (actor === "director") return (MEMBER_ROLE_ORDER[target] ?? 99) > (MEMBER_ROLE_ORDER[actor] ?? 99);
-  if (actor === "technical_director" || actor === "secretary") return STAFF_MANAGED_ROLES.has(target);
+  if (actor === "technical_director" || actor === "secretary" || actor === "sporting_director") return STAFF_MANAGED_ROLES.has(target);
   return false;
 }
 
@@ -122,7 +123,7 @@ router.get("/clubs/me", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.get("/clubs/me/credentials", requireAuth, async (req, res): Promise<void> => {
-  const allowedRoles = ["admin", "secretary", "director", "technical_director"];
+  const allowedRoles = ["admin", "secretary", "sporting_director", "director", "technical_director"];
   if (!allowedRoles.includes(req.session.role ?? "")) {
     res.status(403).json({ error: "Non autorizzato" }); return;
   }

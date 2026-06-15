@@ -239,6 +239,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     const areaRoleMap: Record<string, string[]> = {
       admin: ["admin", "presidente"],
       director: ["director"],
+      sporting: ["sporting_director"],
       secretary: ["secretary"],
       technical: ["technical_director"],
       fitness: ["fitness_coach", "athletic_director"],
@@ -264,6 +265,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
         const rolePriority = [
           "technical_director",
           "director",
+          "sporting_director",
           "admin",
           "presidente",
           "secretary",

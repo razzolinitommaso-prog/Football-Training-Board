@@ -76,7 +76,7 @@ const inviteSchema = z.object({
   lastName: z.string().min(2, "Required"),
   email: z.string().email("Invalid email"),
   password: z.string().min(6, "Min 6 chars"),
-  role: z.enum(["coach", "secretary", "technical_director", "athletic_director", "fitness_coach", "director", "admin"]),
+  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   registered: z.boolean().optional(),
   registrationNumber: z.string().optional(),
@@ -92,7 +92,7 @@ const editSchema = z.object({
   lastName: z.string().min(2, "Minimo 2 caratteri"),
   email: z.string().email("Email non valida"),
   newPassword: z.string().optional(),
-  role: z.enum(["coach", "secretary", "technical_director", "athletic_director", "fitness_coach", "director", "admin"]),
+  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   staffRole: z.string().optional(),
   registered: z.boolean().optional(),
@@ -109,8 +109,9 @@ const MEMBER_ROLE_ORDER: Record<string, number> = {
   admin: 0,
   presidente: 0,
   director: 1,
-  technical_director: 2,
-  secretary: 3,
+  sporting_director: 2,
+  technical_director: 3,
+  secretary: 4,
   athletic_director: 4,
   coach: 5,
   fitness_coach: 5,
@@ -133,31 +134,32 @@ export default function MembersList() {
   const [registeredFilter, setRegisteredFilter] = useState("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canExport = role === "admin" || role === "secretary" || role === "director";
+  const canExport = role === "admin" || role === "secretary" || role === "sporting_director" || role === "director";
   const currentRoleRank = MEMBER_ROLE_ORDER[role ?? ""] ?? 99;
-  const canInviteMembers = ["admin", "presidente", "director", "technical_director", "secretary"].includes(role ?? "");
+  const canInviteMembers = ["admin", "presidente", "director", "sporting_director", "technical_director", "secretary"].includes(role ?? "");
   const roleOptions = [
     { value: "coach", label: t.coach },
     { value: "fitness_coach", label: t.fitnessCoach },
     { value: "athletic_director", label: t.athleticDirector },
     { value: "secretary", label: t.secretary },
+    { value: "sporting_director", label: "Direttore Sportivo" },
     { value: "technical_director", label: t.technicalDirector },
     { value: "director", label: t.director },
     { value: "admin", label: t.admin },
   ].filter((option) => {
     if (role === "admin" || role === "presidente") return true;
     if (role === "director") return option.value !== "admin" && option.value !== "presidente" && (MEMBER_ROLE_ORDER[option.value] ?? 99) > currentRoleRank;
-    if (role === "technical_director" || role === "secretary") return (STAFF_MANAGED_ROLES as readonly string[]).includes(option.value);
+    if (role === "technical_director" || role === "secretary" || role === "sporting_director") return (STAFF_MANAGED_ROLES as readonly string[]).includes(option.value);
     return false;
   });
 
   const canManageMember = (member: ClubMember | null | undefined) => {
     if (!member) return false;
-    if (!["admin", "presidente", "director", "technical_director", "secretary"].includes(role ?? "")) return false;
+    if (!["admin", "presidente", "director", "sporting_director", "technical_director", "secretary"].includes(role ?? "")) return false;
     const memberRank = MEMBER_ROLE_ORDER[member.role] ?? 99;
     if (role === "admin" || role === "presidente") return true;
     if (role === "director") return memberRank > currentRoleRank;
-    if (role === "technical_director" || role === "secretary") return (STAFF_MANAGED_ROLES as readonly string[]).includes(member.role);
+    if (role === "technical_director" || role === "secretary" || role === "sporting_director") return (STAFF_MANAGED_ROLES as readonly string[]).includes(member.role);
     return false;
   };
 
@@ -242,7 +244,7 @@ export default function MembersList() {
 
   const roleLabel = (role: string) => {
     const map: Record<string, string> = {
-      admin: t.admin, coach: t.coach, secretary: t.secretary,
+      admin: t.admin, coach: t.coach, secretary: t.secretary, sporting_director: "Direttore Sportivo",
       technical_director: t.technicalDirector, athletic_director: t.athleticDirector,
       fitness_coach: t.fitnessCoach, director: t.director,
     };
@@ -254,6 +256,7 @@ export default function MembersList() {
       admin: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
       coach: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
       secretary: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
+      sporting_director: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400",
       technical_director: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
       athletic_director: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
       fitness_coach: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
@@ -320,9 +323,10 @@ export default function MembersList() {
   const ROLE_ORDER: Record<string, number> = {
     admin: 0,
     director: 1,
-    secretary: 2,
-    technical_director: 3,
-    athletic_director: 4,
+    sporting_director: 2,
+    secretary: 3,
+    technical_director: 4,
+    athletic_director: 5,
     coach: 5,
     fitness_coach: 6,
   };
@@ -811,7 +815,8 @@ export default function MembersList() {
                   { v: "coach", l: t.coach },
                   { v: "fitness_coach", l: t.fitnessCoach },
                   { v: "technical_director", l: "Dir. Tecnico" },
-                  { v: "athletic_director", l: "Dir. Sportivo" },
+                  { v: "sporting_director", l: "Dir. Sportivo" },
+                  { v: "athletic_director", l: "Resp. Atletico" },
                   { v: "secretary", l: t.secretary },
                   { v: "director", l: t.director },
                   { v: "admin", l: t.admin },

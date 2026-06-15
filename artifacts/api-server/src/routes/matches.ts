@@ -14,10 +14,11 @@ import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
 
-const SCHEDULE_ROLES = ["secretary"];
-const MATCH_CREATE_DELETE_ROLES = ["secretary"];
+const SCHEDULE_ROLES = ["secretary", "sporting_director"];
+const MATCH_CREATE_DELETE_ROLES = ["secretary", "sporting_director"];
 const POST_NOTES_ROLES = [
   "secretary",
+  "sporting_director",
   "coach",
   "fitness_coach",
   "athletic_director",
@@ -86,7 +87,7 @@ async function userCanManageAssignedTeamMatch(userId: number, clubId: number, ro
 }
 
 async function userCanViewMatchPlan(userId: number, clubId: number, role: string, teamId: number | null): Promise<boolean> {
-  if (["admin", "presidente", "director", "secretary"].includes(role)) return true;
+  if (["admin", "presidente", "director", "secretary", "sporting_director"].includes(role)) return true;
   if (role === "technical_director") return true;
   if (!MATCH_PLAN_VIEW_ROLES.includes(role)) return false;
   return userCanManageAssignedTeamMatch(userId, clubId, role, teamId);

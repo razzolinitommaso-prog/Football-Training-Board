@@ -70,10 +70,11 @@ export function mapTeamsForExcel(teams: any[]) {
 const ROLE_LABELS: Record<string, string> = {
   admin: "Amministratore",
   secretary: "Segreteria",
+  sporting_director: "Direttore Sportivo",
   coach: "Allenatore",
-  director: "Direttore Sportivo",
+  director: "Direttore Generale",
   technical_director: "Direttore Tecnico",
-  athletic_director: "Direttore Atletico",
+  athletic_director: "Responsabile Atletico",
   fitness_coach: "Preparatore Atletico",
 };
 
