@@ -11,6 +11,7 @@ import {
 } from "@workspace/api-zod";
 import { createAuthToken, requireAuth } from "../lib/auth";
 import { normalizeSessionRole } from "../lib/club-scope";
+import { limitsForPlan } from "../lib/plan-limits";
 
 const router: IRouter = Router();
 
@@ -31,15 +32,6 @@ function sessionAuthToken(req: any): string {
     section: req.session.section ?? null,
     isSuperAdmin: req.session.isSuperAdmin === true,
   });
-}
-
-function planLimits(plan: string) {
-  switch (plan) {
-    case "advanced":  return { maxTeams: 5,  maxPlayers: 100 };
-    case "semi-pro":  return { maxTeams: 10, maxPlayers: 200 };
-    case "pro":       return { maxTeams: 99, maxPlayers: 999 };
-    default:          return { maxTeams: 3,  maxPlayers: 50  }; // standard
-  }
 }
 
 router.post("/auth/register", async (req, res): Promise<void> => {
@@ -74,7 +66,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   const accessCode = String(Math.floor(1000 + Math.random() * 9000));
   const parentCode = Math.random().toString(36).slice(2, 6).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
   const plan = planName ?? "standard";
-  const limits = planLimits(plan);
+  const limits = limitsForPlan(plan);
   const today = new Date().toISOString().slice(0, 10);
 
   const [club] = await db

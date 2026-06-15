@@ -13,6 +13,7 @@ import {
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
 import { isClubWideListRole, normalizeSessionRole, resolveClubSectionFilter } from "../lib/club-scope";
+import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 import { requireClubAndUserIds } from "../lib/session-context";
 
 /** Solo questi ruoli vedono le squadre limitate alle assegnazioni. Il direttore tecnico ha panoramica su tutto il club. */
@@ -247,6 +248,12 @@ router.get("/teams/my-team", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/teams", requireAuth, async (req, res): Promise<void> => {
+  const limitCheck = await assertCanCreateWithinPlan(req.session.clubId!, "teams");
+  if (!limitCheck.ok) {
+    res.status(limitCheck.status).json(limitCheck.body);
+    return;
+  }
+
   const parsed = CreateTeamBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });

@@ -1,8 +1,8 @@
 import { Router, type IRouter } from "express";
-import { db, subscriptionsTable, billingPaymentsTable, teamsTable, playersTable } from "@workspace/db";
+import { db, subscriptionsTable, billingPaymentsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
-import { sql } from "drizzle-orm";
+import { getClubUsageAndLimits, limitsForPlan } from "../lib/plan-limits";
 
 const router: IRouter = Router();
 
@@ -15,14 +15,17 @@ router.get("/billing/subscription", requireAuth, requireAdmin, async (req, res):
   const [sub] = await db.select().from(subscriptionsTable).where(eq(subscriptionsTable.clubId, req.session.clubId!));
   if (!sub) { res.json(null); return; }
 
-  const [teamsCount] = await db.select({ count: sql<number>`count(*)::int` }).from(teamsTable).where(eq(teamsTable.clubId, req.session.clubId!));
-  const [playersCount] = await db.select({ count: sql<number>`count(*)::int` }).from(playersTable).where(eq(playersTable.clubId, req.session.clubId!));
+  const usage = await getClubUsageAndLimits(req.session.clubId!);
 
   res.json({
     ...sub,
     endDate: sub.endDate ?? null,
-    currentTeams: teamsCount?.count ?? 0,
-    currentPlayers: playersCount?.count ?? 0,
+    maxTeams: usage.maxTeams,
+    maxPlayers: usage.maxPlayers,
+    currentTeams: usage.currentTeams,
+    currentPlayers: usage.currentPlayers,
+    teamsOverLimit: usage.currentTeams > usage.maxTeams,
+    playersOverLimit: usage.currentPlayers > usage.maxPlayers,
   });
 });
 
@@ -30,12 +33,7 @@ router.post("/billing/subscription", requireAuth, requireAdmin, async (req, res)
   const { planName, startDate, endDate } = req.body;
   if (!planName || !startDate) { res.status(400).json({ error: "planName and startDate required" }); return; }
 
-  const planLimits: Record<string, { maxTeams: number; maxPlayers: number }> = {
-    basic: { maxTeams: 3, maxPlayers: 50 },
-    pro: { maxTeams: 10, maxPlayers: 200 },
-    elite: { maxTeams: 99, maxPlayers: 9999 },
-  };
-  const limits = planLimits[planName] ?? planLimits.basic;
+  const limits = limitsForPlan(planName);
 
   const existing = await db.select().from(subscriptionsTable).where(eq(subscriptionsTable.clubId, req.session.clubId!));
   if (existing.length > 0) {

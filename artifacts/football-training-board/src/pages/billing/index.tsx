@@ -9,11 +9,23 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CreditCard, Zap, Users, UsersRound, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CreditCard, Zap, Users, UsersRound, CheckCircle2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { withApi } from "@/lib/api-base";
 
-interface Subscription { id: number; planName: string; status: string; startDate: string; endDate?: string; maxTeams: number; maxPlayers: number; currentTeams: number; currentPlayers: number; }
+interface Subscription {
+  id: number;
+  planName: string;
+  status: string;
+  startDate: string;
+  endDate?: string;
+  maxTeams: number;
+  maxPlayers: number;
+  currentTeams: number;
+  currentPlayers: number;
+  teamsOverLimit?: boolean;
+  playersOverLimit?: boolean;
+}
 interface BillingPayment { id: number; amount: number; status: string; paymentDate?: string; description?: string; }
 
 async function apiFetch(url: string, options?: RequestInit) {
@@ -48,6 +60,7 @@ export default function BillingPage() {
 
   const planLabels: Record<string, string> = { basic: t.planBasic, pro: t.planPro, elite: t.planElite };
   const planColors: Record<string, string> = { basic: "text-slate-600", pro: "text-blue-600", elite: "text-amber-600" };
+  const usagePercent = (current: number, max: number) => Math.min(100, Math.round((current / Math.max(max, 1)) * 100));
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -86,19 +99,29 @@ export default function BillingPage() {
               <Card>
                 <CardHeader><CardTitle>{t.planUsage}</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
+                  {(sub.teamsOverLimit || sub.playersOverLimit) && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <p>Limite piano superato. L'inserimento di nuovi record oltre soglia viene bloccato finche non viene aggiornato il piano.</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1"><UsersRound className="w-3 h-3" />{t.teamsUsed}</span>
-                      <span>{sub.currentTeams} / {sub.maxTeams}</span>
+                      <span className={sub.teamsOverLimit ? "font-semibold text-amber-700 dark:text-amber-300" : ""}>{sub.currentTeams} / {sub.maxTeams}</span>
                     </div>
-                    <Progress value={(sub.currentTeams / sub.maxTeams) * 100} className="h-2" />
+                    <Progress value={usagePercent(sub.currentTeams, sub.maxTeams)} className="h-2" />
+                    {sub.teamsOverLimit && <p className="text-xs text-amber-700 dark:text-amber-300">Squadre oltre il limite del piano.</p>}
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-1"><Users className="w-3 h-3" />{t.playersUsed}</span>
-                      <span>{sub.currentPlayers} / {sub.maxPlayers}</span>
+                      <span className={sub.playersOverLimit ? "font-semibold text-amber-700 dark:text-amber-300" : ""}>{sub.currentPlayers} / {sub.maxPlayers}</span>
                     </div>
-                    <Progress value={(sub.currentPlayers / sub.maxPlayers) * 100} className="h-2" />
+                    <Progress value={usagePercent(sub.currentPlayers, sub.maxPlayers)} className="h-2" />
+                    {sub.playersOverLimit && <p className="text-xs text-amber-700 dark:text-amber-300">Giocatori oltre il limite del piano.</p>}
                   </div>
                 </CardContent>
               </Card>

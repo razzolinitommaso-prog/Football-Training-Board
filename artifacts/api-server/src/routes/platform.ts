@@ -3,15 +3,7 @@ import bcrypt from "bcryptjs";
 import { db, usersTable, clubsTable, clubMembershipsTable, playersTable, teamsTable, platformAnnouncementsTable, subscriptionsTable, billingPaymentsTable } from "@workspace/db";
 import { eq, count, desc } from "drizzle-orm";
 import { requireSuperAdmin } from "../lib/auth";
-
-function planLimits(plan: string) {
-  switch (plan) {
-    case "advanced":  return { maxTeams: 5,  maxPlayers: 100 };
-    case "semi-pro":  return { maxTeams: 10, maxPlayers: 200 };
-    case "pro":       return { maxTeams: 99, maxPlayers: 999 };
-    default:          return { maxTeams: 3,  maxPlayers: 50  };
-  }
-}
+import { limitsForPlan } from "../lib/plan-limits";
 
 const router: IRouter = Router();
 
@@ -93,7 +85,7 @@ router.post("/platform/clubs", requireSuperAdmin, async (req, res): Promise<void
   }
 
   const plan = s("planName") ?? "standard";
-  const limits = planLimits(plan);
+  const limits = limitsForPlan(plan);
   const today = new Date().toISOString().slice(0, 10);
   const accessCode = String(Math.floor(1000 + Math.random() * 9000));
   const parentCode = Math.random().toString(36).slice(2, 6).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();

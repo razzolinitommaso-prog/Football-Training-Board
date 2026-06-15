@@ -15,6 +15,7 @@ import {
 import { requireAuth } from "../lib/auth";
 import { isClubWideListRole, normalizeSessionRole, resolveClubSectionFilter } from "../lib/club-scope";
 import { requireClubAndUserIds } from "../lib/session-context";
+import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 
 /** Il direttore tecnico elenca tutti i giocatori del club; coach/preparatori solo le proprie squadre. */
 const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
@@ -199,6 +200,11 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
   const role = normalizeSessionRole(req.session.role);
   if (!PLAYER_MANAGE_ROLES.includes(role)) {
     res.status(403).json({ error: "Non sei autorizzato ad aggiungere giocatori" });
+    return;
+  }
+  const limitCheck = await assertCanCreateWithinPlan(req.session.clubId!, "players");
+  if (!limitCheck.ok) {
+    res.status(limitCheck.status).json(limitCheck.body);
     return;
   }
   const parsed = CreatePlayerBody.safeParse(req.body);
