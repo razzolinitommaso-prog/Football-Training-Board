@@ -33,7 +33,7 @@ async function playerBelongsToClub(playerId: unknown, clubId: number): Promise<b
 async function enrichProgram(program: typeof fitnessProgramsTable.$inferSelect) {
   let teamName: string | null = null;
   if (program.teamId) {
-    const [team] = await db.select().from(teamsTable).where(eq(teamsTable.id, program.teamId));
+    const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, program.teamId), eq(teamsTable.clubId, program.clubId)));
     if (team) teamName = team.name;
   }
   return {
@@ -47,7 +47,7 @@ async function enrichProgram(program: typeof fitnessProgramsTable.$inferSelect) 
 }
 
 async function enrichFitnessData(data: typeof playerFitnessDataTable.$inferSelect) {
-  const [player] = await db.select().from(playersTable).where(eq(playersTable.id, data.playerId));
+  const [player] = await db.select().from(playersTable).where(and(eq(playersTable.id, data.playerId), eq(playersTable.clubId, data.clubId)));
   return {
     ...data,
     playerName: player ? `${player.firstName} ${player.lastName}` : null,

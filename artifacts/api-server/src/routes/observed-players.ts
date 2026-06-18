@@ -86,6 +86,7 @@ router.patch("/seasons/:id/observed-players/:pid", requireAuth, async (req, res)
     })
     .where(and(
       eq(observedPlayersTable.id, pid),
+      eq(observedPlayersTable.seasonId, seasonId),
       eq(observedPlayersTable.clubId, req.session.clubId!),
     ))
     .returning();
@@ -100,11 +101,13 @@ router.delete("/seasons/:id/observed-players/:pid", requireAuth, async (req, res
     return;
   }
 
+  const seasonId = parseInt(String(req.params.id));
   const pid = parseInt(String(req.params.pid));
-  if (isNaN(pid)) { res.status(400).json({ error: "Invalid id" }); return; }
+  if (isNaN(seasonId) || isNaN(pid)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   await db.delete(observedPlayersTable).where(and(
     eq(observedPlayersTable.id, pid),
+    eq(observedPlayersTable.seasonId, seasonId),
     eq(observedPlayersTable.clubId, req.session.clubId!),
   ));
 

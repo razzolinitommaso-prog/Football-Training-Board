@@ -131,7 +131,7 @@ async function resolveMyTeamForUser(
     .limit(1);
 
   if (staffRow[0]) {
-    const [t] = await db.select().from(teamsTable).where(eq(teamsTable.id, staffRow[0].teamId));
+    const [t] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, staffRow[0].teamId), eq(teamsTable.clubId, clubId)));
     if (t) return t;
   }
 

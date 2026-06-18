@@ -120,7 +120,7 @@ const router: IRouter = Router();
 async function enrichPlayer(player: typeof playersTable.$inferSelect) {
   let teamName: string | null = null;
   if (player.teamId) {
-    const [team] = await db.select().from(teamsTable).where(eq(teamsTable.id, player.teamId));
+    const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, player.teamId), eq(teamsTable.clubId, player.clubId)));
     if (team) teamName = team.name;
   }
   return {

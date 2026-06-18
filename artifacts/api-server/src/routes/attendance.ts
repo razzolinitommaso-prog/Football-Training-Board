@@ -65,7 +65,7 @@ router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
   const records = await db.select().from(trainingAttendancesTable)
     .where(and(eq(trainingAttendancesTable.trainingSessionId, sessionId), eq(trainingAttendancesTable.clubId, req.session.clubId!)));
   const enriched = await Promise.all(records.map(async (r) => {
-    const [player] = await db.select().from(playersTable).where(eq(playersTable.id, r.playerId));
+    const [player] = await db.select().from(playersTable).where(and(eq(playersTable.id, r.playerId), eq(playersTable.clubId, req.session.clubId!)));
     return { ...r, playerName: player ? `${player.firstName} ${player.lastName}` : null, notes: r.notes ?? null };
   }));
   res.json(enriched);

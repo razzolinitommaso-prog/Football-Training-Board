@@ -25,7 +25,7 @@ const router: IRouter = Router();
 async function enrichSession(session: typeof trainingSessionsTable.$inferSelect) {
   let teamName: string | null = null;
   if (session.teamId) {
-    const [team] = await db.select().from(teamsTable).where(eq(teamsTable.id, session.teamId));
+    const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, session.teamId), eq(teamsTable.clubId, session.clubId)));
     if (team) teamName = team.name;
   }
   let creatorName: string | null = null;

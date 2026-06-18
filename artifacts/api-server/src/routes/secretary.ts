@@ -49,9 +49,9 @@ async function ensureClubNotificationUserState(notificationId: number, userId: n
   });
 }
 
-async function withPlayerName<T extends { playerId: number }>(records: T[]) {
+async function withPlayerName<T extends { playerId: number; clubId: number }>(records: T[]) {
   return Promise.all(records.map(async (r) => {
-    const [player] = await db.select().from(playersTable).where(eq(playersTable.id, r.playerId));
+    const [player] = await db.select().from(playersTable).where(and(eq(playersTable.id, r.playerId), eq(playersTable.clubId, r.clubId)));
     return { ...r, playerName: player ? `${player.firstName} ${player.lastName}` : null };
   }));
 }
@@ -447,13 +447,13 @@ router.get("/secretary/weekly-schedule", requireAuth, async (req, res): Promise<
 
   const sessionsEnriched = await Promise.all(sessions.map(async (s) => {
     let teamName = null;
-    if (s.teamId) { const [t] = await db.select({ name: teamsTable.name }).from(teamsTable).where(eq(teamsTable.id, s.teamId)); teamName = t?.name ?? null; }
+    if (s.teamId) { const [t] = await db.select({ name: teamsTable.name }).from(teamsTable).where(and(eq(teamsTable.id, s.teamId), eq(teamsTable.clubId, clubId))); teamName = t?.name ?? null; }
     return { ...s, teamName, kind: "training" };
   }));
 
   const matchesEnriched = await Promise.all(matches.map(async (m) => {
     let teamName = null;
-    if (m.teamId) { const [t] = await db.select({ name: teamsTable.name }).from(teamsTable).where(eq(teamsTable.id, m.teamId)); teamName = t?.name ?? null; }
+    if (m.teamId) { const [t] = await db.select({ name: teamsTable.name }).from(teamsTable).where(and(eq(teamsTable.id, m.teamId), eq(teamsTable.clubId, clubId))); teamName = t?.name ?? null; }
     return { ...m, teamName, kind: "match" };
   }));
 

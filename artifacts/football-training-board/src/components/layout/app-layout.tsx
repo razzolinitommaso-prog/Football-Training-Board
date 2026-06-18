@@ -48,7 +48,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider defaultOpen={defaultSidebarOpen} style={style}>
-      <div className="flex h-screen w-full bg-muted/30">
+      <div className="flex h-dvh min-h-svh w-full overflow-hidden bg-muted/30">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <header
@@ -131,7 +131,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   }
                 : undefined
             }
-            className={isTacticalBoardRoute ? "flex-1 overflow-auto relative" : "flex-1 overflow-auto p-4 sm:p-6 lg:p-8 relative"}
+            className={isTacticalBoardRoute ? "relative flex-1 overflow-auto overscroll-contain" : "relative flex-1 overflow-auto overscroll-contain p-3 sm:p-6 lg:p-8"}
           >
             {clubLogoUrl && backgroundLogoEnabled && !isTacticalBoardRoute && (
               <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">

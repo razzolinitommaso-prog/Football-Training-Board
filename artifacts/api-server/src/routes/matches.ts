@@ -96,7 +96,7 @@ async function userCanViewMatchPlan(userId: number, clubId: number, role: string
 async function enrichMatch(match: typeof matchesTable.$inferSelect) {
   let teamName: string | null = null;
   if (match.teamId) {
-    const [team] = await db.select().from(teamsTable).where(eq(teamsTable.id, match.teamId));
+    const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, match.teamId), eq(teamsTable.clubId, match.clubId)));
     if (team) teamName = team.name;
   }
   const split = splitPublicNotesAndPlan(match.notes ?? null);
@@ -137,6 +137,12 @@ router.post("/matches", requireAuth, async (req, res): Promise<void> => {
   }
   const { opponent, date, teamId, seasonId, competition, location, homeAway, notes } = req.body;
   if (!opponent || !date) { res.status(400).json({ error: "opponent and date required" }); return; }
+  if (teamId) {
+    const nextTeamId = Number(teamId);
+    if (!Number.isFinite(nextTeamId)) { res.status(400).json({ error: "Squadra non valida per questa societa" }); return; }
+    const [team] = await db.select({ id: teamsTable.id }).from(teamsTable).where(and(eq(teamsTable.id, nextTeamId), eq(teamsTable.clubId, req.session.clubId!)));
+    if (!team) { res.status(400).json({ error: "Squadra non valida per questa societa" }); return; }
+  }
   const [match] = await db.insert(matchesTable).values({
     clubId: req.session.clubId!, opponent, date: new Date(date),
     teamId: teamId ?? null, seasonId: seasonId ?? null, competition: competition ?? null,
@@ -180,7 +186,18 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
 
   if (opponent !== undefined && SCHEDULE_ROLES.includes(role)) updates.opponent = opponent;
   if (date !== undefined) updates.date = new Date(date);
-  if (teamId !== undefined) updates.teamId = teamId;
+  if (teamId !== undefined) {
+    if (!SCHEDULE_ROLES.includes(role)) {
+      res.status(403).json({ error: "Non autorizzato a modificare la squadra della partita" }); return;
+    }
+    if (teamId !== null) {
+      const nextTeamId = Number(teamId);
+      if (!Number.isFinite(nextTeamId)) { res.status(400).json({ error: "Squadra non valida per questa societa" }); return; }
+      const [team] = await db.select({ id: teamsTable.id }).from(teamsTable).where(and(eq(teamsTable.id, nextTeamId), eq(teamsTable.clubId, clubId)));
+      if (!team) { res.status(400).json({ error: "Squadra non valida per questa societa" }); return; }
+    }
+    updates.teamId = teamId;
+  }
   if (competition !== undefined && SCHEDULE_ROLES.includes(role)) updates.competition = competition;
   if (location !== undefined && SCHEDULE_ROLES.includes(role)) updates.location = location;
   if (homeAway !== undefined && SCHEDULE_ROLES.includes(role)) updates.homeAway = homeAway;
@@ -235,7 +252,7 @@ router.get("/matches/:id/callups", requireAuth, async (req, res): Promise<void> 
   if (!canView) { res.status(403).json({ error: "Non autorizzato" }); return; }
   const callups = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId));
   const enriched = await Promise.all(callups.map(async (cu) => {
-    const [player] = await db.select().from(playersTable).where(eq(playersTable.id, cu.playerId));
+    const [player] = await db.select().from(playersTable).where(and(eq(playersTable.id, cu.playerId), eq(playersTable.clubId, req.session.clubId!)));
     return { ...cu, playerName: player ? `${player.firstName} ${player.lastName}` : null };
   }));
   res.json(enriched);
@@ -250,6 +267,8 @@ router.post("/matches/:id/callups", requireAuth, async (req, res): Promise<void>
   if (!match) { res.status(404).json({ error: "Match not found" }); return; }
   const canManage = await userCanManageAssignedTeamMatch(req.session.userId!, req.session.clubId!, req.session.role ?? "", match.teamId ?? null);
   if (!canManage) { res.status(403).json({ error: "Non autorizzato a modificare le convocazioni" }); return; }
+  const [player] = await db.select({ id: playersTable.id }).from(playersTable).where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!)));
+  if (!player) { res.status(400).json({ error: "Giocatore non valido per questa societa" }); return; }
   const [existing] = await db.select({ id: callUpsTable.id }).from(callUpsTable).where(and(eq(callUpsTable.matchId, matchId), eq(callUpsTable.playerId, Number(playerId))));
   if (existing) {
     res.status(200).json({ id: existing.id, matchId, playerId: Number(playerId), status: status ?? "pending" });
@@ -315,6 +334,17 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
     return;
   }
 
+  if (desiredPlayerIds.length > 0) {
+    const validPlayers = await db
+      .select({ id: playersTable.id })
+      .from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, desiredPlayerIds)));
+    if (validPlayers.length !== desiredPlayerIds.length) {
+      res.status(400).json({ error: "Uno o piu giocatori non appartengono a questa societa" });
+      return;
+    }
+  }
+
   await db.transaction(async (tx) => {
     const parsed = splitPublicNotesAndPlan(existingMatch.notes ?? null);
     await tx
@@ -378,7 +408,7 @@ router.post("/matches/:id/callups/publish", requireAuth, async (req, res): Promi
     res.status(400).json({ error: "Orario convocazione non valido" }); return;
   }
 
-  const [team] = match.teamId ? await db.select({ name: teamsTable.name }).from(teamsTable).where(eq(teamsTable.id, match.teamId)) : [null];
+  const [team] = match.teamId ? await db.select({ name: teamsTable.name }).from(teamsTable).where(and(eq(teamsTable.id, match.teamId), eq(teamsTable.clubId, req.session.clubId!))) : [null];
   const callups = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId));
   const playerIds = [...new Set(callups.map((c) => c.playerId))];
   if (playerIds.length === 0) { res.status(400).json({ error: "Nessun convocato selezionato" }); return; }
@@ -390,7 +420,7 @@ router.post("/matches/:id/callups/publish", requireAuth, async (req, res): Promi
   const players = await db
     .select({ id: playersTable.id, firstName: playersTable.firstName, lastName: playersTable.lastName })
     .from(playersTable)
-    .where(inArray(playersTable.id, playerIds));
+    .where(and(eq(playersTable.clubId, req.session.clubId!), inArray(playersTable.id, playerIds)));
   const playerNameMap = new Map(players.map((p) => [p.id, `${p.firstName} ${p.lastName}`]));
 
   const title = `Convocazione partita ${team?.name ?? ""}`.trim();
