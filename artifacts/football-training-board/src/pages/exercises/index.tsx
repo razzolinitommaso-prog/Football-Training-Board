@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   BookOpen, Plus, Trash2, Clock, Users, Package2, Pencil,
   ClipboardList, BookMarked, Link2, Info, Mic, PenLine, Video,
-  CalendarDays, Layers, Dumbbell, Shield, Copy,
+  CalendarDays, Layers, Dumbbell, Shield, Copy, Eye,
 } from "lucide-react";
 import { ExerciseDrawingBoard } from "./ExerciseDrawingBoard";
 import { ExerciseVoiceRecorder } from "./ExerciseVoiceRecorder";
@@ -231,6 +231,7 @@ export default function ExercisesPage() {
   const [exerciseSearch, setExerciseSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEx, setEditingEx] = useState<Exercise | null>(null);
+  const [viewingEx, setViewingEx] = useState<Exercise | null>(null);
   const [duplicateSourceExerciseId, setDuplicateSourceExerciseId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm());
 
@@ -469,9 +470,11 @@ export default function ExercisesPage() {
   const normalizedExerciseSearch = exerciseSearch.trim().toLowerCase();
   const userId = Number((user as { id?: number } | null)?.id ?? 0);
   const restrictedRoles = ["coach", "fitness_coach", "athletic_director"];
+  const isExerciseReadOnly = ["admin", "presidente", "director", "secretary", "sporting_director"].includes(role ?? "");
   const isRestrictedStaff = restrictedRoles.includes(role ?? "");
   const assignedTeamIds = new Set(myTeams.map((team) => team.id));
   const canEditExercise = (ex: Exercise) => {
+    if (isExerciseReadOnly) return false;
     if (!isRestrictedStaff) return true;
     return ex.createdByUserId == null || ex.createdByUserId === userId;
   };
@@ -543,7 +546,9 @@ export default function ExercisesPage() {
                 </Button>
               ))}
             </div>
-            <Button onClick={openNewEx}><Plus className="w-4 h-4 mr-2" />{t.addExercise}</Button>
+            {!isExerciseReadOnly && (
+              <Button onClick={openNewEx}><Plus className="w-4 h-4 mr-2" />{t.addExercise}</Button>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -620,8 +625,15 @@ export default function ExercisesPage() {
                         {ex.drawingData && <span title="Ha disegno tattico"><PenLine className="w-3.5 h-3.5 text-primary/60" /></span>}
                         {ex.voiceNoteData && <span title="Ha nota vocale"><Mic className="w-3.5 h-3.5 text-primary/60" /></span>}
                         {ex.videoNoteData && <span title="Ha nota video"><Video className="w-3.5 h-3.5 text-primary/60" /></span>}
-                        {canEditExercise(ex) ? (
+                        {isExerciseReadOnly ? (
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setViewingEx(ex)} title="Apri">
+                            <Eye className="w-3.5 h-3.5" />
+                          </Button>
+                        ) : canEditExercise(ex) ? (
                           <>
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setViewingEx(ex)} title="Apri">
+                              <Eye className="w-3.5 h-3.5" />
+                            </Button>
                             <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditEx(ex)} title="Modifica">
                               <Pencil className="w-3.5 h-3.5" />
                             </Button>
@@ -732,6 +744,46 @@ export default function ExercisesPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!viewingEx} onOpenChange={(open) => { if (!open) setViewingEx(null); }}>
+        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{viewingEx?.title ?? "Esercitazione"}</DialogTitle>
+          </DialogHeader>
+          {viewingEx ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {viewingEx.category && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${categoryColors[viewingEx.category] ?? "bg-gray-100 text-gray-700"}`}>{t[viewingEx.category as keyof typeof t] as string ?? viewingEx.category}</span>}
+                {viewingEx.principio && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getPrincipioColor(viewingEx.principio)}`}>{getPrincipioLabel(viewingEx.principio)}</span>}
+                {viewingEx.trainingPhase && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getPhaseColor(viewingEx.trainingPhase)}`}>{getPhaseLabel(viewingEx.trainingPhase)}</span>}
+                {viewingEx.isDraft && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">Bozza</span>}
+              </div>
+              {viewingEx.description && (
+                <div className="space-y-1">
+                  <Label>Descrizione</Label>
+                  <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">{viewingEx.description}</p>
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                {viewingEx.durationMinutes && <div><span className="text-muted-foreground">Durata: </span>{viewingEx.durationMinutes} min</div>}
+                {viewingEx.playersRequired && <div><span className="text-muted-foreground">Giocatori: </span>{viewingEx.playersRequired}</div>}
+                {formatTrainingDay(viewingEx.trainingDay) && <div><span className="text-muted-foreground">Giorno: </span>{formatTrainingDay(viewingEx.trainingDay)}</div>}
+                {formatTrainingSession(viewingEx.trainingSession ?? viewingEx.trainingDay) && <div><span className="text-muted-foreground">Sessione: </span>{formatTrainingSession(viewingEx.trainingSession ?? viewingEx.trainingDay)}</div>}
+                {viewingEx.teamId && <div><span className="text-muted-foreground">Squadra: </span>{myTeams.find((tm) => tm.id === viewingEx.teamId)?.name ?? `Team #${viewingEx.teamId}`}</div>}
+                {formatEquipmentLabel(viewingEx.equipment) && <div><span className="text-muted-foreground">Materiale: </span>{formatEquipmentLabel(viewingEx.equipment)}</div>}
+              </div>
+              {viewingEx.drawingData && (
+                <div className="space-y-1">
+                  <Label>Lavagna</Label>
+                  <img src={viewingEx.drawingData} alt="Disegno tattico" className="max-h-[360px] w-full rounded-md border object-contain" />
+                </div>
+              )}
+              {viewingEx.voiceNoteData && <audio controls src={viewingEx.voiceNoteData} className="w-full" />}
+              {viewingEx.videoNoteData && <video controls src={viewingEx.videoNoteData} className="max-h-[420px] w-full rounded-md border" />}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Exercise Dialog ──────────────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) closeExDialog(); }}>

@@ -253,6 +253,24 @@
     pointer-events: none;
   }
 
+  .scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  [data-sidebar="content"] {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  [data-sidebar="content"]::-webkit-scrollbar {
+    display: none;
+  }
+
   .no-default-hover-elevate {}
   .no-default-active-elevate {}
 

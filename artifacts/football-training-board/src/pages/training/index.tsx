@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -398,6 +399,15 @@ function serializeEquipmentSelection(selection: Partial<Record<MaterialId, numbe
   return JSON.stringify({ version: 1, items: compact });
 }
 
+function formatEquipmentLabel(raw: string | null | undefined): string | null {
+  const selection = parseEquipmentSelection(raw ?? "");
+  const items = MATERIAL_OPTIONS
+    .filter((option) => (selection[option.id] ?? 0) > 0)
+    .map((option) => `${option.label}: ${selection[option.id]}`);
+  if (items.length > 0) return items.join(" · ");
+  return raw || null;
+}
+
 function computeRecoveryPerExercise(sessionDuration: number | null, links: SessionExerciseLink[]): number | null {
   if (!sessionDuration || links.length === 0) return null;
   const plannedExerciseMinutes = links.reduce((sum, link) => sum + (link.exercise?.durationMinutes ?? 0), 0);
@@ -564,6 +574,29 @@ function matchesExerciseSearch(
     if (annataNeedle && haystack.includes(annataNeedle)) return true;
   }
   return false;
+}
+
+function getSessionSeasonKey(session: TrainingSession): string {
+  const parsed = new Date(session.scheduledAt);
+  if (Number.isNaN(parsed.getTime())) return "senza-data";
+  const year = parsed.getMonth() >= 6 ? parsed.getFullYear() : parsed.getFullYear() - 1;
+  return String(year);
+}
+
+function getSessionSeasonLabel(seasonKey: string): string {
+  if (seasonKey === "senza-data") return "Senza data";
+  const startYear = Number(seasonKey);
+  return Number.isFinite(startYear) ? `${startYear}/${startYear + 1}` : seasonKey;
+}
+
+function getSessionDateKey(session: TrainingSession): string {
+  const parsed = new Date(session.scheduledAt);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, "0"),
+    String(parsed.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 const DIRECTIVE_ATTACHMENTS_MARKER = "\n\n[[FTB_ATTACHMENTS]]";
@@ -1492,15 +1525,18 @@ function SessionDetailsDialog({
   session,
   onClose,
   teams,
+  readOnly = false,
 }: {
   session: TrainingSession;
   onClose: () => void;
   teams: { id: number; name: string }[];
+  readOnly?: boolean;
 }) {
   const { toast } = useToast();
   const { t } = useLanguage();
   const qc = useQueryClient();
   const [exerciseFormOpen, setExerciseFormOpen] = useState(false);
+  const [viewingLink, setViewingLink] = useState<SessionExerciseLink | null>(null);
   const [editingLink, setEditingLink] = useState<SessionExerciseLink | null>(null);
   const [duplicateSourceExerciseId, setDuplicateSourceExerciseId] = useState<number | null>(null);
   const [exerciseForm, setExerciseForm] = useState<ExerciseFormState>(() => emptyExerciseFormFromSession(session, 0));
@@ -1807,10 +1843,12 @@ function SessionDetailsDialog({
                 {!linkedExercisesQuery.isLoading && (
                   <Badge variant="secondary">{linkedExercises.length}</Badge>
                 )}
-                <Button size="sm" onClick={openAddExercise}>
-                  <Plus className="w-3.5 h-3.5 mr-1.5" />
-                  Aggiungi esercitazione
-                </Button>
+                {!readOnly && (
+                  <Button size="sm" onClick={openAddExercise}>
+                    <Plus className="w-3.5 h-3.5 mr-1.5" />
+                    Aggiungi esercitazione
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -1854,25 +1892,38 @@ function SessionDetailsDialog({
                               size="icon"
                               variant="ghost"
                               className="h-7 w-7"
+                              title="Apri esercitazione"
+                              onClick={() => setViewingLink(link)}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          {link.exercise && !readOnly && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
                               title="Modifica esercitazione"
                               onClick={() => openEditExercise(link)}
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </Button>
                           )}
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            title="Rimuovi dalla sessione"
-                            onClick={() => {
-                              if (confirm("Rimuovere l'esercitazione da questa sessione?")) {
-                                removeLinkMutation.mutate(link.id);
-                              }
-                            }}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+                          {!readOnly && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              title="Rimuovi dalla sessione"
+                              onClick={() => {
+                                if (confirm("Rimuovere l'esercitazione da questa sessione?")) {
+                                  removeLinkMutation.mutate(link.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </div>
 
@@ -1928,7 +1979,57 @@ function SessionDetailsDialog({
         </div>
       </DialogContent>
 
-      <Dialog open={exerciseFormOpen} onOpenChange={(v) => { if (!v) { setExerciseFormOpen(false); setEditingLink(null); setDuplicateSourceExerciseId(null); } }}>
+      <Dialog open={!!viewingLink} onOpenChange={(open) => { if (!open) setViewingLink(null); }}>
+        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{viewingLink?.exercise?.title ?? "Esercitazione"}</DialogTitle>
+          </DialogHeader>
+          {viewingLink?.exercise ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {viewingLink.exercise.principio && <Badge variant="secondary">{principioLabel(viewingLink.exercise.principio)}</Badge>}
+                {viewingLink.exercise.trainingPhase && <Badge variant="outline">{phaseLabel(viewingLink.exercise.trainingPhase)}</Badge>}
+                {viewingLink.exercise.category && <Badge variant="outline">{categoryLabel(viewingLink.exercise.category)}</Badge>}
+                {viewingLink.exercise.durationMinutes && <Badge variant="outline">{viewingLink.exercise.durationMinutes} min</Badge>}
+              </div>
+              {viewingLink.exercise.description && (
+                <div className="space-y-1">
+                  <Label>Descrizione</Label>
+                  <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">{viewingLink.exercise.description}</p>
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                {trainingDayLabel(viewingLink.exercise.trainingDay) && <div><span className="text-muted-foreground">Giorno: </span>{trainingDayLabel(viewingLink.exercise.trainingDay)}</div>}
+                {trainingSessionLabel(viewingLink.exercise.trainingSession ?? viewingLink.exercise.trainingDay, t) && <div><span className="text-muted-foreground">{t.trainingSessionField}: </span>{trainingSessionLabel(viewingLink.exercise.trainingSession ?? viewingLink.exercise.trainingDay, t)}</div>}
+                {viewingLink.exercise.playersRequired && <div><span className="text-muted-foreground">Giocatori: </span>{viewingLink.exercise.playersRequired}</div>}
+                {formatEquipmentLabel(viewingLink.exercise.equipment) && <div><span className="text-muted-foreground">Materiale: </span>{formatEquipmentLabel(viewingLink.exercise.equipment)}</div>}
+              </div>
+              {viewingLink.notes && (
+                <div className="space-y-1">
+                  <Label>Note sessione</Label>
+                  <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">{viewingLink.notes}</p>
+                </div>
+              )}
+              {viewingLink.exercise.drawingData && (
+                <div className="space-y-1">
+                  <Label>Lavagna</Label>
+                  <img src={viewingLink.exercise.drawingData} alt="Disegno esercitazione" className="max-h-[360px] w-full rounded-md border object-contain" />
+                </div>
+              )}
+              {viewingLink.exercise.voiceNoteData && (
+                <audio controls src={viewingLink.exercise.voiceNoteData} className="w-full" />
+              )}
+              {viewingLink.exercise.videoNoteData && (
+                <video controls src={viewingLink.exercise.videoNoteData} className="max-h-[420px] w-full rounded-md border" />
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Esercitazione non trovata.</p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {!readOnly && <Dialog open={exerciseFormOpen} onOpenChange={(v) => { if (!v) { setExerciseFormOpen(false); setEditingLink(null); setDuplicateSourceExerciseId(null); } }}>
         <DialogContent className="max-w-2xl max-h-[92vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle>
@@ -2189,7 +2290,7 @@ function SessionDetailsDialog({
             </Button>
           </div>
         </DialogContent>
-      </Dialog>
+      </Dialog>}
     </Dialog>
   );
 }
@@ -2363,7 +2464,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     s.sessionKind === "tipo" && s.sentToUserIds?.includes(userId ?? 0)
   );
 
-  function SessionGrid({ items, emptyMsg, canDeleteFn, canEditFn, showComment, onOpenDetails, showRecovery }: {
+  function SessionGrid({ items, emptyMsg, canDeleteFn, canEditFn, showComment, onOpenDetails, showRecovery, isReadOnly: gridReadOnly = isReadOnly }: {
     items: TrainingSession[];
     emptyMsg: string;
     canDeleteFn?: (s: TrainingSession) => boolean;
@@ -2371,6 +2472,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     showComment?: boolean;
     onOpenDetails?: (s: TrainingSession) => void;
     showRecovery?: boolean;
+    isReadOnly?: boolean;
   }) {
     if (sessionsQuery.isLoading) {
       return (
@@ -2402,10 +2504,138 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             onComment={showComment ? () => setCommentSession(s) : undefined}
             onOpenDetails={onOpenDetails ? () => onOpenDetails(s) : undefined}
             showRecovery={showRecovery}
-            isReadOnly={isReadOnly}
+            isReadOnly={gridReadOnly}
           />
         ))}
       </div>
+    );
+  }
+
+  function SeasonArchive({ items, emptyMsg, readOnly = false }: { items: TrainingSession[]; emptyMsg: string; readOnly?: boolean }) {
+    const grouped = useMemo(() => {
+      const map = new Map<string, TrainingSession[]>();
+      for (const session of items) {
+        const key = getSessionSeasonKey(session);
+        map.set(key, [...(map.get(key) ?? []), session]);
+      }
+      return Array.from(map.entries())
+        .map(([key, group]) => ({
+          key,
+          label: getSessionSeasonLabel(key),
+          items: group.sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()),
+        }))
+        .sort((a, b) => b.key.localeCompare(a.key));
+    }, [items]);
+
+    if (sessionsQuery.isLoading) {
+      return <SessionGrid items={[]} emptyMsg={emptyMsg} />;
+    }
+
+    if (grouped.length === 0) {
+      return <SessionGrid items={[]} emptyMsg={emptyMsg} />;
+    }
+
+    return (
+      <Accordion type="multiple" defaultValue={[grouped[0]?.key ?? ""]} className="space-y-3">
+        {grouped.map((group) => (
+          <SeasonArchiveSection
+            key={group.key}
+            value={group.key}
+            label={group.label}
+            items={group.items}
+            readOnly={readOnly}
+          />
+        ))}
+      </Accordion>
+    );
+  }
+
+  function SeasonArchiveSection({ value, label, items, readOnly }: { value: string; label: string; items: TrainingSession[]; readOnly: boolean }) {
+    const [search, setSearch] = useState("");
+    const [dateFilter, setDateFilter] = useState("all");
+    const [principleFilter, setPrincipleFilter] = useState("all");
+    const [teamFilter, setTeamFilter] = useState("all");
+    const [statusFilter, setStatusFilter] = useState("all");
+
+    const dateOptions = useMemo(() => Array.from(new Set(items.map(getSessionDateKey).filter(Boolean))).sort((a, b) => b.localeCompare(a)), [items]);
+    const principleOptions = useMemo(() => Array.from(new Set(items.map((s) => normalizePrincipio(s.objectives)).filter(Boolean))).sort(), [items]);
+    const teamOptions = useMemo(() => {
+      const map = new Map<string, string>();
+      for (const s of items) {
+        const key = s.teamId == null ? "__none__" : String(s.teamId);
+        if (!map.has(key)) map.set(key, s.teamName ?? "Senza squadra");
+      }
+      return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, "it"));
+    }, [items]);
+
+    const normalizedSearch = search.trim().toLowerCase();
+    const filtered = items.filter((session) => {
+      if (normalizedSearch && !matchesSessionSearch(session, normalizedSearch)) return false;
+      if (dateFilter !== "all" && getSessionDateKey(session) !== dateFilter) return false;
+      if (principleFilter !== "all" && normalizePrincipio(session.objectives) !== principleFilter) return false;
+      if (teamFilter !== "all") {
+        const key = session.teamId == null ? "__none__" : String(session.teamId);
+        if (key !== teamFilter) return false;
+      }
+      if (statusFilter !== "all" && session.status !== statusFilter) return false;
+      return true;
+    });
+
+    return (
+      <AccordionItem value={value} className="rounded-lg border bg-background px-3">
+        <AccordionTrigger className="hover:no-underline">
+          <div className="flex items-center gap-3">
+            <span className="font-semibold">Annata {label}</span>
+            <Badge variant="secondary">{items.length}</Badge>
+          </div>
+        </AccordionTrigger>
+        <AccordionContent className="space-y-4 pb-4">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+            <div className="md:col-span-2">
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cerca principio, titolo, squadra..." />
+            </div>
+            <Select value={dateFilter} onValueChange={setDateFilter}>
+              <SelectTrigger><SelectValue placeholder="Data" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tutte le date</SelectItem>
+                {dateOptions.map((date) => <SelectItem key={date} value={date}>{date.split("-").reverse().join("/")}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={principleFilter} onValueChange={setPrincipleFilter}>
+              <SelectTrigger><SelectValue placeholder="Principio" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tutti i principi</SelectItem>
+                {principleOptions.map((principle) => <SelectItem key={principle} value={principle}>{principioLabel(principle)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={teamFilter} onValueChange={setTeamFilter}>
+              <SelectTrigger><SelectValue placeholder="Squadra" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tutte le squadre</SelectItem>
+                {teamOptions.map((team) => <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="max-w-xs">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger><SelectValue placeholder="Stato" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tutti gli stati</SelectItem>
+                <SelectItem value="scheduled">Pianificata</SelectItem>
+                <SelectItem value="completed">Completata</SelectItem>
+                <SelectItem value="cancelled">Annullata</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <SessionGrid
+            items={filtered}
+            emptyMsg="Nessuna sessione trovata in questa annata"
+            onOpenDetails={setDetailsSession}
+            showRecovery
+            isReadOnly={readOnly}
+          />
+        </AccordionContent>
+      </AccordionItem>
     );
   }
 
@@ -2662,11 +2892,19 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             <Eye className="w-3 h-3" /> Solo visualizzazione
           </Badge>
         </div>
-        <SessionGrid
+        <SeasonArchive
           items={sessions}
           emptyMsg="Nessuna sessione di allenamento programmata"
-          onOpenDetails={setDetailsSession}
+          readOnly
         />
+        {detailsSession && (
+          <SessionDetailsDialog
+            session={detailsSession}
+            onClose={() => setDetailsSession(null)}
+            teams={teams}
+            readOnly
+          />
+        )}
       </div>
     );
   }
