@@ -29,8 +29,10 @@ export default function WorkspacePage() {
     fetch(withApi(`/api/clubs/public/search?name=${encodeURIComponent(clubNameFromUrl)}`), { credentials: "include" })
       .then((r) => r.json())
       .then((data: ClubInfo[]) => {
-        if (data && data.length > 0) setClub(data[0]);
-        else setClub({ id: 0, name: clubNameFromUrl });
+        if (data && data.length > 0) {
+          setClub(data[0]);
+          localStorage.setItem("ftb-workspace-club-id", String(data[0].id));
+        } else setClub({ id: 0, name: clubNameFromUrl });
       })
       .catch(() => setClub({ id: 0, name: clubNameFromUrl }))
       .finally(() => setLoading(false));

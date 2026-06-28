@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable, clubsTable, clubMembershipsTable, subscriptionsTable } from "@workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   RegisterUserBody,
   LoginUserBody,
@@ -164,7 +164,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       return;
     }
 
-    const { email, password, section } = parsed.data;
+    const { email, password, section, clubId } = parsed.data;
     if (!email || !password) {
       res.status(400).json({ error: "Email and password are required" });
       return;
@@ -217,14 +217,23 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       return;
     }
 
+    const requestedClubId =
+      typeof clubId === "number" && Number.isInteger(clubId) && clubId > 0
+        ? clubId
+        : undefined;
+
     const memberships = await db
       .select()
       .from(clubMembershipsTable)
-      .where(eq(clubMembershipsTable.userId, user.id))
+      .where(
+        requestedClubId
+          ? and(eq(clubMembershipsTable.userId, user.id), eq(clubMembershipsTable.clubId, requestedClubId))
+          : eq(clubMembershipsTable.userId, user.id)
+      )
       .orderBy(desc(clubMembershipsTable.id));
 
     if (!memberships.length) {
-      res.status(401).json({ error: "User has no club membership" });
+      res.status(401).json({ error: "Utente o password non validi per questa società." });
       return;
     }
 

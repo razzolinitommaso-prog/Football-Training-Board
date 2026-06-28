@@ -54,8 +54,10 @@ export default function WorkspaceSectionAreasPage() {
     fetch(withApi(`/api/clubs/public/search?name=${encodeURIComponent(clubNameFromUrl)}`), { credentials: "include" })
       .then((r) => r.json())
       .then((data: ClubInfo[]) => {
-        if (data && data.length > 0) setClub(data[0]);
-        else setClub({ id: 0, name: clubNameFromUrl });
+        if (data && data.length > 0) {
+          setClub(data[0]);
+          localStorage.setItem("ftb-workspace-club-id", String(data[0].id));
+        } else setClub({ id: 0, name: clubNameFromUrl });
       })
       .catch(() => setClub({ id: 0, name: clubNameFromUrl }))
       .finally(() => setLoading(false));
@@ -248,7 +250,8 @@ export default function WorkspaceSectionAreasPage() {
     onClick={() => {
       localStorage.setItem("ftb-login-club", clubSlug);
       localStorage.setItem("ftb-login-section", section);
-      setLocation(`${area.href}?section=${section}&club=${encodeURIComponent(clubSlug)}&area=${encodeURIComponent(area.key)}`);
+      const clubIdParam = club?.id ? `&clubId=${encodeURIComponent(String(club.id))}` : "";
+      setLocation(`${area.href}?section=${section}&club=${encodeURIComponent(clubSlug)}&area=${encodeURIComponent(area.key)}${clubIdParam}`);
     }}
     className={`group relative rounded-2xl border ${area.border} bg-gradient-to-br ${area.gradient} p-6 cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-xl ${area.glow}`}
   >

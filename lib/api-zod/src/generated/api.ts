@@ -60,6 +60,7 @@ export const LoginUserBody = zod.object({
   email: zod.string(),
   password: zod.string(),
   section: zod.string().optional(),
+  clubId: zod.number().int().positive().optional(),
 });
 
 export const LoginUserResponse = zod.object({

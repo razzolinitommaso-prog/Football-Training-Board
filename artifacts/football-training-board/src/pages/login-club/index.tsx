@@ -37,6 +37,7 @@ export default function LoginClubPage() {
       const club = await res.json();
       const slug = encodeURIComponent(club.name);
       localStorage.setItem("ftb-workspace-slug", slug);
+      localStorage.setItem("ftb-workspace-club-id", String(club.id));
       setLocation(`/workspace/${slug}`);
     } catch {
       setError(t.clubNotFound);

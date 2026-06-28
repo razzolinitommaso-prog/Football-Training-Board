@@ -9,4 +9,6 @@
 export interface LoginRequest {
   email: string;
   password: string;
+  clubId?: number;
+  section?: string;
 }

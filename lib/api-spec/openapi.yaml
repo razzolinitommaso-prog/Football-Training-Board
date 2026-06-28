@@ -636,6 +636,10 @@ components:
           type: string
         password:
           type: string
+        clubId:
+          type: integer
+        section:
+          type: string
       required:
         - email
         - password

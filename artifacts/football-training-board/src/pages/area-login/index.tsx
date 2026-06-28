@@ -138,6 +138,13 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
   const loginSection = searchParams.get("section") ?? undefined;
   const loginClub = searchParams.get("club") ?? undefined;
   const loginArea = searchParams.get("area") ?? undefined;
+  const loginClubIdFromQuery = Number(searchParams.get("clubId") ?? 0);
+  const loginClubIdFromStorage = Number(localStorage.getItem("ftb-workspace-club-id") ?? 0);
+  const loginClubId = Number.isInteger(loginClubIdFromQuery) && loginClubIdFromQuery > 0
+    ? loginClubIdFromQuery
+    : Number.isInteger(loginClubIdFromStorage) && loginClubIdFromStorage > 0
+      ? loginClubIdFromStorage
+      : undefined;
   const sectionLabel = loginSection ? (SECTION_LABELS[loginSection] ?? loginSection) : undefined;
 
   const form = useForm<LoginForm>({
@@ -178,6 +185,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
           email: data.email.trim().toLowerCase(),
           password: data.password,
           section: loginSection,
+          clubId: loginClubId,
         }),
       });
       const payload = await res.json().catch(() => ({} as any));
