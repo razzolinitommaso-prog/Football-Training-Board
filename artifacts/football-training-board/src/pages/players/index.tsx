@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer } from "@workspace/api-client-react";
+import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,7 @@ import { useLocation } from "wouter";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
-import { mapExcelRowToPlayer, isValidPlayerRow, downloadPlayerTemplate } from "@/lib/excel-import";
+import { mapExcelRowToPlayer, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
 
 /** Radix Checkbox può emettere `indeterminate`; Zod `z.boolean()` altrimenti fallisce e il submit non parte. */
@@ -107,6 +107,16 @@ function comparePlayersBySurname(a: Pick<Player, "firstName" | "lastName">, b: P
     sensitivity: "base",
     numeric: true,
   });
+}
+
+function normalizeImportTeamName(value?: string | null): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[°º]/g, "o")
+    .replace(/\s+/g, " ");
 }
 
 function removeUniformImageBackground(imageData: ImageData): ImageData {
@@ -362,6 +372,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     exportToExcel(mapPlayersForExcel(players as any[], teams as any[] ?? []), "Giocatori_FTB", "Giocatori");
   };
 
+  const createTeamMutation = useCreateTeam();
+
   const createMutation = useCreatePlayer({
     mutation: {
       onSuccess: () => {
@@ -373,6 +385,58 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       }
     }
   });
+
+  const importPlayersWithTeams = async (rows: Record<string, unknown>[]) => {
+    const sectionForNewTeams = section ?? "scuola_calcio";
+    const teamByName = new Map<string, { id: number; name: string }>();
+    ((teams as any[] | undefined) ?? []).forEach((team) => {
+      const keys = [
+        team.name,
+        [team.category, team.ageGroup].filter(Boolean).join(" "),
+      ].map(normalizeImportTeamName).filter(Boolean);
+      keys.forEach((key) => teamByName.set(key, { id: team.id, name: team.name }));
+    });
+
+    const errors: string[] = [];
+    let success = 0;
+    let createdTeams = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        const rawTeamName = cellToTrimmedString(row["Squadra"]);
+        const normalizedTeamName = normalizeImportTeamName(rawTeamName);
+        let team = normalizedTeamName ? teamByName.get(normalizedTeamName) : undefined;
+
+        if (!team && rawTeamName) {
+          const created = await createTeamMutation.mutateAsync({
+            data: {
+              name: rawTeamName,
+              category: rawTeamName,
+              clubSection: sectionForNewTeams,
+            } as any,
+          });
+          team = { id: (created as any).id, name: (created as any).name ?? rawTeamName };
+          teamByName.set(normalizedTeamName, team);
+          createdTeams++;
+        }
+
+        const mapped = mapExcelRowToPlayer(row, Array.from(teamByName.values())) as Record<string, unknown>;
+        if (team) mapped.teamId = team.id;
+        await createMutation.mutateAsync({ data: mapped as any });
+        success++;
+      } catch {
+        errors.push(`Riga ${i + 1}: errore durante l'importazione`);
+      }
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+    if (createdTeams > 0) {
+      toast({ title: `${createdTeams} squadre create automaticamente` });
+    }
+    return { success, failed: errors.length, errors };
+  };
 
   const updateMutation = useUpdatePlayer({
     mutation: {
@@ -734,6 +798,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 onDownloadTemplate={downloadPlayerTemplate}
                 onParseRow={(row) => mapExcelRowToPlayer(row, (teams as any[] ?? [])) as Record<string, unknown>}
                 isValidRow={isValidPlayerRow}
+                onImportValidRows={importPlayersWithTeams}
                 onImportRows={async ([row]) => {
                   await createMutation.mutateAsync({ data: row as any });
                   queryClient.invalidateQueries({ queryKey: ["/api/players"] });

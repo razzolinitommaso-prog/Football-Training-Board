@@ -1,7 +1,6 @@
 import * as XLSX from "xlsx";
 import { exportToExcel } from "./excel-export";
 
-/** Excel cells are often string | number | Date | boolean, so never assume .trim() exists. */
 export function cellToTrimmedString(value: unknown): string {
   if (value == null || value === "") return "";
   if (typeof value === "string") return value.trim();
@@ -17,7 +16,6 @@ export function cellToTrimmedString(value: unknown): string {
   return String(value).trim();
 }
 
-/** Prefer ISO date YYYY-MM-DD; supports Excel serial numbers when in a typical date range. */
 export function cellToDateOfBirth(value: unknown): string | undefined {
   if (value == null || value === "") return undefined;
   if (value instanceof Date) {
@@ -30,7 +28,6 @@ export function cellToDateOfBirth(value: unknown): string | undefined {
   }
   if (typeof value === "number" && Number.isFinite(value)) {
     const n = Math.floor(value);
-    // Excel serial date range, roughly 1954-2078; avoids treating jersey-like integers as dates.
     if (n > 20000 && n < 80000) {
       const d = new Date((value - 25569) * 86400 * 1000);
       if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
@@ -83,12 +80,41 @@ const POSITION_MAP: Record<string, string> = {
   "GK": "GK", "DEF": "DEF", "MID": "MID", "FWD": "FWD",
 };
 
-const JERSEY_KEYS = ["N° Maglia", "NÂ° Maglia", "NÃ‚Â° Maglia"];
-const NATIONALITY_KEYS = ["Nazionalità", "NazionalitÃ ", "NazionalitÃƒÂ "];
-const REGISTRATION_NUMBER_KEYS = ["N° Tessera", "NÂ° Tessera", "NÃ‚Â° Tessera"];
-const TEAM_AGE_GROUP_KEYS = ["Fascia d'Età", "Fascia d'EtÃ ", "Fascia d'EtÃƒÂ "];
+const JERSEY_KEYS = ["N° Maglia", "NÂ° Maglia", "NÃ‚Â° Maglia", "NÃƒâ€šÃ‚Â° Maglia"];
+const NATIONALITY_KEYS = ["Nazionalità", "NazionalitÃ ", "NazionalitÃƒÂ ", "NazionalitÃƒÆ’Ã‚Â "];
+const REGISTRATION_NUMBER_KEYS = ["N° Tessera", "NÂ° Tessera", "NÃ‚Â° Tessera", "NÃƒâ€šÃ‚Â° Tessera"];
+const TEAM_AGE_GROUP_KEYS = ["Fascia d'Età", "Fascia d'EtÃ ", "Fascia d'EtÃƒÂ ", "Fascia d'EtÃƒÆ’Ã‚Â "];
+const FULL_PLAYER_NAME_KEYS = ["Cognome Nome", "Nome Completo", "Nome e Cognome", "Giocatore", "Player"];
+
+function splitImportedPlayerName(row: Record<string, unknown>) {
+  const explicitFirstName = cellToTrimmedString(row["Nome"]);
+  const explicitLastName = cellToTrimmedString(row["Cognome"]);
+  if (explicitFirstName || explicitLastName) {
+    return { firstName: explicitFirstName, lastName: explicitLastName };
+  }
+
+  const fullName = cellToTrimmedString(readCell(row, FULL_PLAYER_NAME_KEYS)).replace(/\s+/g, " ");
+  if (!fullName) return { firstName: "", lastName: "" };
+
+  if (fullName.includes(",")) {
+    const [lastName, ...firstNameParts] = fullName.split(",").map(part => part.trim()).filter(Boolean);
+    return {
+      firstName: firstNameParts.join(" "),
+      lastName: lastName ?? "",
+    };
+  }
+
+  const parts = fullName.split(" ").filter(Boolean);
+  if (parts.length === 1) return { firstName: "", lastName: parts[0] };
+
+  return {
+    firstName: parts.slice(1).join(" "),
+    lastName: parts[0],
+  };
+}
 
 export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
+  const importedName = splitImportedPlayerName(row);
   const teamName = cellToTrimmedString(row["Squadra"]).toLowerCase();
   const team = teams.find(t => t.name.trim().toLowerCase() === teamName);
 
@@ -107,8 +133,8 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
   const registeredValue = cellToLowerString(row["Tesserato"]);
 
   return {
-    firstName: cellToTrimmedString(row["Nome"]),
-    lastName: cellToTrimmedString(row["Cognome"]),
+    firstName: importedName.firstName,
+    lastName: importedName.lastName,
     teamId: team?.id ?? null,
     position: position || undefined,
     jerseyNumber: isNaN(jerseyNum) ? null : jerseyNum,
@@ -124,11 +150,13 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
 }
 
 export function isValidPlayerRow(row: Record<string, unknown>) {
-  return cellToTrimmedString(row["Nome"]).length >= 2 && cellToTrimmedString(row["Cognome"]).length >= 2;
+  const importedName = splitImportedPlayerName(row);
+  return importedName.firstName.length >= 2 && importedName.lastName.length >= 2;
 }
 
 export function downloadPlayerTemplate() {
   exportToExcel([{
+    "Cognome Nome": "",
     "Nome": "",
     "Cognome": "",
     "Squadra": "",

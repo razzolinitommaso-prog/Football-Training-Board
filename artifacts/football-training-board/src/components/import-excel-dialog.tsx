@@ -14,6 +14,7 @@ interface ImportExcelDialogProps {
   onParseRow: (row: Record<string, unknown>) => Record<string, unknown>;
   isValidRow: (row: Record<string, unknown>) => boolean;
   onImportRows: (rows: Record<string, unknown>[]) => Promise<void>;
+  onImportValidRows?: (rows: Record<string, unknown>[]) => Promise<ImportResult | void>;
   canImport?: boolean;
 }
 
@@ -25,6 +26,7 @@ export function ImportExcelDialog({
   onParseRow,
   isValidRow,
   onImportRows,
+  onImportValidRows,
   canImport = true,
 }: ImportExcelDialogProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -60,6 +62,22 @@ export function ImportExcelDialog({
 
   async function handleImport() {
     setIsImporting(true);
+    if (onImportValidRows) {
+      try {
+        const customResult = await onImportValidRows(validRows);
+        setResult(customResult ?? { success: validRows.length, failed: 0, errors: [] });
+      } catch (error: any) {
+        setResult({
+          success: 0,
+          failed: validRows.length,
+          errors: [error?.message ?? "Errore durante l'importazione"],
+        });
+      } finally {
+        setIsImporting(false);
+      }
+      return;
+    }
+
     const mapped = validRows.map(onParseRow);
     let success = 0;
     const errors: string[] = [];
