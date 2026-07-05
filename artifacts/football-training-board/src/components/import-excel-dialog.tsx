@@ -120,7 +120,7 @@ export function ImportExcelDialog({
       </Button>
 
       <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
-        <DialogContent className="sm:max-w-[700px] max-h-[85vh] flex flex-col">
+        <DialogContent className="w-[calc(100vw-24px)] sm:max-w-[700px] max-h-[85vh] flex flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileUp className="w-5 h-5 text-primary" />
@@ -148,7 +148,7 @@ export function ImportExcelDialog({
               </div>
             ) : result ? (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="flex items-center gap-3 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
                     <CheckCircle2 className="w-6 h-6 text-green-500" />
                     <div>
@@ -175,7 +175,7 @@ export function ImportExcelDialog({
               </div>
             ) : rawRows.length > 0 ? (
               <div className="space-y-3">
-                <div className="flex items-center gap-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium text-xs">
                     {validRows.length} righe valide
                   </span>
@@ -186,8 +186,8 @@ export function ImportExcelDialog({
                   )}
                 </div>
 
-                <div className="border rounded-lg overflow-auto max-h-[350px]">
-                  <table className="w-full text-xs text-left">
+                <div className="border rounded-lg overflow-auto max-h-[350px] max-w-full">
+                  <table className="min-w-[640px] w-full text-xs text-left">
                     <thead className="bg-muted/50 border-b sticky top-0">
                       <tr>
                         <th className="px-3 py-2 font-medium text-muted-foreground w-8">#</th>
@@ -227,7 +227,7 @@ export function ImportExcelDialog({
             ) : null}
           </div>
 
-          <DialogFooter className="border-t pt-4 mt-2 gap-2">
+          <DialogFooter className="border-t pt-4 mt-2 gap-2 sm:justify-end">
             <Button variant="outline" onClick={handleClose}>
               {result ? "Chiudi" : "Annulla"}
             </Button>

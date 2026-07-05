@@ -214,9 +214,20 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
   }
 
   const playerData = { ...parsed.data };
+  let clubSection = typeof req.session.section === "string" && req.session.section
+    ? req.session.section
+    : "scuola_calcio";
+  if (playerData.teamId) {
+    const [team] = await db
+      .select({ clubSection: teamsTable.clubSection })
+      .from(teamsTable)
+      .where(and(eq(teamsTable.id, playerData.teamId), eq(teamsTable.clubId, req.session.clubId!)));
+    if (team?.clubSection) clubSection = team.clubSection;
+  }
   const values = {
     ...playerData,
     clubId: req.session.clubId!,
+    clubSection,
     ...(playerData.registered === false ? { available: false } : {}),
   };
 

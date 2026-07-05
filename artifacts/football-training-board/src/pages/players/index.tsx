@@ -119,6 +119,14 @@ function normalizeImportTeamName(value?: string | null): string {
     .replace(/\s+/g, " ");
 }
 
+function playerImportFingerprint(player: { firstName?: unknown; lastName?: unknown; teamId?: unknown }) {
+  return [
+    normalizeImportTeamName(String(player.lastName ?? "")),
+    normalizeImportTeamName(String(player.firstName ?? "")),
+    String(player.teamId ?? ""),
+  ].join("|");
+}
+
 function removeUniformImageBackground(imageData: ImageData): ImageData {
   const { data, width, height } = imageData;
   const samples = [
@@ -400,6 +408,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     const errors: string[] = [];
     let success = 0;
     let createdTeams = 0;
+    let duplicates = 0;
+    const existingFingerprints = new Set(
+      ((players as any[] | undefined) ?? []).map((player) => playerImportFingerprint(player))
+    );
+    const fileFingerprints = new Set<string>();
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -423,7 +436,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
         const mapped = mapExcelRowToPlayer(row, Array.from(teamByName.values())) as Record<string, unknown>;
         if (team) mapped.teamId = team.id;
+        const fingerprint = playerImportFingerprint(mapped);
+        if (existingFingerprints.has(fingerprint) || fileFingerprints.has(fingerprint)) {
+          duplicates++;
+          errors.push(`Riga ${i + 1}: duplicato ignorato`);
+          continue;
+        }
+        fileFingerprints.add(fingerprint);
         await createMutation.mutateAsync({ data: mapped as any });
+        existingFingerprints.add(fingerprint);
         success++;
       } catch {
         errors.push(`Riga ${i + 1}: errore durante l'importazione`);
@@ -434,6 +455,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     queryClient.invalidateQueries({ queryKey: ["/api/players"] });
     if (createdTeams > 0) {
       toast({ title: `${createdTeams} squadre create automaticamente` });
+    }
+    if (duplicates > 0) {
+      toast({ title: `${duplicates} duplicati ignorati` });
     }
     return { success, failed: errors.length, errors };
   };
