@@ -6,6 +6,7 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -155,6 +156,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const [ageGroupFilter, setAgeGroupFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);
   const [scheduleTeam, setScheduleTeam] = useState<{ id: number; name: string } | null>(null);
   const [scheduleRows, setScheduleRows] = useState<TeamTrainingSlot[]>([]);
   const [editTeam, setEditTeam] = useState<any | null>(null);
@@ -204,6 +206,18 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
       }
     }
   });
+
+  const handleBulkDeleteTeams = async () => {
+    const visibleIds = (filteredTeams ?? []).map((team) => team.id);
+    const ids = selectedTeamIds.filter((id) => visibleIds.includes(id));
+    if (!ids.length || !canEditTeam) return;
+    if (!confirm(`Eliminare ${ids.length} squadre selezionate?`)) return;
+    for (const id of ids) {
+      await deleteMutation.mutateAsync({ id });
+    }
+    setSelectedTeamIds([]);
+    queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
+  };
 
   const updateScheduleMutation = useUpdateTeam({
     mutation: {
@@ -363,6 +377,9 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     if (!isNaN(numB)) return 1;
     return a.name.localeCompare(b.name);
   });
+  const filteredTeamIds = (filteredTeams ?? []).map((team) => team.id);
+  const selectedVisibleTeamIds = selectedTeamIds.filter((id) => filteredTeamIds.includes(id));
+  const allVisibleTeamsSelected = filteredTeamIds.length > 0 && selectedVisibleTeamIds.length === filteredTeamIds.length;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -589,6 +606,38 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
         )}
       </div>
 
+      {canEditTeam && (filteredTeams ?? []).length > 0 && (
+        <div className="flex flex-col gap-2 rounded-xl border bg-card p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <Checkbox
+              checked={allVisibleTeamsSelected}
+              onCheckedChange={(checked) => {
+                if (checked === true) {
+                  setSelectedTeamIds(Array.from(new Set([...selectedTeamIds, ...filteredTeamIds])));
+                } else {
+                  setSelectedTeamIds(selectedTeamIds.filter((id) => !filteredTeamIds.includes(id)));
+                }
+              }}
+            />
+            Seleziona visibili
+            {selectedVisibleTeamIds.length > 0 && (
+              <span className="text-xs text-muted-foreground">({selectedVisibleTeamIds.length})</span>
+            )}
+          </label>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={selectedVisibleTeamIds.length === 0 || deleteMutation.isPending}
+            onClick={handleBulkDeleteTeams}
+            className="w-full gap-2 sm:w-auto"
+          >
+            <Trash2 className="h-4 w-4" />
+            Elimina selezionate
+          </Button>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map(i => <Skeleton key={i} className="h-56 rounded-xl" />)}
@@ -617,14 +666,30 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
           {filteredTeams?.map(team => {
             const staff = (team as any).assignedStaff as { userId: number; name: string; role: string }[] | undefined;
             const coaches = staff?.filter(s => s.role === "coach" || s.role === "fitness_coach" || s.role === "technical_director") ?? [];
+            const selected = selectedTeamIds.includes(team.id);
 
             return (
               <Card key={team.id} className="overflow-hidden group hover:shadow-lg transition-all border-border/50">
                 <CardContent className="p-0">
                   <div className="p-6">
                     <div className="flex justify-between items-start mb-4">
-                      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-xl">
-                        {team.name.substring(0, 2).toUpperCase()}
+                      <div className="flex items-center gap-3">
+                        {canEditTeam && (
+                          <Checkbox
+                            checked={selected}
+                            onCheckedChange={(checked) => {
+                              setSelectedTeamIds((current) =>
+                                checked === true
+                                  ? Array.from(new Set([...current, team.id]))
+                                  : current.filter((id) => id !== team.id)
+                              );
+                            }}
+                            aria-label={`Seleziona ${team.name}`}
+                          />
+                        )}
+                        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-xl">
+                          {team.name.substring(0, 2).toUpperCase()}
+                        </div>
                       </div>
                       <div className="flex gap-1">
                         {canEditTeam ? (

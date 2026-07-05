@@ -322,6 +322,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [playerDialogMode, setPlayerDialogMode] = useState<"view" | "edit">("view");
   const [openedFromQuery, setOpenedFromQuery] = useState(false);
   const [formSeasonFilter, setFormSeasonFilter] = useState<string>("all");
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<number[]>([]);
   const [noteDraftText, setNoteDraftText] = useState("");
   const [noteRecipient, setNoteRecipient] = useState<PlayerNoteRecipient>("secretary");
   const [noteRequiresResponse, setNoteRequiresResponse] = useState(false);
@@ -506,6 +507,18 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       }
     }
   });
+
+  const handleBulkDeletePlayers = async () => {
+    const ids = selectedPlayerIds.filter((id) => (filteredPlayers ?? []).some((player) => player.id === id));
+    if (!ids.length || !canDeletePlayer) return;
+    if (!confirm(`Eliminare ${ids.length} giocatori selezionati?`)) return;
+    setLastDeletedPlayer(null);
+    for (const id of ids) {
+      await deleteMutation.mutateAsync({ id });
+    }
+    setSelectedPlayerIds([]);
+    queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+  };
 
   const form = useForm<z.infer<typeof playerSchema>>({
     resolver: zodResolver(playerSchema),
@@ -772,6 +785,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (teamFilter === "unassigned") return !p.teamId;
     return Number(p.teamId ?? 0) === Number(teamFilter);
   }).sort(comparePlayersBySurname);
+  const filteredPlayerIds = (filteredPlayers ?? []).map((player) => player.id);
+  const selectedVisiblePlayerIds = selectedPlayerIds.filter((id) => filteredPlayerIds.includes(id));
+  const allVisiblePlayersSelected = filteredPlayerIds.length > 0 && selectedVisiblePlayerIds.length === filteredPlayerIds.length;
 
   const teamsByAnnata = [...typedTeams].sort(compareTeamsByAnnata);
   const playersByTeam = new Map<number, Player[]>();
@@ -1832,11 +1848,44 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         </div>
       </section>
 
+      {canDeletePlayer && (filteredPlayers ?? []).length > 0 && (
+        <div className="flex flex-col gap-2 rounded-xl border bg-card p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <Checkbox
+              checked={allVisiblePlayersSelected}
+              onCheckedChange={(checked) => {
+                if (checked === true) {
+                  setSelectedPlayerIds(Array.from(new Set([...selectedPlayerIds, ...filteredPlayerIds])));
+                } else {
+                  setSelectedPlayerIds(selectedPlayerIds.filter((id) => !filteredPlayerIds.includes(id)));
+                }
+              }}
+            />
+            Seleziona visibili
+            {selectedVisiblePlayerIds.length > 0 && (
+              <span className="text-xs text-muted-foreground">({selectedVisiblePlayerIds.length})</span>
+            )}
+          </label>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={selectedVisiblePlayerIds.length === 0 || deleteMutation.isPending}
+            onClick={handleBulkDeletePlayers}
+            className="w-full gap-2 sm:w-auto"
+          >
+            <UserMinus className="h-4 w-4" />
+            Elimina selezionati
+          </Button>
+        </div>
+      )}
+
       <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm text-left">
             <thead className="bg-muted/50 text-muted-foreground font-medium border-b">
               <tr>
+                {canDeletePlayer && <th className="px-4 py-4 w-10" />}
                 <th className="px-6 py-4">{t.player}</th>
                 <th className="px-6 py-4">{t.team}</th>
                 <th className="px-6 py-4">{t.position}</th>
@@ -1861,7 +1910,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 ))
               ) : filteredPlayers?.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center">
+                  <td colSpan={canDeletePlayer ? 8 : 7} className="px-6 py-16 text-center">
                     {isAssignedStaffRole && !search && (players as any[])?.length === 0 ? (
                       <div className="flex flex-col items-center gap-2">
                         <svg className="w-12 h-12 text-muted-foreground/30 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" /></svg>
@@ -1880,6 +1929,21 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     const imageUrl = player.imageUrl ?? meta.imageUrl ?? null;
                     return (
                   <tr key={player.id} className="hover:bg-muted/30 transition-colors">
+                    {canDeletePlayer && (
+                      <td className="px-4 py-4">
+                        <Checkbox
+                          checked={selectedPlayerIds.includes(player.id)}
+                          onCheckedChange={(checked) => {
+                            setSelectedPlayerIds((current) =>
+                              checked === true
+                                ? Array.from(new Set([...current, player.id]))
+                                : current.filter((id) => id !== player.id)
+                            );
+                          }}
+                          aria-label={`Seleziona ${playerName(player, nameOrder)}`}
+                        />
+                      </td>
+                    )}
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         {imageUrl ? (
@@ -2001,6 +2065,87 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="divide-y divide-border md:hidden">
+          {isLoading ? (
+            Array(5).fill(0).map((_, i) => (
+              <div key={i} className="p-4">
+                <Skeleton className="h-24 w-full rounded-lg" />
+              </div>
+            ))
+          ) : filteredPlayers?.length === 0 ? (
+            <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+              {t.noPlayersFound}
+            </div>
+          ) : (
+            filteredPlayers?.map((player) => {
+              const { meta } = splitPlayerMeta(player.notes ?? "");
+              const imageUrl = player.imageUrl ?? meta.imageUrl ?? null;
+              const selected = selectedPlayerIds.includes(player.id);
+              return (
+                <div key={player.id} className="p-4">
+                  <div className="flex items-start gap-3">
+                    {canDeletePlayer && (
+                      <Checkbox
+                        checked={selected}
+                        onCheckedChange={(checked) => {
+                          setSelectedPlayerIds((current) =>
+                            checked === true
+                              ? Array.from(new Set([...current, player.id]))
+                              : current.filter((id) => id !== player.id)
+                          );
+                        }}
+                        aria-label={`Seleziona ${playerName(player, nameOrder)}`}
+                        className="mt-2"
+                      />
+                    )}
+                    {imageUrl ? (
+                      <img src={imageUrl} alt={playerName(player, nameOrder)} className="h-11 w-11 rounded-md border object-cover shadow-sm" />
+                    ) : (
+                      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md border shadow-sm ${
+                        player.available === false
+                          ? "bg-red-100 text-red-800 border-red-200"
+                          : "bg-muted text-muted-foreground"
+                      }`}>
+                        <User className="h-4 w-4" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-foreground">{playerName(player, nameOrder)}</p>
+                          <p className="truncate text-xs text-muted-foreground">{player.teamName || t.unassigned}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openPlayerDialog(player, "view")}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {canManagePlayers && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openPlayerDialog(player, "edit")}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="rounded bg-muted px-2 py-1 font-mono text-xs">{player.position || "N/A"}</span>
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+                          player.available === false
+                            ? "bg-red-100 text-red-800 border-red-200"
+                            : "bg-green-100 text-green-800 border-green-200"
+                        }`}>
+                          {player.available === false ? t.notAvailable : t.available}
+                        </span>
+                        <span className="rounded-full border px-2.5 py-1 text-xs font-medium">
+                          {statusLabel(player.status)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
