@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +26,7 @@ import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
 import { mapExcelRowToPlayer, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
+import { withApi } from "@/lib/api-base";
 
 /** Radix Checkbox può emettere `indeterminate`; Zod `z.boolean()` altrimenti fallisce e il submit non parte. */
 const zRegisteredCheckbox = z.preprocess((v) => {
@@ -97,6 +98,7 @@ type Player = {
 
 type PlayerNameOrder = "surname_first" | "name_first";
 type PlayerImageBackground = "white" | "club_logo";
+type SeasonOption = { id: number; name: string; startDate?: string; endDate?: string; isActive?: boolean };
 
 function playerName(player: Pick<Player, "firstName" | "lastName">, order: PlayerNameOrder = "surname_first"): string {
   const firstName = String(player.firstName ?? "").trim();
@@ -360,6 +362,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [teamFilter, setTeamFilter] = useState<string>(initialTeamFilter);
   const { data: players, isLoading } = useListPlayers();
   const { data: teams } = useListTeams();
+  const { data: seasons = [] } = useQuery<SeasonOption[]>({
+    queryKey: ["/api/seasons"],
+    queryFn: async () => {
+      const res = await fetch(withApi("/api/seasons"), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load seasons");
+      return res.json();
+    },
+  });
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState("all");
   const [availabilityFilter, setAvailabilityFilter] = useState("all");
@@ -415,9 +425,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
   const uniqueSeasons = Array.from(
     new Map(
-      typedTeams
+      [
+        ...seasons.map(s => ({ id: s.id, name: s.name })),
+        ...typedTeams
         .filter(t => t.seasonId != null)
-        .map(t => [t.seasonId, { id: t.seasonId!, name: t.seasonName ?? `Stagione ${t.seasonId}` }])
+        .map(t => ({ id: t.seasonId!, name: t.seasonName ?? `Stagione ${t.seasonId}` })),
+      ]
+        .filter(s => s.id != null)
+        .map(s => [s.id, s])
     ).values()
   );
 
@@ -875,7 +890,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="max-w-full space-y-8 overflow-hidden animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-display font-bold tracking-tight">{t.playersDirectory}</h1>
@@ -1328,18 +1343,36 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>{t.registrationNumber}</Label>
-                  <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
+              <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tesseramento e certificato</p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>{t.registrationNumber}</Label>
+                    <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Scadenza certificato medico</Label>
+                    <Input type="date" {...editForm.register("medicalCertificateExpiry")} disabled={!canEditFullPlayer} />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Certificato medico</Label>
-                  <Input type="date" {...editForm.register("medicalCertificateExpiry")} disabled={!canEditFullPlayer} />
+                <div className="flex items-center gap-3">
+                  <Controller
+                    control={editForm.control}
+                    name="registered"
+                    render={({ field }) => (
+                      <Checkbox
+                        id="editRegistered"
+                        checked={field.value === true}
+                        onCheckedChange={(c) => field.onChange(c === true)}
+                        disabled={!canEditFullPlayer}
+                      />
+                    )}
+                  />
+                  <Label htmlFor="editRegistered" className="cursor-pointer">{t.registered}</Label>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t.jerseyNumber}</Label>
                   <Input type="number" {...editForm.register("jerseyNumber")} disabled={!canEditFullPlayer} />
@@ -1460,22 +1493,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     </Select>
                   )}
                 />
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Controller
-                  control={editForm.control}
-                  name="registered"
-                  render={({ field }) => (
-                    <Checkbox
-                      id="edit-registered"
-                      checked={field.value === true}
-                      onCheckedChange={(c) => field.onChange(c === true)}
-                      disabled={!canEditFullPlayer}
-                    />
-                  )}
-                />
-                <Label htmlFor="edit-registered" className="cursor-pointer">{t.registered}</Label>
               </div>
 
               <div className="space-y-2">
@@ -1784,22 +1801,22 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       </Dialog>
 
       {/* Filter bar */}
-      <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row gap-2 bg-card p-2 rounded-xl border shadow-sm">
-          <div className="relative flex-1">
+      <div className="max-w-full space-y-2">
+        <div className="flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-2 shadow-sm sm:flex-row">
+          <div className="relative min-w-0 flex-1">
             <Search className="w-5 h-5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
             <Input
               placeholder={t.searchByNameOrPosition}
-              className="pl-10 border-0 focus-visible:ring-0 shadow-none bg-transparent"
+              className="w-full min-w-0 pl-10 border-0 focus-visible:ring-0 shadow-none bg-transparent"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           <div className="h-10 w-px bg-border hidden sm:block" />
-          <div className="flex items-center gap-2 px-2 min-w-[180px]">
+          <div className="flex min-w-0 items-center gap-2 px-2 sm:w-[220px]">
             <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
             <Select value={teamFilter} onValueChange={setTeamFilter}>
-              <SelectTrigger className="border-0 shadow-none focus:ring-0">
+              <SelectTrigger className="min-w-0 border-0 shadow-none focus:ring-0">
                 <SelectValue placeholder={t.filterByTeam} />
               </SelectTrigger>
               <SelectContent>
@@ -1810,43 +1827,43 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 px-1">
+        <div className="flex max-w-full flex-col gap-2 px-1 sm:flex-row sm:flex-wrap sm:items-center">
           {/* Position */}
-          <div className="flex items-center gap-1 bg-card border rounded-lg px-2 py-1">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Ruolo</span>
+          <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border bg-card px-2 py-1">
+            <span className="shrink-0 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Ruolo</span>
             {[{ v: "all", l: "Tutti" }, { v: "GK", l: t.goalkeeper }, { v: "DEF", l: t.defender }, { v: "MID", l: t.midfielder }, { v: "FWD", l: t.forward }].map(o => (
               <button key={o.v} type="button" onClick={() => setPositionFilter(o.v)}
-                className={`px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${positionFilter === o.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                className={`shrink-0 px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${positionFilter === o.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
                 {o.l}
               </button>
             ))}
           </div>
 
           {/* Availability */}
-          <div className="flex items-center gap-1 bg-card border rounded-lg px-2 py-1">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Disponibilità</span>
+          <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border bg-card px-2 py-1">
+            <span className="shrink-0 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Disponibilità</span>
             {[{ v: "all", l: "Tutti" }, { v: "available", l: t.available }, { v: "unavailable", l: t.notAvailable }].map(o => (
               <button key={o.v} type="button" onClick={() => setAvailabilityFilter(o.v)}
-                className={`px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${availabilityFilter === o.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                className={`shrink-0 px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${availabilityFilter === o.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
                 {o.l}
               </button>
             ))}
           </div>
 
           {/* Status */}
-          <div className="flex items-center gap-1 bg-card border rounded-lg px-2 py-1">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Stato</span>
+          <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border bg-card px-2 py-1">
+            <span className="shrink-0 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Stato</span>
             {[{ v: "all", l: "Tutti" }, { v: "active", l: t.active }, { v: "injured", l: t.injured }, { v: "inactive", l: t.inactive }].map(o => (
               <button key={o.v} type="button" onClick={() => setStatusFilter(o.v)}
-                className={`px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${statusFilter === o.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                className={`shrink-0 px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${statusFilter === o.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
                 {o.l}
               </button>
             ))}
           </div>
 
           {/* Height range */}
-          <div className="flex items-center gap-1 bg-card border rounded-lg px-2 py-1">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Altezza (cm)</span>
+          <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border bg-card px-2 py-1">
+            <span className="shrink-0 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Altezza (cm)</span>
             <input type="number" placeholder="Min" value={heightMin} onChange={e => setHeightMin(e.target.value)}
               className="w-14 text-[11px] border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
             <span className="text-[11px] text-muted-foreground">–</span>
