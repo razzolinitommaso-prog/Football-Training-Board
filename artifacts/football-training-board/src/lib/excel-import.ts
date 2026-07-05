@@ -24,7 +24,27 @@ export function cellToDateOfBirth(value: unknown): string | undefined {
   }
   if (typeof value === "string") {
     const t = value.trim();
-    return t || undefined;
+    if (!t) return undefined;
+    const isoMatch = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+    const slashMatch = t.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+    if (slashMatch) {
+      const [, a, b, rawYear] = slashMatch;
+      const year = rawYear.length === 2 ? 2000 + Number(rawYear) : Number(rawYear);
+      const first = Number(a);
+      const second = Number(b);
+      const month = first > 12 ? second : first;
+      const day = first > 12 ? first : second;
+      if (year >= 1900 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      }
+    }
+    const parsed = new Date(t);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    return t;
   }
   if (typeof value === "number" && Number.isFinite(value)) {
     const n = Math.floor(value);
@@ -35,6 +55,13 @@ export function cellToDateOfBirth(value: unknown): string | undefined {
     return String(value).trim() || undefined;
   }
   return undefined;
+}
+
+export function normalizeImportedTeamDisplayName(value?: unknown): string {
+  return cellToTrimmedString(value)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function cellToLowerString(value: unknown): string {
@@ -150,7 +177,7 @@ function splitImportedPlayerName(row: Record<string, unknown>) {
 
 export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
   const importedName = splitImportedPlayerName(row);
-  const teamName = cellToTrimmedString(row["Squadra"]).toLowerCase();
+  const teamName = normalizeImportedTeamDisplayName(row["Squadra"]);
   const team = teams.find(t => t.name.trim().toLowerCase() === teamName);
 
   const rawPos = cellToTrimmedString(row["Posizione"]);
@@ -181,6 +208,19 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
     registrationNumber: cellToTrimmedString(readCell(row, REGISTRATION_NUMBER_KEYS)) || undefined,
     notes: cellToTrimmedString(row["Note"]) || undefined,
     status: "active",
+  };
+}
+
+export function mapExcelRowToPlayerPreview(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
+  const mapped = mapExcelRowToPlayer(row, teams);
+  return {
+    Nome: mapped.firstName || "",
+    Cognome: mapped.lastName || "",
+    Squadra: normalizeImportedTeamDisplayName(row["Squadra"]),
+    Posizione: mapped.position || "",
+    "N° Maglia": mapped.jerseyNumber ?? "",
+    "Data Nascita": mapped.dateOfBirth || "",
+    Tesserato: mapped.registered ? "Si" : "",
   };
 }
 

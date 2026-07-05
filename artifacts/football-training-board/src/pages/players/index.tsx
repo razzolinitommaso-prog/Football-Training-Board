@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -24,7 +24,7 @@ import { useLocation } from "wouter";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
-import { mapExcelRowToPlayer, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString } from "@/lib/excel-import";
+import { mapExcelRowToPlayer, mapExcelRowToPlayerPreview, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString, normalizeImportedTeamDisplayName } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
 import { withApi } from "@/lib/api-base";
 
@@ -99,6 +99,35 @@ type Player = {
 type PlayerNameOrder = "surname_first" | "name_first";
 type PlayerImageBackground = "white" | "club_logo";
 type SeasonOption = { id: number; name: string; startDate?: string; endDate?: string; isActive?: boolean };
+type PlayerDocument = {
+  id: number;
+  playerId: number;
+  type: string;
+  validFrom?: string | null;
+  expiryDate?: string | null;
+  fileName?: string | null;
+  fileType?: string | null;
+  fileSize?: number | null;
+  fileData?: string | null;
+  notes?: string | null;
+};
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Errore lettura file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function playerDocumentLabel(type: string): string {
+  if (type === "medicalCertificate") return "Certificato medico";
+  if (type === "federationCard") return "Cartellino";
+  if (type === "idCard") return "Documento identita";
+  if (type === "privacy") return "Privacy";
+  return "Altro";
+}
 
 function playerName(player: Pick<Player, "firstName" | "lastName">, order: PlayerNameOrder = "surname_first"): string {
   const firstName = String(player.firstName ?? "").trim();
@@ -314,6 +343,42 @@ function addAutomaticAvailabilityNotes(
   return next;
 }
 
+function medicalCertificateDaysToExpiry(value?: string | null): number | null {
+  if (!value) return null;
+  const expiry = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(expiry.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function addAutomaticMedicalCertificateWarningNotes(
+  thread: PlayerNoteThreadItem[],
+  expiryDate: string | null | undefined,
+  role: string | undefined,
+  authorName?: string,
+): PlayerNoteThreadItem[] {
+  const days = medicalCertificateDaysToExpiry(expiryDate);
+  if (days == null || days < 0 || days > 60) return thread;
+  const body = `Comunicazione automatica per dirigenti, staff e famiglia: certificato medico in scadenza tra ${days} giorni.`;
+  const recipients: PlayerNoteRecipient[] = ["technical_director", "coach_staff"];
+  const next = [...thread];
+  const nowIso = new Date().toISOString();
+  for (const recipient of recipients) {
+    if (next.some((item) => item.recipient === recipient && item.body === body)) continue;
+    next.push({
+      id: `auto-medical-warning-${recipient}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      authorRole: role ?? "system",
+      authorName,
+      recipient,
+      body,
+      createdAt: nowIso,
+      requiresResponse: false,
+    });
+  }
+  return next;
+}
+
 function normalizeTeamLabel(value?: string | null): string {
   return String(value ?? "")
     .toLowerCase()
@@ -370,6 +435,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return res.json();
     },
   });
+  const { data: playerDocuments = [] } = useQuery<PlayerDocument[]>({
+    queryKey: ["/api/player-documents"],
+    queryFn: async () => {
+      const res = await fetch(withApi("/api/player-documents"), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load player documents");
+      return res.json();
+    },
+  });
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState("all");
   const [availabilityFilter, setAvailabilityFilter] = useState("all");
@@ -397,6 +470,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [imageBackground, setImageBackground] = useState<PlayerImageBackground>("white");
   const [imageRemoveBackground, setImageRemoveBackground] = useState(false);
   const [nameOrder, setNameOrder] = useState<PlayerNameOrder>("surname_first");
+  const [documentType, setDocumentType] = useState("medicalCertificate");
+  const [documentValidFrom, setDocumentValidFrom] = useState("");
+  const [documentExpiryDate, setDocumentExpiryDate] = useState("");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [documentNotes, setDocumentNotes] = useState("");
+  const [isUploadingDocument, setIsUploadingDocument] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canManagePlayers = nr === "secretary" || nr === "sporting_director";
@@ -412,6 +491,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const isStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "technical_director" || nr === "athletic_director";
   const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
   const clubLogoUrl = String((club as { logoUrl?: string | null } | null)?.logoUrl ?? "");
+  const editingPlayerDocuments = editingPlayer
+    ? playerDocuments.filter((doc) => doc.playerId === editingPlayer.id)
+    : [];
+  const editingMedicalCertificate = editingPlayerDocuments
+    .filter((doc) => doc.type === "medicalCertificate")
+    .sort((a, b) => String(b.expiryDate ?? "").localeCompare(String(a.expiryDate ?? "")))[0] ?? null;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -482,7 +567,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
-        const rawTeamName = cellToTrimmedString(row["Squadra"]);
+        const rawTeamName = normalizeImportedTeamDisplayName(row["Squadra"]);
         const normalizedTeamName = normalizeImportTeamName(rawTeamName);
         let team = normalizedTeamName ? teamByName.get(normalizedTeamName) : undefined;
 
@@ -572,6 +657,78 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     }
   });
 
+  const resetDocumentForm = () => {
+    setDocumentType("medicalCertificate");
+    setDocumentValidFrom("");
+    setDocumentExpiryDate("");
+    setDocumentFile(null);
+    setDocumentNotes("");
+  };
+
+  const uploadPlayerDocument = async () => {
+    if (!editingPlayer || !canEditFullPlayer) return;
+    if (!documentFile) {
+      toast({ title: "Seleziona un file", variant: "destructive" });
+      return;
+    }
+    if (documentFile.size > 8 * 1024 * 1024) {
+      toast({ title: "File troppo grande", description: "Massimo 8MB.", variant: "destructive" });
+      return;
+    }
+    setIsUploadingDocument(true);
+    try {
+      const fileData = await fileToDataUrl(documentFile);
+      const res = await fetch(withApi("/api/player-documents"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playerId: editingPlayer.id,
+          type: documentType,
+          validFrom: documentValidFrom || null,
+          expiryDate: documentExpiryDate || null,
+          notes: documentNotes || null,
+          fileName: documentFile.name,
+          fileType: documentFile.type || "application/octet-stream",
+          fileSize: documentFile.size,
+          fileData,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      if (documentType === "medicalCertificate") {
+        editForm.setValue("medicalCertificateExpiry", documentExpiryDate || null, { shouldDirty: true });
+        if (documentExpiryDate) {
+          await updateMutation.mutateAsync({
+            id: editingPlayer.id,
+            data: { medicalCertificateExpiry: documentExpiryDate } as any,
+          });
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/player-documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+      resetDocumentForm();
+      toast({ title: "Documento caricato" });
+    } catch {
+      toast({ title: "Errore upload documento", variant: "destructive" });
+    } finally {
+      setIsUploadingDocument(false);
+    }
+  };
+
+  const deletePlayerDocument = async (docId: number) => {
+    if (!canEditFullPlayer) return;
+    const res = await fetch(withApi(`/api/player-documents/${docId}`), {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      toast({ title: "Errore eliminazione documento", variant: "destructive" });
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["/api/player-documents"] });
+    toast({ title: "Documento eliminato" });
+  };
+
   const handleBulkDeletePlayers = async () => {
     const ids = selectedPlayerIds.filter((id) => (filteredPlayers ?? []).some((player) => player.id === id));
     if (!ids.length || !canDeletePlayer) return;
@@ -621,6 +778,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setNoteReplyToId("");
     setNoteRequiresResponse(false);
     setNoteRecipient("secretary");
+    resetDocumentForm();
     editForm.reset({
       firstName: player.firstName,
       lastName: player.lastName,
@@ -791,6 +949,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (availabilityBlocks.length > 0 && canManagePlayers && playerDialogMode === "edit") {
       thread = addAutomaticAvailabilityNotes(thread, availabilityBlocks, role ?? undefined, authorName);
     }
+    if (availabilityBlocks.length === 0 && canManagePlayers && playerDialogMode === "edit") {
+      thread = addAutomaticMedicalCertificateWarningNotes(thread, data.medicalCertificateExpiry, role ?? undefined, authorName);
+    }
 
     const payload: Record<string, unknown> = {
       ...data,
@@ -913,7 +1074,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   { key: "Tesserato", label: "Tesserato" },
                 ]}
                 onDownloadTemplate={downloadPlayerTemplate}
-                onParseRow={(row) => mapExcelRowToPlayer(row, (teams as any[] ?? [])) as Record<string, unknown>}
+                onParseRow={(row) => mapExcelRowToPlayerPreview(row, (teams as any[] ?? [])) as Record<string, unknown>}
                 isValidRow={isValidPlayerRow}
                 onImportValidRows={importPlayersWithTeams}
                 onImportRows={async ([row]) => {
@@ -1355,20 +1516,116 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     <Input type="date" {...editForm.register("medicalCertificateExpiry")} disabled={!canEditFullPlayer} />
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <Controller
-                    control={editForm.control}
-                    name="registered"
-                    render={({ field }) => (
-                      <Checkbox
-                        id="editRegistered"
-                        checked={field.value === true}
-                        onCheckedChange={(c) => field.onChange(c === true)}
-                        disabled={!canEditFullPlayer}
-                      />
-                    )}
-                  />
-                  <Label htmlFor="editRegistered" className="cursor-pointer">{t.registered}</Label>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                    <Controller
+                      control={editForm.control}
+                      name="registered"
+                      render={({ field }) => (
+                        <Checkbox
+                          id="editRegistered"
+                          checked={field.value === true}
+                          onCheckedChange={(c) => field.onChange(c === true)}
+                          disabled={!canEditFullPlayer}
+                        />
+                      )}
+                    />
+                    <Label htmlFor="editRegistered" className="cursor-pointer">{t.registered}</Label>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                    <Checkbox
+                      id="medicalCertificatePresent"
+                      checked={Boolean(editingMedicalCertificate || editForm.watch("medicalCertificateExpiry"))}
+                      disabled
+                    />
+                    <Label htmlFor="medicalCertificatePresent">Certificato medico presente</Label>
+                  </div>
+                </div>
+                {editingMedicalCertificate?.expiryDate && !isMedicalCertificateValid(editingMedicalCertificate.expiryDate) && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    Certificato medico scaduto: il giocatore non puo essere disponibile.
+                  </div>
+                )}
+                {editingMedicalCertificate?.expiryDate && isMedicalCertificateValid(editingMedicalCertificate.expiryDate) && (() => {
+                  const days = Math.ceil((new Date(`${editingMedicalCertificate.expiryDate}T00:00:00`).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                  return days <= 60 ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Certificato medico in scadenza tra {Math.max(days, 0)} giorni.
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+
+              <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Documenti giocatore</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Tipo documento</Label>
+                    <Select value={documentType} onValueChange={setDocumentType} disabled={!canEditFullPlayer}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="medicalCertificate">Certificato medico</SelectItem>
+                        <SelectItem value="federationCard">Cartellino</SelectItem>
+                        <SelectItem value="idCard">Documento identita</SelectItem>
+                        <SelectItem value="privacy">Privacy</SelectItem>
+                        <SelectItem value="other">Altro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>File PDF o immagine</Label>
+                    <Input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif"
+                      disabled={!canEditFullPlayer}
+                      onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Data inizio validita</Label>
+                    <Input type="date" value={documentValidFrom} onChange={(e) => setDocumentValidFrom(e.target.value)} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Data scadenza</Label>
+                    <Input type="date" value={documentExpiryDate} onChange={(e) => setDocumentExpiryDate(e.target.value)} disabled={!canEditFullPlayer} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Note documento</Label>
+                  <Input value={documentNotes} onChange={(e) => setDocumentNotes(e.target.value)} disabled={!canEditFullPlayer} />
+                </div>
+                <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={!canEditFullPlayer || isUploadingDocument} onClick={() => void uploadPlayerDocument()}>
+                  <Upload className="h-4 w-4" />
+                  {isUploadingDocument ? "Caricamento..." : "Carica documento"}
+                </Button>
+                <div className="space-y-2">
+                  {editingPlayerDocuments.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Nessun documento caricato.</p>
+                  ) : editingPlayerDocuments.map((doc) => (
+                    <div key={doc.id} className="flex flex-col gap-2 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{playerDocumentLabel(doc.type)}{doc.fileName ? ` - ${doc.fileName}` : ""}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {doc.validFrom ? `Dal ${doc.validFrom}` : "Inizio non indicato"} · {doc.expiryDate ? `Scade ${doc.expiryDate}` : "Nessuna scadenza"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {doc.fileData && (
+                          <Button type="button" size="sm" variant="outline" onClick={() => window.open(doc.fileData ?? "", "_blank")}>
+                            Apri
+                          </Button>
+                        )}
+                        {canEditFullPlayer && (
+                          <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => void deletePlayerDocument(doc.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 

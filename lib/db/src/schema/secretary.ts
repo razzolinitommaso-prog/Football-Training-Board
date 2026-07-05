@@ -47,7 +47,12 @@ export const playerDocumentsTable = pgTable("player_documents", {
   clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
   playerId: integer("player_id").notNull().references(() => playersTable.id, { onDelete: "cascade" }),
   type: text("type").notNull(),
+  validFrom: date("valid_from"),
   expiryDate: date("expiry_date"),
+  fileName: text("file_name"),
+  fileType: text("file_type"),
+  fileSize: integer("file_size"),
+  fileData: text("file_data"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

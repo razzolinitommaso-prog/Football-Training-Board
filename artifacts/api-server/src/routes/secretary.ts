@@ -165,12 +165,53 @@ router.get("/player-documents", requireAuth, async (req, res): Promise<void> => 
 });
 
 router.post("/player-documents", requireAuth, async (req, res): Promise<void> => {
-  const { playerId, type, expiryDate, notes } = req.body;
+  const { playerId, type, validFrom, expiryDate, notes, fileName, fileType, fileSize, fileData } = req.body;
   if (!playerId || !type) { res.status(400).json({ error: "playerId and type required" }); return; }
+  let safeFileName: string | null = null;
+  let safeFileType: string | null = null;
+  let safeFileSize: number | null = null;
+  let safeFileData: string | null = null;
+  if (fileData || fileName) {
+    if (!fileName || !fileData) {
+      res.status(400).json({ error: "fileName e fileData sono obbligatori per allegare un file" });
+      return;
+    }
+    const mime = String(fileType ?? "application/octet-stream").slice(0, 200);
+    if (!/^(application\/pdf|image\/jpeg|image\/png|image\/webp|image\/heic|image\/heif)$/i.test(mime)) {
+      res.status(400).json({ error: "Formato file non consentito" });
+      return;
+    }
+    const { base64 } = parseBase64Payload(String(fileData));
+    if (!base64) {
+      res.status(400).json({ error: "Contenuto file non valido" });
+      return;
+    }
+    let buf: Buffer;
+    try {
+      buf = Buffer.from(base64, "base64");
+    } catch {
+      res.status(400).json({ error: "Contenuto file non valido" });
+      return;
+    }
+    if (buf.length > 8 * 1024 * 1024) {
+      res.status(413).json({ error: "File troppo grande: massimo 8MB" });
+      return;
+    }
+    safeFileName = String(fileName).replace(/[/\\]/g, "_").slice(0, 255);
+    safeFileType = mime;
+    safeFileSize = Number.isFinite(Number(fileSize)) ? Number(fileSize) : buf.length;
+    safeFileData = String(fileData).startsWith("data:") ? String(fileData) : `data:${mime};base64,${base64}`;
+  }
   const [record] = await db.insert(playerDocumentsTable).values({
     clubId: req.session.clubId!, playerId: Number(playerId), type,
-    expiryDate: expiryDate ?? null, notes: notes ?? null,
-  }).returning();
+    validFrom: validFrom ?? null,
+    expiryDate: expiryDate ?? null,
+    fileName: safeFileName,
+    fileType: safeFileType,
+    fileSize: safeFileSize,
+    fileData: safeFileData,
+    notes: notes ?? null,
+  } as any).returning();
   res.status(201).json(record);
 });
 

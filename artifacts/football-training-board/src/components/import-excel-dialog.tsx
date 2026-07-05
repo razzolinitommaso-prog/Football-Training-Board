@@ -37,6 +37,13 @@ export function ImportExcelDialog({
   const [parseError, setParseError] = useState<string | null>(null);
 
   const validRows = rawRows.filter(isValidRow);
+  const previewRows = rawRows.map((row) => {
+    try {
+      return onParseRow(row);
+    } catch {
+      return row;
+    }
+  });
   const invalidCount = rawRows.length - validRows.length;
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -200,11 +207,12 @@ export function ImportExcelDialog({
                     <tbody className="divide-y divide-border">
                       {rawRows.slice(0, 50).map((row, i) => {
                         const valid = isValidRow(row);
+                        const previewRow = previewRows[i] ?? row;
                         return (
                           <tr key={i} className={valid ? "" : "opacity-40 bg-muted/30"}>
                             <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
                             {previewColumns.map(c => (
-                              <td key={c.key} className="px-3 py-2 max-w-[120px] truncate">{previewCell(row[c.key])}</td>
+                              <td key={c.key} className="px-3 py-2 max-w-[120px] truncate">{previewCell(previewRow[c.key])}</td>
                             ))}
                             <td className="px-3 py-2">
                               {valid
