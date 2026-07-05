@@ -716,12 +716,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           <p className="text-muted-foreground mt-1">{t.playersDesc}</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {canExport && (
             <>
               <ImportExcelDialog
                 label="Importa Excel"
-                templateLabel="Scarica template giocatori"
+                templateLabel="Esporta modello"
                 previewColumns={[
                   { key: "Nome", label: "Nome" },
                   { key: "Cognome", label: "Cognome" },
@@ -739,6 +739,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   queryClient.invalidateQueries({ queryKey: ["/api/players"] });
                 }}
               />
+              <Button variant="outline" onClick={downloadPlayerTemplate} className="gap-2">
+                <FileDown className="w-4 h-4" />
+                Esporta modello
+              </Button>
               <Button variant="outline" onClick={handleExportPlayers} disabled={!players?.length} className="gap-2">
                 <FileDown className="w-4 h-4" />
                 Esporta Excel

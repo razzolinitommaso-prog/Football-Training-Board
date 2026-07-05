@@ -83,10 +83,10 @@ const POSITION_MAP: Record<string, string> = {
   "GK": "GK", "DEF": "DEF", "MID": "MID", "FWD": "FWD",
 };
 
-const JERSEY_KEYS = ["N° Maglia", "NÂ° Maglia"];
-const NATIONALITY_KEYS = ["Nazionalità", "NazionalitÃ "];
-const REGISTERED_KEYS = ["Tesserato"];
-const REGISTRATION_NUMBER_KEYS = ["N° Tessera", "NÂ° Tessera"];
+const JERSEY_KEYS = ["N° Maglia", "NÂ° Maglia", "NÃ‚Â° Maglia"];
+const NATIONALITY_KEYS = ["Nazionalità", "NazionalitÃ ", "NazionalitÃƒÂ "];
+const REGISTRATION_NUMBER_KEYS = ["N° Tessera", "NÂ° Tessera", "NÃ‚Â° Tessera"];
+const TEAM_AGE_GROUP_KEYS = ["Fascia d'Età", "Fascia d'EtÃ ", "Fascia d'EtÃƒÂ "];
 
 export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
   const teamName = cellToTrimmedString(row["Squadra"]).toLowerCase();
@@ -104,7 +104,7 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
   const weightRaw = row["Peso (kg)"];
   const weight =
     typeof weightRaw === "number" ? weightRaw : parseFloat(cellToTrimmedString(weightRaw));
-  const registeredValue = cellToLowerString(readCell(row, REGISTERED_KEYS));
+  const registeredValue = cellToLowerString(row["Tesserato"]);
 
   return {
     firstName: cellToTrimmedString(row["Nome"]),
@@ -129,19 +129,19 @@ export function isValidPlayerRow(row: Record<string, unknown>) {
 
 export function downloadPlayerTemplate() {
   exportToExcel([{
-    "Nome": "Mario",
-    "Cognome": "Rossi",
-    "Squadra": "Esordienti 1° anno",
-    "Posizione": "GK",
-    "N° Maglia": "1",
-    "Data di Nascita": "2012-03-15",
-    "Nazionalità": "Italiana",
-    "Altezza (cm)": "165",
-    "Peso (kg)": "55",
-    "Tesserato": "Sì",
-    "N° Tessera": "12345",
+    "Nome": "",
+    "Cognome": "",
+    "Squadra": "",
+    "Posizione": "",
+    "N° Maglia": "",
+    "Data di Nascita": "",
+    "Nazionalità": "",
+    "Altezza (cm)": "",
+    "Peso (kg)": "",
+    "Tesserato": "",
+    "N° Tessera": "",
     "Note": "",
-  }], "Template_Giocatori_FTB", "Giocatori");
+  }], "Template_Giocatori_FTB", "Giocatori", { preferSavePicker: true });
 }
 
 // --- Team import ---
@@ -151,7 +151,7 @@ function generatedTeamImportName(row: Record<string, unknown>) {
   if (name) return name;
   return [
     cellToTrimmedString(row["Categoria"]),
-    cellToTrimmedString(readCell(row, ["Fascia d'EtÃ ", "Fascia d'EtÃƒÂ "])),
+    cellToTrimmedString(readCell(row, TEAM_AGE_GROUP_KEYS)),
   ].filter(Boolean).join(" ").trim() || "Squadra";
 }
 
@@ -159,7 +159,7 @@ export function mapExcelRowToTeam(row: Record<string, unknown>) {
   return {
     name: generatedTeamImportName(row),
     category: cellToTrimmedString(row["Categoria"]) || undefined,
-    ageGroup: cellToTrimmedString(readCell(row, ["Fascia d'Età", "Fascia d'EtÃ "])) || undefined,
+    ageGroup: cellToTrimmedString(readCell(row, TEAM_AGE_GROUP_KEYS)) || undefined,
   };
 }
 
@@ -169,7 +169,7 @@ export function isValidTeamRow(row: Record<string, unknown>) {
 
 export function downloadTeamTemplate() {
   exportToExcel([
-    { "Nome Squadra": "Esordienti 1° anno", "Categoria": "Esordienti", "Fascia d'Età": "U12" },
-    { "Nome Squadra": "Pulcini 1° anno", "Categoria": "Pulcini", "Fascia d'Età": "U10" },
-  ], "Template_Squadre_FTB", "Squadre");
+    { "Categoria": "Esordienti", "Fascia d'Età": "1 anno", "Nome Squadra": "" },
+    { "Categoria": "Pulcini", "Fascia d'Età": "2 anno", "Nome Squadra": "" },
+  ], "Template_Squadre_FTB", "Squadre", { preferSavePicker: true });
 }

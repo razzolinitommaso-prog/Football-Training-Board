@@ -1,5 +1,18 @@
 import * as XLSX from "xlsx";
 
+type SaveFilePicker = (options?: {
+  suggestedName?: string;
+  types?: Array<{
+    description?: string;
+    accept: Record<string, string[]>;
+  }>;
+}) => Promise<{
+  createWritable: () => Promise<{
+    write: (data: Blob) => Promise<void>;
+    close: () => Promise<void>;
+  }>;
+}>;
+
 function autoFitColumns(ws: XLSX.WorkSheet, data: Record<string, any>[]) {
   if (!data.length) return;
   const keys = Object.keys(data[0]);
@@ -13,12 +26,32 @@ function autoFitColumns(ws: XLSX.WorkSheet, data: Record<string, any>[]) {
   ws["!cols"] = colWidths;
 }
 
-function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
+async function downloadWorkbook(wb: XLSX.WorkBook, filename: string, preferSavePicker = false) {
   const safeFilename = filename.toLowerCase().endsWith(".xlsx") ? filename : `${filename}.xlsx`;
   const workbookArray = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([workbookArray], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
+  const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+  if (preferSavePicker && showSaveFilePicker) {
+    try {
+      const handle = await showSaveFilePicker({
+        suggestedName: safeFilename,
+        types: [{
+          description: "File Excel",
+          accept: {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+          },
+        }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (error) {
+      if ((error as { name?: string })?.name === "AbortError") return;
+    }
+  }
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -30,12 +63,12 @@ function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function exportToExcel(rows: Record<string, any>[], filename: string, sheetName = "Dati") {
+export function exportToExcel(rows: Record<string, any>[], filename: string, sheetName = "Dati", options?: { preferSavePicker?: boolean }) {
   const ws = XLSX.utils.json_to_sheet(rows);
   autoFitColumns(ws, rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  downloadWorkbook(wb, filename);
+  void downloadWorkbook(wb, filename, options?.preferSavePicker);
 }
 
 export function exportMultiSheet(sheets: { name: string; rows: Record<string, any>[] }[], filename: string) {
