@@ -41,9 +41,22 @@ function cellToLowerString(value: unknown): string {
   return cellToTrimmedString(value).toLowerCase();
 }
 
+function normalizeHeader(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
 function readCell(row: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     if (Object.prototype.hasOwnProperty.call(row, key)) return row[key];
+  }
+  const normalizedKeys = new Set(keys.map(normalizeHeader));
+  for (const [rowKey, value] of Object.entries(row)) {
+    if (normalizedKeys.has(normalizeHeader(rowKey))) return value;
   }
   return "";
 }
@@ -84,16 +97,11 @@ const JERSEY_KEYS = ["N° Maglia", "NÂ° Maglia", "NÃ‚Â° Maglia", "NÃƒâ
 const NATIONALITY_KEYS = ["Nazionalità", "NazionalitÃ ", "NazionalitÃƒÂ ", "NazionalitÃƒÆ’Ã‚Â "];
 const REGISTRATION_NUMBER_KEYS = ["N° Tessera", "NÂ° Tessera", "NÃ‚Â° Tessera", "NÃƒâ€šÃ‚Â° Tessera"];
 const TEAM_AGE_GROUP_KEYS = ["Fascia d'Età", "Fascia d'EtÃ ", "Fascia d'EtÃƒÂ ", "Fascia d'EtÃƒÆ’Ã‚Â "];
-const FULL_PLAYER_NAME_KEYS = ["Cognome Nome", "Nome Completo", "Nome e Cognome", "Giocatore", "Player"];
+const LAST_FIRST_NAME_KEYS = ["Cognome Nome", "Cognome e Nome"];
+const FIRST_LAST_NAME_KEYS = ["Nome Cognome", "Nome e Cognome", "Nome Completo", "Giocatore", "Player"];
 
-function splitImportedPlayerName(row: Record<string, unknown>) {
-  const explicitFirstName = cellToTrimmedString(row["Nome"]);
-  const explicitLastName = cellToTrimmedString(row["Cognome"]);
-  if (explicitFirstName || explicitLastName) {
-    return { firstName: explicitFirstName, lastName: explicitLastName };
-  }
-
-  const fullName = cellToTrimmedString(readCell(row, FULL_PLAYER_NAME_KEYS)).replace(/\s+/g, " ");
+function splitNameParts(value: string, order: "last_first" | "first_last") {
+  const fullName = value.replace(/\s+/g, " ").trim();
   if (!fullName) return { firstName: "", lastName: "" };
 
   if (fullName.includes(",")) {
@@ -107,10 +115,37 @@ function splitImportedPlayerName(row: Record<string, unknown>) {
   const parts = fullName.split(" ").filter(Boolean);
   if (parts.length === 1) return { firstName: "", lastName: parts[0] };
 
+  if (order === "first_last") {
+    return {
+      firstName: parts.slice(0, -1).join(" "),
+      lastName: parts[parts.length - 1],
+    };
+  }
+
   return {
     firstName: parts.slice(1).join(" "),
     lastName: parts[0],
   };
+}
+
+function splitImportedPlayerName(row: Record<string, unknown>) {
+  const explicitFirstName = cellToTrimmedString(readCell(row, ["Nome"]));
+  const explicitLastName = cellToTrimmedString(readCell(row, ["Cognome"]));
+  if (explicitFirstName && explicitLastName) {
+    return { firstName: explicitFirstName, lastName: explicitLastName };
+  }
+
+  const lastFirstName = cellToTrimmedString(readCell(row, LAST_FIRST_NAME_KEYS));
+  if (lastFirstName) return splitNameParts(lastFirstName, "last_first");
+
+  const firstLastName = cellToTrimmedString(readCell(row, FIRST_LAST_NAME_KEYS));
+  if (firstLastName) return splitNameParts(firstLastName, "first_last");
+
+  if (explicitFirstName && !explicitLastName) {
+    return splitNameParts(explicitFirstName, "last_first");
+  }
+
+  return { firstName: explicitFirstName, lastName: explicitLastName };
 }
 
 export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
@@ -157,6 +192,7 @@ export function isValidPlayerRow(row: Record<string, unknown>) {
 export function downloadPlayerTemplate() {
   exportToExcel([{
     "Cognome Nome": "",
+    "Nome Cognome": "",
     "Nome": "",
     "Cognome": "",
     "Squadra": "",
