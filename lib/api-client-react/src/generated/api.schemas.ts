@@ -158,6 +158,8 @@ export interface TrainingSlot {
   endTime: string;
   /** @nullable */
   campo?: string | null;
+  /** @nullable */
+  lockerRoom?: string | null;
 }
 
 export interface Team {

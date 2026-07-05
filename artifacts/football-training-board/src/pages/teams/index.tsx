@@ -37,6 +37,8 @@ const CAMPI_ALLENAMENTO = [
   "Meta Campo 3",
 ] as const;
 
+const SPOGLIATOI = Array.from({ length: 10 }, (_, i) => String(i + 1));
+
 const SEZIONI = [
   { value: "scuola_calcio", label: "Scuola Calcio" },
   { value: "settore_giovanile", label: "Settore Giovanile" },
@@ -132,7 +134,7 @@ function staffRoleLabel(role: string, t: ReturnType<typeof useLanguage>["t"]) {
 }
 
 type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
-type TeamTrainingSlot = TrainingSlot & { campo?: string | null };
+type TeamTrainingSlot = TrainingSlot & { campo?: string | null; lockerRoom?: string | null };
 
 interface TeamsListProps {
   section?: ClubSection;
@@ -239,11 +241,11 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   }
 
   function normalizeScheduleRows(rows: TeamTrainingSlot[]) {
-    return rows.map((row) => ({ ...row, campo: row.campo?.trim() || null }));
+    return rows.map((row) => ({ ...row, campo: row.campo?.trim() || null, lockerRoom: row.lockerRoom?.trim() || null }));
   }
 
   function addScheduleRow() {
-    setScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1" }]);
+    setScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1", lockerRoom: "1" }]);
   }
 
   function removeScheduleRow(idx: number) {
@@ -319,7 +321,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   }
 
   function addEditScheduleRow() {
-    setEditScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1" }]);
+    setEditScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1", lockerRoom: "1" }]);
   }
 
   function removeEditScheduleRow(idx: number) {
@@ -328,6 +330,24 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   function updateEditScheduleRow(idx: number, field: keyof TeamTrainingSlot, value: string) {
     setEditScheduleRows(prev => prev.map((row, i) => i === idx ? { ...row, [field]: value } : row));
+  }
+
+  function renderLockerRoomSelect(value: string | null | undefined, onChange: (value: string) => void, className = "h-8 text-sm") {
+    return (
+      <div className="space-y-1">
+        <Label className="text-[11px] text-muted-foreground">Spogliatoio</Label>
+        <Select value={value ?? ""} onValueChange={onChange}>
+          <SelectTrigger className={className}>
+            <SelectValue placeholder="Spogliatoio" />
+          </SelectTrigger>
+          <SelectContent>
+            {SPOGLIATOI.map((numero) => (
+              <SelectItem key={numero} value={numero}>Spogliatoio {numero}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
   }
 
   const form = useForm<z.infer<typeof teamSchema>>({
@@ -520,6 +540,13 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                           />
                         )}
                       </div>
+                      <div className="sm:col-span-4">
+                        {renderLockerRoomSelect(
+                          row.lockerRoom,
+                          (value) => setCreateScheduleRows(prev => prev.map((r, i) => i === idx ? { ...r, lockerRoom: value } : r)),
+                          "h-7 text-xs",
+                        )}
+                      </div>
                       <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-destructive hover:bg-destructive/10 sm:col-start-5 sm:row-start-1 sm:row-span-2"
                         onClick={() => setCreateScheduleRows(prev => prev.filter((_, i) => i !== idx))}>
                         <Trash2 className="w-3 h-3" />
@@ -528,7 +555,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                   ))}
                 </div>
                 <Button type="button" variant="outline" size="sm" className="w-full gap-2 border-dashed text-xs"
-                  onClick={() => setCreateScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1" }])}>
+                  onClick={() => setCreateScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1", lockerRoom: "1" }])}>
                   <PlusCircle className="w-3.5 h-3.5" />
                   Aggiungi sessione
                 </Button>
@@ -926,6 +953,9 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                         />
                       )}
                     </div>
+                    <div className="md:col-span-4">
+                      {renderLockerRoomSelect(row.lockerRoom, (value) => updateEditScheduleRow(idx, "lockerRoom", value))}
+                    </div>
                     <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 md:col-start-5 md:row-start-1 md:row-span-2"
                       type="button"
                       onClick={() => removeEditScheduleRow(idx)}>
@@ -1014,6 +1044,9 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                       className="h-8 text-sm"
                     />
                   )}
+                </div>
+                <div className="md:col-span-4">
+                  {renderLockerRoomSelect(row.lockerRoom, (value) => updateScheduleRow(idx, "lockerRoom", value))}
                 </div>
                 <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10 md:col-start-5 md:row-start-1 md:row-span-2"
                   onClick={() => removeScheduleRow(idx)}>

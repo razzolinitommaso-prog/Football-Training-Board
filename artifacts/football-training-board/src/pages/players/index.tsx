@@ -129,6 +129,14 @@ function playerDocumentLabel(type: string): string {
   return "Altro";
 }
 
+const PLAYER_DOCUMENT_TYPES = [
+  { value: "medicalCertificate", label: "Certificato medico", hasExpiry: true },
+  { value: "federationCard", label: "Cartellino", hasExpiry: true },
+  { value: "idCard", label: "Documento identita", hasExpiry: true },
+  { value: "privacy", label: "Privacy", hasExpiry: false },
+  { value: "other", label: "Altro documento", hasExpiry: false },
+] as const;
+
 function playerName(player: Pick<Player, "firstName" | "lastName">, order: PlayerNameOrder = "surname_first"): string {
   const firstName = String(player.firstName ?? "").trim();
   const lastName = String(player.lastName ?? "").trim();
@@ -1561,20 +1569,31 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <FileText className="h-4 w-4 text-muted-foreground" />
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Documenti giocatore</p>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Tipo documento</Label>
-                    <Select value={documentType} onValueChange={setDocumentType} disabled={!canEditFullPlayer}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="medicalCertificate">Certificato medico</SelectItem>
-                        <SelectItem value="federationCard">Cartellino</SelectItem>
-                        <SelectItem value="idCard">Documento identita</SelectItem>
-                        <SelectItem value="privacy">Privacy</SelectItem>
-                        <SelectItem value="other">Altro</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {PLAYER_DOCUMENT_TYPES.map((docType) => {
+                    const uploaded = editingPlayerDocuments.some((doc) => doc.type === docType.value);
+                    const checked = documentType === docType.value;
+                    return (
+                      <button
+                        key={docType.value}
+                        type="button"
+                        disabled={!canEditFullPlayer}
+                        onClick={() => setDocumentType(docType.value)}
+                        className={`flex items-center gap-3 rounded-md border bg-background px-3 py-2 text-left text-sm transition-colors ${checked ? "border-primary ring-1 ring-primary/30" : "hover:bg-muted/40"}`}
+                      >
+                        <Checkbox checked={checked} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium">{docType.label}</span>
+                          <span className="block text-xs text-muted-foreground">{uploaded ? "Documento caricato" : "Da caricare"}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-md border bg-background p-3 space-y-3">
+                  <p className="text-sm font-semibold">{playerDocumentLabel(documentType)}</p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>File PDF o immagine</Label>
                     <Input
@@ -1601,6 +1620,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <Upload className="h-4 w-4" />
                   {isUploadingDocument ? "Caricamento..." : "Carica documento"}
                 </Button>
+                </div>
                 <div className="space-y-2">
                   {editingPlayerDocuments.length === 0 ? (
                     <p className="text-xs text-muted-foreground">Nessun documento caricato.</p>
