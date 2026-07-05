@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import { exportToExcel } from "./excel-export";
 
-/** Excel cells are often string | number | Date | boolean — never assume .trim() exists. */
+/** Excel cells are often string | number | Date | boolean, so never assume .trim() exists. */
 export function cellToTrimmedString(value: unknown): string {
   if (value == null || value === "") return "";
   if (typeof value === "string") return value.trim();
@@ -17,7 +17,7 @@ export function cellToTrimmedString(value: unknown): string {
   return String(value).trim();
 }
 
-/** Prefer ISO date YYYY-MM-DD; supports Excel serial numbers (giorni) when in a typical date range. */
+/** Prefer ISO date YYYY-MM-DD; supports Excel serial numbers when in a typical date range. */
 export function cellToDateOfBirth(value: unknown): string | undefined {
   if (value == null || value === "") return undefined;
   if (value instanceof Date) {
@@ -30,7 +30,7 @@ export function cellToDateOfBirth(value: unknown): string | undefined {
   }
   if (typeof value === "number" && Number.isFinite(value)) {
     const n = Math.floor(value);
-    // Excel serial date range (roughly 1954–2078); avoids treating jersey-like integers as dates
+    // Excel serial date range, roughly 1954-2078; avoids treating jersey-like integers as dates.
     if (n > 20000 && n < 80000) {
       const d = new Date((value - 25569) * 86400 * 1000);
       if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
@@ -42,6 +42,13 @@ export function cellToDateOfBirth(value: unknown): string | undefined {
 
 function cellToLowerString(value: unknown): string {
   return cellToTrimmedString(value).toLowerCase();
+}
+
+function readCell(row: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(row, key)) return row[key];
+  }
+  return "";
 }
 
 export async function parseExcelFile(file: File): Promise<Record<string, unknown>[]> {
@@ -76,6 +83,11 @@ const POSITION_MAP: Record<string, string> = {
   "GK": "GK", "DEF": "DEF", "MID": "MID", "FWD": "FWD",
 };
 
+const JERSEY_KEYS = ["N° Maglia", "NÂ° Maglia"];
+const NATIONALITY_KEYS = ["Nazionalità", "NazionalitÃ "];
+const REGISTERED_KEYS = ["Tesserato"];
+const REGISTRATION_NUMBER_KEYS = ["N° Tessera", "NÂ° Tessera"];
+
 export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
   const teamName = cellToTrimmedString(row["Squadra"]).toLowerCase();
   const team = teams.find(t => t.name.trim().toLowerCase() === teamName);
@@ -83,7 +95,7 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
   const rawPos = cellToTrimmedString(row["Posizione"]);
   const position = POSITION_MAP[rawPos] ?? POSITION_MAP[rawPos.toLowerCase()] ?? (rawPos || undefined);
 
-  const jerseyRaw = row["N° Maglia"];
+  const jerseyRaw = readCell(row, JERSEY_KEYS);
   const jerseyNum =
     typeof jerseyRaw === "number" ? Math.round(jerseyRaw) : parseInt(cellToTrimmedString(jerseyRaw), 10);
   const heightRaw = row["Altezza (cm)"];
@@ -92,6 +104,7 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
   const weightRaw = row["Peso (kg)"];
   const weight =
     typeof weightRaw === "number" ? weightRaw : parseFloat(cellToTrimmedString(weightRaw));
+  const registeredValue = cellToLowerString(readCell(row, REGISTERED_KEYS));
 
   return {
     firstName: cellToTrimmedString(row["Nome"]),
@@ -100,11 +113,11 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
     position: position || undefined,
     jerseyNumber: isNaN(jerseyNum) ? null : jerseyNum,
     dateOfBirth: cellToDateOfBirth(row["Data di Nascita"]),
-    nationality: cellToTrimmedString(row["Nazionalità"]) || undefined,
+    nationality: cellToTrimmedString(readCell(row, NATIONALITY_KEYS)) || undefined,
     height: isNaN(height) ? null : height,
     weight: isNaN(weight) ? null : weight,
-    registered: cellToLowerString(row["Tesserato"]) === "sì" || cellToLowerString(row["Tesserato"]) === "si",
-    registrationNumber: cellToTrimmedString(row["N° Tessera"]) || undefined,
+    registered: registeredValue === "sì" || registeredValue === "si" || registeredValue === "sã¬",
+    registrationNumber: cellToTrimmedString(readCell(row, REGISTRATION_NUMBER_KEYS)) || undefined,
     notes: cellToTrimmedString(row["Note"]) || undefined,
     status: "active",
   };
@@ -137,7 +150,7 @@ export function mapExcelRowToTeam(row: Record<string, unknown>) {
   return {
     name: cellToTrimmedString(row["Nome Squadra"]),
     category: cellToTrimmedString(row["Categoria"]) || undefined,
-    ageGroup: cellToTrimmedString(row["Fascia d'Età"]) || undefined,
+    ageGroup: cellToTrimmedString(readCell(row, ["Fascia d'Età", "Fascia d'EtÃ "])) || undefined,
   };
 }
 

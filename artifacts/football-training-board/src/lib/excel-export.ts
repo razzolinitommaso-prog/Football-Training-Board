@@ -13,12 +13,29 @@ function autoFitColumns(ws: XLSX.WorkSheet, data: Record<string, any>[]) {
   ws["!cols"] = colWidths;
 }
 
+function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
+  const safeFilename = filename.toLowerCase().endsWith(".xlsx") ? filename : `${filename}.xlsx`;
+  const workbookArray = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([workbookArray], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = safeFilename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function exportToExcel(rows: Record<string, any>[], filename: string, sheetName = "Dati") {
   const ws = XLSX.utils.json_to_sheet(rows);
   autoFitColumns(ws, rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  XLSX.writeFile(wb, `${filename}.xlsx`);
+  downloadWorkbook(wb, filename);
 }
 
 export function exportMultiSheet(sheets: { name: string; rows: Record<string, any>[] }[], filename: string) {
@@ -28,7 +45,7 @@ export function exportMultiSheet(sheets: { name: string; rows: Record<string, an
     autoFitColumns(ws, sheet.rows);
     XLSX.utils.book_append_sheet(wb, ws, sheet.name);
   }
-  XLSX.writeFile(wb, `${filename}.xlsx`);
+  downloadWorkbook(wb, filename);
 }
 
 // --- Data mappers ---
