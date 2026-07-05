@@ -117,6 +117,27 @@ function parsePlayerNotesThread(raw?: string | null): PlayerNoteThreadItem[] {
 
 const router: IRouter = Router();
 
+function hasValidMedicalCertificate(value?: string | null): boolean {
+  if (!value) return false;
+  const expiry = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(expiry.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return expiry >= today;
+}
+
+function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?: typeof playersTable.$inferSelect) {
+  const registered = "registered" in data ? data.registered === true : existing?.registered === true;
+  const certificate = "medicalCertificateExpiry" in data
+    ? (data.medicalCertificateExpiry as string | null | undefined)
+    : existing?.medicalCertificateExpiry;
+  if (!registered || !hasValidMedicalCertificate(certificate)) {
+    data.available = false;
+    data.unavailabilityReason = "other";
+    data.expectedReturn = null;
+  }
+}
+
 async function enrichPlayer(player: typeof playersTable.$inferSelect) {
   let teamName: string | null = null;
   if (player.teamId) {
@@ -136,6 +157,7 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     notes: player.notes ?? null,
     registered: player.registered ?? null,
     registrationNumber: player.registrationNumber ?? null,
+    medicalCertificateExpiry: player.medicalCertificateExpiry ?? null,
     available: player.available ?? true,
     unavailabilityReason: player.unavailabilityReason ?? null,
     expectedReturn: player.expectedReturn ?? null,
@@ -228,8 +250,8 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
     ...playerData,
     clubId: req.session.clubId!,
     clubSection,
-    ...(playerData.registered === false ? { available: false } : {}),
   };
+  enforcePlayerAvailabilityRules(values);
 
   const [player] = await db
     .insert(playersTable)
@@ -301,8 +323,8 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  if (updateData.registered === false) {
-    updateData.available = false;
+  if (PLAYER_MANAGE_ROLES.includes(role)) {
+    enforcePlayerAvailabilityRules(updateData, existingPlayer);
   }
   if (updateData.status === "injured") {
     updateData.available = false;

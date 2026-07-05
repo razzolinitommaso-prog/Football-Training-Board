@@ -43,6 +43,7 @@ const playerSchema = z.object({
   dateOfBirth: z.string().optional(),
   registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
+  medicalCertificateExpiry: z.string().optional().nullable(),
 });
 
 const editSchema = z.object({
@@ -55,6 +56,7 @@ const editSchema = z.object({
   dateOfBirth: z.string().optional(),
   registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
+  medicalCertificateExpiry: z.string().optional().nullable(),
   nationality: z.string().optional(),
   height: z.coerce.number().optional().nullable(),
   weight: z.coerce.number().optional().nullable(),
@@ -81,6 +83,7 @@ type Player = {
   dateOfBirth?: string | null;
   registered?: boolean | null;
   registrationNumber?: string | null;
+  medicalCertificateExpiry?: string | null;
   nationality?: string | null;
   height?: number | null;
   weight?: number | null;
@@ -261,6 +264,52 @@ function composePlayerNotes(plainNote: string, thread: PlayerNoteThreadItem[]): 
   if (!thread.length) return cleanPlain;
   const encoded = `${PLAYER_NOTES_MARKER}${JSON.stringify(thread)}`;
   return cleanPlain ? `${cleanPlain}\n\n${encoded}` : encoded;
+}
+
+function isMedicalCertificateValid(value?: string | null): boolean {
+  if (!value) return false;
+  const expiry = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(expiry.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return expiry >= today;
+}
+
+function getAvailabilityBlocks(registered?: boolean | null, medicalCertificateExpiry?: string | null): string[] {
+  const blocks: string[] = [];
+  if (registered !== true) blocks.push("non tesserato");
+  if (!isMedicalCertificateValid(medicalCertificateExpiry)) blocks.push("certificato medico assente o scaduto");
+  return blocks;
+}
+
+function buildAutomaticAvailabilityBody(blocks: string[]): string {
+  return `Comunicazione automatica per dirigenti, staff e famiglia: giocatore non disponibile per ${blocks.join(" e ")}.`;
+}
+
+function addAutomaticAvailabilityNotes(
+  thread: PlayerNoteThreadItem[],
+  blocks: string[],
+  role: string | undefined,
+  authorName?: string,
+): PlayerNoteThreadItem[] {
+  if (!blocks.length) return thread;
+  const body = buildAutomaticAvailabilityBody(blocks);
+  const recipients: PlayerNoteRecipient[] = ["technical_director", "coach_staff"];
+  const next = [...thread];
+  const nowIso = new Date().toISOString();
+  for (const recipient of recipients) {
+    if (next.some((item) => item.recipient === recipient && item.body === body)) continue;
+    next.push({
+      id: `auto-availability-${recipient}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      authorRole: role ?? "system",
+      authorName,
+      recipient,
+      body,
+      createdAt: nowIso,
+      requiresResponse: false,
+    });
+  }
+  return next;
 }
 
 function normalizeTeamLabel(value?: string | null): string {
@@ -532,18 +581,21 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const watchAvailable = editForm.watch("available");
   const watchRegisteredEdit = editForm.watch("registered");
   const watchRegisteredCreate = form.watch("registered");
+  const watchMedicalCertificateEdit = editForm.watch("medicalCertificateExpiry");
+  const watchMedicalCertificateCreate = form.watch("medicalCertificateExpiry");
+  const editAvailabilityBlocks = getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit);
 
   useEffect(() => {
-    if (watchRegisteredEdit === false) {
+    if (getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit).length > 0) {
       editForm.setValue("available", false);
     }
-  }, [watchRegisteredEdit, editForm]);
+  }, [watchRegisteredEdit, watchMedicalCertificateEdit, editForm]);
 
   useEffect(() => {
-    if (watchRegisteredCreate === false) {
+    if (getAvailabilityBlocks(watchRegisteredCreate, watchMedicalCertificateCreate).length > 0) {
       form.setValue("available" as any, false);
     }
-  }, [watchRegisteredCreate, form]);
+  }, [watchRegisteredCreate, watchMedicalCertificateCreate, form]);
 
   const openPlayerDialog = (player: Player, mode: "view" | "edit" = "view") => {
     setPlayerDialogMode(mode);
@@ -564,6 +616,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       dateOfBirth: player.dateOfBirth ?? undefined,
       registered: player.registered ?? false,
       registrationNumber: player.registrationNumber ?? undefined,
+      medicalCertificateExpiry: player.medicalCertificateExpiry ?? undefined,
       nationality: player.nationality ?? undefined,
       height: player.height ?? undefined,
       weight: player.weight ?? undefined,
@@ -695,9 +748,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const handleEditSubmit = (data: EditForm) => {
     if (!editingPlayer) return;
     const registered = data.registered === true;
+    const availabilityBlocks = getAvailabilityBlocks(registered, data.medicalCertificateExpiry);
+    const authorName = `${(user as any)?.firstName ?? ""} ${(user as any)?.lastName ?? ""}`.trim() || undefined;
     const { notesRaw: notesWithoutMeta } = splitPlayerMeta(data.notes ?? "");
     const parsed = splitPlayerNotes(notesWithoutMeta);
-    const thread = [...parsed.thread];
+    let thread = [...parsed.thread];
     const draftText = noteDraftText.trim();
     if (draftText && canWritePlayerNotes) {
       const nowIso = new Date().toISOString();
@@ -710,13 +765,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       thread.push({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         authorRole: role ?? "unknown",
-        authorName: `${(user as any)?.firstName ?? ""} ${(user as any)?.lastName ?? ""}`.trim() || undefined,
+        authorName,
         recipient: noteRecipient,
         body: draftText,
         createdAt: nowIso,
         requiresResponse: noteRequiresResponse,
         replyToId: noteReplyToId || undefined,
       });
+    }
+    if (availabilityBlocks.length > 0 && canManagePlayers && playerDialogMode === "edit") {
+      thread = addAutomaticAvailabilityNotes(thread, availabilityBlocks, role ?? undefined, authorName);
     }
 
     const payload: Record<string, unknown> = {
@@ -732,12 +790,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       ),
     };
     delete payload.supplementalTeamId;
-    if (!registered) payload.available = false;
+    if (availabilityBlocks.length > 0) {
+      payload.available = false;
+      payload.unavailabilityReason = "other";
+      payload.expectedReturn = null;
+    }
     if (payload.status === "injured") {
       payload.available = false;
       payload.unavailabilityReason = "injury";
     }
-    if (payload.available) {
+    if (payload.available && availabilityBlocks.length === 0) {
       payload.unavailabilityReason = null;
       payload.expectedReturn = null;
     }
@@ -869,8 +931,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
             </DialogHeader>
             <form onSubmit={form.handleSubmit((data) => {
               const registered = data.registered === true;
+              const availabilityBlocks = getAvailabilityBlocks(registered, data.medicalCertificateExpiry);
               const payload = { ...data, registered } as Record<string, unknown>;
-              if (!registered) payload.available = false;
+              if (availabilityBlocks.length > 0) {
+                payload.available = false;
+                payload.unavailabilityReason = "other";
+                payload.expectedReturn = null;
+              }
               createMutation.mutate({ data: payload as any });
             })} className="space-y-4 pt-4">
               <div className="grid grid-cols-2 gap-4">
@@ -977,6 +1044,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <Label htmlFor="registrationNumber">{t.registrationNumber}</Label>
                   <Input id="registrationNumber" {...form.register("registrationNumber")} />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="medicalCertificateExpiry">Certificato medico</Label>
+                  <Input id="medicalCertificateExpiry" type="date" {...form.register("medicalCertificateExpiry")} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
                 <div className="flex items-center gap-3 pt-7">
                   <Controller
                     control={form.control}
@@ -1127,6 +1201,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <div><span className="text-muted-foreground">Altezza</span><p>{editingPlayer.height ? `${editingPlayer.height} cm` : "-"}</p></div>
                   <div><span className="text-muted-foreground">Peso</span><p>{editingPlayer.weight ? `${editingPlayer.weight} kg` : "-"}</p></div>
                   <div><span className="text-muted-foreground">Tesseramento</span><p>{editingPlayer.registered ? t.registered : "-"}</p></div>
+                  <div><span className="text-muted-foreground">Numero matricola</span><p>{editingPlayer.registrationNumber || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Certificato medico</span><p>{isMedicalCertificateValid(editingPlayer.medicalCertificateExpiry) ? `Valido fino al ${editingPlayer.medicalCertificateExpiry}` : "Assente o scaduto"}</p></div>
                   <div><span className="text-muted-foreground">Stato</span><p>{statusLabel(editingPlayer.status)}</p></div>
                 </div>
               </details>
@@ -1257,6 +1333,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <Label>{t.registrationNumber}</Label>
                   <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
                 </div>
+                <div className="space-y-2">
+                  <Label>Certificato medico</Label>
+                  <Input type="date" {...editForm.register("medicalCertificateExpiry")} disabled={!canEditFullPlayer} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.jerseyNumber}</Label>
                   <Input type="number" {...editForm.register("jerseyNumber")} disabled={!canEditFullPlayer} />
@@ -1523,7 +1606,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         id="available"
                         checked={field.value ?? true}
                         onCheckedChange={field.onChange}
-                        disabled={!canEditAvailability}
+                        disabled={!canEditAvailability || editAvailabilityBlocks.length > 0}
                       />
                     )}
                   />
@@ -1531,6 +1614,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     {watchAvailable !== false ? t.available : t.notAvailable}
                   </Label>
                 </div>
+
+                {editAvailabilityBlocks.length > 0 && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Non disponibile automaticamente: {editAvailabilityBlocks.join(" e ")}.
+                  </div>
+                )}
 
                 {watchAvailable === false && (
                   <div className="space-y-3 pl-2 border-l-2 border-red-200 dark:border-red-800">

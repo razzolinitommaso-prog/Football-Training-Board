@@ -421,6 +421,7 @@ export const ListPlayersResponseItem = zod.object({
   notes: zod.string().nullish(),
   registered: zod.boolean().nullish(),
   registrationNumber: zod.string().nullish(),
+  medicalCertificateExpiry: zod.string().nullish(),
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
@@ -445,6 +446,10 @@ export const CreatePlayerBody = zod.object({
   notes: zod.string().nullish(),
   registered: zod.boolean().optional(),
   registrationNumber: zod.string().nullish(),
+  medicalCertificateExpiry: zod.string().nullish(),
+  available: zod.boolean().optional(),
+  unavailabilityReason: zod.string().nullish(),
+  expectedReturn: zod.string().nullish(),
 });
 
 /**
@@ -471,6 +476,7 @@ export const GetPlayerResponse = zod.object({
   notes: zod.string().nullish(),
   registered: zod.boolean().nullish(),
   registrationNumber: zod.string().nullish(),
+  medicalCertificateExpiry: zod.string().nullish(),
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
@@ -498,6 +504,7 @@ export const UpdatePlayerBody = zod.object({
   notes: zod.string().nullish(),
   registered: zod.boolean().optional(),
   registrationNumber: zod.string().nullish(),
+  medicalCertificateExpiry: zod.string().nullish(),
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
@@ -520,6 +527,7 @@ export const UpdatePlayerResponse = zod.object({
   notes: zod.string().nullish(),
   registered: zod.boolean().nullish(),
   registrationNumber: zod.string().nullish(),
+  medicalCertificateExpiry: zod.string().nullish(),
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
