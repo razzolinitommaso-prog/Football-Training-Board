@@ -42,6 +42,17 @@ const SEZIONI = [
   { value: "prima_squadra", label: "Prima Squadra" },
 ] as const;
 
+const SCHOOL_CATEGORY_SUGGESTIONS = [
+  "Piccoli Amici 1° anno",
+  "Piccoli Amici 2° anno",
+  "Primi Calci 1° anno",
+  "Primi Calci 2° anno",
+  "Pulcini 1° anno",
+  "Pulcini 2° anno",
+  "Esordienti 1° anno",
+  "Esordienti 2° anno",
+];
+
 function sectionLabel(val?: string | null) {
   return SEZIONI.find(s => s.value === val)?.label ?? val ?? "";
 }
@@ -329,6 +340,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     return a.localeCompare(b);
   });
   const uniqueCategories = Array.from(new Set(teams?.map(t => t.category).filter(Boolean) as string[])).sort(compareTeamCategoryLabels);
+  const categorySuggestions = Array.from(new Set([...uniqueCategories, ...SCHOOL_CATEGORY_SUGGESTIONS]))
+    .sort(compareTeamCategoryLabels);
 
   const filteredTeams = teams?.filter(t => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -395,11 +408,16 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
             <DialogHeader>
               <DialogTitle>{t.createNewTeam}</DialogTitle>
             </DialogHeader>
+            <datalist id="team-category-suggestions">
+              {categorySuggestions.map(category => (
+                <option key={category} value={category} />
+              ))}
+            </datalist>
             <form onSubmit={form.handleSubmit((data) => createMutation.mutate({ data: { ...normalizeTeamFormData(data), trainingSchedule: normalizeScheduleRows(createScheduleRows) } }))} className="space-y-4 pt-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="category">{t.category} <span className="text-destructive">*</span></Label>
-                  <Input id="category" placeholder="es. Esordienti" {...form.register("category")} />
+                  <Input id="category" list="team-category-suggestions" autoComplete="off" placeholder="es. Esordienti" {...form.register("category")} />
                   {form.formState.errors.category && (
                     <p className="text-xs text-destructive">{form.formState.errors.category.message}</p>
                   )}
@@ -722,7 +740,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="edit-category">{t.category} <span className="text-destructive">*</span></Label>
-                <Input id="edit-category" placeholder="es. Esordienti" {...editForm.register("category")} />
+                <Input id="edit-category" list="team-category-suggestions" autoComplete="off" placeholder="es. Esordienti" {...editForm.register("category")} />
                 {editForm.formState.errors.category && (
                   <p className="text-xs text-destructive">{editForm.formState.errors.category.message}</p>
                 )}
