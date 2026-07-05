@@ -146,16 +146,25 @@ export function downloadPlayerTemplate() {
 
 // --- Team import ---
 
+function generatedTeamImportName(row: Record<string, unknown>) {
+  const name = cellToTrimmedString(row["Nome Squadra"]);
+  if (name) return name;
+  return [
+    cellToTrimmedString(row["Categoria"]),
+    cellToTrimmedString(readCell(row, ["Fascia d'EtÃ ", "Fascia d'EtÃƒÂ "])),
+  ].filter(Boolean).join(" ").trim() || "Squadra";
+}
+
 export function mapExcelRowToTeam(row: Record<string, unknown>) {
   return {
-    name: cellToTrimmedString(row["Nome Squadra"]),
+    name: generatedTeamImportName(row),
     category: cellToTrimmedString(row["Categoria"]) || undefined,
     ageGroup: cellToTrimmedString(readCell(row, ["Fascia d'Età", "Fascia d'EtÃ "])) || undefined,
   };
 }
 
 export function isValidTeamRow(row: Record<string, unknown>) {
-  return cellToTrimmedString(row["Nome Squadra"]).length >= 2;
+  return generatedTeamImportName(row).length >= 2 && cellToTrimmedString(row["Categoria"]).length >= 2;
 }
 
 export function downloadTeamTemplate() {

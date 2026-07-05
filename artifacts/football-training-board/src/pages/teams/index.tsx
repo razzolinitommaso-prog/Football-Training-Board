@@ -46,6 +46,15 @@ function sectionLabel(val?: string | null) {
   return SEZIONI.find(s => s.value === val)?.label ?? val ?? "";
 }
 
+function generatedTeamName(data: { name?: string | null; category?: string | null; ageGroup?: string | null; clubSection?: string | null }) {
+  const name = data.name?.trim();
+  if (name) return name;
+  const category = data.category?.trim();
+  const ageGroup = data.ageGroup?.trim();
+  const generated = [category, ageGroup].filter(Boolean).join(" ").trim();
+  return generated || sectionLabel(data.clubSection) || "Squadra";
+}
+
 function sectionPlayersPath(val?: string | null) {
   if (val === "settore_giovanile") return "/settore-giovanile/players";
   if (val === "prima_squadra") return "/prima-squadra/players";
@@ -156,9 +165,9 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   };
 
   const teamSchema = z.object({
-    name: z.string().min(2, t.nameRequired),
+    name: z.string().optional(),
     ageGroup: z.string().optional(),
-    category: z.string().optional(),
+    category: z.string().min(2, "Categoria obbligatoria"),
     clubSection: z.enum(["scuola_calcio", "settore_giovanile", "prima_squadra"]).default("scuola_calcio"),
     seasonTrainingStartDate: z.string().optional(),
     officialTrainingEndDate: z.string().optional(),
@@ -266,9 +275,13 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   }
 
   function normalizeTeamFormData(data: z.infer<typeof teamSchema>) {
+    const clubSection = effectiveSection || data.clubSection;
     return {
       ...data,
-      clubSection: effectiveSection || data.clubSection,
+      name: generatedTeamName({ ...data, clubSection }),
+      ageGroup: data.ageGroup?.trim() || null,
+      category: data.category.trim(),
+      clubSection,
       seasonTrainingStartDate: data.seasonTrainingStartDate || null,
       officialTrainingEndDate: data.officialTrainingEndDate || null,
     };
@@ -318,7 +331,14 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const uniqueCategories = Array.from(new Set(teams?.map(t => t.category).filter(Boolean) as string[])).sort(compareTeamCategoryLabels);
 
   const filteredTeams = teams?.filter(t => {
-    if (!t.name.toLowerCase().includes(search.toLowerCase())) return false;
+    const normalizedSearch = search.trim().toLowerCase();
+    const searchable = [
+      t.name,
+      t.category,
+      t.ageGroup,
+      sectionLabel((t as any).clubSection),
+    ].filter(Boolean).join(" ").toLowerCase();
+    if (normalizedSearch && !searchable.includes(normalizedSearch)) return false;
     if (ageGroupFilter !== "all" && t.ageGroup !== ageGroupFilter) return false;
     if (categoryFilter !== "all" && t.category !== categoryFilter) return false;
     return true;
@@ -376,9 +396,22 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               <DialogTitle>{t.createNewTeam}</DialogTitle>
             </DialogHeader>
             <form onSubmit={form.handleSubmit((data) => createMutation.mutate({ data: { ...normalizeTeamFormData(data), trainingSchedule: normalizeScheduleRows(createScheduleRows) } }))} className="space-y-4 pt-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="category">{t.category} <span className="text-destructive">*</span></Label>
+                  <Input id="category" placeholder="es. Esordienti" {...form.register("category")} />
+                  {form.formState.errors.category && (
+                    <p className="text-xs text-destructive">{form.formState.errors.category.message}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ageGroup">{t.ageGroup}</Label>
+                  <Input id="ageGroup" placeholder="es. 1 anno, U12" {...form.register("ageGroup")} />
+                </div>
+              </div>
               <div className="space-y-2">
-                <Label htmlFor="name">{t.teamName} <span className="text-destructive">*</span></Label>
-                <Input id="name" placeholder="e.g. U19 Academy" {...form.register("name")} />
+                <Label htmlFor="name">{t.teamName} <span className="text-muted-foreground">(opzionale)</span></Label>
+                <Input id="name" placeholder="Vuoto = generato da categoria e annata" {...form.register("name")} />
               </div>
               {!canChooseTeamSection ? (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border text-sm">
@@ -406,17 +439,6 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                   />
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="ageGroup">{t.ageGroup}</Label>
-                  <Input id="ageGroup" placeholder="e.g. U19" {...form.register("ageGroup")} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="category">{t.category}</Label>
-                  <Input id="category" placeholder="e.g. Youth" {...form.register("category")} />
-                </div>
-              </div>
-
               <div className="space-y-3 border-t pt-4">
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-primary" />
@@ -697,23 +719,22 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={editForm.handleSubmit(saveEditTeam)} className="space-y-5 pt-2">
-            <div className="space-y-2">
-              <Label htmlFor="edit-name">{t.teamName} <span className="text-destructive">*</span></Label>
-              <Input id="edit-name" {...editForm.register("name")} />
-              {editForm.formState.errors.name && (
-                <p className="text-xs text-destructive">{editForm.formState.errors.name.message}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="edit-category">{t.category} <span className="text-destructive">*</span></Label>
+                <Input id="edit-category" placeholder="es. Esordienti" {...editForm.register("category")} />
+                {editForm.formState.errors.category && (
+                  <p className="text-xs text-destructive">{editForm.formState.errors.category.message}</p>
+                )}
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-ageGroup">{t.ageGroup}</Label>
-                <Input id="edit-ageGroup" placeholder="es. U19" {...editForm.register("ageGroup")} />
+                <Input id="edit-ageGroup" placeholder="es. 1 anno, U12" {...editForm.register("ageGroup")} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-category">{t.category}</Label>
-                <Input id="edit-category" placeholder="es. Juniores" {...editForm.register("category")} />
-              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-name">{t.teamName} <span className="text-muted-foreground">(opzionale)</span></Label>
+              <Input id="edit-name" placeholder="Vuoto = generato da categoria e annata" {...editForm.register("name")} />
             </div>
 
             {!canChooseTeamSection ? (
