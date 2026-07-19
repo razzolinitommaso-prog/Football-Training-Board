@@ -139,6 +139,16 @@ function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?
 }
 
 async function enrichPlayer(player: typeof playersTable.$inferSelect) {
+  const playerContact = player as typeof player & {
+    phone?: string | null;
+    email?: string | null;
+    phoneOwnerType?: string | null;
+    parentFirstName?: string | null;
+    parentLastName?: string | null;
+    parentPhone?: string | null;
+    parentEmail?: string | null;
+    parentRelation?: string | null;
+  };
   let teamName: string | null = null;
   if (player.teamId) {
     const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, player.teamId), eq(teamsTable.clubId, player.clubId)));
@@ -155,6 +165,14 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     height: player.height ?? null,
     weight: player.weight ?? null,
     notes: player.notes ?? null,
+    phone: playerContact.phone ?? null,
+    email: playerContact.email ?? null,
+    phoneOwnerType: playerContact.phoneOwnerType ?? "player",
+    parentFirstName: playerContact.parentFirstName ?? null,
+    parentLastName: playerContact.parentLastName ?? null,
+    parentPhone: playerContact.parentPhone ?? null,
+    parentEmail: playerContact.parentEmail ?? null,
+    parentRelation: playerContact.parentRelation ?? null,
     registered: player.registered ?? null,
     registrationNumber: player.registrationNumber ?? null,
     medicalCertificateExpiry: player.medicalCertificateExpiry ?? null,

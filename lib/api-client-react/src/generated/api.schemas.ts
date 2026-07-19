@@ -244,6 +244,22 @@ export interface Player {
   weight?: number | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  phoneOwnerType?: string | null;
+  /** @nullable */
+  parentFirstName?: string | null;
+  /** @nullable */
+  parentLastName?: string | null;
+  /** @nullable */
+  parentPhone?: string | null;
+  /** @nullable */
+  parentEmail?: string | null;
+  /** @nullable */
+  parentRelation?: string | null;
   createdAt: string;
 }
 
@@ -267,6 +283,22 @@ export interface CreatePlayerRequest {
   weight?: number | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  phoneOwnerType?: string | null;
+  /** @nullable */
+  parentFirstName?: string | null;
+  /** @nullable */
+  parentLastName?: string | null;
+  /** @nullable */
+  parentPhone?: string | null;
+  /** @nullable */
+  parentEmail?: string | null;
+  /** @nullable */
+  parentRelation?: string | null;
 }
 
 export interface UpdatePlayerRequest {
@@ -289,6 +321,22 @@ export interface UpdatePlayerRequest {
   weight?: number | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  phoneOwnerType?: string | null;
+  /** @nullable */
+  parentFirstName?: string | null;
+  /** @nullable */
+  parentLastName?: string | null;
+  /** @nullable */
+  parentPhone?: string | null;
+  /** @nullable */
+  parentEmail?: string | null;
+  /** @nullable */
+  parentRelation?: string | null;
 }
 
 export interface TrainingSession {

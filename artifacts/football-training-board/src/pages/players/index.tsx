@@ -42,6 +42,14 @@ const playerSchema = z.object({
   jerseyNumber: z.coerce.number().optional().nullable(),
   status: z.string().default("active"),
   dateOfBirth: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().optional(),
+  phoneOwnerType: z.string().optional(),
+  parentFirstName: z.string().optional(),
+  parentLastName: z.string().optional(),
+  parentPhone: z.string().optional(),
+  parentEmail: z.string().optional(),
+  parentRelation: z.string().optional(),
   registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
   medicalCertificateExpiry: z.string().optional().nullable(),
@@ -55,6 +63,14 @@ const editSchema = z.object({
   jerseyNumber: z.coerce.number().optional().nullable(),
   status: z.string().optional(),
   dateOfBirth: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().optional(),
+  phoneOwnerType: z.string().optional(),
+  parentFirstName: z.string().optional(),
+  parentLastName: z.string().optional(),
+  parentPhone: z.string().optional(),
+  parentEmail: z.string().optional(),
+  parentRelation: z.string().optional(),
   registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
   medicalCertificateExpiry: z.string().optional().nullable(),
@@ -82,6 +98,14 @@ type Player = {
   jerseyNumber?: number | null;
   status: string;
   dateOfBirth?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  phoneOwnerType?: string | null;
+  parentFirstName?: string | null;
+  parentLastName?: string | null;
+  parentPhone?: string | null;
+  parentEmail?: string | null;
+  parentRelation?: string | null;
   registered?: boolean | null;
   registrationNumber?: string | null;
   medicalCertificateExpiry?: string | null;
@@ -751,7 +775,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
   const form = useForm<z.infer<typeof playerSchema>>({
     resolver: zodResolver(playerSchema),
-    defaultValues: { firstName: "", lastName: "", status: "active", registered: false }
+    defaultValues: { firstName: "", lastName: "", status: "active", registered: false, phoneOwnerType: "player" }
   });
 
   const editForm = useForm<EditForm>({
@@ -761,6 +785,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const watchAvailable = editForm.watch("available");
   const watchRegisteredEdit = editForm.watch("registered");
   const watchRegisteredCreate = form.watch("registered");
+  const watchPhoneOwnerCreate = form.watch("phoneOwnerType");
+  const watchPhoneOwnerEdit = editForm.watch("phoneOwnerType");
   const watchMedicalCertificateEdit = editForm.watch("medicalCertificateExpiry");
   const watchMedicalCertificateCreate = form.watch("medicalCertificateExpiry");
   const editAvailabilityBlocks = getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit);
@@ -795,6 +821,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       jerseyNumber: player.jerseyNumber ?? undefined,
       status: player.status,
       dateOfBirth: player.dateOfBirth ?? undefined,
+      phone: player.phone ?? undefined,
+      email: player.email ?? undefined,
+      phoneOwnerType: player.phoneOwnerType ?? "player",
+      parentFirstName: player.parentFirstName ?? undefined,
+      parentLastName: player.parentLastName ?? undefined,
+      parentPhone: player.parentPhone ?? undefined,
+      parentEmail: player.parentEmail ?? undefined,
+      parentRelation: player.parentRelation ?? undefined,
       registered: player.registered ?? false,
       registrationNumber: player.registrationNumber ?? undefined,
       medicalCertificateExpiry: player.medicalCertificateExpiry ?? undefined,
@@ -1177,6 +1211,62 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </div>
 
+              <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contatti</p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Telefono</Label>
+                    <Input id="phone" {...form.register("phone")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email giocatore</Label>
+                    <Input id="email" type="email" {...form.register("email")} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Telefono riferito a</Label>
+                    <Controller
+                      control={form.control}
+                      name="phoneOwnerType"
+                      render={({ field }) => (
+                        <Select value={field.value || "player"} onValueChange={field.onChange}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="player">Giocatore</SelectItem>
+                            <SelectItem value="parent">Genitore/Tutore</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                </div>
+                {watchPhoneOwnerCreate === "parent" && (
+                  <div className="grid grid-cols-1 gap-4 border-t pt-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Nome genitore</Label>
+                      <Input {...form.register("parentFirstName")} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Cognome genitore</Label>
+                      <Input {...form.register("parentLastName")} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Telefono genitore</Label>
+                      <Input {...form.register("parentPhone")} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Email genitore</Label>
+                      <Input type="email" {...form.register("parentEmail")} />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Relazione</Label>
+                      <Input placeholder="Padre, madre, tutore..." {...form.register("parentRelation")} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Annata + Squadra */}
               <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Assegnazione squadra</p>
@@ -1388,6 +1478,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <div><span className="text-muted-foreground">Numero matricola</span><p>{editingPlayer.registrationNumber || "-"}</p></div>
                   <div><span className="text-muted-foreground">Certificato medico</span><p>{isMedicalCertificateValid(editingPlayer.medicalCertificateExpiry) ? `Valido fino al ${editingPlayer.medicalCertificateExpiry}` : "Assente o scaduto"}</p></div>
                   <div><span className="text-muted-foreground">Stato</span><p>{statusLabel(editingPlayer.status)}</p></div>
+                  <div><span className="text-muted-foreground">Telefono</span><p>{editingPlayer.phone || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Email</span><p>{editingPlayer.email || "-"}</p></div>
+                  {editingPlayer.phoneOwnerType === "parent" && (
+                    <>
+                      <div><span className="text-muted-foreground">Genitore/Tutore</span><p>{[editingPlayer.parentFirstName, editingPlayer.parentLastName].filter(Boolean).join(" ") || "-"}</p></div>
+                      <div><span className="text-muted-foreground">Relazione</span><p>{editingPlayer.parentRelation || "-"}</p></div>
+                      <div><span className="text-muted-foreground">Telefono genitore</span><p>{editingPlayer.parentPhone || "-"}</p></div>
+                      <div><span className="text-muted-foreground">Email genitore</span><p>{editingPlayer.parentEmail || "-"}</p></div>
+                    </>
+                  )}
                 </div>
               </details>
 
@@ -1510,6 +1610,62 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <Label>{t.dateOfBirth}</Label>
                   <Input type="date" {...editForm.register("dateOfBirth")} disabled={!canEditFullPlayer} />
                 </div>
+              </div>
+
+              <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contatti</p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Telefono</Label>
+                    <Input {...editForm.register("phone")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Email giocatore</Label>
+                    <Input type="email" {...editForm.register("email")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Telefono riferito a</Label>
+                    <Controller
+                      control={editForm.control}
+                      name="phoneOwnerType"
+                      render={({ field }) => (
+                        <Select value={field.value || "player"} onValueChange={field.onChange} disabled={!canEditFullPlayer}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="player">Giocatore</SelectItem>
+                            <SelectItem value="parent">Genitore/Tutore</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                </div>
+                {watchPhoneOwnerEdit === "parent" && (
+                  <div className="grid grid-cols-1 gap-4 border-t pt-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Nome genitore</Label>
+                      <Input {...editForm.register("parentFirstName")} disabled={!canEditFullPlayer} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Cognome genitore</Label>
+                      <Input {...editForm.register("parentLastName")} disabled={!canEditFullPlayer} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Telefono genitore</Label>
+                      <Input {...editForm.register("parentPhone")} disabled={!canEditFullPlayer} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Email genitore</Label>
+                      <Input type="email" {...editForm.register("parentEmail")} disabled={!canEditFullPlayer} />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Relazione</Label>
+                      <Input placeholder="Padre, madre, tutore..." {...editForm.register("parentRelation")} disabled={!canEditFullPlayer} />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
