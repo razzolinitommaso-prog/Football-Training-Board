@@ -1920,6 +1920,27 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
 </div>
 )}
 
+      {/* Transition window CTA */}
+      {isTransitionWindow && canManageSeasons && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 dark:bg-blue-950/30 dark:border-blue-800 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center flex-shrink-0">
+            <RefreshCw className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-blue-900 dark:text-blue-200 text-sm">Periodo di transizione stagionale</h3>
+            <p className="text-blue-700 dark:text-blue-300 text-xs mt-0.5 mb-2">
+              Siamo nel periodo di transizione (luglio-agosto). Conferma, trasferisci o promuovi i giocatori per la prossima stagione.
+            </p>
+            <Link href="/season-transition">
+              <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-100 h-7 text-xs gap-1.5">
+                <ArrowRight className="w-3.5 h-3.5" />
+                Vai alla transizione stagionale
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* Notifications Panel */}
       <Card className="shadow-md border-border/50">
         <CardHeader className="pb-3 border-b">
@@ -3380,7 +3401,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       )}
 
       {/* Transition window CTA */}
-      {isTransitionWindow && canManageSeasons && (
+      {false && isTransitionWindow && canManageSeasons && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 dark:bg-blue-950/30 dark:border-blue-800 flex items-start gap-3">
           <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center flex-shrink-0">
             <RefreshCw className="w-5 h-5 text-blue-600 dark:text-blue-400" />
