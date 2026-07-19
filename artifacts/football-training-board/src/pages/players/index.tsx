@@ -676,6 +676,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentNotes, setDocumentNotes] = useState("");
   const [isUploadingDocument, setIsUploadingDocument] = useState(false);
+  const [registrationFeeTotal, setRegistrationFeeTotal] = useState("");
+  const [insuranceFeeTotal, setInsuranceFeeTotal] = useState("");
   const [annualFeeTotal, setAnnualFeeTotal] = useState("");
   const [installmentCount, setInstallmentCount] = useState("1");
   const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
@@ -963,9 +965,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const createAnnualFeeInstallments = async () => {
     if (!editingPlayer || !canEditFinancials) return;
     const total = Number(annualFeeTotal);
-    const count = Math.max(1, Math.floor(Number(installmentCount) || 1));
-    if (!Number.isFinite(total) || total <= 0) {
-      toast({ title: "Inserisci una quota valida", variant: "destructive" });
+    const registrationFee = Number(registrationFeeTotal);
+    const insuranceFee = Number(insuranceFeeTotal);
+    if ((!Number.isFinite(total) || total <= 0) && (!Number.isFinite(registrationFee) || registrationFee <= 0) && (!Number.isFinite(insuranceFee) || insuranceFee <= 0)) {
+      toast({ title: "Inserisci almeno una voce economica valida", variant: "destructive" });
       return;
     }
     const baseDate = firstInstallmentDueDate ? new Date(`${firstInstallmentDueDate}T00:00:00`) : new Date();
@@ -975,15 +978,54 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     }
     setIsSavingInstallments(true);
     try {
-      const drafts = annualInstallments.length ? annualInstallments : buildInstallmentDrafts(annualFeeTotal, installmentCount, firstInstallmentDueDate);
-      for (let index = 0; index < drafts.length; index++) {
-        const draft = drafts[index];
-        const installmentAmount = Number(draft.amount);
+      const createPayment = async (body: Record<string, unknown>) => {
         const res = await fetch(withApi("/api/player-payments"), {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(await res.text());
+      };
+      if (Number.isFinite(registrationFee) && registrationFee > 0) {
+        await createPayment({
+          playerId: editingPlayer.id,
+          amount: registrationFee,
+          dueDate: firstInstallmentDueDate || null,
+          status: "pending",
+          description: "Quota iscrizione",
+          paymentType: "registration_fee",
+          availabilityBlocking: 1,
+        });
+      }
+      if (Number.isFinite(insuranceFee) && insuranceFee > 0) {
+        await createPayment({
+          playerId: editingPlayer.id,
+          amount: insuranceFee,
+          dueDate: firstInstallmentDueDate || null,
+          status: "pending",
+          description: "Quota assicurazione",
+          paymentType: "insurance_fee",
+          availabilityBlocking: 1,
+        });
+      }
+      if (editForm.getValues("shuttleService") === true && Number(shuttleMonthlyCost) > 0) {
+        await createPayment({
+          playerId: editingPlayer.id,
+          amount: Number(shuttleMonthlyCost),
+          dueDate: firstInstallmentDueDate || null,
+          status: "pending",
+          description: "Quota pulmino",
+          paymentType: "shuttle_monthly",
+          availabilityBlocking: 1,
+        });
+      }
+      const drafts = annualInstallments.length ? annualInstallments : buildInstallmentDrafts(annualFeeTotal, installmentCount, firstInstallmentDueDate);
+      for (let index = 0; index < drafts.length; index++) {
+        const draft = drafts[index];
+        const installmentAmount = Number(draft.amount);
+        if (!Number.isFinite(installmentAmount) || installmentAmount <= 0) continue;
+        await createPayment({
             playerId: editingPlayer.id,
             amount: installmentAmount,
             dueDate: draft.dueDate || null,
@@ -994,11 +1036,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
             totalInstallments: drafts.length,
             annualFeeTotal: total,
             availabilityBlocking: 1,
-          }),
         });
-        if (!res.ok) throw new Error(await res.text());
       }
+      setRegistrationFeeTotal("");
+      setInsuranceFeeTotal("");
       setAnnualFeeTotal("");
+      setShuttleMonthlyCost("");
       setInstallmentCount("1");
       setFirstInstallmentDueDate("");
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
@@ -1074,7 +1117,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         const shuttlePayload = {
           playerId: editingPlayer.id,
           amount: Number(shuttleMonthlyCost),
-          dueDate: shuttlePaymentDueDate || null,
+          dueDate: firstInstallmentDueDate || shuttlePaymentDueDate || null,
           status: "pending",
           description: "Pulmino - quota mensile",
           paymentType: "shuttle_monthly",
@@ -2183,16 +2226,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       Se il kit risulta non pagato e la scadenza e superata, il genitore lo vede nei pagamenti e il giocatore viene gestito come non disponibile.
                     </p>
                   </div>
-                  <div className="grid grid-cols-1 gap-3 rounded-md border bg-background p-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Costo mensile pulmino</Label>
-                      <Input type="number" step="0.01" value={shuttleMonthlyCost} onChange={(e) => setShuttleMonthlyCost(e.target.value)} disabled={!canEditFinancials || editForm.watch("shuttleService") !== true} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Scadenza prima quota pulmino</Label>
-                      <Input type="date" value={shuttlePaymentDueDate} onChange={(e) => setShuttlePaymentDueDate(e.target.value)} disabled={!canEditFinancials || editForm.watch("shuttleService") !== true} />
-                    </div>
-                  </div>
                   {canEditFinancials && (
                     <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingKit} onClick={() => void savePlayerKit()}>
                       <Package className="h-4 w-4" />
@@ -2462,9 +2495,24 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     </div>
                   )}
                   {canEditFinancials && (
-                    <div className="grid grid-cols-1 gap-3 rounded-md border bg-background p-3 sm:grid-cols-4">
-                      <div className="space-y-2">
-                        <Label>Quota totale</Label>
+                    <div className="space-y-3 rounded-md border bg-background p-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label>Quota iscrizione</Label>
+                          <Input type="number" step="0.01" value={registrationFeeTotal} onChange={(e) => setRegistrationFeeTotal(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Quota assicurazione</Label>
+                          <Input type="number" step="0.01" value={insuranceFeeTotal} onChange={(e) => setInsuranceFeeTotal(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Quota pulmino mensile</Label>
+                          <Input type="number" step="0.01" value={shuttleMonthlyCost} onChange={(e) => setShuttleMonthlyCost(e.target.value)} disabled={editForm.watch("shuttleService") !== true} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label>Quota annuale</Label>
                         <Input type="number" step="0.01" value={annualFeeTotal} onChange={(e) => setAnnualFeeTotal(e.target.value)} />
                       </div>
                       <div className="space-y-2">
@@ -2475,8 +2523,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         <Label>Prima scadenza</Label>
                         <Input type="date" value={firstInstallmentDueDate} onChange={(e) => setFirstInstallmentDueDate(e.target.value)} />
                       </div>
+                      </div>
                       {annualInstallments.length > 0 && (
-                        <div className="space-y-2 sm:col-span-4">
+                        <div className="space-y-2">
                           <Label>Piano rate</Label>
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                             {annualInstallments.map((installment, index) => (
@@ -2498,15 +2547,19 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           </div>
                         </div>
                       )}
-                      <div className="sm:col-span-4">
+                      <div>
                         <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingInstallments} onClick={() => void createAnnualFeeInstallments()}>
                           <Banknote className="h-4 w-4" />
-                          {isSavingInstallments ? "Salvataggio..." : "Crea rate quota"}
+                          {isSavingInstallments ? "Salvataggio..." : "Crea voci economiche"}
                         </Button>
                       </div>
                     </div>
                   )}
                   <div className="space-y-2">
+                    <div className="flex items-center justify-between border-t pt-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagamenti registrati</p>
+                      <Badge variant="outline">{editingPlayerPayments.length} voci</Badge>
+                    </div>
                     {editingPlayerPayments.length === 0 ? (
                       <p className="text-xs text-muted-foreground">Nessuna quota registrata.</p>
                     ) : editingPlayerPayments.map((payment) => (
