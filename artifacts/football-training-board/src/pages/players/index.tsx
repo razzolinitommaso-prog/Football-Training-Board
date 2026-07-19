@@ -50,6 +50,11 @@ const playerSchema = z.object({
   parentPhone: z.string().optional(),
   parentEmail: z.string().optional(),
   parentRelation: z.string().optional(),
+  secondaryContactFirstName: z.string().optional(),
+  secondaryContactLastName: z.string().optional(),
+  secondaryContactPhone: z.string().optional(),
+  secondaryContactEmail: z.string().optional(),
+  secondaryContactRelation: z.string().optional(),
   registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
   medicalCertificateExpiry: z.string().optional().nullable(),
@@ -71,6 +76,11 @@ const editSchema = z.object({
   parentPhone: z.string().optional(),
   parentEmail: z.string().optional(),
   parentRelation: z.string().optional(),
+  secondaryContactFirstName: z.string().optional(),
+  secondaryContactLastName: z.string().optional(),
+  secondaryContactPhone: z.string().optional(),
+  secondaryContactEmail: z.string().optional(),
+  secondaryContactRelation: z.string().optional(),
   registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
   medicalCertificateExpiry: z.string().optional().nullable(),
@@ -106,6 +116,11 @@ type Player = {
   parentPhone?: string | null;
   parentEmail?: string | null;
   parentRelation?: string | null;
+  secondaryContactFirstName?: string | null;
+  secondaryContactLastName?: string | null;
+  secondaryContactPhone?: string | null;
+  secondaryContactEmail?: string | null;
+  secondaryContactRelation?: string | null;
   registered?: boolean | null;
   registrationNumber?: string | null;
   medicalCertificateExpiry?: string | null;
@@ -829,6 +844,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       parentPhone: player.parentPhone ?? undefined,
       parentEmail: player.parentEmail ?? undefined,
       parentRelation: player.parentRelation ?? undefined,
+      secondaryContactFirstName: player.secondaryContactFirstName ?? undefined,
+      secondaryContactLastName: player.secondaryContactLastName ?? undefined,
+      secondaryContactPhone: player.secondaryContactPhone ?? undefined,
+      secondaryContactEmail: player.secondaryContactEmail ?? undefined,
+      secondaryContactRelation: player.secondaryContactRelation ?? undefined,
       registered: player.registered ?? false,
       registrationNumber: player.registrationNumber ?? undefined,
       medicalCertificateExpiry: player.medicalCertificateExpiry ?? undefined,
@@ -1265,6 +1285,28 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     </div>
                   </div>
                 )}
+                <div className="grid grid-cols-1 gap-4 border-t pt-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Nome secondo referente</Label>
+                    <Input {...form.register("secondaryContactFirstName")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Cognome secondo referente</Label>
+                    <Input {...form.register("secondaryContactLastName")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Telefono secondo referente</Label>
+                    <Input {...form.register("secondaryContactPhone")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Email secondo referente</Label>
+                    <Input type="email" {...form.register("secondaryContactEmail")} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Relazione secondo referente</Label>
+                    <Input placeholder="Nonno, baby sitter, tutore, altro..." {...form.register("secondaryContactRelation")} />
+                  </div>
+                </div>
               </div>
 
               {/* Annata + Squadra */}
@@ -1488,6 +1530,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <div><span className="text-muted-foreground">Email genitore</span><p>{editingPlayer.parentEmail || "-"}</p></div>
                     </>
                   )}
+                  <div><span className="text-muted-foreground">Secondo referente</span><p>{[editingPlayer.secondaryContactFirstName, editingPlayer.secondaryContactLastName].filter(Boolean).join(" ") || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Relazione secondo referente</span><p>{editingPlayer.secondaryContactRelation || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Telefono secondo referente</span><p>{editingPlayer.secondaryContactPhone || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Email secondo referente</span><p>{editingPlayer.secondaryContactEmail || "-"}</p></div>
                 </div>
               </details>
 
@@ -1666,6 +1712,28 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     </div>
                   </div>
                 )}
+                <div className="grid grid-cols-1 gap-4 border-t pt-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Nome secondo referente</Label>
+                    <Input {...editForm.register("secondaryContactFirstName")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Cognome secondo referente</Label>
+                    <Input {...editForm.register("secondaryContactLastName")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Telefono secondo referente</Label>
+                    <Input {...editForm.register("secondaryContactPhone")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Email secondo referente</Label>
+                    <Input type="email" {...editForm.register("secondaryContactEmail")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Relazione secondo referente</Label>
+                    <Input placeholder="Nonno, baby sitter, tutore, altro..." {...editForm.register("secondaryContactRelation")} disabled={!canEditFullPlayer} />
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
@@ -1737,7 +1805,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         onClick={() => setDocumentType(docType.value)}
                         className={`flex items-center gap-3 rounded-md border bg-background px-3 py-2 text-left text-sm transition-colors ${checked ? "border-primary ring-1 ring-primary/30" : "hover:bg-muted/40"}`}
                       >
-                        <Checkbox checked={checked} />
+                        <span className={`h-4 w-4 shrink-0 rounded-full border ${checked ? "border-primary bg-primary" : "border-muted-foreground/40"}`} />
                         <span className="min-w-0 flex-1">
                           <span className="block font-medium">{docType.label}</span>
                           <span className="block text-xs text-muted-foreground">{uploaded ? "Documento caricato" : "Da caricare"}</span>

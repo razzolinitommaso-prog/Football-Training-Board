@@ -260,6 +260,16 @@ export interface Player {
   parentEmail?: string | null;
   /** @nullable */
   parentRelation?: string | null;
+  /** @nullable */
+  secondaryContactFirstName?: string | null;
+  /** @nullable */
+  secondaryContactLastName?: string | null;
+  /** @nullable */
+  secondaryContactPhone?: string | null;
+  /** @nullable */
+  secondaryContactEmail?: string | null;
+  /** @nullable */
+  secondaryContactRelation?: string | null;
   createdAt: string;
 }
 
@@ -299,6 +309,16 @@ export interface CreatePlayerRequest {
   parentEmail?: string | null;
   /** @nullable */
   parentRelation?: string | null;
+  /** @nullable */
+  secondaryContactFirstName?: string | null;
+  /** @nullable */
+  secondaryContactLastName?: string | null;
+  /** @nullable */
+  secondaryContactPhone?: string | null;
+  /** @nullable */
+  secondaryContactEmail?: string | null;
+  /** @nullable */
+  secondaryContactRelation?: string | null;
 }
 
 export interface UpdatePlayerRequest {
@@ -337,6 +357,16 @@ export interface UpdatePlayerRequest {
   parentEmail?: string | null;
   /** @nullable */
   parentRelation?: string | null;
+  /** @nullable */
+  secondaryContactFirstName?: string | null;
+  /** @nullable */
+  secondaryContactLastName?: string | null;
+  /** @nullable */
+  secondaryContactPhone?: string | null;
+  /** @nullable */
+  secondaryContactEmail?: string | null;
+  /** @nullable */
+  secondaryContactRelation?: string | null;
 }
 
 export interface TrainingSession {

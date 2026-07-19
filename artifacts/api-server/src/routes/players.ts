@@ -148,6 +148,11 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     parentPhone?: string | null;
     parentEmail?: string | null;
     parentRelation?: string | null;
+    secondaryContactFirstName?: string | null;
+    secondaryContactLastName?: string | null;
+    secondaryContactPhone?: string | null;
+    secondaryContactEmail?: string | null;
+    secondaryContactRelation?: string | null;
   };
   let teamName: string | null = null;
   if (player.teamId) {
@@ -173,6 +178,11 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     parentPhone: playerContact.parentPhone ?? null,
     parentEmail: playerContact.parentEmail ?? null,
     parentRelation: playerContact.parentRelation ?? null,
+    secondaryContactFirstName: playerContact.secondaryContactFirstName ?? null,
+    secondaryContactLastName: playerContact.secondaryContactLastName ?? null,
+    secondaryContactPhone: playerContact.secondaryContactPhone ?? null,
+    secondaryContactEmail: playerContact.secondaryContactEmail ?? null,
+    secondaryContactRelation: playerContact.secondaryContactRelation ?? null,
     registered: player.registered ?? null,
     registrationNumber: player.registrationNumber ?? null,
     medicalCertificateExpiry: player.medicalCertificateExpiry ?? null,
