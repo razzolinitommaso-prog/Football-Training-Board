@@ -186,6 +186,7 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     registered: player.registered ?? null,
     registrationNumber: player.registrationNumber ?? null,
     medicalCertificateExpiry: player.medicalCertificateExpiry ?? null,
+    shuttleService: player.shuttleService ?? false,
     available: player.available ?? true,
     unavailabilityReason: player.unavailabilityReason ?? null,
     expectedReturn: player.expectedReturn ?? null,

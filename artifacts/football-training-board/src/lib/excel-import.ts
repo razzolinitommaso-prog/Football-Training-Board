@@ -140,6 +140,12 @@ const SECONDARY_LAST_NAME_KEYS = ["Cognome Secondo Referente", "Cognome Secondo 
 const SECONDARY_PHONE_KEYS = ["Telefono Secondo Referente", "Cellulare Secondo Referente", "Telefono Secondo Genitore", "Telefono Altro Referente"];
 const SECONDARY_EMAIL_KEYS = ["Email Secondo Referente", "E-mail Secondo Referente", "Email Secondo Genitore", "Email Altro Referente"];
 const SECONDARY_RELATION_KEYS = ["Relazione Secondo Referente", "Parentela Secondo Referente", "Rapporto Secondo Referente"];
+const SHUTTLE_KEYS = ["Pulmino", "Servizio Pulmino", "Usufruisce Pulmino", "Trasporto", "Servizio Trasporto"];
+
+function cellToBoolean(value: unknown): boolean {
+  const normalized = cellToLowerString(value);
+  return ["si", "sì", "yes", "true", "1", "x"].includes(normalized);
+}
 
 function splitNameParts(value: string, order: "last_first" | "first_last") {
   const fullName = value.replace(/\s+/g, " ").trim();
@@ -240,6 +246,7 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
     secondaryContactPhone: cellToTrimmedString(readCell(row, SECONDARY_PHONE_KEYS)) || undefined,
     secondaryContactEmail: cellToTrimmedString(readCell(row, SECONDARY_EMAIL_KEYS)) || undefined,
     secondaryContactRelation: cellToTrimmedString(readCell(row, SECONDARY_RELATION_KEYS)) || undefined,
+    shuttleService: cellToBoolean(readCell(row, SHUTTLE_KEYS)),
     notes: cellToTrimmedString(row["Note"]) || undefined,
     status: "active",
   };
@@ -262,6 +269,7 @@ export function mapExcelRowToPlayerPreview(row: Record<string, unknown>, teams: 
     "Telefono Genitore": mapped.parentPhone || "",
     "Email Genitore": mapped.parentEmail || "",
     "Relazione Genitore": mapped.parentRelation || "",
+    "Pulmino": mapped.shuttleService ? "Si" : "No",
     "Nome Secondo Referente": mapped.secondaryContactFirstName || "",
     "Cognome Secondo Referente": mapped.secondaryContactLastName || "",
     "Telefono Secondo Referente": mapped.secondaryContactPhone || "",
@@ -302,6 +310,7 @@ export function downloadPlayerTemplate() {
     "Telefono Secondo Referente": "",
     "Email Secondo Referente": "",
     "Relazione Secondo Referente": "",
+    "Pulmino": "",
     "Tesserato": "",
     "N° Tessera": "",
     "Note": "",

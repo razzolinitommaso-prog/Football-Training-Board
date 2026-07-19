@@ -112,6 +112,7 @@ export function mapPlayersForExcel(players: any[], teams: any[]) {
     "Relazione Secondo Referente": p.secondaryContactRelation ?? "",
     "Stato": p.status ?? "",
     "Disponibile": p.available === false ? "No" : "Sì",
+    "Pulmino": p.shuttleService ? "Si" : "No",
     "Motivo Indisponibilità": p.unavailabilityReason ?? "",
     "Rientro Previsto": p.expectedReturn ?? "",
     "Tesserato": p.registered ? "Sì" : "No",

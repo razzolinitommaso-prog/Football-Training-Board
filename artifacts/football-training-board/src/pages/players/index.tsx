@@ -58,6 +58,7 @@ const playerSchema = z.object({
   registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
   medicalCertificateExpiry: z.string().optional().nullable(),
+  shuttleService: z.boolean().optional(),
 });
 
 const editSchema = z.object({
@@ -84,6 +85,7 @@ const editSchema = z.object({
   registered: zRegisteredCheckbox,
   registrationNumber: z.string().optional(),
   medicalCertificateExpiry: z.string().optional().nullable(),
+  shuttleService: z.boolean().optional(),
   nationality: z.string().optional(),
   height: z.coerce.number().optional().nullable(),
   weight: z.coerce.number().optional().nullable(),
@@ -124,6 +126,7 @@ type Player = {
   registered?: boolean | null;
   registrationNumber?: string | null;
   medicalCertificateExpiry?: string | null;
+  shuttleService?: boolean | null;
   nationality?: string | null;
   height?: number | null;
   weight?: number | null;
@@ -185,6 +188,11 @@ type KitRow = {
   arrived: boolean;
 };
 
+type InstallmentDraft = {
+  amount: string;
+  dueDate: string;
+};
+
 const KIT_ITEMS: Array<Pick<KitRow, "key" | "label" | "area">> = [
   { key: "training_socks", label: "Calzettone allenamento", area: "training" },
   { key: "training_shorts", label: "Pantaloncino allenamento", area: "training" },
@@ -235,6 +243,44 @@ function serializeKitRows(rows: KitRow[]): string {
     ordered: row.ordered,
     arrived: row.arrived,
   })));
+}
+
+function buildInstallmentDrafts(totalValue: string, countValue: string, firstDueDate: string): InstallmentDraft[] {
+  const total = Number(totalValue);
+  const count = Math.max(1, Math.floor(Number(countValue) || 1));
+  if (!Number.isFinite(total) || total <= 0) return [];
+  const cents = Math.round(total * 100);
+  const baseCents = Math.floor(cents / count);
+  let assigned = 0;
+  const baseDate = firstDueDate ? new Date(`${firstDueDate}T00:00:00`) : new Date();
+  return Array.from({ length: count }, (_, index) => {
+    const installmentCents = index === count - 1 ? cents - assigned : baseCents;
+    assigned += installmentCents;
+    const due = new Date(baseDate);
+    due.setMonth(baseDate.getMonth() + index);
+    return {
+      amount: (installmentCents / 100).toFixed(2),
+      dueDate: Number.isNaN(due.getTime()) ? "" : due.toISOString().slice(0, 10),
+    };
+  });
+}
+
+function rebalanceInstallments(drafts: InstallmentDraft[], index: number, value: string, totalValue: string): InstallmentDraft[] {
+  const totalCents = Math.round((Number(totalValue) || 0) * 100);
+  const next = drafts.map((draft) => ({ ...draft }));
+  next[index].amount = value;
+  const fixedCents = Math.round((Number(value) || 0) * 100);
+  const otherIndexes = next.map((_, i) => i).filter((i) => i !== index);
+  if (!otherIndexes.length) return next;
+  const remaining = Math.max(0, totalCents - fixedCents);
+  const base = Math.floor(remaining / otherIndexes.length);
+  let assigned = 0;
+  otherIndexes.forEach((otherIndex, position) => {
+    const cents = position === otherIndexes.length - 1 ? remaining - assigned : base;
+    assigned += cents;
+    next[otherIndex].amount = (cents / 100).toFixed(2);
+  });
+  return next;
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -633,12 +679,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [annualFeeTotal, setAnnualFeeTotal] = useState("");
   const [installmentCount, setInstallmentCount] = useState("1");
   const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
+  const [annualInstallments, setAnnualInstallments] = useState<InstallmentDraft[]>([]);
   const [isSavingInstallments, setIsSavingInstallments] = useState(false);
   const [kitRows, setKitRows] = useState<KitRow[]>(defaultKitRows);
   const [kitNotes, setKitNotes] = useState("");
   const [kitPaymentStatus, setKitPaymentStatus] = useState<"pending" | "paid">("pending");
   const [kitPaymentMethod, setKitPaymentMethod] = useState("");
   const [kitPaymentDueDate, setKitPaymentDueDate] = useState("");
+  const [kitInstallmentCount, setKitInstallmentCount] = useState("1");
+  const [shuttleMonthlyCost, setShuttleMonthlyCost] = useState("");
+  const [shuttlePaymentDueDate, setShuttlePaymentDueDate] = useState("");
   const [isSavingKit, setIsSavingKit] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -667,7 +717,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     : undefined;
   const displayedKitRows = editingPlayerEquipment ? parseKitRows(editingPlayerEquipment.trainingKit) : kitRows;
   const kitTotal = displayedKitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0);
-  const editingKitPayment = editingPlayerPayments.find((payment) => payment.paymentType === "kit_payment");
+  const editingKitPayments = editingPlayerPayments.filter((payment) => payment.paymentType === "kit_payment");
+  const editingKitPayment = editingKitPayments[0];
+  const editingShuttlePayments = editingPlayerPayments.filter((payment) => payment.paymentType === "shuttle_monthly");
+  const editingShuttlePayment = editingShuttlePayments[0];
   const overduePlayerPayments = editingPlayerPayments.filter((payment) => {
     if (payment.status === "paid" || !payment.dueDate) return false;
     return payment.dueDate <= new Date().toISOString().slice(0, 10);
@@ -922,15 +975,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     }
     setIsSavingInstallments(true);
     try {
-      const cents = Math.round(total * 100);
-      const baseCents = Math.floor(cents / count);
-      let assignedCents = 0;
-      for (let index = 0; index < count; index++) {
-        const due = new Date(baseDate);
-        due.setMonth(baseDate.getMonth() + index);
-        const installmentCents = index === count - 1 ? cents - assignedCents : baseCents;
-        assignedCents += installmentCents;
-        const installmentAmount = installmentCents / 100;
+      const drafts = annualInstallments.length ? annualInstallments : buildInstallmentDrafts(annualFeeTotal, installmentCount, firstInstallmentDueDate);
+      for (let index = 0; index < drafts.length; index++) {
+        const draft = drafts[index];
+        const installmentAmount = Number(draft.amount);
         const res = await fetch(withApi("/api/player-payments"), {
           method: "POST",
           credentials: "include",
@@ -938,12 +986,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           body: JSON.stringify({
             playerId: editingPlayer.id,
             amount: installmentAmount,
-            dueDate: due.toISOString().slice(0, 10),
+            dueDate: draft.dueDate || null,
             status: "pending",
-            description: `Quota annuale - rata ${index + 1}/${count}`,
+            description: `Quota annuale - rata ${index + 1}/${drafts.length}`,
             paymentType: "annual_fee_installment",
             installmentNumber: index + 1,
-            totalInstallments: count,
+            totalInstallments: drafts.length,
             annualFeeTotal: total,
             availabilityBlocking: 1,
           }),
@@ -986,24 +1034,59 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       if (!res.ok) throw new Error(await res.text());
       const total = kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0);
       if (total > 0) {
-        const paymentPayload = {
+        for (const payment of editingKitPayments) {
+          const deleteRes = await fetch(withApi(`/api/player-payments/${payment.id}`), { method: "DELETE", credentials: "include" });
+          if (!deleteRes.ok) throw new Error(await deleteRes.text());
+        }
+        const count = Math.max(1, Math.floor(Number(kitInstallmentCount) || 1));
+        const cents = Math.round(total * 100);
+        const baseCents = Math.floor(cents / count);
+        let assignedCents = 0;
+        const baseDate = kitPaymentDueDate ? new Date(`${kitPaymentDueDate}T00:00:00`) : new Date();
+        for (let index = 0; index < count; index++) {
+          const due = new Date(baseDate);
+          due.setMonth(baseDate.getMonth() + index);
+          const installmentCents = index === count - 1 ? cents - assignedCents : baseCents;
+          assignedCents += installmentCents;
+          const paymentRes = await fetch(withApi("/api/player-payments"), {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              playerId: editingPlayer.id,
+              amount: installmentCents / 100,
+              dueDate: due.toISOString().slice(0, 10),
+              status: kitPaymentStatus,
+              paymentDate: kitPaymentStatus === "paid" ? new Date().toISOString().slice(0, 10) : null,
+              description: count > 1 ? `Kit giocatore - rata ${index + 1}/${count}` : "Kit giocatore",
+              paymentType: "kit_payment",
+              paymentMethod: kitPaymentMethod || null,
+              installmentNumber: index + 1,
+              totalInstallments: count,
+              annualFeeTotal: total,
+              availabilityBlocking: 1,
+            }),
+          });
+          if (!paymentRes.ok) throw new Error(await paymentRes.text());
+        }
+      }
+      if (editForm.getValues("shuttleService") === true && Number(shuttleMonthlyCost) > 0) {
+        const shuttlePayload = {
           playerId: editingPlayer.id,
-          amount: total,
-          dueDate: kitPaymentDueDate || null,
-          status: kitPaymentStatus,
-          paymentDate: kitPaymentStatus === "paid" ? new Date().toISOString().slice(0, 10) : null,
-          description: "Kit giocatore",
-          paymentType: "kit_payment",
-          paymentMethod: kitPaymentMethod || null,
+          amount: Number(shuttleMonthlyCost),
+          dueDate: shuttlePaymentDueDate || null,
+          status: "pending",
+          description: "Pulmino - quota mensile",
+          paymentType: "shuttle_monthly",
           availabilityBlocking: 1,
         };
-        const paymentRes = await fetch(withApi(editingKitPayment ? `/api/player-payments/${editingKitPayment.id}` : "/api/player-payments"), {
-          method: editingKitPayment ? "PATCH" : "POST",
+        const shuttleRes = await fetch(withApi(editingShuttlePayment ? `/api/player-payments/${editingShuttlePayment.id}` : "/api/player-payments"), {
+          method: editingShuttlePayment ? "PATCH" : "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(paymentPayload),
+          body: JSON.stringify(shuttlePayload),
         });
-        if (!paymentRes.ok) throw new Error(await paymentRes.text());
+        if (!shuttleRes.ok) throw new Error(await shuttleRes.text());
       }
       queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
@@ -1030,7 +1113,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
   const form = useForm<z.infer<typeof playerSchema>>({
     resolver: zodResolver(playerSchema),
-    defaultValues: { firstName: "", lastName: "", status: "active", registered: false, phoneOwnerType: "player" }
+    defaultValues: { firstName: "", lastName: "", status: "active", registered: false, phoneOwnerType: "player", shuttleService: false }
   });
 
   const editForm = useForm<EditForm>({
@@ -1059,12 +1142,19 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   }, [watchRegisteredCreate, watchMedicalCertificateCreate, form]);
 
   useEffect(() => {
+    setAnnualInstallments(buildInstallmentDrafts(annualFeeTotal, installmentCount, firstInstallmentDueDate));
+  }, [annualFeeTotal, installmentCount, firstInstallmentDueDate]);
+
+  useEffect(() => {
     if (!editingPlayer) {
       setKitRows(defaultKitRows());
       setKitNotes("");
       setKitPaymentStatus("pending");
       setKitPaymentMethod("");
       setKitPaymentDueDate("");
+      setKitInstallmentCount("1");
+      setShuttleMonthlyCost("");
+      setShuttlePaymentDueDate("");
       return;
     }
     setKitRows(parseKitRows(editingPlayerEquipment?.trainingKit));
@@ -1072,7 +1162,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setKitPaymentStatus(editingKitPayment?.status === "paid" ? "paid" : "pending");
     setKitPaymentMethod(editingKitPayment?.paymentMethod ?? "");
     setKitPaymentDueDate(editingKitPayment?.dueDate ?? "");
-  }, [editingPlayer, editingPlayerEquipment?.trainingKit, editingPlayerEquipment?.notes, editingKitPayment?.status, editingKitPayment?.paymentMethod, editingKitPayment?.dueDate]);
+    setKitInstallmentCount(String(editingKitPayment?.totalInstallments ?? Math.max(editingKitPayments.length, 1)));
+    setShuttleMonthlyCost(editingShuttlePayment?.amount != null ? String(editingShuttlePayment.amount) : "");
+    setShuttlePaymentDueDate(editingShuttlePayment?.dueDate ?? "");
+  }, [editingPlayer, editingPlayerEquipment?.trainingKit, editingPlayerEquipment?.notes, editingKitPayment?.status, editingKitPayment?.paymentMethod, editingKitPayment?.dueDate, editingKitPayment?.totalInstallments, editingKitPayments.length, editingShuttlePayment?.amount, editingShuttlePayment?.dueDate]);
 
   const openPlayerDialog = (player: Player, mode: "view" | "edit" = "view") => {
     setPlayerDialogMode(mode);
@@ -1090,6 +1183,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setKitPaymentStatus(kitPayment?.status === "paid" ? "paid" : "pending");
     setKitPaymentMethod(kitPayment?.paymentMethod ?? "");
     setKitPaymentDueDate(kitPayment?.dueDate ?? "");
+    setKitInstallmentCount(String(kitPayment?.totalInstallments ?? Math.max(playerPayments.filter((payment) => payment.playerId === player.id && payment.paymentType === "kit_payment").length, 1)));
+    const shuttlePayment = playerPayments.find((payment) => payment.playerId === player.id && payment.paymentType === "shuttle_monthly");
+    setShuttleMonthlyCost(shuttlePayment?.amount != null ? String(shuttlePayment.amount) : "");
+    setShuttlePaymentDueDate(shuttlePayment?.dueDate ?? "");
     editForm.reset({
       firstName: player.firstName,
       lastName: player.lastName,
@@ -1114,6 +1211,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       registered: player.registered ?? false,
       registrationNumber: player.registrationNumber ?? undefined,
       medicalCertificateExpiry: player.medicalCertificateExpiry ?? undefined,
+      shuttleService: player.shuttleService ?? false,
       nationality: player.nationality ?? undefined,
       height: player.height ?? undefined,
       weight: player.weight ?? undefined,
@@ -1656,6 +1754,20 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   />
                   <Label htmlFor="registered" className="cursor-pointer">{t.registered}</Label>
                 </div>
+                <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                  <Controller
+                    control={form.control}
+                    name="shuttleService"
+                    render={({ field }) => (
+                      <Checkbox
+                        id="shuttleService"
+                        checked={field.value === true}
+                        onCheckedChange={(c) => field.onChange(c === true)}
+                      />
+                    )}
+                  />
+                  <Label htmlFor="shuttleService" className="cursor-pointer">Usufruisce pulmino</Label>
+                </div>
               </div>
 
               <DialogFooter className="pt-4">
@@ -1794,6 +1906,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <div><span className="text-muted-foreground">Tesseramento</span><p>{editingPlayer.registered ? t.registered : "-"}</p></div>
                   <div><span className="text-muted-foreground">Numero matricola</span><p>{editingPlayer.registrationNumber || "-"}</p></div>
                   <div><span className="text-muted-foreground">Certificato medico</span><p>{isMedicalCertificateValid(editingPlayer.medicalCertificateExpiry) ? `Valido fino al ${editingPlayer.medicalCertificateExpiry}` : "Assente o scaduto"}</p></div>
+                  <div><span className="text-muted-foreground">Pulmino</span><p>{editingPlayer.shuttleService ? "Si" : "No"}</p></div>
                   <div><span className="text-muted-foreground">Stato</span><p>{statusLabel(editingPlayer.status)}</p></div>
                   <div><span className="text-muted-foreground">Telefono</span><p>{editingPlayer.phone || "-"}</p></div>
                   <div><span className="text-muted-foreground">Email</span><p>{editingPlayer.email || "-"}</p></div>
@@ -2053,9 +2166,32 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <Label>Scadenza pagamento</Label>
                       <Input type="date" value={kitPaymentDueDate} onChange={(e) => setKitPaymentDueDate(e.target.value)} disabled={!canEditFinancials} />
                     </div>
+                    <div className="space-y-2">
+                      <Label>Numero rate kit</Label>
+                      <Input type="number" min={1} value={kitInstallmentCount} onChange={(e) => setKitInstallmentCount(e.target.value)} disabled={!canEditFinancials} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Importo rata kit</Label>
+                      <Input
+                        value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) > 0
+                          ? (kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) / Number(kitInstallmentCount)).toFixed(2)
+                          : ""}
+                        readOnly
+                      />
+                    </div>
                     <p className="text-xs text-muted-foreground sm:col-span-3">
                       Se il kit risulta non pagato e la scadenza e superata, il genitore lo vede nei pagamenti e il giocatore viene gestito come non disponibile.
                     </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 rounded-md border bg-background p-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Costo mensile pulmino</Label>
+                      <Input type="number" step="0.01" value={shuttleMonthlyCost} onChange={(e) => setShuttleMonthlyCost(e.target.value)} disabled={!canEditFinancials || editForm.watch("shuttleService") !== true} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Scadenza prima quota pulmino</Label>
+                      <Input type="date" value={shuttlePaymentDueDate} onChange={(e) => setShuttlePaymentDueDate(e.target.value)} disabled={!canEditFinancials || editForm.watch("shuttleService") !== true} />
+                    </div>
                   </div>
                   {canEditFinancials && (
                     <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingKit} onClick={() => void savePlayerKit()}>
@@ -2182,6 +2318,21 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       )}
                     />
                     <Label htmlFor="editRegistered" className="cursor-pointer">{t.registered}</Label>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                    <Controller
+                      control={editForm.control}
+                      name="shuttleService"
+                      render={({ field }) => (
+                        <Checkbox
+                          id="editShuttleService"
+                          checked={field.value === true}
+                          onCheckedChange={(c) => field.onChange(c === true)}
+                          disabled={!canEditFullPlayer}
+                        />
+                      )}
+                    />
+                    <Label htmlFor="editShuttleService" className="cursor-pointer">Usufruisce pulmino</Label>
                   </div>
                   <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
                     <Checkbox
@@ -2321,16 +2472,32 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         <Input type="number" min={1} value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
                       </div>
                       <div className="space-y-2">
-                        <Label>Importo rata</Label>
-                        <Input
-                          value={Number(installmentCount) > 0 && Number(annualFeeTotal) > 0 ? (Number(annualFeeTotal) / Number(installmentCount)).toFixed(2) : ""}
-                          readOnly
-                        />
-                      </div>
-                      <div className="space-y-2">
                         <Label>Prima scadenza</Label>
                         <Input type="date" value={firstInstallmentDueDate} onChange={(e) => setFirstInstallmentDueDate(e.target.value)} />
                       </div>
+                      {annualInstallments.length > 0 && (
+                        <div className="space-y-2 sm:col-span-4">
+                          <Label>Piano rate</Label>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {annualInstallments.map((installment, index) => (
+                              <div key={`annual-installment-${index}`} className="grid grid-cols-[80px_1fr_1fr] items-center gap-2 rounded-md border px-3 py-2">
+                                <span className="text-xs font-semibold text-muted-foreground">Rata {index + 1}</span>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={installment.amount}
+                                  onChange={(e) => setAnnualInstallments((drafts) => rebalanceInstallments(drafts, index, e.target.value, annualFeeTotal))}
+                                />
+                                <Input
+                                  type="date"
+                                  value={installment.dueDate}
+                                  onChange={(e) => setAnnualInstallments((drafts) => drafts.map((draft, i) => i === index ? { ...draft, dueDate: e.target.value } : draft))}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <div className="sm:col-span-4">
                         <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingInstallments} onClick={() => void createAnnualFeeInstallments()}>
                           <Banknote className="h-4 w-4" />
