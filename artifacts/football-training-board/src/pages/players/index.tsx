@@ -2135,7 +2135,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </Button>
               )}
 
-              {canViewFinancials && (
+              {false && canViewFinancials && (
                 <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
@@ -2553,6 +2553,98 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           {isSavingInstallments ? "Salvataggio..." : "Crea voci economiche"}
                         </Button>
                       </div>
+                    </div>
+                  )}
+                  {canEditFinancials && (
+                    <div className="rounded-md border bg-background p-3 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kit</p>
+                        </div>
+                        <Badge variant="outline">Totale Euro {kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0).toFixed(2)}</Badge>
+                      </div>
+                      <div className="space-y-2">
+                        {(["training", "match", "representation"] as const).map((area) => (
+                          <div key={area} className="rounded-md border bg-muted/10 p-3">
+                            <p className="mb-2 text-sm font-semibold">
+                              {area === "training" ? "Kit allenamento" : area === "match" ? "Kit gara" : "Kit rappresentanza"}
+                            </p>
+                            <div className="space-y-2">
+                              {kitRows.filter((row) => row.area === area).map((row) => (
+                                <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 sm:grid-cols-[1fr_120px_100px_100px] sm:items-center">
+                                  <span className="text-sm font-medium">{row.label}</span>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="Prezzo"
+                                    value={row.price}
+                                    onChange={(e) => updateKitRow(row.key, { price: e.target.value })}
+                                  />
+                                  <label className="flex items-center gap-2 text-sm">
+                                    <Checkbox checked={row.ordered} onCheckedChange={(v) => updateKitRow(row.key, { ordered: v === true })} />
+                                    Ordinato
+                                  </label>
+                                  <label className="flex items-center gap-2 text-sm">
+                                    <Checkbox checked={row.arrived} onCheckedChange={(v) => updateKitRow(row.key, { arrived: v === true })} />
+                                    Arrivato
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Note kit</Label>
+                        <Textarea value={kitNotes} onChange={(e) => setKitNotes(e.target.value)} />
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 rounded-md border bg-background p-3 sm:grid-cols-3">
+                        <div className="flex items-center gap-3 rounded-md border px-3 py-2">
+                          <Checkbox
+                            id="kitPaymentPaidInline"
+                            checked={kitPaymentStatus === "paid"}
+                            onCheckedChange={(v) => setKitPaymentStatus(v === true ? "paid" : "pending")}
+                          />
+                          <Label htmlFor="kitPaymentPaidInline" className="cursor-pointer">Pagato</Label>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Metodo pagamento</Label>
+                          <Select value={kitPaymentMethod || "_none"} onValueChange={(v) => setKitPaymentMethod(v === "_none" ? "" : v)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Seleziona" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">Da definire</SelectItem>
+                              <SelectItem value="cash">Contanti</SelectItem>
+                              <SelectItem value="bank_transfer">Bonifico</SelectItem>
+                              <SelectItem value="card">Carta/POS</SelectItem>
+                              <SelectItem value="other">Altro</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Scadenza pagamento</Label>
+                          <Input type="date" value={kitPaymentDueDate} onChange={(e) => setKitPaymentDueDate(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Numero rate kit</Label>
+                          <Input type="number" min={1} value={kitInstallmentCount} onChange={(e) => setKitInstallmentCount(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Importo rata kit</Label>
+                          <Input
+                            value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) > 0
+                              ? (kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) / Number(kitInstallmentCount)).toFixed(2)
+                              : ""}
+                            readOnly
+                          />
+                        </div>
+                      </div>
+                      <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingKit} onClick={() => void savePlayerKit()}>
+                        <Package className="h-4 w-4" />
+                        {isSavingKit ? "Salvataggio..." : "Salva kit"}
+                      </Button>
                     </div>
                   )}
                   <div className="space-y-2">
