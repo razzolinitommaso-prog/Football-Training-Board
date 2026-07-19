@@ -164,6 +164,7 @@ type PlayerPayment = {
   totalInstallments?: number | null;
   annualFeeTotal?: number | null;
   availabilityBlocking?: number | null;
+  paymentMethod?: string | null;
 };
 
 type PlayerEquipment = {
@@ -577,6 +578,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     },
   });
   const canViewFinancials = ["admin", "presidente", "director", "secretary"].includes(nr);
+  const canViewKit = canViewFinancials || ["sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"].includes(nr);
   const { data: playerPayments = [] } = useQuery<PlayerPayment[]>({
     queryKey: ["/api/player-payments"],
     enabled: canViewFinancials,
@@ -588,7 +590,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   });
   const { data: playerEquipment = [] } = useQuery<PlayerEquipment[]>({
     queryKey: ["/api/equipment"],
-    enabled: canViewFinancials,
+    enabled: canViewKit,
     queryFn: async () => {
       const res = await fetch(withApi("/api/equipment"), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load player equipment");
@@ -634,6 +636,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [isSavingInstallments, setIsSavingInstallments] = useState(false);
   const [kitRows, setKitRows] = useState<KitRow[]>(defaultKitRows);
   const [kitNotes, setKitNotes] = useState("");
+  const [kitPaymentStatus, setKitPaymentStatus] = useState<"pending" | "paid">("pending");
+  const [kitPaymentMethod, setKitPaymentMethod] = useState("");
+  const [kitPaymentDueDate, setKitPaymentDueDate] = useState("");
   const [isSavingKit, setIsSavingKit] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -662,6 +667,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     : undefined;
   const displayedKitRows = editingPlayerEquipment ? parseKitRows(editingPlayerEquipment.trainingKit) : kitRows;
   const kitTotal = displayedKitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0);
+  const editingKitPayment = editingPlayerPayments.find((payment) => payment.paymentType === "kit_payment");
   const overduePlayerPayments = editingPlayerPayments.filter((payment) => {
     if (payment.status === "paid" || !payment.dueDate) return false;
     return payment.dueDate <= new Date().toISOString().slice(0, 10);
@@ -978,7 +984,30 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         }),
       });
       if (!res.ok) throw new Error(await res.text());
+      const total = kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0);
+      if (total > 0) {
+        const paymentPayload = {
+          playerId: editingPlayer.id,
+          amount: total,
+          dueDate: kitPaymentDueDate || null,
+          status: kitPaymentStatus,
+          paymentDate: kitPaymentStatus === "paid" ? new Date().toISOString().slice(0, 10) : null,
+          description: "Kit giocatore",
+          paymentType: "kit_payment",
+          paymentMethod: kitPaymentMethod || null,
+          availabilityBlocking: 1,
+        };
+        const paymentRes = await fetch(withApi(editingKitPayment ? `/api/player-payments/${editingKitPayment.id}` : "/api/player-payments"), {
+          method: editingKitPayment ? "PATCH" : "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(paymentPayload),
+        });
+        if (!paymentRes.ok) throw new Error(await paymentRes.text());
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/players"] });
       toast({ title: "Kit giocatore salvato" });
     } catch {
       toast({ title: "Errore salvataggio kit", variant: "destructive" });
@@ -1033,11 +1062,17 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (!editingPlayer) {
       setKitRows(defaultKitRows());
       setKitNotes("");
+      setKitPaymentStatus("pending");
+      setKitPaymentMethod("");
+      setKitPaymentDueDate("");
       return;
     }
     setKitRows(parseKitRows(editingPlayerEquipment?.trainingKit));
     setKitNotes(editingPlayerEquipment?.notes ?? "");
-  }, [editingPlayer, editingPlayerEquipment?.trainingKit, editingPlayerEquipment?.notes]);
+    setKitPaymentStatus(editingKitPayment?.status === "paid" ? "paid" : "pending");
+    setKitPaymentMethod(editingKitPayment?.paymentMethod ?? "");
+    setKitPaymentDueDate(editingKitPayment?.dueDate ?? "");
+  }, [editingPlayer, editingPlayerEquipment?.trainingKit, editingPlayerEquipment?.notes, editingKitPayment?.status, editingKitPayment?.paymentMethod, editingKitPayment?.dueDate]);
 
   const openPlayerDialog = (player: Player, mode: "view" | "edit" = "view") => {
     setPlayerDialogMode(mode);
@@ -1051,6 +1086,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     resetDocumentForm();
     setKitRows(parseKitRows(playerEquipment.find((item) => item.playerId === player.id)?.trainingKit));
     setKitNotes(playerEquipment.find((item) => item.playerId === player.id)?.notes ?? "");
+    const kitPayment = playerPayments.find((payment) => payment.playerId === player.id && payment.paymentType === "kit_payment");
+    setKitPaymentStatus(kitPayment?.status === "paid" ? "paid" : "pending");
+    setKitPaymentMethod(kitPayment?.paymentMethod ?? "");
+    setKitPaymentDueDate(kitPayment?.dueDate ?? "");
     editForm.reset({
       firstName: player.firstName,
       lastName: player.lastName,
@@ -1816,14 +1855,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </details>
               )}
 
-              {canViewFinancials && (
+              {canViewKit && (
                 <details className="rounded-lg border p-3">
                   <summary className="cursor-pointer text-sm font-semibold">Kit</summary>
                   <div className="mt-3 space-y-2 text-sm">
-                    <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
-                      <span className="text-muted-foreground">Totale kit</span>
-                      <span className="font-semibold">Euro {kitTotal.toFixed(2)}</span>
-                    </div>
                     <div className="space-y-2">
                       {displayedKitRows.filter((row) => row.price || row.ordered || row.arrived).length === 0 ? (
                         <p className="text-muted-foreground">Nessun kit registrato.</p>
@@ -1834,7 +1869,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                             <p className="text-xs text-muted-foreground">{row.area === "training" ? "Allenamento" : row.area === "match" ? "Gara" : "Rappresentanza"}</p>
                           </div>
                           <div className="flex flex-wrap gap-2 text-xs">
-                            <Badge variant="outline">Euro {(Number(row.price) || 0).toFixed(2)}</Badge>
                             <Badge variant={row.ordered ? "default" : "secondary"}>{row.ordered ? "Ordinato" : "Non ordinato"}</Badge>
                             <Badge variant={row.arrived ? "default" : "secondary"}>{row.arrived ? "Arrivato" : "Non arrivato"}</Badge>
                           </div>
@@ -1989,6 +2023,39 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <div className="space-y-2">
                     <Label>Note kit</Label>
                     <Textarea value={kitNotes} onChange={(e) => setKitNotes(e.target.value)} disabled={!canEditFinancials} />
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 rounded-md border bg-background p-3 sm:grid-cols-3">
+                    <div className="flex items-center gap-3 rounded-md border px-3 py-2">
+                      <Checkbox
+                        id="kitPaymentPaid"
+                        checked={kitPaymentStatus === "paid"}
+                        onCheckedChange={(v) => setKitPaymentStatus(v === true ? "paid" : "pending")}
+                        disabled={!canEditFinancials}
+                      />
+                      <Label htmlFor="kitPaymentPaid" className="cursor-pointer">Pagato</Label>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Metodo pagamento</Label>
+                      <Select value={kitPaymentMethod || "_none"} onValueChange={(v) => setKitPaymentMethod(v === "_none" ? "" : v)} disabled={!canEditFinancials}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleziona" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">Da definire</SelectItem>
+                          <SelectItem value="cash">Contanti</SelectItem>
+                          <SelectItem value="bank_transfer">Bonifico</SelectItem>
+                          <SelectItem value="card">Carta/POS</SelectItem>
+                          <SelectItem value="other">Altro</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Scadenza pagamento</Label>
+                      <Input type="date" value={kitPaymentDueDate} onChange={(e) => setKitPaymentDueDate(e.target.value)} disabled={!canEditFinancials} />
+                    </div>
+                    <p className="text-xs text-muted-foreground sm:col-span-3">
+                      Se il kit risulta non pagato e la scadenza e superata, il genitore lo vede nei pagamenti e il giocatore viene gestito come non disponibile.
+                    </p>
                   </div>
                   {canEditFinancials && (
                     <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingKit} onClick={() => void savePlayerKit()}>

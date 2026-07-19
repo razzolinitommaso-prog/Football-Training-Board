@@ -168,7 +168,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });
     return;
   }
-  const { playerId, amount, dueDate, status, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking } = req.body;
+  const { playerId, amount, dueDate, status, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod } = req.body;
   if (!playerId || amount == null) { res.status(400).json({ error: "playerId and amount required" }); return; }
   const [record] = await db.insert(playerPaymentsTable).values({
     clubId: req.session.clubId!, playerId: Number(playerId), amount: Number(amount),
@@ -178,6 +178,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     totalInstallments: totalInstallments ? Number(totalInstallments) : null,
     annualFeeTotal: annualFeeTotal != null ? Number(annualFeeTotal) : null,
     availabilityBlocking: availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1,
+    paymentMethod: paymentMethod ?? null,
   }).returning();
   await enforcePaymentAvailability(req.session.clubId!, Number(playerId));
   res.status(201).json(record);
@@ -190,7 +191,7 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const { status, paymentDate, amount, description, dueDate, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking } = req.body;
+  const { status, paymentDate, amount, description, dueDate, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod } = req.body;
   const updates: Record<string, unknown> = {};
   if (status !== undefined) updates.status = status;
   if (paymentDate !== undefined) updates.paymentDate = paymentDate;
@@ -202,6 +203,7 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   if (totalInstallments !== undefined) updates.totalInstallments = totalInstallments != null ? Number(totalInstallments) : null;
   if (annualFeeTotal !== undefined) updates.annualFeeTotal = annualFeeTotal != null ? Number(annualFeeTotal) : null;
   if (availabilityBlocking !== undefined) updates.availabilityBlocking = availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1;
+  if (paymentMethod !== undefined) updates.paymentMethod = paymentMethod;
   const [record] = await db.update(playerPaymentsTable).set(updates)
     .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!))).returning();
   if (!record) { res.status(404).json({ error: "Not found" }); return; }

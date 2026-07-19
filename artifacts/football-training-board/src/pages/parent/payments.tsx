@@ -118,6 +118,11 @@ export default function ParentPayments() {
                       {pmt.dueDate && (
                         <p className="text-xs text-muted-foreground">Scadenza: {new Date(pmt.dueDate).toLocaleDateString("it-IT")}</p>
                       )}
+                      {pmt.paymentMethod && (
+                        <p className="text-xs text-muted-foreground">
+                          Metodo: {pmt.paymentMethod === "cash" ? "Contanti" : pmt.paymentMethod === "bank_transfer" ? "Bonifico" : pmt.paymentMethod === "card" ? "Carta/POS" : "Altro"}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right shrink-0">
                       {pmt.amount != null && <p className="font-semibold text-sm">Euro {Number(pmt.amount).toFixed(2)}</p>}
