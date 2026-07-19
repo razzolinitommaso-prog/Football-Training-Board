@@ -127,6 +127,20 @@ const TEAM_AGE_GROUP_KEYS = ["Fascia d'Età", "Fascia d'EtÃ ", "Fascia d'EtÃ�
 const LAST_FIRST_NAME_KEYS = ["Cognome Nome", "Cognome e Nome"];
 const FIRST_LAST_NAME_KEYS = ["Nome Cognome", "Nome e Cognome", "Nome Completo", "Giocatore", "Player"];
 
+const PLAYER_PHONE_KEYS = ["Telefono", "Cellulare", "Telefono Giocatore", "Cellulare Giocatore"];
+const PLAYER_EMAIL_KEYS = ["Email", "E-mail", "Email Giocatore", "E-mail Giocatore"];
+const PHONE_OWNER_KEYS = ["Telefono riferito a", "Telefono riferito", "Referente telefono", "Intestatario telefono"];
+const PARENT_FIRST_NAME_KEYS = ["Nome Genitore", "Nome Tutore", "Nome Referente", "Genitore Nome"];
+const PARENT_LAST_NAME_KEYS = ["Cognome Genitore", "Cognome Tutore", "Cognome Referente", "Genitore Cognome"];
+const PARENT_PHONE_KEYS = ["Telefono Genitore", "Cellulare Genitore", "Telefono Tutore", "Cellulare Tutore", "Telefono Referente"];
+const PARENT_EMAIL_KEYS = ["Email Genitore", "E-mail Genitore", "Email Tutore", "E-mail Tutore", "Email Referente"];
+const PARENT_RELATION_KEYS = ["Relazione Genitore", "Parentela", "Rapporto", "Relazione"];
+const SECONDARY_FIRST_NAME_KEYS = ["Nome Secondo Referente", "Nome Secondo Genitore", "Nome Altro Referente"];
+const SECONDARY_LAST_NAME_KEYS = ["Cognome Secondo Referente", "Cognome Secondo Genitore", "Cognome Altro Referente"];
+const SECONDARY_PHONE_KEYS = ["Telefono Secondo Referente", "Cellulare Secondo Referente", "Telefono Secondo Genitore", "Telefono Altro Referente"];
+const SECONDARY_EMAIL_KEYS = ["Email Secondo Referente", "E-mail Secondo Referente", "Email Secondo Genitore", "Email Altro Referente"];
+const SECONDARY_RELATION_KEYS = ["Relazione Secondo Referente", "Parentela Secondo Referente", "Rapporto Secondo Referente"];
+
 function splitNameParts(value: string, order: "last_first" | "first_last") {
   const fullName = value.replace(/\s+/g, " ").trim();
   if (!fullName) return { firstName: "", lastName: "" };
@@ -193,6 +207,13 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
   const weight =
     typeof weightRaw === "number" ? weightRaw : parseFloat(cellToTrimmedString(weightRaw));
   const registeredValue = cellToLowerString(row["Tesserato"]);
+  const phoneOwnerValue = cellToLowerString(readCell(row, PHONE_OWNER_KEYS));
+  const parentFirstName = cellToTrimmedString(readCell(row, PARENT_FIRST_NAME_KEYS));
+  const parentLastName = cellToTrimmedString(readCell(row, PARENT_LAST_NAME_KEYS));
+  const parentPhone = cellToTrimmedString(readCell(row, PARENT_PHONE_KEYS));
+  const parentEmail = cellToTrimmedString(readCell(row, PARENT_EMAIL_KEYS));
+  const parentRelation = cellToTrimmedString(readCell(row, PARENT_RELATION_KEYS));
+  const hasParentContact = Boolean(parentFirstName || parentLastName || parentPhone || parentEmail || parentRelation);
 
   return {
     firstName: importedName.firstName,
@@ -206,19 +227,19 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
     weight: isNaN(weight) ? null : weight,
     registered: registeredValue === "sì" || registeredValue === "si" || registeredValue === "sã¬",
     registrationNumber: cellToTrimmedString(readCell(row, REGISTRATION_NUMBER_KEYS)) || undefined,
-    phone: cellToTrimmedString(row["Telefono"]) || undefined,
-    email: cellToTrimmedString(row["Email"]) || undefined,
-    phoneOwnerType: cellToLowerString(row["Telefono riferito a"]).includes("genitore") ? "parent" : "player",
-    parentFirstName: cellToTrimmedString(row["Nome Genitore"]) || undefined,
-    parentLastName: cellToTrimmedString(row["Cognome Genitore"]) || undefined,
-    parentPhone: cellToTrimmedString(row["Telefono Genitore"]) || undefined,
-    parentEmail: cellToTrimmedString(row["Email Genitore"]) || undefined,
-    parentRelation: cellToTrimmedString(row["Relazione Genitore"]) || undefined,
-    secondaryContactFirstName: cellToTrimmedString(row["Nome Secondo Referente"]) || undefined,
-    secondaryContactLastName: cellToTrimmedString(row["Cognome Secondo Referente"]) || undefined,
-    secondaryContactPhone: cellToTrimmedString(row["Telefono Secondo Referente"]) || undefined,
-    secondaryContactEmail: cellToTrimmedString(row["Email Secondo Referente"]) || undefined,
-    secondaryContactRelation: cellToTrimmedString(row["Relazione Secondo Referente"]) || undefined,
+    phone: cellToTrimmedString(readCell(row, PLAYER_PHONE_KEYS)) || undefined,
+    email: cellToTrimmedString(readCell(row, PLAYER_EMAIL_KEYS)) || undefined,
+    phoneOwnerType: phoneOwnerValue.includes("genitore") || phoneOwnerValue.includes("tutore") || phoneOwnerValue.includes("parent") || hasParentContact ? "parent" : "player",
+    parentFirstName: parentFirstName || undefined,
+    parentLastName: parentLastName || undefined,
+    parentPhone: parentPhone || undefined,
+    parentEmail: parentEmail || undefined,
+    parentRelation: parentRelation || undefined,
+    secondaryContactFirstName: cellToTrimmedString(readCell(row, SECONDARY_FIRST_NAME_KEYS)) || undefined,
+    secondaryContactLastName: cellToTrimmedString(readCell(row, SECONDARY_LAST_NAME_KEYS)) || undefined,
+    secondaryContactPhone: cellToTrimmedString(readCell(row, SECONDARY_PHONE_KEYS)) || undefined,
+    secondaryContactEmail: cellToTrimmedString(readCell(row, SECONDARY_EMAIL_KEYS)) || undefined,
+    secondaryContactRelation: cellToTrimmedString(readCell(row, SECONDARY_RELATION_KEYS)) || undefined,
     notes: cellToTrimmedString(row["Note"]) || undefined,
     status: "active",
   };
@@ -232,10 +253,20 @@ export function mapExcelRowToPlayerPreview(row: Record<string, unknown>, teams: 
     Squadra: normalizeImportedTeamDisplayName(row["Squadra"]),
     Posizione: mapped.position || "",
     "N° Maglia": mapped.jerseyNumber ?? "",
-    "Data Nascita": mapped.dateOfBirth || "",
+    "Data di Nascita": mapped.dateOfBirth || "",
     Telefono: mapped.phone || "",
     Email: mapped.email || "",
     "Telefono riferito a": mapped.phoneOwnerType === "parent" ? "Genitore" : "Giocatore",
+    "Nome Genitore": mapped.parentFirstName || "",
+    "Cognome Genitore": mapped.parentLastName || "",
+    "Telefono Genitore": mapped.parentPhone || "",
+    "Email Genitore": mapped.parentEmail || "",
+    "Relazione Genitore": mapped.parentRelation || "",
+    "Nome Secondo Referente": mapped.secondaryContactFirstName || "",
+    "Cognome Secondo Referente": mapped.secondaryContactLastName || "",
+    "Telefono Secondo Referente": mapped.secondaryContactPhone || "",
+    "Email Secondo Referente": mapped.secondaryContactEmail || "",
+    "Relazione Secondo Referente": mapped.secondaryContactRelation || "",
     Tesserato: mapped.registered ? "Si" : "",
   };
 }

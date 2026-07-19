@@ -1133,6 +1133,19 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   { key: "Posizione", label: "Posizione" },
                   { key: "N° Maglia", label: "N° Maglia" },
                   { key: "Data di Nascita", label: "Data Nascita" },
+                  { key: "Telefono", label: "Telefono" },
+                  { key: "Email", label: "Email" },
+                  { key: "Telefono riferito a", label: "Tel. riferito a" },
+                  { key: "Nome Genitore", label: "Nome Genitore" },
+                  { key: "Cognome Genitore", label: "Cognome Genitore" },
+                  { key: "Telefono Genitore", label: "Tel. Genitore" },
+                  { key: "Email Genitore", label: "Email Genitore" },
+                  { key: "Relazione Genitore", label: "Relazione" },
+                  { key: "Nome Secondo Referente", label: "Nome 2Â° referente" },
+                  { key: "Cognome Secondo Referente", label: "Cognome 2Â° referente" },
+                  { key: "Telefono Secondo Referente", label: "Tel. 2Â° referente" },
+                  { key: "Email Secondo Referente", label: "Email 2Â° referente" },
+                  { key: "Relazione Secondo Referente", label: "Relazione 2Â°" },
                   { key: "Tesserato", label: "Tesserato" },
                 ]}
                 onDownloadTemplate={downloadPlayerTemplate}
@@ -1396,24 +1409,24 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingPlayer} onOpenChange={(o) => !o && setEditingPlayer(null)}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[720px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{playerDialogMode === "edit" ? t.editPlayer : "Scheda giocatore"}</DialogTitle>
           </DialogHeader>
           {editingPlayer && (
             playerDialogMode === "view" ? (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
-              <div className="flex items-start gap-3 rounded-lg border bg-muted/20 p-3">
+              <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center">
                 {editForm.watch("imageUrl") ? (
-                  <img src={editForm.watch("imageUrl") ?? ""} alt="Giocatore" className="h-16 w-16 rounded-md object-cover border" />
+                  <img src={editForm.watch("imageUrl") ?? ""} alt="Giocatore" className="h-32 w-32 shrink-0 rounded-lg border bg-background object-cover shadow-sm sm:h-36 sm:w-36" />
                 ) : (
-                  <div className="h-16 w-16 rounded-md border bg-background flex items-center justify-center text-muted-foreground">
-                    <User className="h-7 w-7" />
+                  <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground shadow-sm sm:h-36 sm:w-36">
+                    <User className="h-14 w-14" />
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-base font-semibold">{playerName(editingPlayer, nameOrder)}</h3>
-                  <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                  <h3 className="text-xl font-semibold leading-tight sm:text-2xl">{playerName(editingPlayer, nameOrder)}</h3>
+                  <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
                     <Badge variant="secondary">{editingPlayer.teamName || t.unassigned}</Badge>
                     <Badge variant="outline">{editingPlayer.position || "Ruolo N/D"}</Badge>
                     {editingPlayer.jerseyNumber ? <Badge variant="outline">#{editingPlayer.jerseyNumber}</Badge> : null}
@@ -1522,7 +1535,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <div><span className="text-muted-foreground">Stato</span><p>{statusLabel(editingPlayer.status)}</p></div>
                   <div><span className="text-muted-foreground">Telefono</span><p>{editingPlayer.phone || "-"}</p></div>
                   <div><span className="text-muted-foreground">Email</span><p>{editingPlayer.email || "-"}</p></div>
-                  {editingPlayer.phoneOwnerType === "parent" && (
+                  {(editingPlayer.phoneOwnerType === "parent" || Boolean(editingPlayer.parentFirstName || editingPlayer.parentLastName || editingPlayer.parentPhone || editingPlayer.parentEmail || editingPlayer.parentRelation)) && (
                     <>
                       <div><span className="text-muted-foreground">Genitore/Tutore</span><p>{[editingPlayer.parentFirstName, editingPlayer.parentLastName].filter(Boolean).join(" ") || "-"}</p></div>
                       <div><span className="text-muted-foreground">Relazione</span><p>{editingPlayer.parentRelation || "-"}</p></div>
@@ -1558,7 +1571,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
             </form>
             ) : (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_1fr]">
                 <div className="space-y-2">
                   <Label>Immagine giocatore</Label>
                   <div className="flex items-center gap-3">
@@ -1566,11 +1579,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <img
                         src={editForm.watch("imageUrl") ?? ""}
                         alt="Anteprima giocatore"
-                        className="h-20 w-20 rounded-md object-cover border"
+                        className="h-36 w-36 rounded-lg border bg-background object-cover shadow-sm"
                       />
                     ) : (
-                      <div className="h-20 w-20 rounded-md border bg-muted flex items-center justify-center text-muted-foreground">
-                        <User className="h-8 w-8" />
+                      <div className="flex h-36 w-36 items-center justify-center rounded-lg border bg-muted text-muted-foreground shadow-sm">
+                        <User className="h-14 w-14" />
                       </div>
                     )}
                   </div>
@@ -1688,7 +1701,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     />
                   </div>
                 </div>
-                {watchPhoneOwnerEdit === "parent" && (
+                {(watchPhoneOwnerEdit === "parent" || Boolean(editForm.watch("parentFirstName") || editForm.watch("parentLastName") || editForm.watch("parentPhone") || editForm.watch("parentEmail") || editForm.watch("parentRelation"))) && (
                   <div className="grid grid-cols-1 gap-4 border-t pt-3 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Nome genitore</Label>
