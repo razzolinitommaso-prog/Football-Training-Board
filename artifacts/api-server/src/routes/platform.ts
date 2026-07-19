@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
-import { db, usersTable, clubsTable, clubMembershipsTable, playersTable, teamsTable, platformAnnouncementsTable, subscriptionsTable, billingPaymentsTable } from "@workspace/db";
+import { db, usersTable, clubsTable, clubMembershipsTable, playersTable, teamsTable, seasonsTable, platformAnnouncementsTable, subscriptionsTable, billingPaymentsTable } from "@workspace/db";
 import { eq, count, desc } from "drizzle-orm";
 import { requireSuperAdmin } from "../lib/auth";
 import { limitsForPlan } from "../lib/plan-limits";
+import { normalizeSeasonName } from "../lib/season-defaults";
 
 const router: IRouter = Router();
 
@@ -54,6 +55,13 @@ router.get("/platform/clubs", requireSuperAdmin, async (req, res): Promise<void>
       .orderBy(desc(billingPaymentsTable.createdAt))
       .limit(3);
 
+    const [activeSeason] = await db
+      .select()
+      .from(seasonsTable)
+      .where(eq(seasonsTable.clubId, club.id))
+      .orderBy(desc(seasonsTable.isActive), desc(seasonsTable.startDate))
+      .limit(1);
+
     return {
       ...club,
       memberCount,
@@ -61,6 +69,7 @@ router.get("/platform/clubs", requireSuperAdmin, async (req, res): Promise<void>
       teamCount,
       subscription: subscription ?? null,
       recentPayments: payments,
+      activeSeason: activeSeason ?? null,
     };
   }));
 
@@ -87,6 +96,7 @@ router.post("/platform/clubs", requireSuperAdmin, async (req, res): Promise<void
   const plan = s("planName") ?? "standard";
   const limits = limitsForPlan(plan);
   const today = new Date().toISOString().slice(0, 10);
+  const initialSeason = normalizeSeasonName(s("initialSeasonName"));
   const accessCode = String(Math.floor(1000 + Math.random() * 9000));
   const parentCode = Math.random().toString(36).slice(2, 6).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
 
@@ -111,6 +121,15 @@ router.post("/platform/clubs", requireSuperAdmin, async (req, res): Promise<void
     maxTeams: limits.maxTeams, maxPlayers: limits.maxPlayers,
   });
 
+  const [activeSeason] = await db.insert(seasonsTable).values({
+    clubId: club.id,
+    name: initialSeason.name,
+    startDate: initialSeason.startDate,
+    endDate: initialSeason.endDate,
+    isActive: true,
+    isArchived: false,
+  }).returning();
+
   let adminUser = null;
   if (adminEmail && adminPassword) {
     const passwordHash = await bcrypt.hash(adminPassword, 12);
@@ -124,7 +143,7 @@ router.post("/platform/clubs", requireSuperAdmin, async (req, res): Promise<void
   res.status(201).json({
     ...club, memberCount: adminUser ? 1 : 0, playerCount: 0, teamCount: 0,
     subscription: { planName: plan, status: "active", endDate: null },
-    recentPayments: [], adminUser,
+    recentPayments: [], activeSeason, adminUser,
   });
 });
 
@@ -134,6 +153,7 @@ router.patch("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise
 
   const body = req.body as Record<string, string | number | undefined>;
   const updates: Record<string, string | number | null> = {};
+  const requestedSeasonName = typeof body.activeSeasonName === "string" ? body.activeSeasonName.trim() : "";
 
   const fields = [
     "name", "legalName", "city", "country", "description", "foundedYear",
@@ -151,7 +171,43 @@ router.patch("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise
 
   const [updated] = await db.update(clubsTable).set(updates as any).where(eq(clubsTable.id, clubId)).returning();
   if (!updated) { res.status(404).json({ error: "Club not found" }); return; }
-  res.json(updated);
+
+  let activeSeason = null;
+  if (requestedSeasonName) {
+    const nextSeason = normalizeSeasonName(requestedSeasonName);
+    await db.update(seasonsTable).set({ isActive: false }).where(eq(seasonsTable.clubId, clubId));
+    const existing = await db
+      .select()
+      .from(seasonsTable)
+      .where(eq(seasonsTable.clubId, clubId));
+    const sameSeason = existing.find(season => season.name === nextSeason.name);
+    if (sameSeason) {
+      [activeSeason] = await db.update(seasonsTable).set({
+        startDate: nextSeason.startDate,
+        endDate: nextSeason.endDate,
+        isActive: true,
+        isArchived: false,
+      }).where(eq(seasonsTable.id, sameSeason.id)).returning();
+    } else {
+      [activeSeason] = await db.insert(seasonsTable).values({
+        clubId,
+        name: nextSeason.name,
+        startDate: nextSeason.startDate,
+        endDate: nextSeason.endDate,
+        isActive: true,
+        isArchived: false,
+      }).returning();
+    }
+  } else {
+    [activeSeason] = await db
+      .select()
+      .from(seasonsTable)
+      .where(eq(seasonsTable.clubId, clubId))
+      .orderBy(desc(seasonsTable.isActive), desc(seasonsTable.startDate))
+      .limit(1);
+  }
+
+  res.json({ ...updated, activeSeason: activeSeason ?? null });
 });
 
 router.delete("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise<void> => {

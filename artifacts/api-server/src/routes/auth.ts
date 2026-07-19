@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
-import { db, usersTable, clubsTable, clubMembershipsTable, subscriptionsTable } from "@workspace/db";
+import { db, usersTable, clubsTable, clubMembershipsTable, seasonsTable, subscriptionsTable } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import {
   RegisterUserBody,
@@ -12,6 +12,7 @@ import {
 import { createAuthToken, requireAuth } from "../lib/auth";
 import { normalizeSessionRole } from "../lib/club-scope";
 import { limitsForPlan } from "../lib/plan-limits";
+import { normalizeSeasonName } from "../lib/season-defaults";
 
 const router: IRouter = Router();
 
@@ -68,6 +69,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   const plan = planName ?? "standard";
   const limits = limitsForPlan(plan);
   const today = new Date().toISOString().slice(0, 10);
+  const initialSeason = normalizeSeasonName((req.body as { initialSeasonName?: string }).initialSeasonName);
 
   const [club] = await db
     .insert(clubsTable)
@@ -116,6 +118,15 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     paymentMethod: paymentMethod ?? null,
     maxTeams: limits.maxTeams,
     maxPlayers: limits.maxPlayers,
+  });
+
+  await db.insert(seasonsTable).values({
+    clubId: club.id,
+    name: initialSeason.name,
+    startDate: initialSeason.startDate,
+    endDate: initialSeason.endDate,
+    isActive: true,
+    isArchived: false,
   });
 
   req.session.userId = user.id;

@@ -4,7 +4,7 @@ import {
   Shield, LayoutDashboard, Building2, MessageSquare, CreditCard,
   LogOut, Users, Trophy, Dumbbell, Trash2, Send, RefreshCw,
   TrendingUp, CheckCircle, Clock, AlertTriangle, X, Menu,
-  Bell, Globe, Plus, Copy, FileText, MapPin, Phone, Mail, Receipt, User, Pencil
+  Bell, Globe, Plus, Copy, FileText, MapPin, Phone, Mail, Receipt, User, Pencil, CalendarDays
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,6 +75,7 @@ type Club = {
   playerCount: number;
   teamCount: number;
   subscription: { planName: string; status: string; endDate: string | null; paymentMethod?: string | null } | null;
+  activeSeason: { id: number; name: string; startDate: string; endDate: string; isActive: boolean } | null;
   recentPayments: { id: number; amount: number; status: string; paymentDate: string | null; description: string | null }[];
 };
 
@@ -531,6 +532,12 @@ const paymentMethods = [
   { value: "altro",    label: "Altro" },
 ];
 
+function currentSeasonName(date = new Date()) {
+  const year = date.getFullYear();
+  const startYear = date.getMonth() >= 6 ? year : year - 1;
+  return `${startYear}/${startYear + 1}`;
+}
+
 type ClubFormData = {
   // Admin user
   adminFirstName: string; adminLastName: string; adminEmail: string; adminPassword: string;
@@ -542,6 +549,7 @@ type ClubFormData = {
   legalAddress: string; legalCity: string; legalZip: string; legalProvince: string;
   operationalAddress: string; operationalCity: string; operationalZip: string; operationalProvince: string;
   contactName: string; contactPhone: string; contactEmail: string;
+  initialSeasonName: string;
   // Plan & payment
   planName: string; paymentMethod: string;
 };
@@ -555,6 +563,7 @@ const emptyForm = (): ClubFormData => ({
   legalAddress: "", legalCity: "", legalZip: "", legalProvince: "",
   operationalAddress: "", operationalCity: "", operationalZip: "", operationalProvince: "",
   contactName: "", contactPhone: "", contactEmail: "",
+  initialSeasonName: currentSeasonName(),
   planName: "standard", paymentMethod: "bonifico",
 });
 
@@ -705,6 +714,16 @@ function CreateClubDialog({ open, onClose, onCreated }: {
             <FieldRow label="Descrizione">
               <Textarea value={form.description} onChange={set("description")} rows={2} placeholder="Note o descrizione del club..." className="bg-white/5 border-white/10 text-white placeholder:text-gray-600 text-sm resize-none" />
             </FieldRow>
+
+            <SectionHeader icon={CalendarDays} label="Stagione iniziale" />
+            <div className="grid grid-cols-2 gap-4">
+              <FieldRow label="Stagione attiva *">
+                <Input value={form.initialSeasonName} onChange={set("initialSeasonName")} required placeholder="Es. 2026/2027" className={inputClass} />
+              </FieldRow>
+              <div className="text-xs text-gray-500 flex items-end pb-2">
+                La societa nasce con questa stagione attiva. Le date saranno 1 luglio - 30 giugno.
+              </div>
+            </div>
 
             <SectionHeader icon={Receipt} label="Dati Fiscali & Fatturazione" />
             <div className="grid grid-cols-2 gap-4">
@@ -869,6 +888,7 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
     contactName: club.contactName ?? "",
     contactPhone: club.contactPhone ?? "",
     contactEmail: club.contactEmail ?? "",
+    activeSeasonName: club.activeSeason?.name ?? currentSeasonName(),
     planName: club.subscription?.planName ?? "standard",
     paymentMethod: club.subscription?.paymentMethod ?? "bonifico",
   });
@@ -918,6 +938,16 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
           <FieldRow label="Descrizione">
             <Textarea value={form.description} onChange={set("description")} rows={2} placeholder="Note o descrizione del club..." className="bg-white/5 border-white/10 text-white placeholder:text-gray-600 text-sm resize-none" />
           </FieldRow>
+
+          <SectionHeader icon={CalendarDays} label="Stagione attiva" />
+          <div className="grid grid-cols-2 gap-4">
+            <FieldRow label="Stagione società">
+              <Input value={form.activeSeasonName} onChange={set("activeSeasonName")} placeholder="Es. 2026/2027" className={inputClass} />
+            </FieldRow>
+            <div className="text-xs text-gray-500 flex items-end pb-2">
+              Se la stagione non esiste viene creata e impostata come attiva per questa societa.
+            </div>
+          </div>
 
           <SectionHeader icon={Receipt} label="Dati Fiscali & Fatturazione" />
           <div className="grid grid-cols-2 gap-4">
@@ -1078,6 +1108,11 @@ function ClubsTab({ clubs, onDelete, onRefresh, onCreated, onUpdated }: {
                     {club.accessCode && (
                       <span className="text-xs text-gray-500">
                         Codice: <span className="font-mono text-gray-400">{club.accessCode}</span>
+                      </span>
+                    )}
+                    {club.activeSeason && (
+                      <span className="text-xs text-emerald-400 flex items-center gap-1">
+                        <CalendarDays className="w-3 h-3" />Stagione {club.activeSeason.name}
                       </span>
                     )}
                   </div>
