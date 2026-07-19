@@ -16,8 +16,48 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, gte, lte, asc, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
+import { normalizeSessionRole } from "../lib/club-scope";
 
 const router: IRouter = Router();
+
+const PAYMENT_VIEW_ROLES = new Set(["admin", "presidente", "director", "secretary"]);
+const PAYMENT_EDIT_ROLES = new Set(["secretary"]);
+
+function canViewFinancials(role?: string | null): boolean {
+  return PAYMENT_VIEW_ROLES.has(normalizeSessionRole(role));
+}
+
+function canEditFinancials(role?: string | null): boolean {
+  return PAYMENT_EDIT_ROLES.has(normalizeSessionRole(role));
+}
+
+function todayDateOnly(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function enforcePaymentAvailability(clubId: number, playerId: number) {
+  const today = todayDateOnly();
+  const overdue = await db
+    .select({ id: playerPaymentsTable.id })
+    .from(playerPaymentsTable)
+    .where(and(
+      eq(playerPaymentsTable.clubId, clubId),
+      eq(playerPaymentsTable.playerId, playerId),
+      sql`${playerPaymentsTable.availabilityBlocking} = 1`,
+      sql`${playerPaymentsTable.status} <> 'paid'`,
+      sql`${playerPaymentsTable.dueDate} is not null`,
+      lte(playerPaymentsTable.dueDate, today),
+    ))
+    .limit(1);
+
+  if (overdue.length > 0) {
+    await db.update(playersTable).set({
+      available: false,
+      unavailabilityReason: "payment",
+      expectedReturn: null,
+    }).where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)));
+  }
+}
 
 async function ensureClubNotificationUserState(notificationId: number, userId: number, trashed: boolean) {
   const [existing] = await db
@@ -107,6 +147,10 @@ router.delete("/registrations/:id", requireAuth, async (req, res): Promise<void>
 });
 
 router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
+  if (!canViewFinancials(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato a vedere i pagamenti" });
+    return;
+  }
   const clubId = req.session.clubId!;
   let where: any = eq(playerPaymentsTable.clubId, clubId);
   if (req.session.section) {
@@ -120,31 +164,56 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/player-payments", requireAuth, async (req, res): Promise<void> => {
-  const { playerId, amount, dueDate, status, description } = req.body;
+  if (!canEditFinancials(req.session.role)) {
+    res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });
+    return;
+  }
+  const { playerId, amount, dueDate, status, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking } = req.body;
   if (!playerId || amount == null) { res.status(400).json({ error: "playerId and amount required" }); return; }
   const [record] = await db.insert(playerPaymentsTable).values({
     clubId: req.session.clubId!, playerId: Number(playerId), amount: Number(amount),
     dueDate: dueDate ?? null, status: status ?? "pending", description: description ?? null,
+    paymentType: paymentType ?? "annual_fee_installment",
+    installmentNumber: installmentNumber ? Number(installmentNumber) : null,
+    totalInstallments: totalInstallments ? Number(totalInstallments) : null,
+    annualFeeTotal: annualFeeTotal != null ? Number(annualFeeTotal) : null,
+    availabilityBlocking: availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1,
   }).returning();
+  await enforcePaymentAvailability(req.session.clubId!, Number(playerId));
   res.status(201).json(record);
 });
 
 router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditFinancials(req.session.role)) {
+    res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const { status, paymentDate, amount, description } = req.body;
+  const { status, paymentDate, amount, description, dueDate, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking } = req.body;
   const updates: Record<string, unknown> = {};
   if (status !== undefined) updates.status = status;
   if (paymentDate !== undefined) updates.paymentDate = paymentDate;
   if (amount !== undefined) updates.amount = Number(amount);
   if (description !== undefined) updates.description = description;
+  if (dueDate !== undefined) updates.dueDate = dueDate;
+  if (paymentType !== undefined) updates.paymentType = paymentType;
+  if (installmentNumber !== undefined) updates.installmentNumber = installmentNumber != null ? Number(installmentNumber) : null;
+  if (totalInstallments !== undefined) updates.totalInstallments = totalInstallments != null ? Number(totalInstallments) : null;
+  if (annualFeeTotal !== undefined) updates.annualFeeTotal = annualFeeTotal != null ? Number(annualFeeTotal) : null;
+  if (availabilityBlocking !== undefined) updates.availabilityBlocking = availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1;
   const [record] = await db.update(playerPaymentsTable).set(updates)
     .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!))).returning();
   if (!record) { res.status(404).json({ error: "Not found" }); return; }
+  await enforcePaymentAvailability(req.session.clubId!, record.playerId);
   res.json(record);
 });
 
 router.delete("/player-payments/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditFinancials(req.session.role)) {
+    res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });
+    return;
+  }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   await db.delete(playerPaymentsTable).where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!)));

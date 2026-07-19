@@ -38,6 +38,11 @@ export const playerPaymentsTable = pgTable("player_payments", {
   dueDate: date("due_date"),
   status: text("status").notNull().default("pending"),
   paymentDate: date("payment_date"),
+  paymentType: text("payment_type").notNull().default("annual_fee_installment"),
+  installmentNumber: integer("installment_number"),
+  totalInstallments: integer("total_installments"),
+  annualFeeTotal: real("annual_fee_total"),
+  availabilityBlocking: integer("availability_blocking").notNull().default(1),
   description: text("description"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

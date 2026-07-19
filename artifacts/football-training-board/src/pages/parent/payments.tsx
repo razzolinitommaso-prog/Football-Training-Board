@@ -120,7 +120,7 @@ export default function ParentPayments() {
                       )}
                     </div>
                     <div className="text-right shrink-0">
-                      {pmt.amount && <p className="font-semibold text-sm">€{(pmt.amount / 100).toFixed(2)}</p>}
+                      {pmt.amount != null && <p className="font-semibold text-sm">Euro {Number(pmt.amount).toFixed(2)}</p>}
                       <StatusBadge status={pmt.status} />
                     </div>
                   </div>

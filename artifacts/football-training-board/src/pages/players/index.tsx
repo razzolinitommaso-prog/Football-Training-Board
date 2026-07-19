@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2 } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -151,6 +151,91 @@ type PlayerDocument = {
   notes?: string | null;
 };
 
+type PlayerPayment = {
+  id: number;
+  playerId: number;
+  amount: number;
+  dueDate?: string | null;
+  status: string;
+  paymentDate?: string | null;
+  description?: string | null;
+  paymentType?: string | null;
+  installmentNumber?: number | null;
+  totalInstallments?: number | null;
+  annualFeeTotal?: number | null;
+  availabilityBlocking?: number | null;
+};
+
+type PlayerEquipment = {
+  id: number;
+  playerId: number;
+  kitAssigned?: string | null;
+  trainingKit?: string | null;
+  matchKit?: string | null;
+  notes?: string | null;
+};
+
+type KitRow = {
+  key: string;
+  label: string;
+  area: "training" | "match" | "representation";
+  price: string;
+  ordered: boolean;
+  arrived: boolean;
+};
+
+const KIT_ITEMS: Array<Pick<KitRow, "key" | "label" | "area">> = [
+  { key: "training_socks", label: "Calzettone allenamento", area: "training" },
+  { key: "training_shorts", label: "Pantaloncino allenamento", area: "training" },
+  { key: "training_shirt", label: "Maglietta allenamento", area: "training" },
+  { key: "k_way", label: "K-Way", area: "training" },
+  { key: "winter_tracksuit", label: "Tuta invernale allenamento", area: "training" },
+  { key: "winter_pants", label: "Pantalone invernale", area: "training" },
+  { key: "winter_pinocchietto", label: "Pinocchietto invernale", area: "training" },
+  { key: "winter_sweatshirt", label: "Felpa invernale allenamento", area: "training" },
+  { key: "match_shorts", label: "Pantaloncino gara", area: "match" },
+  { key: "match_socks", label: "Calzettone gara", area: "match" },
+  { key: "match_shirt", label: "Maglietta gara", area: "match" },
+  { key: "rep_tracksuit", label: "Tuta completa rappresentanza", area: "representation" },
+  { key: "rep_pants_sweatshirt", label: "Pantalone + felpa rappresentanza", area: "representation" },
+  { key: "rep_polo", label: "Polo di rappresentanza", area: "representation" },
+  { key: "rep_jacket", label: "Giubbotto", area: "representation" },
+];
+
+function defaultKitRows(): KitRow[] {
+  return KIT_ITEMS.map((item) => ({ ...item, price: "", ordered: false, arrived: false }));
+}
+
+function parseKitRows(raw: string | null | undefined): KitRow[] {
+  if (!raw) return defaultKitRows();
+  try {
+    const parsed = JSON.parse(raw) as Partial<KitRow>[];
+    if (!Array.isArray(parsed)) return defaultKitRows();
+    return defaultKitRows().map((base) => {
+      const saved = parsed.find((row) => row.key === base.key);
+      return {
+        ...base,
+        price: saved?.price != null ? String(saved.price) : "",
+        ordered: saved?.ordered === true,
+        arrived: saved?.arrived === true,
+      };
+    });
+  } catch {
+    return defaultKitRows();
+  }
+}
+
+function serializeKitRows(rows: KitRow[]): string {
+  return JSON.stringify(rows.map((row) => ({
+    key: row.key,
+    label: row.label,
+    area: row.area,
+    price: row.price,
+    ordered: row.ordered,
+    arrived: row.arrived,
+  })));
+}
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -247,6 +332,7 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
   if (reason === "illness") return t.illness;
   if (reason === "injury") return t.injuryReason;
   if (reason === "vacation") return t.vacationReason;
+  if (reason === "payment") return "Autorizzazione societaria";
   if (reason === "other") return t.otherReason;
   return reason || "—";
 }
@@ -490,6 +576,25 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return res.json();
     },
   });
+  const canViewFinancials = ["admin", "presidente", "director", "secretary"].includes(nr);
+  const { data: playerPayments = [] } = useQuery<PlayerPayment[]>({
+    queryKey: ["/api/player-payments"],
+    enabled: canViewFinancials,
+    queryFn: async () => {
+      const res = await fetch(withApi("/api/player-payments"), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load player payments");
+      return res.json();
+    },
+  });
+  const { data: playerEquipment = [] } = useQuery<PlayerEquipment[]>({
+    queryKey: ["/api/equipment"],
+    enabled: canViewFinancials,
+    queryFn: async () => {
+      const res = await fetch(withApi("/api/equipment"), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load player equipment");
+      return res.json();
+    },
+  });
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState("all");
   const [availabilityFilter, setAvailabilityFilter] = useState("all");
@@ -523,6 +628,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentNotes, setDocumentNotes] = useState("");
   const [isUploadingDocument, setIsUploadingDocument] = useState(false);
+  const [annualFeeTotal, setAnnualFeeTotal] = useState("");
+  const [installmentCount, setInstallmentCount] = useState("1");
+  const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
+  const [isSavingInstallments, setIsSavingInstallments] = useState(false);
+  const [kitRows, setKitRows] = useState<KitRow[]>(defaultKitRows);
+  const [kitNotes, setKitNotes] = useState("");
+  const [isSavingKit, setIsSavingKit] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canManagePlayers = nr === "secretary" || nr === "sporting_director";
@@ -530,6 +642,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const canWritePlayerNotes = ["admin", "presidente", "director", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(nr);
   const isLimitedEditor = !canManagePlayers && canWritePlayerNotes;
   const canEditFullPlayer = canManagePlayers && playerDialogMode === "edit";
+  const canEditFinancials = nr === "secretary" && playerDialogMode === "edit";
   const canEditAvailability = canManagePlayers && playerDialogMode === "edit";
   const canEditRoleAndSquad = canManagePlayers && playerDialogMode === "edit";
   const canUploadPlayerImage = canManagePlayers && playerDialogMode === "edit";
@@ -541,6 +654,18 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const editingPlayerDocuments = editingPlayer
     ? playerDocuments.filter((doc) => doc.playerId === editingPlayer.id)
     : [];
+  const editingPlayerPayments = editingPlayer
+    ? playerPayments.filter((payment) => payment.playerId === editingPlayer.id)
+    : [];
+  const editingPlayerEquipment = editingPlayer
+    ? playerEquipment.find((item) => item.playerId === editingPlayer.id)
+    : undefined;
+  const displayedKitRows = editingPlayerEquipment ? parseKitRows(editingPlayerEquipment.trainingKit) : kitRows;
+  const kitTotal = displayedKitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0);
+  const overduePlayerPayments = editingPlayerPayments.filter((payment) => {
+    if (payment.status === "paid" || !payment.dueDate) return false;
+    return payment.dueDate <= new Date().toISOString().slice(0, 10);
+  });
   const editingMedicalCertificate = editingPlayerDocuments
     .filter((doc) => doc.type === "medicalCertificate")
     .sort((a, b) => String(b.expiryDate ?? "").localeCompare(String(a.expiryDate ?? "")))[0] ?? null;
@@ -776,6 +901,92 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     toast({ title: "Documento eliminato" });
   };
 
+  const createAnnualFeeInstallments = async () => {
+    if (!editingPlayer || !canEditFinancials) return;
+    const total = Number(annualFeeTotal);
+    const count = Math.max(1, Math.floor(Number(installmentCount) || 1));
+    if (!Number.isFinite(total) || total <= 0) {
+      toast({ title: "Inserisci una quota valida", variant: "destructive" });
+      return;
+    }
+    const baseDate = firstInstallmentDueDate ? new Date(`${firstInstallmentDueDate}T00:00:00`) : new Date();
+    if (Number.isNaN(baseDate.getTime())) {
+      toast({ title: "Scadenza non valida", variant: "destructive" });
+      return;
+    }
+    setIsSavingInstallments(true);
+    try {
+      const cents = Math.round(total * 100);
+      const baseCents = Math.floor(cents / count);
+      let assignedCents = 0;
+      for (let index = 0; index < count; index++) {
+        const due = new Date(baseDate);
+        due.setMonth(baseDate.getMonth() + index);
+        const installmentCents = index === count - 1 ? cents - assignedCents : baseCents;
+        assignedCents += installmentCents;
+        const installmentAmount = installmentCents / 100;
+        const res = await fetch(withApi("/api/player-payments"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            playerId: editingPlayer.id,
+            amount: installmentAmount,
+            dueDate: due.toISOString().slice(0, 10),
+            status: "pending",
+            description: `Quota annuale - rata ${index + 1}/${count}`,
+            paymentType: "annual_fee_installment",
+            installmentNumber: index + 1,
+            totalInstallments: count,
+            annualFeeTotal: total,
+            availabilityBlocking: 1,
+          }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+      }
+      setAnnualFeeTotal("");
+      setInstallmentCount("1");
+      setFirstInstallmentDueDate("");
+      queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+      toast({ title: "Rate quota create" });
+    } catch {
+      toast({ title: "Errore creazione rate", variant: "destructive" });
+    } finally {
+      setIsSavingInstallments(false);
+    }
+  };
+
+  const updateKitRow = (key: string, patch: Partial<KitRow>) => {
+    setKitRows((rows) => rows.map((row) => row.key === key ? { ...row, ...patch } : row));
+  };
+
+  const savePlayerKit = async () => {
+    if (!editingPlayer || !canEditFinancials) return;
+    setIsSavingKit(true);
+    try {
+      const res = await fetch(withApi("/api/equipment"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playerId: editingPlayer.id,
+          kitAssigned: editingPlayer.jerseyNumber ? String(editingPlayer.jerseyNumber) : null,
+          trainingKit: serializeKitRows(kitRows),
+          matchKit: serializeKitRows(kitRows.filter((row) => row.area === "match")),
+          notes: kitNotes || null,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      toast({ title: "Kit giocatore salvato" });
+    } catch {
+      toast({ title: "Errore salvataggio kit", variant: "destructive" });
+    } finally {
+      setIsSavingKit(false);
+    }
+  };
+
   const handleBulkDeletePlayers = async () => {
     const ids = selectedPlayerIds.filter((id) => (filteredPlayers ?? []).some((player) => player.id === id));
     if (!ids.length || !canDeletePlayer) return;
@@ -818,6 +1029,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     }
   }, [watchRegisteredCreate, watchMedicalCertificateCreate, form]);
 
+  useEffect(() => {
+    if (!editingPlayer) {
+      setKitRows(defaultKitRows());
+      setKitNotes("");
+      return;
+    }
+    setKitRows(parseKitRows(editingPlayerEquipment?.trainingKit));
+    setKitNotes(editingPlayerEquipment?.notes ?? "");
+  }, [editingPlayer, editingPlayerEquipment?.trainingKit, editingPlayerEquipment?.notes]);
+
   const openPlayerDialog = (player: Player, mode: "view" | "edit" = "view") => {
     setPlayerDialogMode(mode);
     setEditingPlayer(player);
@@ -828,6 +1049,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setNoteRequiresResponse(false);
     setNoteRecipient("secretary");
     resetDocumentForm();
+    setKitRows(parseKitRows(playerEquipment.find((item) => item.playerId === player.id)?.trainingKit));
+    setKitNotes(playerEquipment.find((item) => item.playerId === player.id)?.notes ?? "");
     editForm.reset({
       firstName: player.firstName,
       lastName: player.lastName,
@@ -1560,6 +1783,68 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </details>
               )}
 
+              {canViewFinancials && (
+                <details className="rounded-lg border p-3" open={overduePlayerPayments.length > 0}>
+                  <summary className="cursor-pointer text-sm font-semibold">Quote e rate</summary>
+                  <div className="mt-3 space-y-2 text-sm">
+                    {overduePlayerPayments.length > 0 && (
+                      <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        Sono presenti rate scadute non versate: il giocatore risulta non disponibile.
+                      </div>
+                    )}
+                    {editingPlayerPayments.length === 0 ? (
+                      <p className="text-muted-foreground">Nessuna quota registrata.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {editingPlayerPayments.map((payment) => (
+                          <div key={payment.id} className="flex flex-col gap-1 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="font-medium">{payment.description || "Quota giocatore"}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {payment.dueDate ? `Scadenza ${payment.dueDate}` : "Senza scadenza"}
+                                {payment.installmentNumber && payment.totalInstallments ? ` - rata ${payment.installmentNumber}/${payment.totalInstallments}` : ""}
+                              </p>
+                            </div>
+                            <div className="text-sm font-semibold">
+                              Euro {Number(payment.amount ?? 0).toFixed(2)} - {payment.status === "paid" ? "Versata" : "Non versata"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+
+              {canViewFinancials && (
+                <details className="rounded-lg border p-3">
+                  <summary className="cursor-pointer text-sm font-semibold">Kit</summary>
+                  <div className="mt-3 space-y-2 text-sm">
+                    <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                      <span className="text-muted-foreground">Totale kit</span>
+                      <span className="font-semibold">Euro {kitTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="space-y-2">
+                      {displayedKitRows.filter((row) => row.price || row.ordered || row.arrived).length === 0 ? (
+                        <p className="text-muted-foreground">Nessun kit registrato.</p>
+                      ) : displayedKitRows.filter((row) => row.price || row.ordered || row.arrived).map((row) => (
+                        <div key={row.key} className="flex flex-col gap-1 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="font-medium">{row.label}</p>
+                            <p className="text-xs text-muted-foreground">{row.area === "training" ? "Allenamento" : row.area === "match" ? "Gara" : "Rappresentanza"}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            <Badge variant="outline">Euro {(Number(row.price) || 0).toFixed(2)}</Badge>
+                            <Badge variant={row.ordered ? "default" : "secondary"}>{row.ordered ? "Ordinato" : "Non ordinato"}</Badge>
+                            <Badge variant={row.arrived ? "default" : "secondary"}>{row.arrived ? "Arrivato" : "Non arrivato"}</Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </details>
+              )}
+
               <DialogFooter className="pt-2">
                 <Button type="button" variant="outline" onClick={() => setEditingPlayer(null)}>{t.cancel}</Button>
                 {canWritePlayerNotes && (
@@ -1658,6 +1943,60 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 >
                   Scambia nome/cognome
                 </Button>
+              )}
+
+              {canViewFinancials && (
+                <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-muted-foreground" />
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kit</p>
+                    </div>
+                    <Badge variant="outline">Totale Euro {kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0).toFixed(2)}</Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {(["training", "match", "representation"] as const).map((area) => (
+                      <div key={area} className="rounded-md border bg-background p-3">
+                        <p className="mb-2 text-sm font-semibold">
+                          {area === "training" ? "Kit allenamento" : area === "match" ? "Kit gara" : "Kit rappresentanza"}
+                        </p>
+                        <div className="space-y-2">
+                          {kitRows.filter((row) => row.area === area).map((row) => (
+                            <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border px-3 py-2 sm:grid-cols-[1fr_120px_100px_100px] sm:items-center">
+                              <span className="text-sm font-medium">{row.label}</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="Prezzo"
+                                value={row.price}
+                                onChange={(e) => updateKitRow(row.key, { price: e.target.value })}
+                                disabled={!canEditFinancials}
+                              />
+                              <label className="flex items-center gap-2 text-sm">
+                                <Checkbox checked={row.ordered} onCheckedChange={(v) => updateKitRow(row.key, { ordered: v === true })} disabled={!canEditFinancials} />
+                                Ordinato
+                              </label>
+                              <label className="flex items-center gap-2 text-sm">
+                                <Checkbox checked={row.arrived} onCheckedChange={(v) => updateKitRow(row.key, { arrived: v === true })} disabled={!canEditFinancials} />
+                                Arrivato
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Note kit</Label>
+                    <Textarea value={kitNotes} onChange={(e) => setKitNotes(e.target.value)} disabled={!canEditFinancials} />
+                  </div>
+                  {canEditFinancials && (
+                    <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingKit} onClick={() => void savePlayerKit()}>
+                      <Package className="h-4 w-4" />
+                      {isSavingKit ? "Salvataggio..." : "Salva kit"}
+                    </Button>
+                  )}
+                </div>
               )}
 
               <div className="grid grid-cols-2 gap-4">
@@ -1892,6 +2231,70 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <Input type="number" {...editForm.register("jerseyNumber")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
+
+              {canViewFinancials && (
+                <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Banknote className="h-4 w-4 text-muted-foreground" />
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quote e rate</p>
+                  </div>
+                  {overduePlayerPayments.length > 0 && (
+                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      Rata scaduta non versata: il giocatore viene bloccato automaticamente.
+                    </div>
+                  )}
+                  {canEditFinancials && (
+                    <div className="grid grid-cols-1 gap-3 rounded-md border bg-background p-3 sm:grid-cols-4">
+                      <div className="space-y-2">
+                        <Label>Quota totale</Label>
+                        <Input type="number" step="0.01" value={annualFeeTotal} onChange={(e) => setAnnualFeeTotal(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Numero rate</Label>
+                        <Input type="number" min={1} value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Importo rata</Label>
+                        <Input
+                          value={Number(installmentCount) > 0 && Number(annualFeeTotal) > 0 ? (Number(annualFeeTotal) / Number(installmentCount)).toFixed(2) : ""}
+                          readOnly
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Prima scadenza</Label>
+                        <Input type="date" value={firstInstallmentDueDate} onChange={(e) => setFirstInstallmentDueDate(e.target.value)} />
+                      </div>
+                      <div className="sm:col-span-4">
+                        <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingInstallments} onClick={() => void createAnnualFeeInstallments()}>
+                          <Banknote className="h-4 w-4" />
+                          {isSavingInstallments ? "Salvataggio..." : "Crea rate quota"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {editingPlayerPayments.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">Nessuna quota registrata.</p>
+                    ) : editingPlayerPayments.map((payment) => (
+                      <div key={payment.id} className="flex flex-col gap-2 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{payment.description || "Quota giocatore"}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {payment.dueDate ? `Scadenza ${payment.dueDate}` : "Senza scadenza"}
+                            {payment.installmentNumber && payment.totalInstallments ? ` - rata ${payment.installmentNumber}/${payment.totalInstallments}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold">Euro {Number(payment.amount ?? 0).toFixed(2)}</span>
+                          <Badge variant={payment.status === "paid" ? "default" : overduePlayerPayments.some((p) => p.id === payment.id) ? "destructive" : "secondary"}>
+                            {payment.status === "paid" ? "Versata" : "Non versata"}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

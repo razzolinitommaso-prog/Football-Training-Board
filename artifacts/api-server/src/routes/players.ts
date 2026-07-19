@@ -354,6 +354,13 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   if (PLAYER_MANAGE_ROLES.includes(role)) {
     enforcePlayerAvailabilityRules(updateData, existingPlayer);
   }
+  if (existingPlayer.unavailabilityReason === "payment" && role !== "admin" && role !== "presidente" && role !== "director") {
+    if (updateData.available === true) {
+      delete updateData.available;
+      delete updateData.unavailabilityReason;
+      delete updateData.expectedReturn;
+    }
+  }
   if (updateData.status === "injured") {
     updateData.available = false;
     if (!updateData.unavailabilityReason) updateData.unavailabilityReason = "injury";
