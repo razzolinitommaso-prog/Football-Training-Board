@@ -134,7 +134,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             className={isTacticalBoardRoute ? "relative flex-1 overflow-auto overscroll-contain" : "relative flex-1 overflow-auto overscroll-contain p-3 sm:p-6 lg:p-8"}
           >
             {clubLogoUrl && backgroundLogoEnabled && !isTacticalBoardRoute && (
-              <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+              <div className="pointer-events-none sticky top-0 z-0 -mx-3 -mb-[100svh] h-[100svh] min-h-[100svh] overflow-hidden sm:-mx-6 lg:-mx-8">
                 {backgroundLogoMode === "repeat" ? (
                   <div
                     className="absolute inset-0"
@@ -142,7 +142,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                       opacity: backgroundLogoOpacity,
                       backgroundImage: `url(${clubLogoUrl})`,
                       backgroundRepeat: "repeat",
-                      backgroundSize: "180px 180px",
+                      backgroundSize: "clamp(150px, 16vw, 240px) clamp(150px, 16vw, 240px)",
                       backgroundPosition: "center",
                     }}
                   />
@@ -151,7 +151,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     src={clubLogoUrl}
                     alt=""
                     aria-hidden="true"
-                    className="absolute left-1/2 top-1/2 h-[92vh] max-h-[1040px] min-h-[620px] w-auto -translate-x-1/2 -translate-y-1/2"
+                    className="absolute left-1/2 top-1/2 h-[min(112svh,1180px)] min-h-[min(760px,92svh)] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 object-contain"
                     style={{ opacity: backgroundLogoOpacity }}
                   />
                 )}
