@@ -193,6 +193,24 @@ type InstallmentDraft = {
   dueDate: string;
 };
 
+const MAX_PLAYER_PAYMENT_AMOUNT = 20000;
+
+function parseEuroInput(value: string | number | null | undefined): number {
+  if (value == null) return Number.NaN;
+  const normalized = String(value).trim().replace(/\s/g, "").replace(",", ".");
+  if (!normalized) return Number.NaN;
+  return Number(normalized);
+}
+
+function isSafePlayerPaymentAmount(value: number): boolean {
+  return Number.isFinite(value) && value > 0 && value <= MAX_PLAYER_PAYMENT_AMOUNT;
+}
+
+function formatEuro(value: string | number | null | undefined): string {
+  const amount = Number(value ?? 0);
+  return amount.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 const KIT_ITEMS: Array<Pick<KitRow, "key" | "label" | "area">> = [
   { key: "training_socks", label: "Calzettone allenamento", area: "training" },
   { key: "training_shorts", label: "Pantaloncino allenamento", area: "training" },
@@ -246,9 +264,9 @@ function serializeKitRows(rows: KitRow[]): string {
 }
 
 function buildInstallmentDrafts(totalValue: string, countValue: string, firstDueDate: string): InstallmentDraft[] {
-  const total = Number(totalValue);
+  const total = parseEuroInput(totalValue);
   const count = Math.max(1, Math.floor(Number(countValue) || 1));
-  if (!Number.isFinite(total) || total <= 0) return [];
+  if (!isSafePlayerPaymentAmount(total)) return [];
   const cents = Math.round(total * 100);
   const baseCents = Math.floor(cents / count);
   let assigned = 0;
@@ -266,10 +284,10 @@ function buildInstallmentDrafts(totalValue: string, countValue: string, firstDue
 }
 
 function rebalanceInstallments(drafts: InstallmentDraft[], index: number, value: string, totalValue: string): InstallmentDraft[] {
-  const totalCents = Math.round((Number(totalValue) || 0) * 100);
+  const totalCents = Math.round((parseEuroInput(totalValue) || 0) * 100);
   const next = drafts.map((draft) => ({ ...draft }));
   next[index].amount = value;
-  const fixedCents = Math.round((Number(value) || 0) * 100);
+  const fixedCents = Math.round((parseEuroInput(value) || 0) * 100);
   const otherIndexes = next.map((_, i) => i).filter((i) => i !== index);
   if (!otherIndexes.length) return next;
   const remaining = Math.max(0, totalCents - fixedCents);
@@ -1005,12 +1023,46 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     toast({ title: "Documento eliminato" });
   };
 
+  const deletePlayerPayment = async (paymentId: number) => {
+    if (!canEditFinancials) return;
+    const res = await fetch(withApi(`/api/player-payments/${paymentId}`), {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      toast({ title: "Errore eliminazione quota", variant: "destructive" });
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+    toast({ title: "Quota eliminata" });
+  };
+
   const createAnnualFeeInstallments = async () => {
     if (!editingPlayer || !canEditFinancials) return;
-    const total = Number(annualFeeTotal);
-    const registrationFee = Number(registrationFeeTotal);
-    const insuranceFee = Number(insuranceFeeTotal);
-    if ((!Number.isFinite(total) || total <= 0) && (!Number.isFinite(registrationFee) || registrationFee <= 0) && (!Number.isFinite(insuranceFee) || insuranceFee <= 0)) {
+    const total = parseEuroInput(annualFeeTotal);
+    const registrationFee = parseEuroInput(registrationFeeTotal);
+    const insuranceFee = parseEuroInput(insuranceFeeTotal);
+    const shuttleFee = parseEuroInput(shuttleMonthlyCost);
+    const hasAnnualFee = isSafePlayerPaymentAmount(total);
+    const hasRegistrationFee = isSafePlayerPaymentAmount(registrationFee);
+    const hasInsuranceFee = isSafePlayerPaymentAmount(insuranceFee);
+    const hasShuttleFee = editForm.getValues("shuttleService") === true && isSafePlayerPaymentAmount(shuttleFee);
+    const invalidAmounts = [
+      annualFeeTotal && !hasAnnualFee ? "quota annuale" : "",
+      registrationFeeTotal && !hasRegistrationFee ? "quota iscrizione" : "",
+      insuranceFeeTotal && !hasInsuranceFee ? "quota assicurazione" : "",
+      shuttleMonthlyCost && editForm.getValues("shuttleService") === true && !hasShuttleFee ? "quota pulmino" : "",
+    ].filter(Boolean);
+    if (invalidAmounts.length > 0) {
+      toast({
+        title: "Importo non valido",
+        description: `Controlla ${invalidAmounts.join(", ")}. Massimo Euro ${formatEuro(MAX_PLAYER_PAYMENT_AMOUNT)}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!hasAnnualFee && !hasRegistrationFee && !hasInsuranceFee && !hasShuttleFee) {
       toast({ title: "Inserisci almeno una voce economica valida", variant: "destructive" });
       return;
     }
@@ -1030,7 +1082,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         });
         if (!res.ok) throw new Error(await res.text());
       };
-      if (Number.isFinite(registrationFee) && registrationFee > 0) {
+      if (hasRegistrationFee) {
         await createPayment({
           playerId: editingPlayer.id,
           amount: registrationFee,
@@ -1041,7 +1093,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           availabilityBlocking: 1,
         });
       }
-      if (Number.isFinite(insuranceFee) && insuranceFee > 0) {
+      if (hasInsuranceFee) {
         await createPayment({
           playerId: editingPlayer.id,
           amount: insuranceFee,
@@ -1052,10 +1104,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           availabilityBlocking: 1,
         });
       }
-      if (editForm.getValues("shuttleService") === true && Number(shuttleMonthlyCost) > 0) {
+      if (hasShuttleFee) {
         await createPayment({
           playerId: editingPlayer.id,
-          amount: Number(shuttleMonthlyCost),
+          amount: shuttleFee,
           dueDate: firstInstallmentDueDate || null,
           status: "pending",
           description: "Quota pulmino",
@@ -1063,20 +1115,32 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           availabilityBlocking: 1,
         });
       }
-      const drafts = annualInstallments.length ? annualInstallments : buildInstallmentDrafts(annualFeeTotal, installmentCount, firstInstallmentDueDate);
-      for (let index = 0; index < drafts.length; index++) {
-        const draft = drafts[index];
-        const installmentAmount = Number(draft.amount);
+      const drafts = hasAnnualFee
+        ? (annualInstallments.length ? annualInstallments : buildInstallmentDrafts(annualFeeTotal, installmentCount, firstInstallmentDueDate))
+        : [];
+      const validDrafts = drafts.filter((draft) => isSafePlayerPaymentAmount(parseEuroInput(draft.amount)));
+      const draftTotal = validDrafts.reduce((sum, draft) => sum + parseEuroInput(draft.amount), 0);
+      if (hasAnnualFee && validDrafts.length === 0) {
+        toast({ title: "Piano rate non valido", variant: "destructive" });
+        return;
+      }
+      if (hasAnnualFee && Math.abs(draftTotal - total) > 0.02) {
+        toast({ title: "Totale rate non coerente", description: "Il totale delle rate deve combaciare con la quota annuale.", variant: "destructive" });
+        return;
+      }
+      for (let index = 0; index < validDrafts.length; index++) {
+        const draft = validDrafts[index];
+        const installmentAmount = parseEuroInput(draft.amount);
         if (!Number.isFinite(installmentAmount) || installmentAmount <= 0) continue;
         await createPayment({
             playerId: editingPlayer.id,
             amount: installmentAmount,
             dueDate: draft.dueDate || null,
             status: "pending",
-            description: `Quota annuale - rata ${index + 1}/${drafts.length}`,
+            description: `Quota annuale - rata ${index + 1}/${validDrafts.length}`,
             paymentType: "annual_fee_installment",
             installmentNumber: index + 1,
-            totalInstallments: drafts.length,
+            totalInstallments: validDrafts.length,
             annualFeeTotal: total,
             availabilityBlocking: 1,
         });
@@ -2047,7 +2111,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                               </p>
                             </div>
                             <div className="text-sm font-semibold">
-                              Euro {Number(payment.amount ?? 0).toFixed(2)} - {payment.status === "paid" ? "Versata" : "Non versata"}
+                              Euro {formatEuro(payment.amount)} - {payment.status === "paid" ? "Versata" : "Non versata"}
                             </div>
                           </div>
                         ))}
@@ -2631,10 +2695,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold">Euro {Number(payment.amount ?? 0).toFixed(2)}</span>
+                          <span className="text-sm font-semibold">Euro {formatEuro(payment.amount)}</span>
                           <Badge variant={payment.status === "paid" ? "default" : overduePlayerPayments.some((p) => p.id === payment.id) ? "destructive" : "secondary"}>
                             {payment.status === "paid" ? "Versata" : "Non versata"}
                           </Badge>
+                          {canEditFinancials && (
+                            <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => void deletePlayerPayment(payment.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     ))}
