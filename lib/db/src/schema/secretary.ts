@@ -75,6 +75,23 @@ export const equipmentAssignmentsTable = pgTable("equipment_assignments", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
+export const warehouseItemsTable = pgTable("warehouse_items", {
+  id: serial("id").primaryKey(),
+  clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
+  section: text("section").notNull().default("apparel"),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  category: text("category"),
+  size: text("size"),
+  quantityAvailable: integer("quantity_available").notNull().default(0),
+  quantityReserved: integer("quantity_reserved").notNull().default(0),
+  reorderThreshold: integer("reorder_threshold").notNull().default(0),
+  supplier: text("supplier"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
 export const insertRegistrationSchema = createInsertSchema(registrationsTable).omit({ id: true, createdAt: true });
 export type InsertRegistration = z.infer<typeof insertRegistrationSchema>;
 export type Registration = typeof registrationsTable.$inferSelect;
@@ -86,3 +103,7 @@ export type PlayerPayment = typeof playerPaymentsTable.$inferSelect;
 export const insertPlayerDocumentSchema = createInsertSchema(playerDocumentsTable).omit({ id: true, createdAt: true });
 export type InsertPlayerDocument = z.infer<typeof insertPlayerDocumentSchema>;
 export type PlayerDocument = typeof playerDocumentsTable.$inferSelect;
+
+export const insertWarehouseItemSchema = createInsertSchema(warehouseItemsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWarehouseItem = z.infer<typeof insertWarehouseItemSchema>;
+export type WarehouseItem = typeof warehouseItemsTable.$inferSelect;

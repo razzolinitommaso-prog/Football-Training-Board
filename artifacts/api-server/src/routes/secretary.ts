@@ -13,6 +13,7 @@ import {
   clubNotificationsTable,
   clubNotificationReadsTable,
   clubSecretarySharedFilesTable,
+  warehouseItemsTable,
 } from "@workspace/db";
 import { eq, and, desc, gte, lte, asc, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
@@ -22,6 +23,8 @@ const router: IRouter = Router();
 
 const PAYMENT_VIEW_ROLES = new Set(["admin", "presidente", "director", "secretary"]);
 const PAYMENT_EDIT_ROLES = new Set(["secretary"]);
+const WAREHOUSE_VIEW_ROLES = new Set(["admin", "presidente", "director", "secretary", "sporting_director"]);
+const WAREHOUSE_EDIT_ROLES = new Set(["secretary"]);
 
 function canViewFinancials(role?: string | null): boolean {
   return PAYMENT_VIEW_ROLES.has(normalizeSessionRole(role));
@@ -29,6 +32,14 @@ function canViewFinancials(role?: string | null): boolean {
 
 function canEditFinancials(role?: string | null): boolean {
   return PAYMENT_EDIT_ROLES.has(normalizeSessionRole(role));
+}
+
+function canViewWarehouse(role?: string | null): boolean {
+  return WAREHOUSE_VIEW_ROLES.has(normalizeSessionRole(role));
+}
+
+function canEditWarehouse(role?: string | null): boolean {
+  return WAREHOUSE_EDIT_ROLES.has(normalizeSessionRole(role));
 }
 
 function todayDateOnly(): string {
@@ -290,6 +301,75 @@ router.delete("/player-documents/:id", requireAuth, async (req, res): Promise<vo
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   await db.delete(playerDocumentsTable).where(and(eq(playerDocumentsTable.id, id), eq(playerDocumentsTable.clubId, req.session.clubId!)));
+  res.sendStatus(204);
+});
+
+router.get("/warehouse-items", requireAuth, async (req, res): Promise<void> => {
+  if (!canViewWarehouse(req.session.role)) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+  const section = String(req.query.section ?? "");
+  const clubId = req.session.clubId!;
+  const where = section && section !== "all"
+    ? and(eq(warehouseItemsTable.clubId, clubId), eq(warehouseItemsTable.section, section))
+    : eq(warehouseItemsTable.clubId, clubId);
+  const records = await db.select().from(warehouseItemsTable).where(where).orderBy(asc(warehouseItemsTable.name), asc(warehouseItemsTable.size));
+  res.json(records);
+});
+
+router.post("/warehouse-items", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditWarehouse(req.session.role)) {
+    res.status(403).json({ error: "Solo la segreteria puo modificare il magazzino" });
+    return;
+  }
+  const { section, code, name, category, size, quantityAvailable, quantityReserved, reorderThreshold, supplier, notes } = req.body;
+  if (!code || !name) { res.status(400).json({ error: "code and name required" }); return; }
+  const [record] = await db.insert(warehouseItemsTable).values({
+    clubId: req.session.clubId!,
+    section: section === "field" ? "field" : "apparel",
+    code: String(code).trim(),
+    name: String(name).trim(),
+    category: category ? String(category).trim() : null,
+    size: size ? String(size).trim() : null,
+    quantityAvailable: Number(quantityAvailable ?? 0),
+    quantityReserved: Number(quantityReserved ?? 0),
+    reorderThreshold: Number(reorderThreshold ?? 0),
+    supplier: supplier ? String(supplier).trim() : null,
+    notes: notes ? String(notes).trim() : null,
+  }).returning();
+  res.status(201).json(record);
+});
+
+router.patch("/warehouse-items/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditWarehouse(req.session.role)) {
+    res.status(403).json({ error: "Solo la segreteria puo modificare il magazzino" });
+    return;
+  }
+  const id = parseInt(String(req.params.id));
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const updates: Record<string, unknown> = {};
+  for (const key of ["section", "code", "name", "category", "size", "supplier", "notes"] as const) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key] ? String(req.body[key]).trim() : null;
+  }
+  if (updates.section !== undefined && updates.section !== "field") updates.section = "apparel";
+  if (req.body.quantityAvailable !== undefined) updates.quantityAvailable = Number(req.body.quantityAvailable);
+  if (req.body.quantityReserved !== undefined) updates.quantityReserved = Number(req.body.quantityReserved);
+  if (req.body.reorderThreshold !== undefined) updates.reorderThreshold = Number(req.body.reorderThreshold);
+  const [record] = await db.update(warehouseItemsTable).set(updates)
+    .where(and(eq(warehouseItemsTable.id, id), eq(warehouseItemsTable.clubId, req.session.clubId!))).returning();
+  if (!record) { res.status(404).json({ error: "Not found" }); return; }
+  res.json(record);
+});
+
+router.delete("/warehouse-items/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditWarehouse(req.session.role)) {
+    res.status(403).json({ error: "Solo la segreteria puo modificare il magazzino" });
+    return;
+  }
+  const id = parseInt(String(req.params.id));
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await db.delete(warehouseItemsTable).where(and(eq(warehouseItemsTable.id, id), eq(warehouseItemsTable.clubId, req.session.clubId!)));
   res.sendStatus(204);
 });
 

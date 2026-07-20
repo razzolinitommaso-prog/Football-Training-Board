@@ -1,0 +1,285 @@
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Package, Plus, Shirt, Goal, AlertTriangle, Pencil, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { withApi } from "@/lib/api-base";
+
+type WarehouseSection = "apparel" | "field";
+
+type WarehouseItem = {
+  id: number;
+  section: WarehouseSection;
+  code: string;
+  name: string;
+  category?: string | null;
+  size?: string | null;
+  quantityAvailable: number;
+  quantityReserved: number;
+  reorderThreshold: number;
+  supplier?: string | null;
+  notes?: string | null;
+};
+
+const emptyForm = {
+  code: "",
+  name: "",
+  category: "",
+  size: "",
+  quantityAvailable: "0",
+  quantityReserved: "0",
+  reorderThreshold: "0",
+  supplier: "",
+  notes: "",
+};
+
+async function apiFetch(path: string, options?: RequestInit) {
+  const res = await fetch(withApi(path), {
+    ...options,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
+  });
+  if (!res.ok) throw new Error(await res.text());
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+function sectionLabel(section: WarehouseSection) {
+  return section === "apparel" ? "Abbigliamento" : "Materiale da campo";
+}
+
+export default function WarehousePage() {
+  const [section, setSection] = useState<WarehouseSection>("apparel");
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<WarehouseItem | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data: items = [], isLoading } = useQuery<WarehouseItem[]>({
+    queryKey: ["/api/warehouse-items", section],
+    queryFn: () => apiFetch(`/api/warehouse-items?section=${section}`),
+  });
+
+  const reorderItems = useMemo(() => items.filter((item) => {
+    const available = Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0);
+    return available <= Number(item.reorderThreshold ?? 0);
+  }), [items]);
+
+  const save = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => apiFetch(editing ? `/api/warehouse-items/${editing.id}` : "/api/warehouse-items", {
+      method: editing ? "PATCH" : "POST",
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/warehouse-items"] });
+      setEditing(null);
+      setForm(emptyForm);
+      setIsDialogOpen(false);
+      toast({ title: "Articolo magazzino salvato" });
+    },
+    onError: () => toast({ title: "Errore salvataggio magazzino", variant: "destructive" }),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/warehouse-items/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/warehouse-items"] });
+      toast({ title: "Articolo eliminato" });
+    },
+    onError: () => toast({ title: "Errore eliminazione articolo", variant: "destructive" }),
+  });
+
+  function openNew() {
+    setEditing(null);
+    setForm(emptyForm);
+    setIsDialogOpen(true);
+  }
+
+  function openEdit(item: WarehouseItem) {
+    setEditing(item);
+    setIsDialogOpen(true);
+    setForm({
+      code: item.code ?? "",
+      name: item.name ?? "",
+      category: item.category ?? "",
+      size: item.size ?? "",
+      quantityAvailable: String(item.quantityAvailable ?? 0),
+      quantityReserved: String(item.quantityReserved ?? 0),
+      reorderThreshold: String(item.reorderThreshold ?? 0),
+      supplier: item.supplier ?? "",
+      notes: item.notes ?? "",
+    });
+  }
+
+  function handleSave(event: React.FormEvent) {
+    event.preventDefault();
+    save.mutate({
+      section,
+      code: form.code,
+      name: form.name,
+      category: form.category || null,
+      size: form.size || null,
+      quantityAvailable: Number(form.quantityAvailable || 0),
+      quantityReserved: Number(form.quantityReserved || 0),
+      reorderThreshold: Number(form.reorderThreshold || 0),
+      supplier: form.supplier || null,
+      notes: form.notes || null,
+    });
+  }
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-5 p-4 sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold">
+            <Package className="h-6 w-6 text-primary" />
+            Magazzino
+          </h1>
+          <p className="text-sm text-muted-foreground">Gestisci arrivi, disponibilita, taglie e riassortimenti.</p>
+        </div>
+        <Button onClick={openNew} className="gap-2">
+          <Plus className="h-4 w-4" />
+          Nuovo articolo
+        </Button>
+      </div>
+
+      <Tabs value={section} onValueChange={(value) => setSection(value as WarehouseSection)}>
+        <TabsList className="grid w-full grid-cols-2 sm:w-[420px]">
+          <TabsTrigger value="apparel" className="gap-2"><Shirt className="h-4 w-4" />Abbigliamento</TabsTrigger>
+          <TabsTrigger value="field" className="gap-2"><Goal className="h-4 w-4" />Materiale da campo</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {reorderItems.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/70">
+          <CardContent className="flex flex-col gap-2 p-4 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              {reorderItems.length} articoli sotto soglia da riassortire.
+            </div>
+            <Badge variant="outline" className="w-fit border-amber-300 text-amber-900">Export fornitore nel punto 5</Badge>
+          </CardContent>
+        </Card>
+      )}
+
+      {isLoading ? (
+        <div className="rounded-lg border p-8 text-center text-muted-foreground">Caricamento magazzino...</div>
+      ) : items.length === 0 ? (
+        <Card>
+          <CardContent className="py-16 text-center text-muted-foreground">
+            Nessun articolo in {sectionLabel(section).toLowerCase()}.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {items.map((item) => {
+            const netAvailable = Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0);
+            const underThreshold = netAvailable <= Number(item.reorderThreshold ?? 0);
+            return (
+              <Card key={item.id} className={underThreshold ? "border-amber-300" : ""}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <CardTitle className="truncate text-base">{item.name}</CardTitle>
+                      <p className="text-xs text-muted-foreground">{item.code}{item.size ? ` · Taglia ${item.size}` : ""}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(item)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => remove.mutate(item.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-md border p-2">
+                      <p className="text-xs text-muted-foreground">Disponibili</p>
+                      <p className="text-lg font-bold">{item.quantityAvailable}</p>
+                    </div>
+                    <div className="rounded-md border p-2">
+                      <p className="text-xs text-muted-foreground">Riservati</p>
+                      <p className="text-lg font-bold">{item.quantityReserved}</p>
+                    </div>
+                    <div className="rounded-md border p-2">
+                      <p className="text-xs text-muted-foreground">Netto</p>
+                      <p className={`text-lg font-bold ${underThreshold ? "text-amber-700" : ""}`}>{netAvailable}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {item.category && <Badge variant="secondary">{item.category}</Badge>}
+                    {item.supplier && <Badge variant="outline">{item.supplier}</Badge>}
+                    {underThreshold && <Badge className="bg-amber-500 text-white">Da riordinare</Badge>}
+                  </div>
+                  {item.notes && <p className="text-xs text-muted-foreground">{item.notes}</p>}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) { setEditing(null); setForm(emptyForm); } }}>
+        <DialogContent className="sm:max-w-[680px]">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Modifica articolo" : "Nuovo articolo"} - {sectionLabel(section)}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSave} className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Codice articolo *</Label>
+                <Input value={form.code} onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))} required />
+              </div>
+              <div className="space-y-2">
+                <Label>Nome articolo *</Label>
+                <Input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} required />
+              </div>
+              <div className="space-y-2">
+                <Label>Categoria</Label>
+                <Input value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))} placeholder={section === "apparel" ? "Kit allenamento, gara..." : "Palloni, cinesini..."} />
+              </div>
+              <div className="space-y-2">
+                <Label>Taglia / formato</Label>
+                <Input value={form.size} onChange={(e) => setForm((prev) => ({ ...prev, size: e.target.value }))} placeholder={section === "apparel" ? "XS, S, M, L..." : "n.5, 30 cm..."} />
+              </div>
+              <div className="space-y-2">
+                <Label>Quantita disponibile</Label>
+                <Input type="number" value={form.quantityAvailable} onChange={(e) => setForm((prev) => ({ ...prev, quantityAvailable: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Quantita riservata</Label>
+                <Input type="number" value={form.quantityReserved} onChange={(e) => setForm((prev) => ({ ...prev, quantityReserved: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Soglia minima</Label>
+                <Input type="number" value={form.reorderThreshold} onChange={(e) => setForm((prev) => ({ ...prev, reorderThreshold: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Fornitore</Label>
+                <Input value={form.supplier} onChange={(e) => setForm((prev) => ({ ...prev, supplier: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Note</Label>
+              <Textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => { setIsDialogOpen(false); setEditing(null); setForm(emptyForm); }}>Annulla</Button>
+              <Button type="submit" disabled={save.isPending}>{save.isPending ? "Salvataggio..." : "Salva articolo"}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

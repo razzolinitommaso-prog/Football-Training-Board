@@ -119,7 +119,7 @@ export function AppSidebar() {
     { titleKey: "registrations",   url: "/secretary/registrations", icon: ClipboardList, roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { titleKey: "payments",        url: "/secretary/payments",      icon: Banknote,      roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { titleKey: "documents",       url: "/secretary/documents",     icon: FileText,      roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
-    { titleKey: "equipment",       url: "/secretary/equipment",     icon: Package,       roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
+    { label: "Magazzino",          url: "/secretary/warehouse",     icon: Package,       roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { label: "App Genitori",          url: "/secretary/parent-app",    icon: Heart,      roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { label: "Transizione Stagionale", url: "/season-transition",      icon: RefreshCw,  roles: ["admin", "presidente", "secretary", "sporting_director", "director", "technical_director"], group: "secretary" },
     { label: "Credenziali & Accessi", url: "/club/credentials",        icon: KeyRound,   roles: ["admin", "presidente", "secretary", "sporting_director", "director"], group: "secretary" },
