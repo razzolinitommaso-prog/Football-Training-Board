@@ -426,6 +426,10 @@ export default function Dashboard() {
   const nr = normalizeSessionRole(role);
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
   const dashboardSection = section || "scuola_calcio";
+  const dashboardMembersAreClubWide = ["admin", "presidente", "director", "technical_director"].includes(nr);
+  const dashboardMembersUrl = dashboardMembersAreClubWide
+    ? "/api/clubs/me/members"
+    : `/api/clubs/me/members?section=${encodeURIComponent(dashboardSection)}`;
   const canPrepareFromDashboardCalendar = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director" || nr === "technical_director";
   const canEditDashboardCalendar = nr === "secretary" || nr === "sporting_director" || nr === "admin" || nr === "director" || nr === "presidente";
 
@@ -604,8 +608,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   });
 
   const { data: dashboardMembers = [] } = useQuery<Array<{ id: number; role: string }>>({
-    queryKey: ["/api/clubs/me/members", clubIdNum, dashboardSection, "dashboard-tiles"],
-    queryFn: () => fetchJsonOrThrow<Array<{ id: number; role: string }>>(`/api/clubs/me/members?section=${encodeURIComponent(dashboardSection)}`),
+    queryKey: ["/api/clubs/me/members", clubIdNum, dashboardMembersAreClubWide ? "club" : dashboardSection, "dashboard-tiles"],
+    queryFn: () => fetchJsonOrThrow<Array<{ id: number; role: string }>>(dashboardMembersUrl),
     enabled: Boolean(user),
   });
 
@@ -1502,7 +1506,9 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .slice(0, 4);
   }, [dashboardMembers]);
-  const dashboardStaffCount = dashboardMembers.length || stats?.totalMembers || 0;
+  const dashboardStaffCount = dashboardMembersAreClubWide
+    ? (stats?.totalMembers ?? dashboardMembers.length)
+    : dashboardMembers.length;
 
   const [alertDismissed, setAlertDismissed] = useState(false);
   const [unavailableAlertOpen, setUnavailableAlertOpen] = useState(false);
@@ -2348,7 +2354,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
         )}
         <StatCard title={t.staffMembers} value={dashboardStaffCount} icon={ShieldCheck} link="/members">
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
-            <span>Totale: <strong className="text-foreground">{dashboardStaffCount}</strong></span>
+            <span>{dashboardMembersAreClubWide ? "Totale club" : "Sezione"}: <strong className="text-foreground">{dashboardStaffCount}</strong></span>
             {dashboardStaffRoleSummary.length > 0 ? (
               dashboardStaffRoleSummary.map(([label, count]) => (
                 <span key={label} className="truncate">

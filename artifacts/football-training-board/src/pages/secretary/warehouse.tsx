@@ -276,7 +276,8 @@ export default function WarehousePage() {
   });
 
   const reorderItems = useMemo(() => items.filter(isUnderStockWarning), [items]);
-  const availableItems = useMemo(() => items.filter((item) => netAvailable(item) > 0), [items]);
+  const availablePiecesCount = useMemo(() => items.reduce((sum, item) => sum + Math.max(0, netAvailable(item)), 0), [items]);
+  const availableRowsCount = useMemo(() => items.filter((item) => netAvailable(item) > 0).length, [items]);
   const reservedCount = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantityReserved ?? 0), 0), [items]);
   const groupedItems = useMemo(() => {
     const byModel = new Map<string, WarehouseItem[]>();
@@ -484,8 +485,9 @@ export default function WarehousePage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Articoli disponibili</p>
-            <p className="text-2xl font-bold">{availableItems.length}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pezzi disponibili</p>
+            <p className="text-2xl font-bold">{availablePiecesCount}</p>
+            <p className="text-xs text-muted-foreground">{availableRowsCount} taglie/formati disponibili</p>
           </CardContent>
         </Card>
         <Card>
