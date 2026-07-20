@@ -2288,6 +2288,36 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </Button>
               )}
 
+              <details className="rounded-lg border border-border/60 bg-muted/10 p-3" open>
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dati giocatore</summary>
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>{t.nationality}</Label>
+                    <Input {...editForm.register("nationality")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t.dateOfBirth}</Label>
+                    <Input type="date" {...editForm.register("dateOfBirth")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t.jerseyNumber}</Label>
+                    <Input type="number" {...editForm.register("jerseyNumber")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t.registrationNumber}</Label>
+                    <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t.height} (cm)</Label>
+                    <Input type="number" {...editForm.register("height")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t.weight} (kg)</Label>
+                    <Input type="number" {...editForm.register("weight")} disabled={!canEditFullPlayer} />
+                  </div>
+                </div>
+              </details>
+
               {false && canViewFinancials && (
                 <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -2388,6 +2418,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               )}
 
+              {false && (
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.nationality}</Label>
@@ -2398,6 +2429,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <Input type="date" {...editForm.register("dateOfBirth")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
+              )}
 
               <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contatti</p>
@@ -2485,10 +2517,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>{t.registrationNumber}</Label>
-                    <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
-                  </div>
-                  <div className="space-y-2">
                     <Label>Scadenza certificato medico</Label>
                     <Input type="date" {...editForm.register("medicalCertificateExpiry")} disabled={!canEditFullPlayer} />
                   </div>
@@ -2508,21 +2536,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       )}
                     />
                     <Label htmlFor="editRegistered" className="cursor-pointer">{t.registered}</Label>
-                  </div>
-                  <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
-                    <Controller
-                      control={editForm.control}
-                      name="shuttleService"
-                      render={({ field }) => (
-                        <Checkbox
-                          id="editShuttleService"
-                          checked={field.value === true}
-                          onCheckedChange={(c) => field.onChange(c === true)}
-                          disabled={!canEditFullPlayer}
-                        />
-                      )}
-                    />
-                    <Label htmlFor="editShuttleService" className="cursor-pointer">Usufruisce pulmino</Label>
                   </div>
                   <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
                     <Checkbox
@@ -2637,12 +2650,108 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </details>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>{t.jerseyNumber}</Label>
-                  <Input type="number" {...editForm.register("jerseyNumber")} disabled={!canEditFullPlayer} />
+              <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">Squadra assegnata</summary>
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>{t.assignToTeam}</Label>
+                    <Controller
+                      control={editForm.control}
+                      name="teamId"
+                      render={({ field }) => (
+                        <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString() || ""} disabled={!canEditFullPlayer}>
+                          <SelectTrigger><SelectValue placeholder={t.noTeamAssigned} /></SelectTrigger>
+                          <SelectContent>
+                            {teams?.map(team => <SelectItem key={team.id} value={team.id.toString()}>{team.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Assegna squadra supplementare</Label>
+                    <Controller
+                      control={editForm.control}
+                      name="supplementalTeamId"
+                      render={({ field }) => (
+                        <Select
+                          onValueChange={(v) => field.onChange(v === "_none" ? null : parseInt(v))}
+                          value={field.value ? String(field.value) : "_none"}
+                          disabled={!canEditSupplementalTeam}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Nessuna" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">Nessuna</SelectItem>
+                            {teams?.map(team => (
+                              <SelectItem key={`early-supp-${team.id}`} value={team.id.toString()}>
+                                {team.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Squadra</Label>
+                    <Controller
+                      control={editForm.control}
+                      name="squad"
+                      render={({ field }) => (
+                        <Select onValueChange={(v) => field.onChange(v)} value={field.value || ""} disabled={!canEditRoleAndSquad}>
+                          <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="A">A</SelectItem>
+                            <SelectItem value="B">B</SelectItem>
+                            <SelectItem value="C">C</SelectItem>
+                            <SelectItem value="D">D</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t.position}</Label>
+                    <Controller
+                      control={editForm.control}
+                      name="position"
+                      render={({ field }) => (
+                        <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditRoleAndSquad}>
+                          <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="GK">{t.goalkeeper}</SelectItem>
+                            <SelectItem value="DEF">{t.defender}</SelectItem>
+                            <SelectItem value="MID">{t.midfielder}</SelectItem>
+                            <SelectItem value="FWD">{t.forward}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>{t.status}</Label>
+                    <Controller
+                      control={editForm.control}
+                      name="status"
+                      render={({ field }) => (
+                        <Select onValueChange={field.onChange} value={field.value || "active"} disabled={!canEditFullPlayer}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="active">{t.active}</SelectItem>
+                            <SelectItem value="injured">{t.injured}</SelectItem>
+                            <SelectItem value="inactive">{t.inactive}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
                 </div>
+              </details>
+
+              {false && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               </div>
+              )}
 
               {canViewFinancials && (
                 <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
@@ -2694,6 +2803,21 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         </div>
                         <div className="space-y-2">
                           <Label>Quota pulmino mensile</Label>
+                          <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                            <Controller
+                              control={editForm.control}
+                              name="shuttleService"
+                              render={({ field }) => (
+                                <Checkbox
+                                  id="editShuttleServiceQuote"
+                                  checked={field.value === true}
+                                  onCheckedChange={(c) => field.onChange(c === true)}
+                                  disabled={!canEditFullPlayer}
+                                />
+                              )}
+                            />
+                            <Label htmlFor="editShuttleServiceQuote" className="cursor-pointer">Usufruisce pulmino</Label>
+                          </div>
                           <Select value={shuttleFeeListItemId || "_manual"} onValueChange={(value) => {
                             setShuttleFeeListItemId(value === "_manual" ? "" : value);
                             if (value !== "_manual") applyListItemPrice(value, setShuttleMonthlyCost);
@@ -2901,6 +3025,25 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </details>
               )}
 
+              {canViewFinancials && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Totale economico giocatore</p>
+                      <p className="text-xs text-emerald-700">Quote registrate + kit selezionato nella scheda.</p>
+                    </div>
+                    <div className="text-lg font-bold text-emerald-900">
+                      Euro {formatEuro(
+                        editingPlayerPayments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0) +
+                        kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0)
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {false && (
+              <>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.assignToTeam}</Label>
@@ -3016,6 +3159,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   )}
                 />
               </div>
+              </>
+              )}
 
               <div className="space-y-2">
                 <Label>{t.notes}</Label>
