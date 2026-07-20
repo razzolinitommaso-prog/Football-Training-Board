@@ -323,13 +323,16 @@ router.post("/warehouse-items", requireAuth, async (req, res): Promise<void> => 
     res.status(403).json({ error: "Solo la segreteria puo modificare il magazzino" });
     return;
   }
-  const { section, code, name, category, size, quantityAvailable, quantityReserved, reorderThreshold, supplier, notes } = req.body;
+  const { section, code, name, itemType, price, isActive, category, size, quantityAvailable, quantityReserved, reorderThreshold, supplier, notes } = req.body;
   if (!code || !name) { res.status(400).json({ error: "code and name required" }); return; }
   const [record] = await db.insert(warehouseItemsTable).values({
     clubId: req.session.clubId!,
     section: section === "field" ? "field" : "apparel",
     code: String(code).trim(),
     name: String(name).trim(),
+    itemType: itemType ? String(itemType).trim() : "inventory",
+    price: price != null && price !== "" ? Number(price) : null,
+    isActive: isActive === 0 || isActive === false ? 0 : 1,
     category: category ? String(category).trim() : null,
     size: size ? String(size).trim() : null,
     quantityAvailable: Number(quantityAvailable ?? 0),
@@ -349,10 +352,12 @@ router.patch("/warehouse-items/:id", requireAuth, async (req, res): Promise<void
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const updates: Record<string, unknown> = {};
-  for (const key of ["section", "code", "name", "category", "size", "supplier", "notes"] as const) {
+  for (const key of ["section", "code", "name", "itemType", "category", "size", "supplier", "notes"] as const) {
     if (req.body[key] !== undefined) updates[key] = req.body[key] ? String(req.body[key]).trim() : null;
   }
   if (updates.section !== undefined && updates.section !== "field") updates.section = "apparel";
+  if (req.body.price !== undefined) updates.price = req.body.price != null && req.body.price !== "" ? Number(req.body.price) : null;
+  if (req.body.isActive !== undefined) updates.isActive = req.body.isActive === 0 || req.body.isActive === false ? 0 : 1;
   if (req.body.quantityAvailable !== undefined) updates.quantityAvailable = Number(req.body.quantityAvailable);
   if (req.body.quantityReserved !== undefined) updates.quantityReserved = Number(req.body.quantityReserved);
   if (req.body.reorderThreshold !== undefined) updates.reorderThreshold = Number(req.body.reorderThreshold);

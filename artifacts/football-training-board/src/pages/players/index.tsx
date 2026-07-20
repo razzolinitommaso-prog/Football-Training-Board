@@ -179,6 +179,20 @@ type PlayerEquipment = {
   notes?: string | null;
 };
 
+type WarehouseListItem = {
+  id: number;
+  section: string;
+  code: string;
+  name: string;
+  itemType: string;
+  price?: number | null;
+  isActive: number;
+  category?: string | null;
+  size?: string | null;
+  quantityAvailable?: number | null;
+  quantityReserved?: number | null;
+};
+
 type KitRow = {
   key: string;
   label: string;
@@ -186,6 +200,7 @@ type KitRow = {
   price: string;
   ordered: boolean;
   arrived: boolean;
+  listItemId?: string;
 };
 
 type InstallmentDraft = {
@@ -661,6 +676,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return res.json();
     },
   });
+  const { data: warehouseListItems = [] } = useQuery<WarehouseListItem[]>({
+    queryKey: ["/api/warehouse-items", "price-list"],
+    enabled: canViewFinancials || canViewKit,
+    queryFn: async () => {
+      const res = await fetch(withApi("/api/warehouse-items?section=all"), { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState("all");
   const [availabilityFilter, setAvailabilityFilter] = useState("all");
@@ -697,6 +721,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [registrationFeeTotal, setRegistrationFeeTotal] = useState("");
   const [insuranceFeeTotal, setInsuranceFeeTotal] = useState("");
   const [annualFeeTotal, setAnnualFeeTotal] = useState("");
+  const [annualFeeListItemId, setAnnualFeeListItemId] = useState("");
+  const [insuranceFeeListItemId, setInsuranceFeeListItemId] = useState("");
+  const [shuttleFeeListItemId, setShuttleFeeListItemId] = useState("");
   const [installmentCount, setInstallmentCount] = useState("1");
   const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
   const [annualInstallments, setAnnualInstallments] = useState<InstallmentDraft[]>([]);
@@ -748,6 +775,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const editingMedicalCertificate = editingPlayerDocuments
     .filter((doc) => doc.type === "medicalCertificate")
     .sort((a, b) => String(b.expiryDate ?? "").localeCompare(String(a.expiryDate ?? "")))[0] ?? null;
+  const activeListItems = warehouseListItems.filter((item) => item.isActive !== 0 && item.price != null);
+  const annualFeeListItems = activeListItems.filter((item) => item.itemType === "annual_fee");
+  const insuranceFeeListItems = activeListItems.filter((item) => item.itemType === "insurance_fee");
+  const shuttleFeeListItems = activeListItems.filter((item) => item.itemType === "shuttle_fee");
+  const kitListItems = activeListItems.filter((item) => item.itemType === "kit");
   const currentMedicalExpiry = editingMedicalCertificate?.expiryDate ?? editingPlayer?.medicalCertificateExpiry ?? null;
   const currentMedicalDaysLeft = currentMedicalExpiry
     ? Math.ceil((new Date(`${currentMedicalExpiry}T00:00:00`).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
@@ -1149,6 +1181,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       setInsuranceFeeTotal("");
       setAnnualFeeTotal("");
       setShuttleMonthlyCost("");
+      setAnnualFeeListItemId("");
+      setInsuranceFeeListItemId("");
+      setShuttleFeeListItemId("");
       setInstallmentCount("1");
       setFirstInstallmentDueDate("");
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
@@ -1163,6 +1198,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
   const updateKitRow = (key: string, patch: Partial<KitRow>) => {
     setKitRows((rows) => rows.map((row) => row.key === key ? { ...row, ...patch } : row));
+  };
+
+  const applyListItemPrice = (itemId: string, setter: (value: string) => void) => {
+    const item = activeListItems.find((entry) => String(entry.id) === itemId);
+    setter(item?.price != null ? String(item.price) : "");
   };
 
   const savePlayerKit = async () => {
@@ -2621,23 +2661,55 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     <div className="space-y-3 rounded-md border bg-background p-3">
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                         <div className="space-y-2">
-                          <Label>Quota iscrizione</Label>
-                          <Input type="number" step="0.01" value={registrationFeeTotal} onChange={(e) => setRegistrationFeeTotal(e.target.value)} />
+                          <Label>Quota annuale</Label>
+                          <Select value={annualFeeListItemId || "_manual"} onValueChange={(value) => {
+                            setAnnualFeeListItemId(value === "_manual" ? "" : value);
+                            if (value !== "_manual") applyListItemPrice(value, setAnnualFeeTotal);
+                          }}>
+                            <SelectTrigger><SelectValue placeholder="Scegli dal listino" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_manual">Manuale</SelectItem>
+                              {annualFeeListItems.map((item) => (
+                                <SelectItem key={item.id} value={String(item.id)}>{item.name} - Euro {formatEuro(item.price)}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input type="number" step="0.01" value={annualFeeTotal} onChange={(e) => { setAnnualFeeListItemId(""); setAnnualFeeTotal(e.target.value); }} />
                         </div>
                         <div className="space-y-2">
                           <Label>Quota assicurazione</Label>
-                          <Input type="number" step="0.01" value={insuranceFeeTotal} onChange={(e) => setInsuranceFeeTotal(e.target.value)} />
+                          <Select value={insuranceFeeListItemId || "_manual"} onValueChange={(value) => {
+                            setInsuranceFeeListItemId(value === "_manual" ? "" : value);
+                            if (value !== "_manual") applyListItemPrice(value, setInsuranceFeeTotal);
+                          }}>
+                            <SelectTrigger><SelectValue placeholder="Scegli dal listino" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_manual">Manuale</SelectItem>
+                              {insuranceFeeListItems.map((item) => (
+                                <SelectItem key={item.id} value={String(item.id)}>{item.name} - Euro {formatEuro(item.price)}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input type="number" step="0.01" value={insuranceFeeTotal} onChange={(e) => { setInsuranceFeeListItemId(""); setInsuranceFeeTotal(e.target.value); }} />
                         </div>
                         <div className="space-y-2">
                           <Label>Quota pulmino mensile</Label>
-                          <Input type="number" step="0.01" value={shuttleMonthlyCost} onChange={(e) => setShuttleMonthlyCost(e.target.value)} disabled={editForm.watch("shuttleService") !== true} />
+                          <Select value={shuttleFeeListItemId || "_manual"} onValueChange={(value) => {
+                            setShuttleFeeListItemId(value === "_manual" ? "" : value);
+                            if (value !== "_manual") applyListItemPrice(value, setShuttleMonthlyCost);
+                          }} disabled={editForm.watch("shuttleService") !== true}>
+                            <SelectTrigger><SelectValue placeholder="Scegli dal listino" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_manual">Manuale</SelectItem>
+                              {shuttleFeeListItems.map((item) => (
+                                <SelectItem key={item.id} value={String(item.id)}>{item.name} - Euro {formatEuro(item.price)}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input type="number" step="0.01" value={shuttleMonthlyCost} onChange={(e) => { setShuttleFeeListItemId(""); setShuttleMonthlyCost(e.target.value); }} disabled={editForm.watch("shuttleService") !== true} />
                         </div>
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <div className="space-y-2">
-                          <Label>Quota annuale</Label>
-                        <Input type="number" step="0.01" value={annualFeeTotal} onChange={(e) => setAnnualFeeTotal(e.target.value)} />
-                      </div>
                       <div className="space-y-2">
                         <Label>Numero rate</Label>
                         <Input type="number" min={1} value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
@@ -2735,14 +2807,31 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           </p>
                           <div className="space-y-2">
                             {kitRows.filter((row) => row.area === area).map((row) => (
-                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 sm:grid-cols-[1fr_120px_100px_100px] sm:items-center">
+                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 sm:grid-cols-[1fr_180px_110px_100px_100px] sm:items-center">
                                 <span className="text-sm font-medium">{row.label}</span>
+                                <Select value={row.listItemId || "_manual"} onValueChange={(value) => {
+                                  const item = activeListItems.find((entry) => String(entry.id) === value);
+                                  updateKitRow(row.key, {
+                                    listItemId: value === "_manual" ? "" : value,
+                                    price: value === "_manual" ? row.price : item?.price != null ? String(item.price) : "",
+                                  });
+                                }}>
+                                  <SelectTrigger><SelectValue placeholder="Listino" /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="_manual">Manuale</SelectItem>
+                                    {kitListItems.map((item) => (
+                                      <SelectItem key={item.id} value={String(item.id)}>
+                                        {item.name}{item.size ? ` ${item.size}` : ""} - Euro {formatEuro(item.price)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                                 <Input
                                   type="number"
                                   step="0.01"
                                   placeholder="Prezzo"
                                   value={row.price}
-                                  onChange={(e) => updateKitRow(row.key, { price: e.target.value })}
+                                  onChange={(e) => updateKitRow(row.key, { price: e.target.value, listItemId: "" })}
                                 />
                                 <label className="flex items-center gap-2 text-sm">
                                   <Checkbox checked={row.ordered} onCheckedChange={(v) => updateKitRow(row.key, { ordered: v === true })} />

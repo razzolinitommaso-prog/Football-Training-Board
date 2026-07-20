@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { withApi } from "@/lib/api-base";
 
@@ -19,6 +21,9 @@ type WarehouseItem = {
   section: WarehouseSection;
   code: string;
   name: string;
+  itemType: string;
+  price?: number | null;
+  isActive: number;
   category?: string | null;
   size?: string | null;
   quantityAvailable: number;
@@ -31,6 +36,9 @@ type WarehouseItem = {
 const emptyForm = {
   code: "",
   name: "",
+  itemType: "inventory",
+  price: "",
+  isActive: true,
   category: "",
   size: "",
   quantityAvailable: "0",
@@ -53,6 +61,18 @@ async function apiFetch(path: string, options?: RequestInit) {
 
 function sectionLabel(section: WarehouseSection) {
   return section === "apparel" ? "Abbigliamento" : "Materiale da campo";
+}
+
+function itemTypeLabel(type: string) {
+  if (type === "annual_fee") return "Quota annuale";
+  if (type === "insurance_fee") return "Assicurazione";
+  if (type === "shuttle_fee") return "Pulmino";
+  if (type === "kit") return "Kit";
+  return "Magazzino";
+}
+
+function formatEuro(value: number | string | null | undefined) {
+  return Number(value ?? 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export default function WarehousePage() {
@@ -109,6 +129,9 @@ export default function WarehousePage() {
     setForm({
       code: item.code ?? "",
       name: item.name ?? "",
+      itemType: item.itemType ?? "inventory",
+      price: item.price != null ? String(item.price) : "",
+      isActive: item.isActive !== 0,
       category: item.category ?? "",
       size: item.size ?? "",
       quantityAvailable: String(item.quantityAvailable ?? 0),
@@ -125,6 +148,9 @@ export default function WarehousePage() {
       section,
       code: form.code,
       name: form.name,
+      itemType: form.itemType,
+      price: form.price || null,
+      isActive: form.isActive,
       category: form.category || null,
       size: form.size || null,
       quantityAvailable: Number(form.quantityAvailable || 0),
@@ -217,6 +243,9 @@ export default function WarehousePage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <Badge variant={item.itemType === "inventory" ? "secondary" : "outline"}>{itemTypeLabel(item.itemType)}</Badge>
+                    {item.price != null && <Badge variant="outline">Euro {formatEuro(item.price)}</Badge>}
+                    {item.isActive === 0 && <Badge variant="destructive">Non attivo</Badge>}
                     {item.category && <Badge variant="secondary">{item.category}</Badge>}
                     {item.supplier && <Badge variant="outline">{item.supplier}</Badge>}
                     {underThreshold && <Badge className="bg-amber-500 text-white">Da riordinare</Badge>}
@@ -245,6 +274,23 @@ export default function WarehousePage() {
                 <Input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} required />
               </div>
               <div className="space-y-2">
+                <Label>Tipo voce</Label>
+                <Select value={form.itemType} onValueChange={(value) => setForm((prev) => ({ ...prev, itemType: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inventory">Solo magazzino</SelectItem>
+                    <SelectItem value="annual_fee">Quota annuale</SelectItem>
+                    <SelectItem value="insurance_fee">Assicurazione</SelectItem>
+                    <SelectItem value="shuttle_fee">Pulmino</SelectItem>
+                    <SelectItem value="kit">Kit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Prezzo listino</Label>
+                <Input type="number" step="0.01" value={form.price} onChange={(e) => setForm((prev) => ({ ...prev, price: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
                 <Label>Categoria</Label>
                 <Input value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))} placeholder={section === "apparel" ? "Kit allenamento, gara..." : "Palloni, cinesini..."} />
               </div>
@@ -268,6 +314,10 @@ export default function WarehousePage() {
                 <Label>Fornitore</Label>
                 <Input value={form.supplier} onChange={(e) => setForm((prev) => ({ ...prev, supplier: e.target.value }))} />
               </div>
+              <label className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
+                <Checkbox checked={form.isActive} onCheckedChange={(value) => setForm((prev) => ({ ...prev, isActive: value === true }))} />
+                Voce attiva nel listino
+              </label>
             </div>
             <div className="space-y-2">
               <Label>Note</Label>
