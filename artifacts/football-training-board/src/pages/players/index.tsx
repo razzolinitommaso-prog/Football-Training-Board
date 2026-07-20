@@ -724,6 +724,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [annualFeeListItemId, setAnnualFeeListItemId] = useState("");
   const [insuranceFeeListItemId, setInsuranceFeeListItemId] = useState("");
   const [shuttleFeeListItemId, setShuttleFeeListItemId] = useState("");
+  const [upfrontPaymentTotal, setUpfrontPaymentTotal] = useState("");
   const [installmentCount, setInstallmentCount] = useState("1");
   const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
   const [annualInstallments, setAnnualInstallments] = useState<InstallmentDraft[]>([]);
@@ -768,6 +769,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const editingKitPayment = editingKitPayments[0];
   const editingShuttlePayments = editingPlayerPayments.filter((payment) => payment.paymentType === "shuttle_monthly");
   const editingShuttlePayment = editingShuttlePayments[0];
+  const plannedAnnualFee = parseEuroInput(annualFeeTotal);
+  const plannedInsuranceFee = parseEuroInput(insuranceFeeTotal);
+  const plannedShuttleFee = parseEuroInput(shuttleMonthlyCost);
+  const plannedKitTotal = kitRows.reduce((sum, row) => sum + (parseEuroInput(row.price) || 0), 0);
+  const plannedEconomicTotal =
+    (isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0) +
+    (isSafePlayerPaymentAmount(plannedInsuranceFee) ? plannedInsuranceFee : 0) +
+    (isSafePlayerPaymentAmount(plannedShuttleFee) ? plannedShuttleFee : 0) +
+    plannedKitTotal;
   const overduePlayerPayments = editingPlayerPayments.filter((payment) => {
     if (payment.status === "paid" || !payment.dueDate) return false;
     return payment.dueDate <= new Date().toISOString().slice(0, 10);
@@ -1068,6 +1078,110 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
     queryClient.invalidateQueries({ queryKey: ["/api/players"] });
     toast({ title: "Quota eliminata" });
+  };
+
+  const saveKitAssignmentOnly = async () => {
+    if (!editingPlayer) return;
+    const res = await fetch(withApi("/api/equipment"), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        playerId: editingPlayer.id,
+        kitAssigned: editingPlayer.jerseyNumber ? String(editingPlayer.jerseyNumber) : null,
+        trainingKit: serializeKitRows(kitRows),
+        matchKit: serializeKitRows(kitRows.filter((row) => row.area === "match")),
+        notes: kitNotes || null,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  };
+
+  const createUnifiedEconomicPlan = async () => {
+    if (!editingPlayer || !canEditFinancials) return;
+    const total = plannedEconomicTotal;
+    const upfront = parseEuroInput(upfrontPaymentTotal);
+    const upfrontAmount = isSafePlayerPaymentAmount(upfront) ? upfront : 0;
+    if (!isSafePlayerPaymentAmount(total)) {
+      toast({ title: "Totale non valido", description: `Totale massimo Euro ${formatEuro(MAX_PLAYER_PAYMENT_AMOUNT)}.`, variant: "destructive" });
+      return;
+    }
+    if (upfrontAmount > total) {
+      toast({ title: "Acconto troppo alto", description: "Il versato subito non puo superare il totale.", variant: "destructive" });
+      return;
+    }
+    const remaining = Math.max(0, total - upfrontAmount);
+    const count = remaining > 0 ? Math.max(1, Math.floor(Number(installmentCount) || 1)) : 0;
+    const baseDate = firstInstallmentDueDate ? new Date(`${firstInstallmentDueDate}T00:00:00`) : new Date();
+    if (remaining > 0 && Number.isNaN(baseDate.getTime())) {
+      toast({ title: "Prima scadenza non valida", variant: "destructive" });
+      return;
+    }
+    if (editingPlayerPayments.length > 0 && !confirm("Creare il piano totale sostituira i pagamenti gia registrati per questo giocatore. Continuare?")) return;
+    setIsSavingInstallments(true);
+    try {
+      await saveKitAssignmentOnly();
+      for (const payment of editingPlayerPayments) {
+        const deleteRes = await fetch(withApi(`/api/player-payments/${payment.id}`), { method: "DELETE", credentials: "include" });
+        if (!deleteRes.ok) throw new Error(await deleteRes.text());
+      }
+      const createPayment = async (body: Record<string, unknown>) => {
+        const res = await fetch(withApi("/api/player-payments"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(await res.text());
+      };
+      if (upfrontAmount > 0) {
+        await createPayment({
+          playerId: editingPlayer.id,
+          amount: upfrontAmount,
+          dueDate: new Date().toISOString().slice(0, 10),
+          status: "paid",
+          paymentDate: new Date().toISOString().slice(0, 10),
+          description: "Piano totale - acconto",
+          paymentType: "player_total_deposit",
+          paymentMethod: kitPaymentMethod || null,
+          annualFeeTotal: total,
+          availabilityBlocking: 1,
+        });
+      }
+      if (remaining > 0) {
+        const cents = Math.round(remaining * 100);
+        const baseCents = Math.floor(cents / count);
+        let assignedCents = 0;
+        for (let index = 0; index < count; index++) {
+          const due = new Date(baseDate);
+          due.setMonth(baseDate.getMonth() + index);
+          const installmentCents = index === count - 1 ? cents - assignedCents : baseCents;
+          assignedCents += installmentCents;
+          await createPayment({
+            playerId: editingPlayer.id,
+            amount: installmentCents / 100,
+            dueDate: due.toISOString().slice(0, 10),
+            status: "pending",
+            description: `Piano totale - rata ${index + 1}/${count}`,
+            paymentType: "player_total_installment",
+            paymentMethod: kitPaymentMethod || null,
+            installmentNumber: index + 1,
+            totalInstallments: count,
+            annualFeeTotal: total,
+            availabilityBlocking: 1,
+          });
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+      setUpfrontPaymentTotal("");
+      toast({ title: "Piano totale creato" });
+    } catch {
+      toast({ title: "Errore creazione piano totale", variant: "destructive" });
+    } finally {
+      setIsSavingInstallments(false);
+    }
   };
 
   const createAnnualFeeInstallments = async () => {
@@ -2866,12 +2980,39 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           </div>
                         </div>
                       )}
+                      <div className="rounded-md border border-emerald-200 bg-emerald-50/70 p-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Totale quote + kit</p>
+                            <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedEconomicTotal)}</p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Versato subito</Label>
+                            <Input type="number" step="0.01" value={upfrontPaymentTotal} onChange={(e) => setUpfrontPaymentTotal(e.target.value)} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo da rateizzare</p>
+                            <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(Math.max(0, plannedEconomicTotal - (parseEuroInput(upfrontPaymentTotal) || 0)))}</p>
+                          </div>
+                          <div className="flex items-end">
+                            <Button type="button" variant="outline" className="w-full gap-2" disabled={isSavingInstallments} onClick={() => void createUnifiedEconomicPlan()}>
+                              <Banknote className="h-4 w-4" />
+                              {isSavingInstallments ? "Salvataggio..." : "Crea piano totale"}
+                            </Button>
+                          </div>
+                        </div>
+                        <p className="mt-2 text-xs text-emerald-800">
+                          Il piano totale sostituisce le quote gia registrate e crea acconto piu rate successive sul residuo.
+                        </p>
+                      </div>
+                      {false && (
                       <div>
                         <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingInstallments} onClick={() => void createAnnualFeeInstallments()}>
                           <Banknote className="h-4 w-4" />
                           {isSavingInstallments ? "Salvataggio..." : "Crea voci economiche"}
                         </Button>
                       </div>
+                      )}
                     </div>
                   )}
                   <div className="space-y-2">
