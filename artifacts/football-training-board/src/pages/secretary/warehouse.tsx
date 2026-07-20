@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileSpreadsheet, Package, Plus, Shirt, Goal, AlertTriangle, Pencil, Trash2, Upload } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, Package, Plus, Shirt, Goal, AlertTriangle, Pencil, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { withApi } from "@/lib/api-base";
 import { exportToExcel } from "@/lib/excel-export";
 import { cellToTrimmedString, parseExcelFile } from "@/lib/excel-import";
+import { cn } from "@/lib/utils";
 
 type WarehouseSection = "apparel" | "field";
 
@@ -525,17 +526,19 @@ export default function WarehousePage() {
         <>
         <div className="grid gap-3 lg:grid-cols-2">
           {groupedItems.map((group) => (
-            <Card key={group.key} className={group.hasWarning ? "border-amber-300" : ""}>
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle className="truncate text-base">{group.name}</CardTitle>
-                    <p className="text-xs text-muted-foreground">{group.category} - {group.items.length} taglie/formati</p>
-                  </div>
-                  {group.hasWarning && <Badge className="bg-amber-500 text-white">Da riordinare</Badge>}
+            <details key={group.key} className={cn("group rounded-lg border bg-card shadow-sm", group.hasWarning && "border-amber-300")}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{group.name}</p>
+                  <p className="text-xs text-muted-foreground">{group.category} - {group.items.length} taglie/formati</p>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="outline">Netto {group.totalNet}</Badge>
+                  {group.hasWarning && <Badge className="bg-amber-500 text-white">Da riordinare</Badge>}
+                  <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+                </div>
+              </summary>
+              <div className="space-y-3 border-t px-4 pb-4 pt-3 text-sm">
                 <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-md border p-2">
                     <p className="text-xs text-muted-foreground">Disponibili</p>
@@ -575,8 +578,8 @@ export default function WarehousePage() {
                     );
                   })}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </details>
           ))}
         </div>
         <div className="hidden">
