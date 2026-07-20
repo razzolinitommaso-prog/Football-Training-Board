@@ -35,6 +35,8 @@ type WarehouseItem = {
   notes?: string | null;
 };
 
+const LOW_STOCK_WARNING_THRESHOLD = 10;
+
 const emptyForm = {
   code: "",
   name: "",
@@ -218,6 +220,16 @@ function warehouseRowsForExcel(rows: WarehouseItem[]) {
   }));
 }
 
+function netAvailable(item: WarehouseItem) {
+  return Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0);
+}
+
+function isUnderStockWarning(item: WarehouseItem) {
+  const net = netAvailable(item);
+  const threshold = Number(item.reorderThreshold ?? 0);
+  return net < LOW_STOCK_WARNING_THRESHOLD || (threshold > 0 && net <= threshold);
+}
+
 const WAREHOUSE_TEMPLATE_ROWS = [
   {
     "Sezione": "Abbigliamento",
@@ -262,12 +274,32 @@ export default function WarehousePage() {
     queryFn: () => apiFetch(`/api/warehouse-items?section=${section}`),
   });
 
-  const reorderItems = useMemo(() => items.filter((item) => {
-    const available = Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0);
-    return available <= Number(item.reorderThreshold ?? 0);
-  }), [items]);
-  const availableItems = useMemo(() => items.filter((item) => Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0) > 0), [items]);
+  const reorderItems = useMemo(() => items.filter(isUnderStockWarning), [items]);
+  const availableItems = useMemo(() => items.filter((item) => netAvailable(item) > 0), [items]);
   const reservedCount = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantityReserved ?? 0), 0), [items]);
+  const groupedItems = useMemo(() => {
+    const byModel = new Map<string, WarehouseItem[]>();
+    for (const item of items) {
+      const groupName = item.name || item.category || "Articolo";
+      const groupCategory = item.category || groupName;
+      const key = `${groupCategory}|${groupName}`;
+      byModel.set(key, [...(byModel.get(key) ?? []), item]);
+    }
+    return Array.from(byModel.entries()).map(([key, group]) => {
+      const [category, name] = key.split("|");
+      const sorted = [...group].sort((a, b) => String(a.size ?? "").localeCompare(String(b.size ?? ""), "it"));
+      return {
+        key,
+        category,
+        name,
+        items: sorted,
+        totalAvailable: sorted.reduce((sum, item) => sum + Number(item.quantityAvailable ?? 0), 0),
+        totalReserved: sorted.reduce((sum, item) => sum + Number(item.quantityReserved ?? 0), 0),
+        totalNet: sorted.reduce((sum, item) => sum + netAvailable(item), 0),
+        hasWarning: sorted.some(isUnderStockWarning),
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name, "it"));
+  }, [items]);
 
   const save = useMutation({
     mutationFn: async (payload: Record<string, unknown> | Record<string, unknown>[]) => {
@@ -474,7 +506,7 @@ export default function WarehousePage() {
           <CardContent className="flex flex-col gap-2 p-4 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" />
-              {reorderItems.length} articoli sotto soglia da riassortire.
+              {reorderItems.length} taglie/formati sotto soglia o sotto {LOW_STOCK_WARNING_THRESHOLD} disponibili.
             </div>
             <Badge variant="outline" className="w-fit border-amber-300 text-amber-900">Export fornitore nel punto 5</Badge>
           </CardContent>
@@ -490,7 +522,64 @@ export default function WarehousePage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {groupedItems.map((group) => (
+            <Card key={group.key} className={group.hasWarning ? "border-amber-300" : ""}>
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="truncate text-base">{group.name}</CardTitle>
+                    <p className="text-xs text-muted-foreground">{group.category} - {group.items.length} taglie/formati</p>
+                  </div>
+                  {group.hasWarning && <Badge className="bg-amber-500 text-white">Da riordinare</Badge>}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-md border p-2">
+                    <p className="text-xs text-muted-foreground">Disponibili</p>
+                    <p className="text-lg font-bold">{group.totalAvailable}</p>
+                  </div>
+                  <div className="rounded-md border p-2">
+                    <p className="text-xs text-muted-foreground">Riservati</p>
+                    <p className="text-lg font-bold">{group.totalReserved}</p>
+                  </div>
+                  <div className="rounded-md border p-2">
+                    <p className="text-xs text-muted-foreground">Netto</p>
+                    <p className={`text-lg font-bold ${group.hasWarning ? "text-amber-700" : ""}`}>{group.totalNet}</p>
+                  </div>
+                </div>
+                <div className="rounded-md border">
+                  {group.items.map((item) => {
+                    const net = netAvailable(item);
+                    const underThreshold = isUnderStockWarning(item);
+                    return (
+                      <div key={item.id} className="grid grid-cols-[1fr_auto] gap-2 border-b px-3 py-2 last:border-b-0 sm:grid-cols-[1.2fr_0.8fr_0.8fr_auto] sm:items-center">
+                        <div>
+                          <p className="font-medium">{item.size || "Senza taglia"}</p>
+                          <p className="text-xs text-muted-foreground">{item.code}</p>
+                        </div>
+                        <div className="text-xs sm:text-sm"><span className="text-muted-foreground">Disp.</span> {item.quantityAvailable}</div>
+                        <div className={`text-xs sm:text-sm ${underThreshold ? "font-semibold text-amber-700" : ""}`}><span className="text-muted-foreground">Netto</span> {net}</div>
+                        <div className="flex justify-end gap-1">
+                          {underThreshold && <Badge variant="outline" className="hidden border-amber-300 text-amber-700 sm:inline-flex">Sotto 10</Badge>}
+                          <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(item)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => remove.mutate(item.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="hidden">
           {items.map((item) => {
             const netAvailable = Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0);
             const underThreshold = netAvailable <= Number(item.reorderThreshold ?? 0);
@@ -541,6 +630,7 @@ export default function WarehousePage() {
             );
           })}
         </div>
+        </>
       )}
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) { setEditing(null); setForm(emptyForm); } }}>
