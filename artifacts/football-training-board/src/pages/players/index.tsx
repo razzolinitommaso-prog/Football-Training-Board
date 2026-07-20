@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -833,6 +833,28 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         <span className={`h-2 w-2 rounded-full ${status.tone === "red" ? "bg-red-500" : status.tone === "yellow" ? "bg-amber-500" : "bg-emerald-500"}`} />
         {status.label}
       </span>
+    );
+  }
+
+  function CollapsibleSectionSummary({
+    title,
+    status,
+    icon,
+    tone = "muted",
+  }: {
+    title: string;
+    status?: { tone: "red" | "yellow" | "green"; label: string };
+    icon?: React.ReactNode;
+    tone?: "muted" | "success";
+  }) {
+    const textClass = tone === "success" ? "text-emerald-800" : "text-muted-foreground";
+    return (
+      <summary className={`flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide ${textClass} [&::-webkit-details-marker]:hidden`}>
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 group-open:rotate-90" />
+        {icon && <span className="flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>}
+        <span className="min-w-0 truncate">{title}</span>
+        {status && <SectionStatusBadge status={status} />}
+      </summary>
     );
   }
 
@@ -2232,8 +2254,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 })()}
               </div>
 
-              <details className="rounded-lg border p-3">
-                <summary className="cursor-pointer text-sm font-semibold">Dati principali</summary>
+              <details className="group rounded-lg border p-3">
+                <CollapsibleSectionSummary title="Dati principali" />
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-muted-foreground">Nato il</span><p>{editingPlayer.dateOfBirth || "-"}</p></div>
                   <div><span className="text-muted-foreground">Nazionalita</span><p>{editingPlayer.nationality || "-"}</p></div>
@@ -2262,8 +2284,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               </details>
 
               {watchAvailable === false && (
-                <details className="rounded-lg border p-3" open>
-                  <summary className="cursor-pointer text-sm font-semibold text-amber-700">Disponibilita</summary>
+                <details className="group rounded-lg border p-3" open>
+                  <CollapsibleSectionSummary title="Disponibilita" tone="muted" />
                   <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <div><span className="text-muted-foreground">Motivo</span><p>{reasonLabel(editingPlayer.unavailabilityReason, t)}</p></div>
                     <div><span className="text-muted-foreground">Rientro previsto</span><p>{editingPlayer.expectedReturn || "-"}</p></div>
@@ -2272,11 +2294,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               )}
 
               {canViewFinancials && (
-                <details className="rounded-lg border p-3" open={overduePlayerPayments.length > 0}>
-                  <summary className="cursor-pointer text-sm font-semibold">
-                    <span>Quote</span>
-                    <SectionStatusBadge status={paymentSectionStatus} />
-                  </summary>
+                <details className="group rounded-lg border p-3" open={overduePlayerPayments.length > 0}>
+                  <CollapsibleSectionSummary title="Quote" status={paymentSectionStatus} />
                   <div className="mt-3 space-y-2 text-sm">
                     {overduePlayerPayments.length > 0 && (
                       <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -2308,11 +2327,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               )}
 
               {canViewKit && (
-                <details className="rounded-lg border p-3">
-                  <summary className="cursor-pointer text-sm font-semibold">
-                    <span>Kit</span>
-                    <SectionStatusBadge status={kitSectionStatus} />
-                  </summary>
+                <details className="group rounded-lg border p-3">
+                  <CollapsibleSectionSummary title="Kit" status={kitSectionStatus} />
                   <div className="mt-3 space-y-2 text-sm">
                     <div className="space-y-2">
                       {displayedKitRows.filter((row) => row.price || row.ordered || row.arrived).length === 0 ? (
@@ -2434,8 +2450,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </Button>
               )}
 
-              <details className="rounded-lg border border-border/60 bg-muted/10 p-3" open>
-                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dati giocatore</summary>
+              <details className="group rounded-lg border border-border/60 bg-muted/10 p-3" open>
+                <CollapsibleSectionSummary title="Dati giocatore" />
                 <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{t.nationality}</Label>
@@ -2577,8 +2593,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               </div>
               )}
 
-              <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contatti</summary>
+              <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                <CollapsibleSectionSummary title="Contatti" />
                 <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
@@ -2657,11 +2673,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </details>
 
-              <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <span>Tesseramento e certificato</span>
-                  <SectionStatusBadge status={registrationSectionStatus} />
-                </summary>
+              <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                <CollapsibleSectionSummary title="Tesseramento e certificato" status={registrationSectionStatus} />
                 <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
@@ -2710,12 +2723,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </details>
 
-              <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                  <span>Documenti giocatore</span>
-                  <SectionStatusBadge status={documentSectionStatus} />
-                </summary>
+              <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                <CollapsibleSectionSummary title="Documenti giocatore" icon={<FileText className="h-4 w-4" />} status={documentSectionStatus} />
                 <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {PLAYER_DOCUMENT_TYPES.map((docType) => {
@@ -2798,8 +2807,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </details>
 
-              <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">Squadra assegnata</summary>
+              <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                <CollapsibleSectionSummary title="Squadra assegnata" />
                 <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{t.assignToTeam}</Label>
@@ -2902,12 +2911,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               )}
 
               {canViewFinancials && (
-                <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <Banknote className="h-4 w-4 text-muted-foreground" />
-                    <span>Quote</span>
-                    <SectionStatusBadge status={paymentSectionStatus} />
-                  </summary>
+                <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                  <CollapsibleSectionSummary title="Quote" icon={<Banknote className="h-4 w-4" />} status={paymentSectionStatus} />
                   <div className="mt-3 space-y-3">
                   {overduePlayerPayments.length > 0 && (
                     <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -3084,12 +3089,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               )}
 
               {canEditFinancials && (
-                <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <Package className="h-4 w-4 text-muted-foreground" />
-                    <span>Kit</span>
-                    <SectionStatusBadge status={kitSectionStatus} />
-                  </summary>
+                <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                  <CollapsibleSectionSummary title="Kit" icon={<Package className="h-4 w-4" />} status={kitSectionStatus} />
                   <div className="mt-3 space-y-3 rounded-md border bg-background p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
@@ -3208,8 +3209,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               )}
 
               {canViewFinancials && (
-                <details className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-emerald-800">Totale economico giocatore</summary>
+                <details className="group rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+                  <CollapsibleSectionSummary title="Totale economico giocatore" tone="success" />
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-xs text-emerald-700">Quote registrate + kit selezionato nella scheda.</p>
