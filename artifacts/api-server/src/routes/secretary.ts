@@ -42,6 +42,41 @@ function canEditWarehouse(role?: string | null): boolean {
   return WAREHOUSE_EDIT_ROLES.has(normalizeSessionRole(role));
 }
 
+function cleanNumber(value: unknown, fallback = 0) {
+  const n = Number(value ?? fallback);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function cleanPrice(value: unknown) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function warehouseSlugPart(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 18);
+}
+
+function makeWarehouseCode(section: string, name: string, category?: string | null, size?: string | null) {
+  const prefix = section === "field" ? "CAMPO" : "ABB";
+  return [prefix, warehouseSlugPart(category || name), warehouseSlugPart(size || "")]
+    .filter(Boolean)
+    .join("-");
+}
+
+function makeWarehouseItemType(section: string, itemType: unknown, name: string, category?: string | null) {
+  const explicit = itemType ? String(itemType).trim() : "";
+  if (["kit", "inventory"].includes(explicit)) return explicit;
+  const label = `${category ?? ""} ${name}`.toLowerCase();
+  return section === "apparel" && label.includes("kit") ? "kit" : "inventory";
+}
+
 function todayDateOnly(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -324,20 +359,25 @@ router.post("/warehouse-items", requireAuth, async (req, res): Promise<void> => 
     return;
   }
   const { section, code, name, itemType, price, isActive, category, size, quantityAvailable, quantityReserved, reorderThreshold, supplier, notes } = req.body;
-  if (!code || !name) { res.status(400).json({ error: "code and name required" }); return; }
+  const cleanSection = section === "field" ? "field" : "apparel";
+  const cleanCategory = category ? String(category).trim() : null;
+  const cleanSize = size ? String(size).trim() : null;
+  const cleanName = String(name ?? cleanCategory ?? "").trim();
+  if (!cleanName) { res.status(400).json({ error: "Nome articolo richiesto" }); return; }
+  const cleanCode = String(code ?? "").trim() || makeWarehouseCode(cleanSection, cleanName, cleanCategory, cleanSize);
   const [record] = await db.insert(warehouseItemsTable).values({
     clubId: req.session.clubId!,
-    section: section === "field" ? "field" : "apparel",
-    code: String(code).trim(),
-    name: String(name).trim(),
-    itemType: itemType ? String(itemType).trim() : "inventory",
-    price: price != null && price !== "" ? Number(price) : null,
+    section: cleanSection,
+    code: cleanCode,
+    name: cleanName,
+    itemType: makeWarehouseItemType(cleanSection, itemType, cleanName, cleanCategory),
+    price: cleanPrice(price),
     isActive: isActive === 0 || isActive === false ? 0 : 1,
-    category: category ? String(category).trim() : null,
-    size: size ? String(size).trim() : null,
-    quantityAvailable: Number(quantityAvailable ?? 0),
-    quantityReserved: Number(quantityReserved ?? 0),
-    reorderThreshold: Number(reorderThreshold ?? 0),
+    category: cleanCategory,
+    size: cleanSize,
+    quantityAvailable: cleanNumber(quantityAvailable),
+    quantityReserved: cleanNumber(quantityReserved),
+    reorderThreshold: cleanNumber(reorderThreshold),
     supplier: supplier ? String(supplier).trim() : null,
     notes: notes ? String(notes).trim() : null,
   }).returning();
@@ -352,15 +392,31 @@ router.patch("/warehouse-items/:id", requireAuth, async (req, res): Promise<void
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const updates: Record<string, unknown> = {};
-  for (const key of ["section", "code", "name", "itemType", "category", "size", "supplier", "notes"] as const) {
+  for (const key of ["section", "itemType", "category", "size", "supplier", "notes"] as const) {
     if (req.body[key] !== undefined) updates[key] = req.body[key] ? String(req.body[key]).trim() : null;
   }
   if (updates.section !== undefined && updates.section !== "field") updates.section = "apparel";
-  if (req.body.price !== undefined) updates.price = req.body.price != null && req.body.price !== "" ? Number(req.body.price) : null;
+  const nextSection = String(updates.section ?? req.body.section ?? "apparel") === "field" ? "field" : "apparel";
+  const nextCategory = req.body.category !== undefined ? (req.body.category ? String(req.body.category).trim() : null) : undefined;
+  const nextSize = req.body.size !== undefined ? (req.body.size ? String(req.body.size).trim() : null) : undefined;
+  if (req.body.name !== undefined) {
+    const cleanName = String(req.body.name ?? nextCategory ?? "").trim();
+    if (!cleanName) { res.status(400).json({ error: "Nome articolo richiesto" }); return; }
+    updates.name = cleanName;
+  }
+  if (req.body.code !== undefined) {
+    const fallbackName = String(updates.name ?? req.body.name ?? req.body.category ?? "articolo").trim();
+    updates.code = String(req.body.code ?? "").trim() || makeWarehouseCode(nextSection, fallbackName, nextCategory, nextSize);
+  }
+  if (req.body.itemType !== undefined || req.body.name !== undefined || req.body.category !== undefined || req.body.section !== undefined) {
+    const typeName = String(updates.name ?? req.body.name ?? req.body.category ?? "articolo").trim();
+    updates.itemType = makeWarehouseItemType(nextSection, req.body.itemType, typeName, nextCategory);
+  }
+  if (req.body.price !== undefined) updates.price = cleanPrice(req.body.price);
   if (req.body.isActive !== undefined) updates.isActive = req.body.isActive === 0 || req.body.isActive === false ? 0 : 1;
-  if (req.body.quantityAvailable !== undefined) updates.quantityAvailable = Number(req.body.quantityAvailable);
-  if (req.body.quantityReserved !== undefined) updates.quantityReserved = Number(req.body.quantityReserved);
-  if (req.body.reorderThreshold !== undefined) updates.reorderThreshold = Number(req.body.reorderThreshold);
+  if (req.body.quantityAvailable !== undefined) updates.quantityAvailable = cleanNumber(req.body.quantityAvailable);
+  if (req.body.quantityReserved !== undefined) updates.quantityReserved = cleanNumber(req.body.quantityReserved);
+  if (req.body.reorderThreshold !== undefined) updates.reorderThreshold = cleanNumber(req.body.reorderThreshold);
   const [record] = await db.update(warehouseItemsTable).set(updates)
     .where(and(eq(warehouseItemsTable.id, id), eq(warehouseItemsTable.clubId, req.session.clubId!))).returning();
   if (!record) { res.status(404).json({ error: "Not found" }); return; }

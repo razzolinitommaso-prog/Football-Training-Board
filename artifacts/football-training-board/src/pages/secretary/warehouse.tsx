@@ -161,6 +161,26 @@ function itemTypeLabel(type: string) {
   return "Magazzino";
 }
 
+function slugPart(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 18);
+}
+
+function automaticItemType(section: WarehouseSection, value: string) {
+  return section === "apparel" && value.toLowerCase().includes("kit") ? "kit" : "inventory";
+}
+
+function automaticCode(section: WarehouseSection, category: string, size: string, name: string) {
+  const prefix = section === "apparel" ? "ABB" : "CAMPO";
+  const parts = [prefix, slugPart(category || name || sectionLabel(section)), slugPart(size)].filter(Boolean);
+  return parts.join("-");
+}
+
 function formatEuro(value: number | string | null | undefined) {
   return Number(value ?? 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -199,7 +219,11 @@ export default function WarehousePage() {
       setIsDialogOpen(false);
       toast({ title: "Articolo magazzino salvato" });
     },
-    onError: () => toast({ title: "Errore salvataggio magazzino", variant: "destructive" }),
+    onError: (error) => toast({
+      title: "Errore salvataggio magazzino",
+      description: error instanceof Error ? error.message : "Controlla i dati inseriti.",
+      variant: "destructive",
+    }),
   });
 
   const remove = useMutation({
@@ -238,11 +262,21 @@ export default function WarehousePage() {
 
   function handleSave(event: React.FormEvent) {
     event.preventDefault();
+    const cleanName = form.name.trim() || form.category.trim();
+    const cleanCode = form.code.trim() || automaticCode(section, form.category, form.size, cleanName);
+    if (!cleanName) {
+      toast({
+        title: "Nome articolo richiesto",
+        description: "Seleziona una categoria oppure scrivi il nome articolo.",
+        variant: "destructive",
+      });
+      return;
+    }
     save.mutate({
       section,
-      code: form.code,
-      name: form.name,
-      itemType: form.itemType,
+      code: cleanCode,
+      name: cleanName,
+      itemType: automaticItemType(section, `${form.category} ${cleanName}`),
       price: form.price || null,
       isActive: form.isActive,
       category: form.category || null,
@@ -381,25 +415,20 @@ export default function WarehousePage() {
           <form onSubmit={handleSave} className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Codice articolo *</Label>
-                <Input value={form.code} onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))} required />
+                <Label>Codice articolo</Label>
+                <Input
+                  value={form.code}
+                  onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))}
+                  placeholder="Automatico se vuoto"
+                />
               </div>
               <div className="space-y-2">
-                <Label>Nome articolo *</Label>
-                <Input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} required />
-              </div>
-              <div className="space-y-2">
-                <Label>Tipo voce</Label>
-                <Select value={form.itemType} onValueChange={(value) => setForm((prev) => ({ ...prev, itemType: value }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="inventory">Solo magazzino</SelectItem>
-                    <SelectItem value="annual_fee">Quota annuale</SelectItem>
-                    <SelectItem value="insurance_fee">Assicurazione</SelectItem>
-                    <SelectItem value="shuttle_fee">Pulmino</SelectItem>
-                    <SelectItem value="kit">Kit</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Nome articolo</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Automatico da categoria se vuoto"
+                />
               </div>
               <div className="space-y-2">
                 <Label>Prezzo listino</Label>
@@ -415,7 +444,6 @@ export default function WarehousePage() {
                       ...prev,
                       category: next,
                       name: prev.name || next,
-                      itemType: section === "apparel" && next.toLowerCase().includes("kit") ? "kit" : prev.itemType,
                     }));
                   }}
                 >
