@@ -60,6 +60,22 @@ function sectionLabel(val?: string | null) {
   return SEZIONI.find(s => s.value === val)?.label ?? val ?? "";
 }
 
+const YOUTH_CATEGORY_SUGGESTIONS = [
+  "Giovanissimi B",
+  "Giovanissimi A",
+  "Allievi B",
+  "Allievi A",
+  "Juniores",
+];
+
+const FIRST_TEAM_CATEGORY_SUGGESTIONS = ["Prima Squadra"];
+
+function categoryOptionsForSection(section?: string | null) {
+  if (section === "settore_giovanile") return YOUTH_CATEGORY_SUGGESTIONS;
+  if (section === "prima_squadra") return FIRST_TEAM_CATEGORY_SUGGESTIONS;
+  return SCHOOL_CATEGORY_SUGGESTIONS;
+}
+
 function generatedTeamName(data: { name?: string | null; category?: string | null; ageGroup?: string | null; clubSection?: string | null }) {
   const name = data.name?.trim();
   if (name) return name;
@@ -88,6 +104,12 @@ function teamCategoryRank(value?: string | null): number {
   if (text.includes("primi calci")) return 1;
   if (text.includes("pulcini")) return 2;
   if (text.includes("esordienti")) return 3;
+  if (text.includes("giovanissimi b")) return 4;
+  if (text.includes("giovanissimi a")) return 5;
+  if (text.includes("allievi b") || text.includes("alievi b") || text.includes("elievi b")) return 6;
+  if (text.includes("allievi a") || text.includes("alievi a") || text.includes("elievi a")) return 7;
+  if (text.includes("juniores") || text.includes("juniors")) return 8;
+  if (text.includes("prima squadra")) return 9;
   return 99;
 }
 
@@ -131,6 +153,47 @@ function staffRoleLabel(role: string, t: ReturnType<typeof useLanguage>["t"]) {
     secretary: t.secretary ?? "Secretary",
   };
   return labels[role] || role;
+}
+
+function timeToMinutes(value?: string | null): number | null {
+  const match = String(value ?? "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function scheduleOverlaps(a: TeamTrainingSlot, b: TeamTrainingSlot): boolean {
+  if (a.day !== b.day) return false;
+  const aStart = timeToMinutes(a.startTime);
+  const aEnd = timeToMinutes(a.endTime);
+  const bStart = timeToMinutes(b.startTime);
+  const bEnd = timeToMinutes(b.endTime);
+  if (aStart == null || aEnd == null || bStart == null || bEnd == null) return false;
+  if (aEnd <= aStart || bEnd <= bStart) return false;
+  return aStart < bEnd && bStart < aEnd;
+}
+
+function normalizeResource(value?: string | null): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function fieldResourceConflicts(a?: string | null, b?: string | null): boolean {
+  const left = normalizeResource(a);
+  const right = normalizeResource(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const leftNumber = left.match(/campo\s*(\d+)/)?.[1];
+  const rightNumber = right.match(/campo\s*(\d+)/)?.[1];
+  if (!leftNumber || leftNumber !== rightNumber) return false;
+  return left.startsWith("campo") || right.startsWith("campo");
+}
+
+function lockerResourceConflicts(a?: string | null, b?: string | null): boolean {
+  const left = normalizeResource(a);
+  const right = normalizeResource(b);
+  return Boolean(left && right && left === right);
 }
 
 type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
@@ -258,6 +321,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   function saveSchedule() {
     if (!scheduleTeam) return;
+    if (!assertScheduleAvailable(scheduleRows, scheduleTeam.id)) return;
     if (import.meta.env.DEV) console.log("[saveSchedule] id=", scheduleTeam.id, "scheduleRows=", scheduleRows);
     updateScheduleMutation.mutate({ id: scheduleTeam.id, data: { trainingSchedule: normalizeScheduleRows(scheduleRows) } });
   }
@@ -316,6 +380,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   function saveEditTeam(data: z.infer<typeof teamSchema>) {
     if (!editTeam) return;
+    if (!assertScheduleAvailable(editScheduleRows, editTeam.id)) return;
     if (import.meta.env.DEV) console.log("[saveEditTeam] id=", editTeam.id, "editScheduleRows=", editScheduleRows, "formData=", data);
     updateTeamMutation.mutate({ id: editTeam.id, data: { ...normalizeTeamFormData(data), trainingSchedule: normalizeScheduleRows(editScheduleRows) } });
   }
@@ -350,6 +415,52 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     );
   }
 
+  function scheduleConflictMessages(rows: TeamTrainingSlot[], ignoreTeamId?: number | null) {
+    const messages: string[] = [];
+    const normalizedRows = normalizeScheduleRows(rows);
+
+    normalizedRows.forEach((row, idx) => {
+      normalizedRows.forEach((other, otherIdx) => {
+        if (otherIdx <= idx || !scheduleOverlaps(row, other)) return;
+        if (fieldResourceConflicts(row.campo, other.campo)) {
+          messages.push(`Conflitto campo tra sessione ${idx + 1} e sessione ${otherIdx + 1}`);
+        }
+        if (lockerResourceConflicts(row.lockerRoom, other.lockerRoom)) {
+          messages.push(`Conflitto spogliatoio tra sessione ${idx + 1} e sessione ${otherIdx + 1}`);
+        }
+      });
+    });
+
+    ((allTeams as any[] | undefined) ?? []).forEach((team) => {
+      if (ignoreTeamId && Number(team.id) === Number(ignoreTeamId)) return;
+      const teamSchedule = (team.trainingSchedule ?? []) as TeamTrainingSlot[];
+      normalizedRows.forEach((row) => {
+        teamSchedule.forEach((slot) => {
+          if (!scheduleOverlaps(row, slot)) return;
+          if (fieldResourceConflicts(row.campo, slot.campo)) {
+            messages.push(`${row.day} ${row.startTime}-${row.endTime}: ${row.campo} gia occupato da ${team.name}`);
+          }
+          if (lockerResourceConflicts(row.lockerRoom, slot.lockerRoom)) {
+            messages.push(`${row.day} ${row.startTime}-${row.endTime}: spogliatoio ${row.lockerRoom} gia occupato da ${team.name}`);
+          }
+        });
+      });
+    });
+
+    return Array.from(new Set(messages));
+  }
+
+  function assertScheduleAvailable(rows: TeamTrainingSlot[], ignoreTeamId?: number | null) {
+    const conflicts = scheduleConflictMessages(rows, ignoreTeamId);
+    if (conflicts.length === 0) return true;
+    toast({
+      title: "Campo o spogliatoio non disponibile",
+      description: conflicts.slice(0, 3).join(" | "),
+      variant: "destructive",
+    });
+    return false;
+  }
+
   const form = useForm<z.infer<typeof teamSchema>>({
     resolver: zodResolver(teamSchema),
     defaultValues: {
@@ -374,8 +485,14 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     return a.localeCompare(b);
   });
   const uniqueCategories = Array.from(new Set(teams?.map(t => t.category).filter(Boolean) as string[])).sort(compareTeamCategoryLabels);
-  const categorySuggestions = Array.from(new Set([...uniqueCategories, ...SCHOOL_CATEGORY_SUGGESTIONS]))
-    .sort(compareTeamCategoryLabels);
+  const createCategoryOptions = Array.from(new Set([
+    ...categoryOptionsForSection(effectiveSection || form.watch("clubSection")),
+    ...uniqueCategories,
+  ])).sort(compareTeamCategoryLabels);
+  const editCategoryOptions = Array.from(new Set([
+    ...categoryOptionsForSection(effectiveSection || editForm.watch("clubSection")),
+    ...uniqueCategories,
+  ])).sort(compareTeamCategoryLabels);
 
   const filteredTeams = teams?.filter(t => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -445,16 +562,29 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
             <DialogHeader>
               <DialogTitle>{t.createNewTeam}</DialogTitle>
             </DialogHeader>
-            <datalist id="team-category-suggestions">
-              {categorySuggestions.map(category => (
-                <option key={category} value={category} />
-              ))}
-            </datalist>
-            <form onSubmit={form.handleSubmit((data) => createMutation.mutate({ data: { ...normalizeTeamFormData(data), trainingSchedule: normalizeScheduleRows(createScheduleRows) } }))} className="space-y-4 pt-4">
+            <form onSubmit={form.handleSubmit((data) => {
+              if (!assertScheduleAvailable(createScheduleRows, null)) return;
+              createMutation.mutate({ data: { ...normalizeTeamFormData(data), trainingSchedule: normalizeScheduleRows(createScheduleRows) } });
+            })} className="space-y-4 pt-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="category">{t.category} <span className="text-destructive">*</span></Label>
-                  <Input id="category" list="team-category-suggestions" autoComplete="off" placeholder="es. Esordienti" {...form.register("category")} />
+                  <Label>{t.category} <span className="text-destructive">*</span></Label>
+                  <Controller
+                    name="category"
+                    control={form.control}
+                    render={({ field }) => (
+                      <Select value={field.value || ""} onValueChange={field.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleziona categoria" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {createCategoryOptions.map(category => (
+                            <SelectItem key={category} value={category}>{category}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
                   {form.formState.errors.category && (
                     <p className="text-xs text-destructive">{form.formState.errors.category.message}</p>
                   )}
@@ -480,7 +610,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                     name="clubSection"
                     control={form.control}
                     render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
+                      <Select value={field.value} onValueChange={(value) => { field.onChange(value); form.setValue("category", ""); }}>
                         <SelectTrigger>
                           <SelectValue placeholder="Seleziona sezione" />
                         </SelectTrigger>
@@ -831,8 +961,23 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
           <form onSubmit={editForm.handleSubmit(saveEditTeam)} className="space-y-5 pt-2">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="edit-category">{t.category} <span className="text-destructive">*</span></Label>
-                <Input id="edit-category" list="team-category-suggestions" autoComplete="off" placeholder="es. Esordienti" {...editForm.register("category")} />
+                <Label>{t.category} <span className="text-destructive">*</span></Label>
+                <Controller
+                  name="category"
+                  control={editForm.control}
+                  render={({ field }) => (
+                    <Select value={field.value || ""} onValueChange={field.onChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleziona categoria" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {editCategoryOptions.map(category => (
+                          <SelectItem key={category} value={category}>{category}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
                 {editForm.formState.errors.category && (
                   <p className="text-xs text-destructive">{editForm.formState.errors.category.message}</p>
                 )}
@@ -847,6 +992,30 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               <Input id="edit-name" placeholder="Vuoto = generato da categoria e annata" {...editForm.register("name")} />
             </div>
 
+            <div className="rounded-lg border bg-muted/30 px-3 py-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                <UserCheck className="h-4 w-4 text-primary" />
+                Mister assegnati
+              </div>
+              {(((editTeam as any)?.assignedStaff ?? []) as { userId: number; name: string; role: string }[])
+                .filter((staff) => ["coach", "fitness_coach", "technical_director", "athletic_director"].includes(staff.role))
+                .length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {(((editTeam as any)?.assignedStaff ?? []) as { userId: number; name: string; role: string }[])
+                    .filter((staff) => ["coach", "fitness_coach", "technical_director", "athletic_director"].includes(staff.role))
+                    .map((staff) => (
+                      <span key={`${staff.userId}-${staff.role}`} className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-xs font-medium">
+                        <span>{STAFF_ROLE_ICONS[staff.role] ?? "👤"}</span>
+                        {staff.name}
+                        <span className="text-muted-foreground">· {staffRoleLabel(staff.role, t)}</span>
+                      </span>
+                    ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Nessun mister assegnato. Puoi assegnarlo da Credenziali & Accessi / staff squadra.</p>
+              )}
+            </div>
+
             {!canChooseTeamSection ? (
               <div className="flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2 text-sm">
                 <span className="text-muted-foreground">Sezione:</span>
@@ -859,7 +1028,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                   name="clubSection"
                   control={editForm.control}
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    <Select value={field.value} onValueChange={(value) => { field.onChange(value); editForm.setValue("category", ""); }}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>

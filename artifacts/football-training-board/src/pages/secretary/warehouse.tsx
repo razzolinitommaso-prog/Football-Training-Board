@@ -48,6 +48,96 @@ const emptyForm = {
   notes: "",
 };
 
+const APPAREL_CATEGORY_OPTIONS = [
+  "Kit allenamento",
+  "Kit gara",
+  "Kit rappresentanza",
+  "Calzettone allenamento",
+  "Pantaloncino allenamento",
+  "Maglietta allenamento",
+  "K-Way",
+  "Tuta invernale allenamento",
+  "Pantalone invernale",
+  "Pinocchietto invernale",
+  "Felpa invernale allenamento",
+  "Pantaloncino gara",
+  "Calzettone gara",
+  "Maglietta gara",
+  "Tuta rappresentanza completa",
+  "Pantalone rappresentanza",
+  "Felpa rappresentanza",
+  "Polo rappresentanza",
+  "Giubbotto",
+  "Borsa",
+  "Zaino",
+];
+
+const FIELD_CATEGORY_OPTIONS = [
+  "Pallone",
+  "Cinesini",
+  "Coni",
+  "Paletti",
+  "Casacche",
+  "Porticine",
+  "Rete porta",
+  "Scala coordinativa",
+  "Ostacoli",
+  "Cerchi",
+  "Elastici",
+  "Pompa palloni",
+  "Borracce",
+  "Borsa medica",
+  "Ghiaccio spray",
+];
+
+const APPAREL_SIZE_OPTIONS = [
+  "3XS",
+  "2XS",
+  "XS",
+  "S",
+  "M",
+  "L",
+  "XL",
+  "5-6 anni",
+  "6-7 anni",
+  "7-8 anni",
+  "8-9 anni",
+  "9-10 anni",
+  "10-11 anni",
+  "11-12 anni",
+  "12-13 anni",
+  "13-14 anni",
+  "116 cm",
+  "128 cm",
+  "140 cm",
+  "152 cm",
+  "164 cm",
+];
+
+const FIELD_SIZE_OPTIONS = [
+  "Unica",
+  "Mini",
+  "Junior",
+  "Senior",
+  "Pallone n.3",
+  "Pallone n.4",
+  "Pallone n.5",
+  "Casacca bambino",
+  "Casacca adulto",
+  "30 cm",
+  "40 cm",
+  "50 cm",
+  "60 cm",
+  "Set 10 pezzi",
+  "Set 20 pezzi",
+];
+
+function optionsForCurrent(value: string, options: string[]) {
+  const clean = value.trim();
+  if (!clean || options.some((option) => option.toLowerCase() === clean.toLowerCase())) return options;
+  return [clean, ...options];
+}
+
 async function apiFetch(path: string, options?: RequestInit) {
   const res = await fetch(withApi(path), {
     ...options,
@@ -82,6 +172,8 @@ export default function WarehousePage() {
   const [form, setForm] = useState(emptyForm);
   const { toast } = useToast();
   const qc = useQueryClient();
+  const categoryOptions = section === "apparel" ? APPAREL_CATEGORY_OPTIONS : FIELD_CATEGORY_OPTIONS;
+  const sizeOptions = section === "apparel" ? APPAREL_SIZE_OPTIONS : FIELD_SIZE_OPTIONS;
 
   const { data: items = [], isLoading } = useQuery<WarehouseItem[]>({
     queryKey: ["/api/warehouse-items", section],
@@ -315,11 +407,41 @@ export default function WarehousePage() {
               </div>
               <div className="space-y-2">
                 <Label>Categoria</Label>
-                <Input value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))} placeholder={section === "apparel" ? "Kit allenamento, gara..." : "Palloni, cinesini..."} />
+                <Select
+                  value={form.category || "_none"}
+                  onValueChange={(value) => {
+                    const next = value === "_none" ? "" : value;
+                    setForm((prev) => ({
+                      ...prev,
+                      category: next,
+                      name: prev.name || next,
+                      itemType: section === "apparel" && next.toLowerCase().includes("kit") ? "kit" : prev.itemType,
+                    }));
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder={section === "apparel" ? "Seleziona tipologia" : "Seleziona materiale"} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">Nessuna categoria</SelectItem>
+                    {optionsForCurrent(form.category, categoryOptions).map((option) => (
+                      <SelectItem key={option} value={option}>{option}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Taglia / formato</Label>
-                <Input value={form.size} onChange={(e) => setForm((prev) => ({ ...prev, size: e.target.value }))} placeholder={section === "apparel" ? "XS, S, M, L..." : "n.5, 30 cm..."} />
+                <Select
+                  value={form.size || "_none"}
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, size: value === "_none" ? "" : value }))}
+                >
+                  <SelectTrigger><SelectValue placeholder={section === "apparel" ? "Seleziona taglia" : "Seleziona formato"} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">Nessuna taglia/formato</SelectItem>
+                    {optionsForCurrent(form.size, sizeOptions).map((option) => (
+                      <SelectItem key={option} value={option}>{option}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Quantita disponibile</Label>
