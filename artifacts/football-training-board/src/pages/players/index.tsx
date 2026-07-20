@@ -730,6 +730,49 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const editingMedicalCertificate = editingPlayerDocuments
     .filter((doc) => doc.type === "medicalCertificate")
     .sort((a, b) => String(b.expiryDate ?? "").localeCompare(String(a.expiryDate ?? "")))[0] ?? null;
+  const currentMedicalExpiry = editingMedicalCertificate?.expiryDate ?? editingPlayer?.medicalCertificateExpiry ?? null;
+  const currentMedicalDaysLeft = currentMedicalExpiry
+    ? Math.ceil((new Date(`${currentMedicalExpiry}T00:00:00`).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : null;
+  const registrationSectionStatus = (() => {
+    const registered = editingPlayer?.registered === true;
+    const medicalValid = isMedicalCertificateValid(currentMedicalExpiry);
+    if (!registered && !medicalValid) return { tone: "red" as const, label: "Mancante" };
+    if (!registered || !medicalValid || (currentMedicalDaysLeft !== null && currentMedicalDaysLeft <= 60)) return { tone: "yellow" as const, label: "Da verificare" };
+    return { tone: "green" as const, label: "Completo" };
+  })();
+  const documentSectionStatus = (() => {
+    const uploadedTypes = new Set(editingPlayerDocuments.map((doc) => doc.type));
+    if (uploadedTypes.size === 0) return { tone: "red" as const, label: "Nessun documento" };
+    if (PLAYER_DOCUMENT_TYPES.some((docType) => !uploadedTypes.has(docType.value))) return { tone: "yellow" as const, label: "Manca qualcosa" };
+    return { tone: "green" as const, label: "Completo" };
+  })();
+  const paymentSectionStatus = (() => {
+    if (overduePlayerPayments.length > 0) return { tone: "red" as const, label: "Scadute" };
+    if (editingPlayerPayments.length === 0) return { tone: "yellow" as const, label: "Non registrate" };
+    if (editingPlayerPayments.some((payment) => payment.status !== "paid")) return { tone: "yellow" as const, label: "Da saldare" };
+    return { tone: "green" as const, label: "In regola" };
+  })();
+  const kitSectionStatus = (() => {
+    const activeRows = displayedKitRows.filter((row) => row.price || row.ordered || row.arrived);
+    if (activeRows.length === 0) return { tone: "red" as const, label: "Non registrato" };
+    if (activeRows.some((row) => !row.ordered || !row.arrived)) return { tone: "yellow" as const, label: "In lavorazione" };
+    return { tone: "green" as const, label: "Completo" };
+  })();
+
+  function SectionStatusBadge({ status }: { status: { tone: "red" | "yellow" | "green"; label: string } }) {
+    const classes = {
+      red: "border-red-200 bg-red-50 text-red-700",
+      yellow: "border-amber-200 bg-amber-50 text-amber-800",
+      green: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    }[status.tone];
+    return (
+      <span className={`ml-auto inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${classes}`}>
+        <span className={`h-2 w-2 rounded-full ${status.tone === "red" ? "bg-red-500" : status.tone === "yellow" ? "bg-amber-500" : "bg-emerald-500"}`} />
+        {status.label}
+      </span>
+    );
+  }
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1980,7 +2023,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
               {canViewFinancials && (
                 <details className="rounded-lg border p-3" open={overduePlayerPayments.length > 0}>
-                  <summary className="cursor-pointer text-sm font-semibold">Quote e rate</summary>
+                  <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
+                    <span>Quote</span>
+                    <SectionStatusBadge status={paymentSectionStatus} />
+                  </summary>
                   <div className="mt-3 space-y-2 text-sm">
                     {overduePlayerPayments.length > 0 && (
                       <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -2013,7 +2059,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
               {canViewKit && (
                 <details className="rounded-lg border p-3">
-                  <summary className="cursor-pointer text-sm font-semibold">Kit</summary>
+                  <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
+                    <span>Kit</span>
+                    <SectionStatusBadge status={kitSectionStatus} />
+                  </summary>
                   <div className="mt-3 space-y-2 text-sm">
                     <div className="space-y-2">
                       {displayedKitRows.filter((row) => row.price || row.ordered || row.arrived).length === 0 ? (
@@ -2324,8 +2373,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tesseramento e certificato</p>
+              <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span>Tesseramento e certificato</span>
+                  <SectionStatusBadge status={registrationSectionStatus} />
+                </summary>
+                <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{t.registrationNumber}</Label>
@@ -2389,13 +2442,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     </div>
                   ) : null;
                 })()}
-              </div>
-
-              <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Documenti giocatore</p>
                 </div>
+              </details>
+
+              <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
+                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span>Documenti giocatore</span>
+                  <SectionStatusBadge status={documentSectionStatus} />
+                </summary>
+                <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {PLAYER_DOCUMENT_TYPES.map((docType) => {
                     const uploaded = editingPlayerDocuments.some((doc) => doc.type === docType.value);
@@ -2474,7 +2530,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     </div>
                   ))}
                 </div>
-              </div>
+                </div>
+              </details>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -2484,11 +2541,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               </div>
 
               {canViewFinancials && (
-                <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
-                  <div className="flex items-center gap-2">
+                <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
+                  <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <Banknote className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quote e rate</p>
-                  </div>
+                    <span>Quote</span>
+                    <SectionStatusBadge status={paymentSectionStatus} />
+                  </summary>
+                  <div className="mt-3 space-y-3">
                   {overduePlayerPayments.length > 0 && (
                     <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                       Rata scaduta non versata: il giocatore viene bloccato automaticamente.
@@ -2555,98 +2614,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       </div>
                     </div>
                   )}
-                  {canEditFinancials && (
-                    <div className="rounded-md border bg-background p-3 space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <Package className="h-4 w-4 text-muted-foreground" />
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kit</p>
-                        </div>
-                        <Badge variant="outline">Totale Euro {kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0).toFixed(2)}</Badge>
-                      </div>
-                      <div className="space-y-2">
-                        {(["training", "match", "representation"] as const).map((area) => (
-                          <div key={area} className="rounded-md border bg-muted/10 p-3">
-                            <p className="mb-2 text-sm font-semibold">
-                              {area === "training" ? "Kit allenamento" : area === "match" ? "Kit gara" : "Kit rappresentanza"}
-                            </p>
-                            <div className="space-y-2">
-                              {kitRows.filter((row) => row.area === area).map((row) => (
-                                <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 sm:grid-cols-[1fr_120px_100px_100px] sm:items-center">
-                                  <span className="text-sm font-medium">{row.label}</span>
-                                  <Input
-                                    type="number"
-                                    step="0.01"
-                                    placeholder="Prezzo"
-                                    value={row.price}
-                                    onChange={(e) => updateKitRow(row.key, { price: e.target.value })}
-                                  />
-                                  <label className="flex items-center gap-2 text-sm">
-                                    <Checkbox checked={row.ordered} onCheckedChange={(v) => updateKitRow(row.key, { ordered: v === true })} />
-                                    Ordinato
-                                  </label>
-                                  <label className="flex items-center gap-2 text-sm">
-                                    <Checkbox checked={row.arrived} onCheckedChange={(v) => updateKitRow(row.key, { arrived: v === true })} />
-                                    Arrivato
-                                  </label>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Note kit</Label>
-                        <Textarea value={kitNotes} onChange={(e) => setKitNotes(e.target.value)} />
-                      </div>
-                      <div className="grid grid-cols-1 gap-3 rounded-md border bg-background p-3 sm:grid-cols-3">
-                        <div className="flex items-center gap-3 rounded-md border px-3 py-2">
-                          <Checkbox
-                            id="kitPaymentPaidInline"
-                            checked={kitPaymentStatus === "paid"}
-                            onCheckedChange={(v) => setKitPaymentStatus(v === true ? "paid" : "pending")}
-                          />
-                          <Label htmlFor="kitPaymentPaidInline" className="cursor-pointer">Pagato</Label>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Metodo pagamento</Label>
-                          <Select value={kitPaymentMethod || "_none"} onValueChange={(v) => setKitPaymentMethod(v === "_none" ? "" : v)}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Seleziona" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none">Da definire</SelectItem>
-                              <SelectItem value="cash">Contanti</SelectItem>
-                              <SelectItem value="bank_transfer">Bonifico</SelectItem>
-                              <SelectItem value="card">Carta/POS</SelectItem>
-                              <SelectItem value="other">Altro</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Scadenza pagamento</Label>
-                          <Input type="date" value={kitPaymentDueDate} onChange={(e) => setKitPaymentDueDate(e.target.value)} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Numero rate kit</Label>
-                          <Input type="number" min={1} value={kitInstallmentCount} onChange={(e) => setKitInstallmentCount(e.target.value)} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Importo rata kit</Label>
-                          <Input
-                            value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) > 0
-                              ? (kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) / Number(kitInstallmentCount)).toFixed(2)
-                              : ""}
-                            readOnly
-                          />
-                        </div>
-                      </div>
-                      <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingKit} onClick={() => void savePlayerKit()}>
-                        <Package className="h-4 w-4" />
-                        {isSavingKit ? "Salvataggio..." : "Salva kit"}
-                      </Button>
-                    </div>
-                  )}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between border-t pt-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagamenti registrati</p>
@@ -2672,7 +2639,108 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       </div>
                     ))}
                   </div>
-                </div>
+                  </div>
+                </details>
+              )}
+
+              {canEditFinancials && (
+                <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
+                  <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Package className="h-4 w-4 text-muted-foreground" />
+                    <span>Kit</span>
+                    <SectionStatusBadge status={kitSectionStatus} />
+                  </summary>
+                  <div className="mt-3 space-y-3 rounded-md border bg-background p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-muted-foreground" />
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kit</p>
+                      </div>
+                      <Badge variant="outline">Totale Euro {kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0).toFixed(2)}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {(["training", "match", "representation"] as const).map((area) => (
+                        <div key={area} className="rounded-md border bg-muted/10 p-3">
+                          <p className="mb-2 text-sm font-semibold">
+                            {area === "training" ? "Kit allenamento" : area === "match" ? "Kit gara" : "Kit rappresentanza"}
+                          </p>
+                          <div className="space-y-2">
+                            {kitRows.filter((row) => row.area === area).map((row) => (
+                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 sm:grid-cols-[1fr_120px_100px_100px] sm:items-center">
+                                <span className="text-sm font-medium">{row.label}</span>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="Prezzo"
+                                  value={row.price}
+                                  onChange={(e) => updateKitRow(row.key, { price: e.target.value })}
+                                />
+                                <label className="flex items-center gap-2 text-sm">
+                                  <Checkbox checked={row.ordered} onCheckedChange={(v) => updateKitRow(row.key, { ordered: v === true })} />
+                                  Ordinato
+                                </label>
+                                <label className="flex items-center gap-2 text-sm">
+                                  <Checkbox checked={row.arrived} onCheckedChange={(v) => updateKitRow(row.key, { arrived: v === true })} />
+                                  Arrivato
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Note kit</Label>
+                      <Textarea value={kitNotes} onChange={(e) => setKitNotes(e.target.value)} />
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 rounded-md border bg-background p-3 sm:grid-cols-3">
+                      <div className="flex items-center gap-3 rounded-md border px-3 py-2">
+                        <Checkbox
+                          id="kitPaymentPaidInline"
+                          checked={kitPaymentStatus === "paid"}
+                          onCheckedChange={(v) => setKitPaymentStatus(v === true ? "paid" : "pending")}
+                        />
+                        <Label htmlFor="kitPaymentPaidInline" className="cursor-pointer">Pagato</Label>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Metodo pagamento</Label>
+                        <Select value={kitPaymentMethod || "_none"} onValueChange={(v) => setKitPaymentMethod(v === "_none" ? "" : v)}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleziona" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">Da definire</SelectItem>
+                            <SelectItem value="cash">Contanti</SelectItem>
+                            <SelectItem value="bank_transfer">Bonifico</SelectItem>
+                            <SelectItem value="card">Carta/POS</SelectItem>
+                            <SelectItem value="other">Altro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Scadenza pagamento</Label>
+                        <Input type="date" value={kitPaymentDueDate} onChange={(e) => setKitPaymentDueDate(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Numero rate kit</Label>
+                        <Input type="number" min={1} value={kitInstallmentCount} onChange={(e) => setKitInstallmentCount(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Importo rata kit</Label>
+                        <Input
+                          value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) > 0
+                            ? (kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) / Number(kitInstallmentCount)).toFixed(2)
+                            : ""}
+                          readOnly
+                        />
+                      </div>
+                    </div>
+                    <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingKit} onClick={() => void savePlayerKit()}>
+                      <Package className="h-4 w-4" />
+                      {isSavingKit ? "Salvataggio..." : "Salva kit"}
+                    </Button>
+                  </div>
+                </details>
               )}
 
               <div className="grid grid-cols-2 gap-4">
