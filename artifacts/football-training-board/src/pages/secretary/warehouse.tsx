@@ -92,6 +92,8 @@ export default function WarehousePage() {
     const available = Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0);
     return available <= Number(item.reorderThreshold ?? 0);
   }), [items]);
+  const availableItems = useMemo(() => items.filter((item) => Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0) > 0), [items]);
+  const reservedCount = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantityReserved ?? 0), 0), [items]);
 
   const save = useMutation({
     mutationFn: (payload: Record<string, unknown>) => apiFetch(editing ? `/api/warehouse-items/${editing.id}` : "/api/warehouse-items", {
@@ -183,6 +185,27 @@ export default function WarehousePage() {
           <TabsTrigger value="field" className="gap-2"><Goal className="h-4 w-4" />Materiale da campo</TabsTrigger>
         </TabsList>
       </Tabs>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Articoli disponibili</p>
+            <p className="text-2xl font-bold">{availableItems.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pezzi riservati</p>
+            <p className="text-2xl font-bold">{reservedCount}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Da riordinare</p>
+            <p className="text-2xl font-bold">{reorderItems.length}</p>
+          </CardContent>
+        </Card>
+      </div>
 
       {reorderItems.length > 0 && (
         <Card className="border-amber-200 bg-amber-50/70">

@@ -367,6 +367,27 @@ router.patch("/warehouse-items/:id", requireAuth, async (req, res): Promise<void
   res.json(record);
 });
 
+router.patch("/warehouse-items/:id/reserve", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditWarehouse(req.session.role)) {
+    res.status(403).json({ error: "Solo la segreteria puo modificare il magazzino" });
+    return;
+  }
+  const id = parseInt(String(req.params.id));
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const delta = Number(req.body.delta ?? 0);
+  if (!Number.isFinite(delta) || delta === 0) { res.status(400).json({ error: "delta required" }); return; }
+  const [existing] = await db.select().from(warehouseItemsTable)
+    .where(and(eq(warehouseItemsTable.id, id), eq(warehouseItemsTable.clubId, req.session.clubId!)))
+    .limit(1);
+  if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+  const nextReserved = Math.max(0, Number(existing.quantityReserved ?? 0) + delta);
+  const [record] = await db.update(warehouseItemsTable)
+    .set({ quantityReserved: nextReserved })
+    .where(and(eq(warehouseItemsTable.id, id), eq(warehouseItemsTable.clubId, req.session.clubId!)))
+    .returning();
+  res.json(record);
+});
+
 router.delete("/warehouse-items/:id", requireAuth, async (req, res): Promise<void> => {
   if (!canEditWarehouse(req.session.role)) {
     res.status(403).json({ error: "Solo la segreteria puo modificare il magazzino" });

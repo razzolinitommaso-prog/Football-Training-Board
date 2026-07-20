@@ -260,6 +260,7 @@ function parseKitRows(raw: string | null | undefined): KitRow[] {
         price: saved?.price != null ? String(saved.price) : "",
         ordered: saved?.ordered === true,
         arrived: saved?.arrived === true,
+        listItemId: saved?.listItemId ? String(saved.listItemId) : "",
       };
     });
   } catch {
@@ -275,6 +276,7 @@ function serializeKitRows(rows: KitRow[]): string {
     price: row.price,
     ordered: row.ordered,
     arrived: row.arrived,
+    listItemId: row.listItemId || "",
   })));
 }
 
@@ -1095,6 +1097,29 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       }),
     });
     if (!res.ok) throw new Error(await res.text());
+    await syncWarehouseKitReservations();
+  };
+
+  const syncWarehouseKitReservations = async () => {
+    const previousRows = parseKitRows(editingPlayerEquipment?.trainingKit);
+    const countByItem = (rows: KitRow[]) => rows.reduce<Record<string, number>>((acc, row) => {
+      if (row.listItemId && row.ordered) acc[row.listItemId] = (acc[row.listItemId] ?? 0) + 1;
+      return acc;
+    }, {});
+    const previous = countByItem(previousRows);
+    const current = countByItem(kitRows);
+    const ids = new Set([...Object.keys(previous), ...Object.keys(current)]);
+    for (const id of ids) {
+      const delta = (current[id] ?? 0) - (previous[id] ?? 0);
+      if (delta === 0) continue;
+      const res = await fetch(withApi(`/api/warehouse-items/${id}/reserve`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delta }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    }
   };
 
   const createUnifiedEconomicPlan = async () => {
@@ -1319,6 +1344,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setter(item?.price != null ? String(item.price) : "");
   };
 
+  const getWarehouseNetAvailable = (itemId?: string) => {
+    const item = activeListItems.find((entry) => String(entry.id) === itemId);
+    if (!item) return null;
+    return Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0);
+  };
+
   const savePlayerKit = async () => {
     if (!editingPlayer || !canEditFinancials) return;
     setIsSavingKit(true);
@@ -1336,6 +1367,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         }),
       });
       if (!res.ok) throw new Error(await res.text());
+      await syncWarehouseKitReservations();
       const total = kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0);
       if (total > 0) {
         for (const payment of editingKitPayments) {
@@ -3074,7 +3106,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           </p>
                           <div className="space-y-2">
                             {kitRows.filter((row) => row.area === area).map((row) => (
-                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 sm:grid-cols-[1fr_180px_110px_100px_100px] sm:items-center">
+                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 sm:grid-cols-[1fr_190px_100px_110px_100px_100px] sm:items-center">
                                 <span className="text-sm font-medium">{row.label}</span>
                                 <Select value={row.listItemId || "_manual"} onValueChange={(value) => {
                                   const item = activeListItems.find((entry) => String(entry.id) === value);
@@ -3088,7 +3120,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                                     <SelectItem value="_manual">Manuale</SelectItem>
                                     {kitListItems.map((item) => (
                                       <SelectItem key={item.id} value={String(item.id)}>
-                                        {item.name}{item.size ? ` ${item.size}` : ""} - Euro {formatEuro(item.price)}
+                                        {item.name}{item.size ? ` ${item.size}` : ""} - Disp. {Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0)} - Euro {formatEuro(item.price)}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
@@ -3100,6 +3132,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                                   value={row.price}
                                   onChange={(e) => updateKitRow(row.key, { price: e.target.value, listItemId: "" })}
                                 />
+                                <Badge variant={(getWarehouseNetAvailable(row.listItemId) ?? 1) > 0 ? "secondary" : "destructive"}>
+                                  {row.listItemId
+                                    ? (getWarehouseNetAvailable(row.listItemId) ?? 0) > 0
+                                      ? `Disponibile ${getWarehouseNetAvailable(row.listItemId)}`
+                                      : "Da ordinare"
+                                    : "N/D"}
+                                </Badge>
                                 <label className="flex items-center gap-2 text-sm">
                                   <Checkbox checked={row.ordered} onCheckedChange={(v) => updateKitRow(row.key, { ordered: v === true })} />
                                   Ordinato
