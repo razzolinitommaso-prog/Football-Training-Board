@@ -25,9 +25,39 @@ function requireAdminSession(req: any, res: any, next: any) {
   next();
 }
 
+function getParentPlayerId(req: any): number | null {
+  const id = Number(req.session.parentPlayerId ?? 0);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 router.get("/parent/children", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
+  const parentPlayerId = getParentPlayerId(req);
   const now = new Date();
+
+  if (parentPlayerId) {
+    const [player] = await db.select().from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, parentPlayerId)));
+    if (!player) {
+      res.json([]);
+      return;
+    }
+    const [team] = player.teamId
+      ? await db.select().from(teamsTable).where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.id, player.teamId)))
+      : [null];
+    if (!team) {
+      res.json([{ id: 0, name: "Senza squadra", players: [player], nextTraining: null, nextMatch: null }]);
+      return;
+    }
+    const nextTraining = await db.select().from(trainingSessionsTable)
+      .where(and(eq(trainingSessionsTable.clubId, clubId), eq(trainingSessionsTable.teamId, team.id), gte(trainingSessionsTable.scheduledAt, now)))
+      .orderBy(asc(trainingSessionsTable.scheduledAt)).limit(1);
+    const nextMatch = await db.select().from(matchesTable)
+      .where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, team.id), gte(matchesTable.date, now)))
+      .orderBy(asc(matchesTable.date)).limit(1);
+    res.json([{ ...team, players: [player], nextTraining: nextTraining[0] ?? null, nextMatch: nextMatch[0] ?? null }]);
+    return;
+  }
 
   const teams = await db.select().from(teamsTable).where(eq(teamsTable.clubId, clubId)).orderBy(asc(teamsTable.name));
 
@@ -52,10 +82,23 @@ router.get("/parent/children", requireParentSession, async (req, res): Promise<v
 
 router.get("/parent/training", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
+  const parentPlayerId = getParentPlayerId(req);
   const now = new Date();
+  let parentTeamId: number | null = null;
+  if (parentPlayerId) {
+    const [player] = await db.select({ teamId: playersTable.teamId }).from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, parentPlayerId)));
+    parentTeamId = player?.teamId ?? null;
+    if (!parentTeamId) {
+      res.json([]);
+      return;
+    }
+  }
 
+  const trainingConditions = [eq(trainingSessionsTable.clubId, clubId), gte(trainingSessionsTable.scheduledAt, now)];
+  if (parentPlayerId && parentTeamId) trainingConditions.push(eq(trainingSessionsTable.teamId, parentTeamId));
   const sessions = await db.select().from(trainingSessionsTable)
-    .where(and(eq(trainingSessionsTable.clubId, clubId), gte(trainingSessionsTable.scheduledAt, now)))
+    .where(and(...trainingConditions))
     .orderBy(asc(trainingSessionsTable.scheduledAt)).limit(30);
 
   const enriched = await Promise.all(sessions.map(async (s) => {
@@ -72,9 +115,22 @@ router.get("/parent/training", requireParentSession, async (req, res): Promise<v
 
 router.get("/parent/matches", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
+  const parentPlayerId = getParentPlayerId(req);
+  let parentTeamId: number | null = null;
+  if (parentPlayerId) {
+    const [player] = await db.select({ teamId: playersTable.teamId }).from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, parentPlayerId)));
+    parentTeamId = player?.teamId ?? null;
+    if (!parentTeamId) {
+      res.json([]);
+      return;
+    }
+  }
 
+  const matchConditions = [eq(matchesTable.clubId, clubId)];
+  if (parentPlayerId && parentTeamId) matchConditions.push(eq(matchesTable.teamId, parentTeamId));
   const matches = await db.select().from(matchesTable)
-    .where(eq(matchesTable.clubId, clubId))
+    .where(and(...matchConditions))
     .orderBy(asc(matchesTable.date)).limit(50);
 
   const enriched = await Promise.all(matches.map(async (match) => {
@@ -128,9 +184,13 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
 
 router.get("/parent/payments", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
+  const parentPlayerId = getParentPlayerId(req);
 
   const payments = await db.select().from(playerPaymentsTable)
-    .where(eq(playerPaymentsTable.clubId, clubId))
+    .where(and(
+      eq(playerPaymentsTable.clubId, clubId),
+      ...(parentPlayerId ? [eq(playerPaymentsTable.playerId, parentPlayerId)] : []),
+    ))
     .orderBy(desc(playerPaymentsTable.createdAt));
 
   const enriched = await Promise.all(payments.map(async (p) => {
@@ -149,9 +209,13 @@ router.get("/parent/payments", requireParentSession, async (req, res): Promise<v
 
 router.get("/parent/documents", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
+  const parentPlayerId = getParentPlayerId(req);
 
   const docs = await db.select().from(playerDocumentsTable)
-    .where(eq(playerDocumentsTable.clubId, clubId));
+    .where(and(
+      eq(playerDocumentsTable.clubId, clubId),
+      ...(parentPlayerId ? [eq(playerDocumentsTable.playerId, parentPlayerId)] : []),
+    ));
 
   const enriched = await Promise.all(docs.map(async (d) => {
     const [player] = await db.select({ firstName: playersTable.firstName, lastName: playersTable.lastName, teamId: playersTable.teamId })

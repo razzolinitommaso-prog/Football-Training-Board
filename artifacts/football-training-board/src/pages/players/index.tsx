@@ -169,6 +169,7 @@ type ParentDelegate = {
   deliveryStatus?: string | null;
   isActive?: boolean | null;
 };
+type ParentAccessCredentials = { accessCode?: string | null; parentCode?: string | null };
 
 const emptyParentDelegate = (): ParentDelegate => ({
   firstName: "",
@@ -683,6 +684,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [teamFilter, setTeamFilter] = useState<string>(initialTeamFilter);
   const { data: players, isLoading } = useListPlayers();
   const { data: teams } = useListTeams();
+  const { data: parentAccessCredentials } = useQuery<ParentAccessCredentials>({
+    queryKey: ["/api/clubs/me/credentials"],
+    queryFn: async () => {
+      const res = await fetch(withApi("/api/clubs/me/credentials"), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load parent credentials");
+      return res.json();
+    },
+    enabled: nr === "secretary" || nr === "sporting_director",
+  });
   const { data: seasons = [] } = useQuery<SeasonOption[]>({
     queryKey: ["/api/seasons"],
     queryFn: async () => {
@@ -1662,8 +1672,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   }
 
   function parentDelegateMessage(delegate: ParentDelegate) {
-    const clubCode = String((club as { accessCode?: string | null } | null)?.accessCode ?? "");
-    const parentCode = String((club as { parentCode?: string | null } | null)?.parentCode ?? "");
+    const clubCode = String(parentAccessCredentials?.accessCode ?? (club as { accessCode?: string | null } | null)?.accessCode ?? "");
+    const parentCode = String(parentAccessCredentials?.parentCode ?? (club as { parentCode?: string | null } | null)?.parentCode ?? "");
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     return [
       "Accesso App Genitori Football Training Board",

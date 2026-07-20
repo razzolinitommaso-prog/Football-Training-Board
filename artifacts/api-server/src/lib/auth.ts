@@ -8,6 +8,8 @@ declare module "express-session" {
     role: string;
     isSuperAdmin: boolean;
     section?: string;
+    parentDelegateId?: number;
+    parentPlayerId?: number;
   }
 }
 
@@ -47,6 +49,8 @@ type AuthTokenPayload = {
   role?: string;
   section?: string | null;
   isSuperAdmin?: boolean;
+  parentDelegateId?: number;
+  parentPlayerId?: number;
   exp: number;
 };
 
@@ -105,5 +109,7 @@ export function attachBearerSession(req: Request, _res: Response, next: NextFunc
   if (payload.role) req.session.role = payload.role;
   if (payload.section) req.session.section = payload.section;
   if (payload.isSuperAdmin) req.session.isSuperAdmin = true;
+  if (typeof payload.parentDelegateId === "number") req.session.parentDelegateId = payload.parentDelegateId;
+  if (typeof payload.parentPlayerId === "number") req.session.parentPlayerId = payload.parentPlayerId;
   next();
 }

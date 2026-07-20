@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
-import { db, usersTable, clubsTable, clubMembershipsTable, seasonsTable, subscriptionsTable } from "@workspace/db";
+import { db, usersTable, clubsTable, clubMembershipsTable, seasonsTable, subscriptionsTable, playerParentDelegatesTable } from "@workspace/db";
 import { and, desc, eq } from "drizzle-orm";
 import {
   RegisterUserBody,
@@ -371,7 +371,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 });
 
 router.post("/auth/parent-login", async (req, res): Promise<void> => {
-  const { clubCode, parentCode } = req.body as { clubCode?: string; parentCode?: string };
+  const { clubCode, parentCode, delegateCode } = req.body as { clubCode?: string; parentCode?: string; delegateCode?: string };
 
   if (!clubCode || !parentCode) {
     res.status(400).json({ error: "Codice club e codice genitori richiesti" });
@@ -389,16 +389,55 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
     return;
   }
 
+  let parentDelegate: typeof playerParentDelegatesTable.$inferSelect | null = null;
+  const cleanedDelegateCode = String(delegateCode ?? "").trim().toUpperCase();
+  if (cleanedDelegateCode) {
+    const [delegate] = await db
+      .select()
+      .from(playerParentDelegatesTable)
+      .where(and(
+        eq(playerParentDelegatesTable.clubId, club.id),
+        eq(playerParentDelegatesTable.accessCode, cleanedDelegateCode),
+        eq(playerParentDelegatesTable.isActive, true),
+      ));
+    if (!delegate) {
+      res.status(401).json({ error: "Codice delegato non valido" });
+      return;
+    }
+    parentDelegate = delegate;
+  }
+
   req.session.userId = 0;
   req.session.clubId = club.id;
   req.session.role = "parent";
+  if (parentDelegate) {
+    req.session.parentDelegateId = parentDelegate.id;
+    req.session.parentPlayerId = parentDelegate.playerId;
+  } else {
+    delete req.session.parentDelegateId;
+    delete req.session.parentPlayerId;
+  }
   await saveSession(req);
 
+  const authPayload = parentDelegate
+    ? { userId: 0, clubId: club.id, role: "parent", parentDelegateId: parentDelegate.id, parentPlayerId: parentDelegate.playerId }
+    : { userId: 0, clubId: club.id, role: "parent" };
   res.json({
-    user: { id: 0, email: `genitori@club.ftb`, firstName: "Area", lastName: "Genitori", createdAt: club.createdAt },
+    user: {
+      id: 0,
+      email: parentDelegate?.email || `genitori@club.ftb`,
+      firstName: parentDelegate?.firstName || "Area",
+      lastName: parentDelegate?.lastName || "Genitori",
+      createdAt: club.createdAt,
+    },
     club: { id: club.id, name: club.name, city: club.city, country: club.country, logoUrl: null, foundedYear: null, description: null, createdAt: club.createdAt },
     role: "parent",
-    authToken: sessionAuthToken(req),
+    parentDelegate: parentDelegate ? {
+      id: parentDelegate.id,
+      playerId: parentDelegate.playerId,
+      relation: parentDelegate.relation,
+    } : null,
+    authToken: createAuthToken(authPayload),
   });
 });
 

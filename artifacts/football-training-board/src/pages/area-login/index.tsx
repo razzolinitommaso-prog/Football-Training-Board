@@ -355,6 +355,7 @@ export function ParentLoginPage() {
   const { user, isLoading } = useAuth();
   const [clubCode, setClubCode] = useState("");
   const [parentCode, setParentCode] = useState("");
+  const [delegateCode, setDelegateCode] = useState("");
   const [showCode, setShowCode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -370,14 +371,18 @@ export function ParentLoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!clubCode.trim() || !parentCode.trim()) { setError("Inserisci entrambi i codici."); return; }
+    if (!clubCode.trim() || !parentCode.trim()) { setError("Inserisci codice club e codice genitori."); return; }
     setLoading(true);
     try {
       const res = await fetch(withApi("/api/auth/parent-login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ clubCode: clubCode.trim(), parentCode: parentCode.trim().toUpperCase() }),
+        body: JSON.stringify({
+          clubCode: clubCode.trim(),
+          parentCode: parentCode.trim().toUpperCase(),
+          delegateCode: delegateCode.trim().toUpperCase(),
+        }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Credenziali non valide"); setLoading(false); return; }
@@ -447,6 +452,19 @@ export function ParentLoginPage() {
                   </button>
                 </div>
                 <p className="text-xs text-gray-600 mt-1.5">Il codice di 8 caratteri per l'accesso genitori</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Codice Delegato</label>
+                <input
+                  value={delegateCode}
+                  onChange={e => setDelegateCode(e.target.value.toUpperCase())}
+                  type="text"
+                  placeholder="Es. ABCD2345"
+                  maxLength={8}
+                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500/50 transition-all text-sm tracking-widest font-mono text-center text-lg"
+                />
+                <p className="text-xs text-gray-600 mt-1.5">Codice personale del genitore/delegato, generato nella scheda giocatore</p>
               </div>
 
               {error && <p className="text-sm text-red-400 text-center">{error}</p>}
