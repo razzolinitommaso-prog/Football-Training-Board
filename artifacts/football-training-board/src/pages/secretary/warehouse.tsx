@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Package, Plus, Shirt, Goal, AlertTriangle, Pencil, Trash2 } from "lucide-react";
+import { Download, FileSpreadsheet, Package, Plus, Shirt, Goal, AlertTriangle, Pencil, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { withApi } from "@/lib/api-base";
+import { exportToExcel } from "@/lib/excel-export";
+import { cellToTrimmedString, parseExcelFile } from "@/lib/excel-import";
 
 type WarehouseSection = "apparel" | "field";
 
@@ -52,6 +54,7 @@ const APPAREL_CATEGORY_OPTIONS = [
   "Kit allenamento",
   "Kit gara",
   "Kit rappresentanza",
+  "Kit portiere",
   "Calzettone allenamento",
   "Pantaloncino allenamento",
   "Maglietta allenamento",
@@ -70,6 +73,13 @@ const APPAREL_CATEGORY_OPTIONS = [
   "Giubbotto",
   "Borsa",
   "Zaino",
+  "Guanti invernali",
+  "Guanti portiere",
+  "Maglia portiere",
+  "Pantaloncino portiere",
+  "Pantalone portiere",
+  "Calzettone portiere",
+  "Felpa portiere",
 ];
 
 const FIELD_CATEGORY_OPTIONS = [
@@ -91,6 +101,7 @@ const FIELD_CATEGORY_OPTIONS = [
 ];
 
 const APPAREL_SIZE_OPTIONS = [
+  "Tutte le taglie",
   "3XS",
   "2XS",
   "XS",
@@ -115,6 +126,7 @@ const APPAREL_SIZE_OPTIONS = [
 ];
 
 const FIELD_SIZE_OPTIONS = [
+  "Tutti i formati",
   "Unica",
   "Mini",
   "Junior",
@@ -185,6 +197,56 @@ function formatEuro(value: number | string | null | undefined) {
   return Number(value ?? 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function numberField(value: unknown) {
+  const n = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function warehouseRowsForExcel(rows: WarehouseItem[]) {
+  return rows.map((item) => ({
+    "Sezione": item.section === "field" ? "Materiale da campo" : "Abbigliamento",
+    "Codice articolo": item.code ?? "",
+    "Nome articolo": item.name ?? "",
+    "Categoria": item.category ?? "",
+    "Taglia / formato": item.size ?? "",
+    "Prezzo listino": item.price ?? "",
+    "Quantita disponibile": item.quantityAvailable ?? 0,
+    "Soglia minima": item.reorderThreshold ?? 0,
+    "Fornitore": item.supplier ?? "",
+    "Attivo": item.isActive === 0 ? "No" : "Si",
+    "Note": item.notes ?? "",
+  }));
+}
+
+const WAREHOUSE_TEMPLATE_ROWS = [
+  {
+    "Sezione": "Abbigliamento",
+    "Codice articolo": "",
+    "Nome articolo": "Maglietta allenamento",
+    "Categoria": "Maglietta allenamento",
+    "Taglia / formato": "XS",
+    "Prezzo listino": "",
+    "Quantita disponibile": "",
+    "Soglia minima": "",
+    "Fornitore": "",
+    "Attivo": "Si",
+    "Note": "",
+  },
+  {
+    "Sezione": "Abbigliamento",
+    "Codice articolo": "",
+    "Nome articolo": "Guanti portiere",
+    "Categoria": "Guanti portiere",
+    "Taglia / formato": "8-9 anni",
+    "Prezzo listino": "",
+    "Quantita disponibile": "",
+    "Soglia minima": "",
+    "Fornitore": "",
+    "Attivo": "Si",
+    "Note": "",
+  },
+];
+
 export default function WarehousePage() {
   const [section, setSection] = useState<WarehouseSection>("apparel");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -208,10 +270,18 @@ export default function WarehousePage() {
   const reservedCount = useMemo(() => items.reduce((sum, item) => sum + Number(item.quantityReserved ?? 0), 0), [items]);
 
   const save = useMutation({
-    mutationFn: (payload: Record<string, unknown>) => apiFetch(editing ? `/api/warehouse-items/${editing.id}` : "/api/warehouse-items", {
-      method: editing ? "PATCH" : "POST",
-      body: JSON.stringify(payload),
-    }),
+    mutationFn: async (payload: Record<string, unknown> | Record<string, unknown>[]) => {
+      if (Array.isArray(payload)) {
+        return Promise.all(payload.map((entry) => apiFetch("/api/warehouse-items", {
+          method: "POST",
+          body: JSON.stringify(entry),
+        })));
+      }
+      return apiFetch(editing ? `/api/warehouse-items/${editing.id}` : "/api/warehouse-items", {
+        method: editing ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/warehouse-items"] });
       setEditing(null);
@@ -272,21 +342,63 @@ export default function WarehousePage() {
       });
       return;
     }
-    save.mutate({
+    const selectedSizes = !editing && (form.size === "Tutte le taglie" || form.size === "Tutti i formati")
+      ? sizeOptions.filter((size) => size !== "Tutte le taglie" && size !== "Tutti i formati")
+      : [form.size];
+    const payloads = selectedSizes.map((size) => ({
       section,
-      code: cleanCode,
+      code: selectedSizes.length > 1 ? automaticCode(section, form.category, size, cleanName) : cleanCode,
       name: cleanName,
       itemType: automaticItemType(section, `${form.category} ${cleanName}`),
       price: form.price || null,
       isActive: form.isActive,
       category: form.category || null,
-      size: form.size || null,
+      size: size || null,
       quantityAvailable: Number(form.quantityAvailable || 0),
-      quantityReserved: Number(form.quantityReserved || 0),
       reorderThreshold: Number(form.reorderThreshold || 0),
       supplier: form.supplier || null,
       notes: form.notes || null,
-    });
+    }));
+    save.mutate(payloads.length === 1 ? payloads[0] : payloads);
+  }
+
+  async function handleImport(file: File | null) {
+    if (!file) return;
+    try {
+      const rows = await parseExcelFile(file);
+      const payloads = rows.map((row) => {
+        const rawSection = cellToTrimmedString(row["Sezione"]).toLowerCase();
+        const rowSection: WarehouseSection = rawSection.includes("campo") ? "field" : "apparel";
+        const category = cellToTrimmedString(row["Categoria"]);
+        const name = cellToTrimmedString(row["Nome articolo"]) || category;
+        const size = cellToTrimmedString(row["Taglia / formato"]);
+        return {
+          section: rowSection,
+          code: cellToTrimmedString(row["Codice articolo"]) || automaticCode(rowSection, category, size, name),
+          name,
+          itemType: automaticItemType(rowSection, `${category} ${name}`),
+          price: cellToTrimmedString(row["Prezzo listino"]) || null,
+          isActive: cellToTrimmedString(row["Attivo"]).toLowerCase() !== "no",
+          category: category || null,
+          size: size || null,
+          quantityAvailable: numberField(row["Quantita disponibile"]),
+          reorderThreshold: numberField(row["Soglia minima"]),
+          supplier: cellToTrimmedString(row["Fornitore"]) || null,
+          notes: cellToTrimmedString(row["Note"]) || null,
+        };
+      }).filter((row) => row.name);
+      if (payloads.length === 0) {
+        toast({ title: "Nessun articolo valido trovato", variant: "destructive" });
+        return;
+      }
+      save.mutate(payloads);
+    } catch (error) {
+      toast({
+        title: "Errore import magazzino",
+        description: error instanceof Error ? error.message : "File non valido.",
+        variant: "destructive",
+      });
+    }
   }
 
   return (
@@ -299,10 +411,34 @@ export default function WarehousePage() {
           </h1>
           <p className="text-sm text-muted-foreground">Gestisci arrivi, disponibilita, taglie e riassortimenti.</p>
         </div>
-        <Button onClick={openNew} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Nuovo articolo
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            id="warehouse-import"
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(event) => {
+              void handleImport(event.target.files?.[0] ?? null);
+              event.currentTarget.value = "";
+            }}
+          />
+          <Button type="button" variant="outline" className="gap-2" onClick={() => document.getElementById("warehouse-import")?.click()}>
+            <Upload className="h-4 w-4" />
+            Importa Excel
+          </Button>
+          <Button type="button" variant="outline" className="gap-2" onClick={() => exportToExcel(WAREHOUSE_TEMPLATE_ROWS, "modello_magazzino.xlsx", "Magazzino", { preferSavePicker: true })}>
+            <FileSpreadsheet className="h-4 w-4" />
+            Esporta modello
+          </Button>
+          <Button type="button" variant="outline" className="gap-2" onClick={() => exportToExcel(warehouseRowsForExcel(items), `magazzino_${section}.xlsx`, "Magazzino", { preferSavePicker: true })}>
+            <Download className="h-4 w-4" />
+            Esporta Excel
+          </Button>
+          <Button onClick={openNew} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Nuovo articolo
+          </Button>
+        </div>
       </div>
 
       <Tabs value={section} onValueChange={(value) => setSection(value as WarehouseSection)}>
@@ -477,7 +613,9 @@ export default function WarehousePage() {
               </div>
               <div className="space-y-2">
                 <Label>Quantita riservata</Label>
-                <Input type="number" value={form.quantityReserved} onChange={(e) => setForm((prev) => ({ ...prev, quantityReserved: e.target.value }))} />
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  {editing ? form.quantityReserved : "Automatica dalle richieste giocatore"}
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Soglia minima</Label>
