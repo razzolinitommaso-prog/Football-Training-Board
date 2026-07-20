@@ -405,6 +405,19 @@ export const ListPlayersQueryParams = zod.object({
   teamId: zod.coerce.number().optional(),
 });
 
+export const ParentDelegateItem = zod.object({
+  id: zod.number().optional(),
+  firstName: zod.string().nullish(),
+  lastName: zod.string().nullish(),
+  relation: zod.string().nullish(),
+  phone: zod.string().nullish(),
+  email: zod.string().nullish(),
+  accessCode: zod.string().optional(),
+  deliveryChannel: zod.string().optional(),
+  deliveryStatus: zod.string().optional(),
+  isActive: zod.boolean().optional(),
+});
+
 export const ListPlayersResponseItem = zod.object({
   id: zod.number(),
   clubId: zod.number(),
@@ -440,6 +453,7 @@ export const ListPlayersResponseItem = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  parentDelegates: zod.array(ParentDelegateItem).optional(),
   createdAt: zod.date(),
 });
 export const ListPlayersResponse = zod.array(ListPlayersResponseItem);
@@ -479,6 +493,7 @@ export const CreatePlayerBody = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  parentDelegates: zod.array(ParentDelegateItem).optional(),
 });
 
 /**
@@ -523,6 +538,7 @@ export const GetPlayerResponse = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  parentDelegates: zod.array(ParentDelegateItem).optional(),
   createdAt: zod.date(),
 });
 
@@ -565,6 +581,7 @@ export const UpdatePlayerBody = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  parentDelegates: zod.array(ParentDelegateItem).optional(),
 });
 
 export const UpdatePlayerResponse = zod.object({
@@ -602,6 +619,7 @@ export const UpdatePlayerResponse = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  parentDelegates: zod.array(ParentDelegateItem).optional(),
   createdAt: zod.date(),
 });
 

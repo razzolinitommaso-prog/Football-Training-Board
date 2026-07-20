@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, playersTable, teamsTable, teamStaffAssignmentsTable, clubNotificationsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { db, playersTable, teamsTable, teamStaffAssignmentsTable, clubNotificationsTable, playerParentDelegatesTable } from "@workspace/db";
+import { eq, and, asc } from "drizzle-orm";
 import {
   ListPlayersResponse,
   ListPlayersQueryParams,
@@ -32,6 +32,7 @@ const PLAYER_NOTE_ONLY_ROLES = [
 ];
 const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
 const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
+const PARENT_DELEGATE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 type PlayerNoteRecipient = "secretary" | "technical_director" | "coach_staff";
 type PlayerNoteThreadItem = {
@@ -45,6 +46,80 @@ type PlayerNoteThreadItem = {
   replyToId?: string;
   repliedAt?: string;
 };
+type ParentDelegateInput = {
+  id?: number;
+  firstName?: string | null;
+  lastName?: string | null;
+  relation?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  isActive?: boolean | null;
+};
+
+function cleanText(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function generateParentDelegateCode(): string {
+  let code = "";
+  for (let i = 0; i < 8; i += 1) {
+    code += PARENT_DELEGATE_CODE_ALPHABET[Math.floor(Math.random() * PARENT_DELEGATE_CODE_ALPHABET.length)];
+  }
+  return code;
+}
+
+function sanitizeParentDelegates(raw: unknown): ParentDelegateInput[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .slice(0, 3)
+    .map((delegate) => {
+      const item = delegate as ParentDelegateInput;
+      return {
+        id: Number.isFinite(Number(item.id)) ? Number(item.id) : undefined,
+        firstName: cleanText(item.firstName),
+        lastName: cleanText(item.lastName),
+        relation: cleanText(item.relation),
+        phone: cleanText(item.phone),
+        email: cleanText(item.email).toLowerCase(),
+        isActive: item.isActive !== false,
+      };
+    })
+    .filter((delegate) => Boolean(delegate.firstName || delegate.lastName || delegate.phone || delegate.email));
+}
+
+async function listParentDelegates(clubId: number, playerId: number) {
+  return db
+    .select()
+    .from(playerParentDelegatesTable)
+    .where(and(eq(playerParentDelegatesTable.clubId, clubId), eq(playerParentDelegatesTable.playerId, playerId)))
+    .orderBy(asc(playerParentDelegatesTable.id));
+}
+
+async function replaceParentDelegates(clubId: number, playerId: number, incoming: ParentDelegateInput[]) {
+  const existing = await listParentDelegates(clubId, playerId);
+  const existingCodesById = new Map(existing.map((delegate) => [delegate.id, delegate.accessCode]));
+
+  await db
+    .delete(playerParentDelegatesTable)
+    .where(and(eq(playerParentDelegatesTable.clubId, clubId), eq(playerParentDelegatesTable.playerId, playerId)));
+
+  const values = sanitizeParentDelegates(incoming).map((delegate) => ({
+    clubId,
+    playerId,
+    firstName: cleanText(delegate.firstName) || "Delegato",
+    lastName: cleanText(delegate.lastName) || "Genitore",
+    relation: cleanText(delegate.relation) || "Genitore/Tutore",
+    phone: cleanText(delegate.phone) || null,
+    email: cleanText(delegate.email).toLowerCase() || null,
+    accessCode: delegate.id ? existingCodesById.get(delegate.id) ?? generateParentDelegateCode() : generateParentDelegateCode(),
+    deliveryChannel: cleanText(delegate.phone) ? "sms_ready" : cleanText(delegate.email) ? "email_ready" : "manual",
+    deliveryStatus: "ready",
+    isActive: delegate.isActive !== false,
+  }));
+
+  if (values.length === 0) return [];
+  return db.insert(playerParentDelegatesTable).values(values).returning();
+}
 
 function extractSupplementalTeamId(notes?: string | null): number | null {
   const full = String(notes ?? "").trim();
@@ -159,6 +234,7 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, player.teamId), eq(teamsTable.clubId, player.clubId)));
     if (team) teamName = team.name;
   }
+  const parentDelegates = await listParentDelegates(player.clubId, player.id);
   return {
     ...player,
     teamId: player.teamId ?? null,
@@ -190,6 +266,7 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     available: player.available ?? true,
     unavailabilityReason: player.unavailabilityReason ?? null,
     expectedReturn: player.expectedReturn ?? null,
+    parentDelegates,
   };
 }
 
@@ -264,7 +341,7 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const playerData = { ...parsed.data };
+  const { parentDelegates: incomingParentDelegates, ...playerData } = parsed.data as typeof parsed.data & { parentDelegates?: ParentDelegateInput[] };
   let clubSection = typeof req.session.section === "string" && req.session.section
     ? req.session.section
     : "scuola_calcio";
@@ -286,6 +363,10 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
     .insert(playersTable)
     .values(values)
     .returning();
+
+  if (incomingParentDelegates) {
+    await replaceParentDelegates(req.session.clubId!, player.id, incomingParentDelegates);
+  }
 
   const enriched = await enrichPlayer(player);
   res.status(201).json(GetPlayerResponse.parse(enriched));
@@ -326,7 +407,8 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   }
 
   const role = normalizeSessionRole(req.session.role);
-  const updateData = { ...parsed.data } as Record<string, unknown>;
+  const { parentDelegates: incomingParentDelegates, ...parsedUpdateData } = parsed.data as typeof parsed.data & { parentDelegates?: ParentDelegateInput[] };
+  const updateData = { ...parsedUpdateData } as Record<string, unknown>;
   const [existingPlayer] = await db
     .select()
     .from(playersTable)
@@ -397,6 +479,10 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  if (PLAYER_MANAGE_ROLES.includes(role) && incomingParentDelegates) {
+    await replaceParentDelegates(req.session.clubId!, player.id, incomingParentDelegates);
+  }
+
   if (newlyAddedThreadItems.length > 0 && req.session.clubId) {
     const fullName = `${player.firstName} ${player.lastName}`.trim();
     for (const note of newlyAddedThreadItems) {
@@ -420,6 +506,50 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
 
   const enriched = await enrichPlayer(player);
   res.json(UpdatePlayerResponse.parse(enriched));
+});
+
+router.get("/players/:id/parent-delegates", requireAuth, async (req, res): Promise<void> => {
+  const params = GetPlayerParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const [player] = await db
+    .select({ id: playersTable.id })
+    .from(playersTable)
+    .where(and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, req.session.clubId!)));
+  if (!player) {
+    res.status(404).json({ error: "Player not found" });
+    return;
+  }
+
+  res.json(await listParentDelegates(req.session.clubId!, params.data.id));
+});
+
+router.put("/players/:id/parent-delegates", requireAuth, async (req, res): Promise<void> => {
+  const role = normalizeSessionRole(req.session.role);
+  if (!PLAYER_MANAGE_ROLES.includes(role)) {
+    res.status(403).json({ error: "Non sei autorizzato a gestire l'app genitori" });
+    return;
+  }
+  const params = GetPlayerParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const [player] = await db
+    .select({ id: playersTable.id })
+    .from(playersTable)
+    .where(and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, req.session.clubId!)));
+  if (!player) {
+    res.status(404).json({ error: "Player not found" });
+    return;
+  }
+
+  const delegates = await replaceParentDelegates(req.session.clubId!, params.data.id, sanitizeParentDelegates(req.body?.delegates));
+  res.json(delegates);
 });
 
 router.delete("/players/:id", requireAuth, async (req, res): Promise<void> => {

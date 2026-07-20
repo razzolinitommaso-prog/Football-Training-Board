@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight, Copy, KeyRound } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -50,6 +50,15 @@ const playerSchema = z.object({
   parentPhone: z.string().optional(),
   parentEmail: z.string().optional(),
   parentRelation: z.string().optional(),
+  parentDelegates: z.array(z.object({
+    id: z.number().optional(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    relation: z.string().optional(),
+    phone: z.string().optional(),
+    email: z.string().optional(),
+    isActive: z.boolean().optional(),
+  })).optional(),
   secondaryContactFirstName: z.string().optional(),
   secondaryContactLastName: z.string().optional(),
   secondaryContactPhone: z.string().optional(),
@@ -77,6 +86,15 @@ const editSchema = z.object({
   parentPhone: z.string().optional(),
   parentEmail: z.string().optional(),
   parentRelation: z.string().optional(),
+  parentDelegates: z.array(z.object({
+    id: z.number().optional(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    relation: z.string().optional(),
+    phone: z.string().optional(),
+    email: z.string().optional(),
+    isActive: z.boolean().optional(),
+  })).optional(),
   secondaryContactFirstName: z.string().optional(),
   secondaryContactLastName: z.string().optional(),
   secondaryContactPhone: z.string().optional(),
@@ -118,6 +136,7 @@ type Player = {
   parentPhone?: string | null;
   parentEmail?: string | null;
   parentRelation?: string | null;
+  parentDelegates?: ParentDelegate[];
   secondaryContactFirstName?: string | null;
   secondaryContactLastName?: string | null;
   secondaryContactPhone?: string | null;
@@ -137,6 +156,28 @@ type Player = {
   squad?: "A" | "B" | "C" | "D" | null;
   imageUrl?: string | null;
 };
+
+type ParentDelegate = {
+  id?: number;
+  firstName?: string | null;
+  lastName?: string | null;
+  relation?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  accessCode?: string | null;
+  deliveryChannel?: string | null;
+  deliveryStatus?: string | null;
+  isActive?: boolean | null;
+};
+
+const emptyParentDelegate = (): ParentDelegate => ({
+  firstName: "",
+  lastName: "",
+  relation: "",
+  phone: "",
+  email: "",
+  isActive: true,
+});
 
 type PlayerNameOrder = "surname_first" | "name_first";
 type PlayerImageBackground = "white" | "club_logo";
@@ -740,6 +781,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [shuttleMonthlyCost, setShuttleMonthlyCost] = useState("");
   const [shuttlePaymentDueDate, setShuttlePaymentDueDate] = useState("");
   const [isSavingKit, setIsSavingKit] = useState(false);
+  const [parentDelegateRows, setParentDelegateRows] = useState<ParentDelegate[]>([emptyParentDelegate()]);
+  const [isSavingParentDelegates, setIsSavingParentDelegates] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canManagePlayers = nr === "secretary" || nr === "sporting_director";
@@ -1542,6 +1585,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setKitPaymentMethod(kitPayment?.paymentMethod ?? "");
     setKitPaymentDueDate(kitPayment?.dueDate ?? "");
     setKitInstallmentCount(String(kitPayment?.totalInstallments ?? Math.max(playerPayments.filter((payment) => payment.playerId === player.id && payment.paymentType === "kit_payment").length, 1)));
+    setParentDelegateRows(normalizeParentDelegateRows(player.parentDelegates));
     const shuttlePayment = playerPayments.find((payment) => payment.playerId === player.id && payment.paymentType === "shuttle_monthly");
     setShuttleMonthlyCost(shuttlePayment?.amount != null ? String(shuttlePayment.amount) : "");
     setShuttlePaymentDueDate(shuttlePayment?.dueDate ?? "");
@@ -1582,6 +1626,76 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       supplementalTeamId: meta.supplementalTeamId ?? null,
     });
   };
+
+  function normalizeParentDelegateRows(delegates?: ParentDelegate[] | null): ParentDelegate[] {
+    const rows = (delegates ?? [])
+      .slice(0, 3)
+      .map((delegate) => ({
+        ...delegate,
+        firstName: delegate.firstName ?? "",
+        lastName: delegate.lastName ?? "",
+        relation: delegate.relation ?? "",
+        phone: delegate.phone ?? "",
+        email: delegate.email ?? "",
+        isActive: delegate.isActive !== false,
+      }));
+    return rows.length > 0 ? rows : [emptyParentDelegate()];
+  }
+
+  function cleanParentDelegates(rows: ParentDelegate[]): ParentDelegate[] {
+    return rows
+      .slice(0, 3)
+      .map((row) => ({
+        id: row.id,
+        firstName: String(row.firstName ?? "").trim(),
+        lastName: String(row.lastName ?? "").trim(),
+        relation: String(row.relation ?? "").trim(),
+        phone: String(row.phone ?? "").trim(),
+        email: String(row.email ?? "").trim(),
+        isActive: row.isActive !== false,
+      }))
+      .filter((row) => Boolean(row.firstName || row.lastName || row.phone || row.email));
+  }
+
+  function updateParentDelegateRow(index: number, patch: Partial<ParentDelegate>) {
+    setParentDelegateRows((rows) => rows.map((row, i) => i === index ? { ...row, ...patch } : row));
+  }
+
+  function parentDelegateMessage(delegate: ParentDelegate) {
+    const clubCode = String((club as { accessCode?: string | null } | null)?.accessCode ?? "");
+    const parentCode = String((club as { parentCode?: string | null } | null)?.parentCode ?? "");
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return [
+      "Accesso App Genitori Football Training Board",
+      `${origin}/parent/login`,
+      `Codice Club: ${clubCode || "da Credenziali & Accessi"}`,
+      `Codice Genitori: ${parentCode || "da Credenziali & Accessi"}`,
+      `Codice Delegato: ${delegate.accessCode || "verra generato al salvataggio"}`,
+    ].join("\n");
+  }
+
+  async function saveParentDelegatesForPlayer() {
+    if (!editingPlayer) return;
+    setIsSavingParentDelegates(true);
+    try {
+      const res = await fetch(withApi(`/api/players/${editingPlayer.id}/parent-delegates`), {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delegates: cleanParentDelegates(parentDelegateRows) }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const delegates = await res.json() as ParentDelegate[];
+      setParentDelegateRows(normalizeParentDelegateRows(delegates));
+      setEditingPlayer((current) => current ? { ...current, parentDelegates: delegates } : current);
+      queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+      toast({ title: "Delegati App Genitori aggiornati" });
+    } catch {
+      toast({ title: "Errore salvataggio delegati", variant: "destructive" });
+    } finally {
+      setIsSavingParentDelegates(false);
+    }
+  }
 
   const openImageCropper = (file: File) => {
     const reader = new FileReader();
@@ -1744,6 +1858,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           supplementalTeamId: data.supplementalTeamId ?? null,
         }
       ),
+      parentDelegates: cleanParentDelegates(parentDelegateRows),
     };
     delete payload.supplementalTeamId;
     if (availabilityBlocks.length > 0) {
@@ -1902,6 +2017,22 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               const registered = data.registered === true;
               const availabilityBlocks = getAvailabilityBlocks(registered, data.medicalCertificateExpiry);
               const payload = { ...data, registered } as Record<string, unknown>;
+              payload.parentDelegates = cleanParentDelegates([
+                {
+                  firstName: data.parentFirstName,
+                  lastName: data.parentLastName,
+                  relation: data.parentRelation,
+                  phone: data.parentPhone,
+                  email: data.parentEmail,
+                },
+                {
+                  firstName: data.secondaryContactFirstName,
+                  lastName: data.secondaryContactLastName,
+                  relation: data.secondaryContactRelation,
+                  phone: data.secondaryContactPhone,
+                  email: data.secondaryContactEmail,
+                },
+              ]);
               if (availabilityBlocks.length > 0) {
                 payload.available = false;
                 payload.unavailabilityReason = "other";
@@ -2670,6 +2801,89 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     <Input placeholder="Nonno, baby sitter, tutore, altro..." {...editForm.register("secondaryContactRelation")} disabled={!canEditFullPlayer} />
                   </div>
                 </div>
+                </div>
+              </details>
+
+              <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                <CollapsibleSectionSummary title="Utenti collegati App Genitori" />
+                <div className="mt-3 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Inserisci fino a 3 delegati. Al salvataggio viene generato un codice delegato collegato a questo giocatore.
+                  </p>
+                  <div className="space-y-3">
+                    {parentDelegateRows.map((delegate, index) => (
+                      <div key={delegate.id ?? index} className="rounded-md border bg-background p-3">
+                        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-2 text-sm font-semibold">
+                            <KeyRound className="h-4 w-4 text-primary" />
+                            Delegato {index + 1}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {delegate.accessCode && (
+                              <Badge variant="outline" className="font-mono">{delegate.accessCode}</Badge>
+                            )}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="gap-2"
+                              disabled={!delegate.accessCode}
+                              onClick={() => {
+                                void navigator.clipboard.writeText(parentDelegateMessage(delegate));
+                                toast({ title: "Messaggio accesso copiato" });
+                              }}
+                            >
+                              <Copy className="h-4 w-4" />
+                              Copia accesso
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label>Nome</Label>
+                            <Input value={delegate.firstName ?? ""} onChange={(e) => updateParentDelegateRow(index, { firstName: e.target.value })} disabled={!canEditFullPlayer} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Cognome</Label>
+                            <Input value={delegate.lastName ?? ""} onChange={(e) => updateParentDelegateRow(index, { lastName: e.target.value })} disabled={!canEditFullPlayer} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Relazione</Label>
+                            <Input placeholder="Madre, padre, nonno, baby sitter..." value={delegate.relation ?? ""} onChange={(e) => updateParentDelegateRow(index, { relation: e.target.value })} disabled={!canEditFullPlayer} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Telefono</Label>
+                            <Input value={delegate.phone ?? ""} onChange={(e) => updateParentDelegateRow(index, { phone: e.target.value })} disabled={!canEditFullPlayer} />
+                          </div>
+                          <div className="space-y-2 sm:col-span-2">
+                            <Label>Email</Label>
+                            <Input type="email" value={delegate.email ?? ""} onChange={(e) => updateParentDelegateRow(index, { email: e.target.value })} disabled={!canEditFullPlayer} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      disabled={!canEditFullPlayer || parentDelegateRows.length >= 3}
+                      onClick={() => setParentDelegateRows((rows) => [...rows, emptyParentDelegate()].slice(0, 3))}
+                    >
+                      Aggiungi delegato
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full gap-2 sm:w-auto"
+                      disabled={!canEditFullPlayer || isSavingParentDelegates}
+                      onClick={() => void saveParentDelegatesForPlayer()}
+                    >
+                      <KeyRound className="h-4 w-4" />
+                      {isSavingParentDelegates ? "Salvataggio..." : "Salva delegati"}
+                    </Button>
+                  </div>
                 </div>
               </details>
 

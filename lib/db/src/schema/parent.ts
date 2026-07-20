@@ -10,6 +10,23 @@ export const parentPlayerRelationsTable = pgTable("parent_player_relations", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const playerParentDelegatesTable = pgTable("player_parent_delegates", {
+  id: serial("id").primaryKey(),
+  clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
+  playerId: integer("player_id").notNull().references(() => playersTable.id, { onDelete: "cascade" }),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  relation: text("relation").notNull(),
+  phone: text("phone"),
+  email: text("email"),
+  accessCode: text("access_code").notNull(),
+  deliveryChannel: text("delivery_channel").notNull().default("manual"),
+  deliveryStatus: text("delivery_status").notNull().default("ready"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
 export const parentNotificationsTable = pgTable("parent_notifications", {
   id: serial("id").primaryKey(),
   parentUserId: integer("parent_user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
