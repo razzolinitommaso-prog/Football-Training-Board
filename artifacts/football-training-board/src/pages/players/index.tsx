@@ -2241,7 +2241,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
               {canViewFinancials && (
                 <details className="rounded-lg border p-3" open={overduePlayerPayments.length > 0}>
-                  <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
+                  <summary className="cursor-pointer text-sm font-semibold">
                     <span>Quote</span>
                     <SectionStatusBadge status={paymentSectionStatus} />
                   </summary>
@@ -2277,7 +2277,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
               {canViewKit && (
                 <details className="rounded-lg border p-3">
-                  <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
+                  <summary className="cursor-pointer text-sm font-semibold">
                     <span>Kit</span>
                     <SectionStatusBadge status={kitSectionStatus} />
                   </summary>
@@ -2545,8 +2545,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               </div>
               )}
 
-              <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contatti</p>
+              <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contatti</summary>
+                <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Telefono</Label>
@@ -2621,10 +2622,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     <Input placeholder="Nonno, baby sitter, tutore, altro..." {...editForm.register("secondaryContactRelation")} disabled={!canEditFullPlayer} />
                   </div>
                 </div>
-              </div>
+                </div>
+              </details>
 
               <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <span>Tesseramento e certificato</span>
                   <SectionStatusBadge status={registrationSectionStatus} />
                 </summary>
@@ -2677,7 +2679,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               </details>
 
               <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <FileText className="h-4 w-4 text-muted-foreground" />
                   <span>Documenti giocatore</span>
                   <SectionStatusBadge status={documentSectionStatus} />
@@ -2869,7 +2871,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
               {canViewFinancials && (
                 <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                  <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <Banknote className="h-4 w-4 text-muted-foreground" />
                     <span>Quote</span>
                     <SectionStatusBadge status={paymentSectionStatus} />
@@ -3051,7 +3053,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
               {canEditFinancials && (
                 <details className="rounded-lg border border-border/60 bg-muted/10 p-3">
-                  <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <Package className="h-4 w-4 text-muted-foreground" />
                     <span>Kit</span>
                     <SectionStatusBadge status={kitSectionStatus} />
@@ -3167,10 +3169,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               )}
 
               {canViewFinancials && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <details className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-emerald-800">Totale economico giocatore</summary>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Totale economico giocatore</p>
                       <p className="text-xs text-emerald-700">Quote registrate + kit selezionato nella scheda.</p>
                     </div>
                     <div className="text-lg font-bold text-emerald-900">
@@ -3180,7 +3182,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       )}
                     </div>
                   </div>
-                </div>
+                </details>
               )}
 
               {false && (
