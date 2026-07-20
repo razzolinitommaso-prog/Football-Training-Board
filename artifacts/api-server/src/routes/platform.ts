@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable, clubsTable, clubMembershipsTable, playersTable, teamsTable, seasonsTable, platformAnnouncementsTable, subscriptionsTable, billingPaymentsTable } from "@workspace/db";
-import { eq, count, desc } from "drizzle-orm";
+import { and, eq, count, desc } from "drizzle-orm";
 import { requireSuperAdmin } from "../lib/auth";
 import { limitsForPlan } from "../lib/plan-limits";
 import { normalizeSeasonName } from "../lib/season-defaults";
@@ -136,7 +136,7 @@ router.post("/platform/clubs", requireSuperAdmin, async (req, res): Promise<void
     const [user] = await db.insert(usersTable)
       .values({ email: adminEmail, passwordHash, firstName: adminFirstName, lastName: adminLastName })
       .returning();
-    await db.insert(clubMembershipsTable).values({ userId: user.id, clubId: club.id, role: "admin" });
+    await db.insert(clubMembershipsTable).values({ userId: user.id, clubId: club.id, role: "presidente" });
     adminUser = { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName };
   }
 
@@ -154,6 +154,19 @@ router.patch("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise
   const body = req.body as Record<string, string | number | undefined>;
   const updates: Record<string, string | number | null> = {};
   const requestedSeasonName = typeof body.activeSeasonName === "string" ? body.activeSeasonName.trim() : "";
+  const presidentEmail = typeof body.adminEmail === "string" ? body.adminEmail.trim().toLowerCase() : "";
+  const presidentPassword = typeof body.adminPassword === "string" ? body.adminPassword : "";
+  const presidentFirstName = typeof body.adminFirstName === "string" && body.adminFirstName.trim() ? body.adminFirstName.trim() : "Presidente";
+  const presidentLastName = typeof body.adminLastName === "string" && body.adminLastName.trim() ? body.adminLastName.trim() : "Societa";
+
+  if (presidentPassword && !presidentEmail) {
+    res.status(400).json({ error: "Inserisci anche l'email del presidente" });
+    return;
+  }
+  if (presidentPassword && presidentPassword.length < 6) {
+    res.status(400).json({ error: "La password presidente deve avere almeno 6 caratteri" });
+    return;
+  }
 
   const fields = [
     "name", "legalName", "city", "country", "description", "foundedYear",
@@ -207,7 +220,42 @@ router.patch("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise
       .limit(1);
   }
 
-  res.json({ ...updated, activeSeason: activeSeason ?? null });
+  let presidentUser = null;
+  if (presidentEmail) {
+    const [existingUser] = await db.select().from(usersTable).where(eq(usersTable.email, presidentEmail));
+    if (existingUser) {
+      const userUpdates: Record<string, string> = {
+        firstName: presidentFirstName,
+        lastName: presidentLastName,
+      };
+      if (presidentPassword) userUpdates.passwordHash = await bcrypt.hash(presidentPassword, 12);
+      const [user] = await db.update(usersTable).set(userUpdates).where(eq(usersTable.id, existingUser.id)).returning();
+      const [membership] = await db
+        .select()
+        .from(clubMembershipsTable)
+        .where(and(eq(clubMembershipsTable.userId, user.id), eq(clubMembershipsTable.clubId, clubId)))
+        .limit(1);
+      if (membership) {
+        await db.update(clubMembershipsTable).set({ role: "presidente" }).where(eq(clubMembershipsTable.id, membership.id));
+      } else {
+        await db.insert(clubMembershipsTable).values({ userId: user.id, clubId, role: "presidente" });
+      }
+      presidentUser = { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName };
+    } else {
+      if (!presidentPassword) {
+        res.status(400).json({ error: "Per creare un nuovo presidente serve la password" });
+        return;
+      }
+      const passwordHash = await bcrypt.hash(presidentPassword, 12);
+      const [user] = await db.insert(usersTable)
+        .values({ email: presidentEmail, passwordHash, firstName: presidentFirstName, lastName: presidentLastName })
+        .returning();
+      await db.insert(clubMembershipsTable).values({ userId: user.id, clubId, role: "presidente" });
+      presidentUser = { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName };
+    }
+  }
+
+  res.json({ ...updated, activeSeason: activeSeason ?? null, presidentUser });
 });
 
 router.delete("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise<void> => {

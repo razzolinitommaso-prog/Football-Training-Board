@@ -616,7 +616,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) { setError("Il nome della società è obbligatorio."); return; }
-    if (form.adminEmail && !form.adminPassword) { setError("Inserisci una password per l'admin."); return; }
+    if (form.adminEmail && !form.adminPassword) { setError("Inserisci una password per il presidente."); return; }
     if (form.adminPassword && form.adminPassword.length < 6) { setError("Password min. 6 caratteri."); return; }
     setSaving(true); setError("");
     try {
@@ -676,8 +676,8 @@ function CreateClubDialog({ open, onClose, onCreated }: {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
-            <SectionHeader icon={User} label="Utente Amministratore (opzionale)" />
-            <p className="text-xs text-gray-500 -mt-3">Se fornito, verrà creato un account admin per la società.</p>
+            <SectionHeader icon={User} label="Accesso Presidente (opzionale)" />
+            <p className="text-xs text-gray-500 -mt-3">Se fornito, verra creato un account Presidente per la societa.</p>
             <div className="grid grid-cols-2 gap-4">
               <FieldRow label="Nome">
                 <Input value={form.adminFirstName} onChange={set("adminFirstName")} placeholder="Mario" className={inputClass} />
@@ -685,8 +685,8 @@ function CreateClubDialog({ open, onClose, onCreated }: {
               <FieldRow label="Cognome">
                 <Input value={form.adminLastName} onChange={set("adminLastName")} placeholder="Rossi" className={inputClass} />
               </FieldRow>
-              <FieldRow label="Email Admin">
-                <Input value={form.adminEmail} onChange={set("adminEmail")} type="email" placeholder="admin@club.it" className={inputClass} />
+              <FieldRow label="Email Presidente">
+                <Input value={form.adminEmail} onChange={set("adminEmail")} type="email" placeholder="presidente@club.it" className={inputClass} />
               </FieldRow>
               <FieldRow label="Password">
                 <Input value={form.adminPassword} onChange={set("adminPassword")} type="password" placeholder="Min. 6 caratteri" className={inputClass} />
@@ -888,6 +888,10 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
     contactName: club.contactName ?? "",
     contactPhone: club.contactPhone ?? "",
     contactEmail: club.contactEmail ?? "",
+    adminFirstName: "",
+    adminLastName: "",
+    adminEmail: "",
+    adminPassword: "",
     activeSeasonName: club.activeSeason?.name ?? currentSeasonName(),
     planName: club.subscription?.planName ?? "standard",
     paymentMethod: club.subscription?.paymentMethod ?? "bonifico",
@@ -903,6 +907,8 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) { setError("Il nome è obbligatorio."); return; }
+    if (form.adminPassword && !form.adminEmail.trim()) { setError("Inserisci anche l'email del presidente."); return; }
+    if (form.adminPassword && form.adminPassword.length < 6) { setError("Password presidente min. 6 caratteri."); return; }
     setSaving(true); setError("");
     try {
       const updated = await apiFetch(`/platform/clubs/${club.id}`, {
@@ -927,6 +933,25 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-5">
+          <SectionHeader icon={User} label="Accesso Presidente" />
+          <p className="text-xs text-gray-500 -mt-3">
+            Inserisci email e nuova password per creare o reimpostare l'accesso Presidente della societa.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <FieldRow label="Nome">
+              <Input value={form.adminFirstName} onChange={set("adminFirstName")} placeholder="Presidente" className={inputClass} />
+            </FieldRow>
+            <FieldRow label="Cognome">
+              <Input value={form.adminLastName} onChange={set("adminLastName")} placeholder="Societa" className={inputClass} />
+            </FieldRow>
+            <FieldRow label="Email Presidente">
+              <Input value={form.adminEmail} onChange={set("adminEmail")} type="email" placeholder="presidente@club.it" className={inputClass} />
+            </FieldRow>
+            <FieldRow label="Nuova password">
+              <Input value={form.adminPassword} onChange={set("adminPassword")} type="password" placeholder="Min. 6 caratteri" className={inputClass} />
+            </FieldRow>
+          </div>
+
           <SectionHeader icon={Building2} label="Dati Principali" />
           <div className="grid grid-cols-2 gap-4">
             <FieldRow label="Nome Società *"><Input value={form.name} onChange={set("name")} required className={inputClass} /></FieldRow>
