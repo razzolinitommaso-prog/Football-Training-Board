@@ -553,7 +553,7 @@ const CLUB_SECTIONS = [
 ];
 
 export default function SeasonTransitionPage() {
-  const { role } = useAuth();
+  const { role, section } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -633,7 +633,10 @@ export default function SeasonTransitionPage() {
     return counts;
   }, [playerStatuses]);
 
-  const canManageTransition = ["admin", "presidente", "director", "secretary", "technical_director"].includes(role ?? "");
+  const normalizedRole = String(role ?? "").trim().toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
+  const canManageAllSections = ["admin", "presidente", "director", "sporting_director", "technical_director"].includes(normalizedRole);
+  const canManageTransition = canManageAllSections || normalizedRole === "secretary";
+  const canManagePlayer = (player: PlayerStatus) => canManageAllSections || (normalizedRole === "secretary" && Boolean(section) && player.clubSection === section);
   const fromSeason = seasons.find(s => s.id === fromSeasonId);
   const toSeason = seasons.find(s => s.id === toSeasonId);
 
@@ -648,6 +651,11 @@ export default function SeasonTransitionPage() {
           Gestisci conferme, trasferimenti, promozioni e giocatori in osservazione
         </p>
       </div>
+      {normalizedRole === "secretary" && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          La Segreteria puo vedere tutte le sezioni, ma puo modificare solo i giocatori della propria sezione di accesso.
+        </div>
+      )}
 
       {/* Season selectors */}
       <div className="flex flex-wrap items-center gap-3 bg-muted/40 border rounded-xl p-4">
@@ -745,7 +753,7 @@ export default function SeasonTransitionPage() {
                         key={p.playerId}
                         player={p}
                         teams={teams}
-                        onEdit={canManageTransition ? setEditPlayer : undefined}
+                        onEdit={canManagePlayer(p) ? setEditPlayer : undefined}
                       />
                     ))
                   )}

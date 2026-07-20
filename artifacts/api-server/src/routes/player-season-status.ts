@@ -2,12 +2,23 @@ import { Router, type IRouter } from "express";
 import { db, playerSeasonStatusTable, playersTable, teamsTable, seasonsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
+import { normalizeSessionRole } from "../lib/club-scope";
 
 const router: IRouter = Router();
 const SEASON_TRANSITION_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"];
 
 function canManageSeasonTransition(role?: string | null): boolean {
-  return SEASON_TRANSITION_ROLES.includes(role ?? "");
+  return SEASON_TRANSITION_ROLES.includes(normalizeSessionRole(role));
+}
+
+function canManageAllSections(role?: string | null): boolean {
+  return ["admin", "presidente", "director", "sporting_director", "technical_director"].includes(normalizeSessionRole(role));
+}
+
+function canManagePlayerSection(role: string | null | undefined, sessionSection: string | null | undefined, playerSection: string | null | undefined): boolean {
+  if (canManageAllSections(role)) return true;
+  if (normalizeSessionRole(role) !== "secretary") return false;
+  return Boolean(sessionSection && playerSection && sessionSection === playerSection);
 }
 
 const AGE_GROUP_NEXT: Record<string, string> = {
@@ -79,6 +90,14 @@ router.post("/seasons/:id/player-status", requireAuth, async (req, res): Promise
 
   const { playerId, status, transferAmount, swapPlayerData, notes } = req.body;
   if (!playerId || !status) { res.status(400).json({ error: "playerId and status required" }); return; }
+  const [player] = await db.select().from(playersTable).where(
+    and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!))
+  ).limit(1);
+  if (!player) { res.status(404).json({ error: "Giocatore non trovato" }); return; }
+  if (!canManagePlayerSection(req.session.role, req.session.section ?? null, player.clubSection)) {
+    res.status(403).json({ error: "La segreteria puo modificare solo i giocatori della propria sezione" });
+    return;
+  }
 
   const existing = await db.select().from(playerSeasonStatusTable).where(
     and(
@@ -118,9 +137,16 @@ router.post("/seasons/:id/promote", requireAuth, async (req, res): Promise<void>
 
   const clubId = req.session.clubId!;
 
-  const fromTeams = await db.select().from(teamsTable).where(
+  const fromTeamsAll = await db.select().from(teamsTable).where(
     and(eq(teamsTable.seasonId, fromSeasonId), eq(teamsTable.clubId, clubId))
   );
+  const fromTeams = canManageAllSections(req.session.role)
+    ? fromTeamsAll
+    : fromTeamsAll.filter(team => req.session.section && team.clubSection === req.session.section);
+  if (fromTeams.length === 0) {
+    res.status(403).json({ error: "Nessuna squadra gestibile per la tua sezione" });
+    return;
+  }
 
   const confirmedStatuses = await db.select().from(playerSeasonStatusTable).where(
     and(
