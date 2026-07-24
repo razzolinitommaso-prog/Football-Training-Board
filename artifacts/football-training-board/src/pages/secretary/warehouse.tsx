@@ -187,7 +187,21 @@ function slugPart(value: string) {
 }
 
 function automaticItemType(section: WarehouseSection, value: string) {
-  return section === "apparel" && value.toLowerCase().includes("kit") ? "kit" : "inventory";
+  const label = value.toLowerCase();
+  if (label.includes("assicur")) return "insurance_fee";
+  if (label.includes("pulmino")) return "shuttle_fee";
+  if (label.includes("quota") || label.includes("annuale") || label.includes("iscrizione")) return "annual_fee";
+  return section === "apparel" && label.includes("kit") ? "kit" : "inventory";
+}
+
+function normalizeItemType(value: string, section: WarehouseSection, fallback: string) {
+  const label = value.trim().toLowerCase();
+  if (["annual_fee", "quota annuale", "quota iscrizione", "quota"].includes(label)) return "annual_fee";
+  if (["insurance_fee", "assicurazione", "quota assicurazione"].includes(label)) return "insurance_fee";
+  if (["shuttle_fee", "pulmino", "quota pulmino"].includes(label)) return "shuttle_fee";
+  if (["kit", "abbigliamento kit"].includes(label)) return "kit";
+  if (["inventory", "solo magazzino", "magazzino"].includes(label)) return "inventory";
+  return automaticItemType(section, fallback);
 }
 
 function automaticCode(section: WarehouseSection, category: string, size: string, name: string) {
@@ -210,6 +224,7 @@ function warehouseRowsForExcel(rows: WarehouseItem[]) {
     "Sezione": item.section === "field" ? "Materiale da campo" : "Abbigliamento",
     "Codice articolo": item.code ?? "",
     "Nome articolo": item.name ?? "",
+    "Tipo voce": itemTypeLabel(item.itemType),
     "Categoria": item.category ?? "",
     "Taglia / formato": item.size ?? "",
     "Prezzo listino": item.price ?? "",
@@ -236,6 +251,7 @@ const WAREHOUSE_TEMPLATE_ROWS = [
     "Sezione": "Abbigliamento",
     "Codice articolo": "",
     "Nome articolo": "Maglietta allenamento",
+    "Tipo voce": "Kit",
     "Categoria": "Maglietta allenamento",
     "Taglia / formato": "XS",
     "Prezzo listino": "",
@@ -249,8 +265,51 @@ const WAREHOUSE_TEMPLATE_ROWS = [
     "Sezione": "Abbigliamento",
     "Codice articolo": "",
     "Nome articolo": "Guanti portiere",
+    "Tipo voce": "Kit",
     "Categoria": "Guanti portiere",
     "Taglia / formato": "8-9 anni",
+    "Prezzo listino": "",
+    "Quantita disponibile": "",
+    "Soglia minima": "",
+    "Fornitore": "",
+    "Attivo": "Si",
+    "Note": "",
+  },
+  {
+    "Sezione": "Abbigliamento",
+    "Codice articolo": "",
+    "Nome articolo": "Quota annuale Pulcini",
+    "Tipo voce": "Quota annuale",
+    "Categoria": "Quota annuale",
+    "Taglia / formato": "",
+    "Prezzo listino": "",
+    "Quantita disponibile": "",
+    "Soglia minima": "",
+    "Fornitore": "",
+    "Attivo": "Si",
+    "Note": "",
+  },
+  {
+    "Sezione": "Abbigliamento",
+    "Codice articolo": "",
+    "Nome articolo": "Quota assicurazione",
+    "Tipo voce": "Assicurazione",
+    "Categoria": "Assicurazione",
+    "Taglia / formato": "",
+    "Prezzo listino": "",
+    "Quantita disponibile": "",
+    "Soglia minima": "",
+    "Fornitore": "",
+    "Attivo": "Si",
+    "Note": "",
+  },
+  {
+    "Sezione": "Abbigliamento",
+    "Codice articolo": "",
+    "Nome articolo": "Quota pulmino mensile",
+    "Tipo voce": "Pulmino",
+    "Categoria": "Pulmino",
+    "Taglia / formato": "",
     "Prezzo listino": "",
     "Quantita disponibile": "",
     "Soglia minima": "",
@@ -383,7 +442,7 @@ export default function WarehousePage() {
       section,
       code: selectedSizes.length > 1 ? automaticCode(section, form.category, size, cleanName) : cleanCode,
       name: cleanName,
-      itemType: automaticItemType(section, `${form.category} ${cleanName}`),
+      itemType: form.itemType || automaticItemType(section, `${form.category} ${cleanName}`),
       price: form.price || null,
       isActive: form.isActive,
       category: form.category || null,
@@ -406,11 +465,12 @@ export default function WarehousePage() {
         const category = cellToTrimmedString(row["Categoria"]);
         const name = cellToTrimmedString(row["Nome articolo"]) || category;
         const size = cellToTrimmedString(row["Taglia / formato"]);
+        const rawItemType = cellToTrimmedString(row["Tipo voce"]);
         return {
           section: rowSection,
           code: cellToTrimmedString(row["Codice articolo"]) || automaticCode(rowSection, category, size, name),
           name,
-          itemType: automaticItemType(rowSection, `${category} ${name}`),
+          itemType: normalizeItemType(rawItemType, rowSection, `${category} ${name}`),
           price: cellToTrimmedString(row["Prezzo listino"]) || null,
           isActive: cellToTrimmedString(row["Attivo"]).toLowerCase() !== "no",
           category: category || null,
@@ -460,9 +520,9 @@ export default function WarehousePage() {
             <Upload className="h-4 w-4" />
             Importa Excel
           </Button>
-          <Button type="button" variant="outline" className="gap-2" onClick={() => exportToExcel(WAREHOUSE_TEMPLATE_ROWS, "modello_magazzino.xlsx", "Magazzino", { preferSavePicker: true })}>
+          <Button type="button" variant="outline" className="gap-2" onClick={() => exportToExcel(WAREHOUSE_TEMPLATE_ROWS, "modello_listino_magazzino.xlsx", "Listino", { preferSavePicker: true })}>
             <FileSpreadsheet className="h-4 w-4" />
-            Esporta modello
+            Esporta modello listino
           </Button>
           <Button type="button" variant="outline" className="gap-2" onClick={() => exportToExcel(warehouseRowsForExcel(items), `magazzino_${section}.xlsx`, "Magazzino", { preferSavePicker: true })}>
             <Download className="h-4 w-4" />
@@ -664,6 +724,19 @@ export default function WarehousePage() {
               <div className="space-y-2">
                 <Label>Prezzo listino</Label>
                 <Input type="number" step="0.01" value={form.price} onChange={(e) => setForm((prev) => ({ ...prev, price: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Tipo voce</Label>
+                <Select value={form.itemType || "inventory"} onValueChange={(value) => setForm((prev) => ({ ...prev, itemType: value }))}>
+                  <SelectTrigger><SelectValue placeholder="Seleziona tipo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inventory">Solo magazzino</SelectItem>
+                    <SelectItem value="annual_fee">Quota annuale</SelectItem>
+                    <SelectItem value="insurance_fee">Assicurazione</SelectItem>
+                    <SelectItem value="shuttle_fee">Pulmino</SelectItem>
+                    <SelectItem value="kit">Kit</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Categoria</Label>

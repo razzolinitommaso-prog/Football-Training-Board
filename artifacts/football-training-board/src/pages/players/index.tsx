@@ -872,9 +872,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     return { tone: "green" as const, label: "In regola" };
   })();
   const kitSectionStatus = (() => {
-    const activeRows = displayedKitRows.filter((row) => row.price || row.ordered || row.arrived);
+    const activeRows = displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || row.listItemId);
     if (activeRows.length === 0) return { tone: "red" as const, label: "Non registrato" };
-    if (activeRows.some((row) => !row.ordered || !row.arrived)) return { tone: "yellow" as const, label: "In lavorazione" };
+    if (activeRows.some((row) => (getWarehouseNetAvailable(row.listItemId) ?? 0) <= 0)) return { tone: "yellow" as const, label: "Da ordinare" };
     return { tone: "green" as const, label: "Completo" };
   })();
 
@@ -1422,11 +1422,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setter(item?.price != null ? String(item.price) : "");
   };
 
-  const getWarehouseNetAvailable = (itemId?: string) => {
+  function getWarehouseNetAvailable(itemId?: string) {
     const item = activeListItems.find((entry) => String(entry.id) === itemId);
     if (!item) return null;
     return Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0);
-  };
+  }
 
   const savePlayerKit = async () => {
     if (!editingPlayer || !canEditFinancials) return;
@@ -2285,7 +2285,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingPlayer} onOpenChange={(o) => !o && setEditingPlayer(null)}>
-        <DialogContent className="sm:max-w-[720px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-[900px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
           <DialogHeader>
             <DialogTitle>{playerDialogMode === "edit" ? t.editPlayer : "Scheda giocatore"}</DialogTitle>
           </DialogHeader>
@@ -2475,17 +2475,18 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <CollapsibleSectionSummary title="Kit" status={kitSectionStatus} />
                   <div className="mt-3 space-y-2 text-sm">
                     <div className="space-y-2">
-                      {displayedKitRows.filter((row) => row.price || row.ordered || row.arrived).length === 0 ? (
+                      {displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || row.listItemId).length === 0 ? (
                         <p className="text-muted-foreground">Nessun kit registrato.</p>
-                      ) : displayedKitRows.filter((row) => row.price || row.ordered || row.arrived).map((row) => (
+                      ) : displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || row.listItemId).map((row) => (
                         <div key={row.key} className="flex flex-col gap-1 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <p className="font-medium">{row.label}</p>
                             <p className="text-xs text-muted-foreground">{row.area === "training" ? "Allenamento" : row.area === "match" ? "Gara" : "Rappresentanza"}</p>
                           </div>
                           <div className="flex flex-wrap gap-2 text-xs">
-                            <Badge variant={row.ordered ? "default" : "secondary"}>{row.ordered ? "Ordinato" : "Non ordinato"}</Badge>
-                            <Badge variant={row.arrived ? "default" : "secondary"}>{row.arrived ? "Arrivato" : "Non arrivato"}</Badge>
+                            <Badge variant={(getWarehouseNetAvailable(row.listItemId) ?? 0) > 0 ? "default" : "destructive"}>
+                              {(getWarehouseNetAvailable(row.listItemId) ?? 0) > 0 ? "Disponibile" : "Non disponibile"}
+                            </Badge>
                           </div>
                         </div>
                       ))}
@@ -3247,20 +3248,20 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         </div>
                       )}
                       <div className="rounded-md border border-emerald-200 bg-emerald-50/70 p-3">
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-                          <div>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                          <div className="min-w-0">
                             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Totale quote + kit</p>
                             <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedEconomicTotal)}</p>
                           </div>
-                          <div className="space-y-2">
+                          <div className="min-w-0 space-y-2">
                             <Label>Versato subito</Label>
                             <Input type="number" step="0.01" value={upfrontPaymentTotal} onChange={(e) => setUpfrontPaymentTotal(e.target.value)} />
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo da rateizzare</p>
                             <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(Math.max(0, plannedEconomicTotal - (parseEuroInput(upfrontPaymentTotal) || 0)))}</p>
                           </div>
-                          <div className="flex items-end">
+                          <div className="flex min-w-0 items-end">
                             <Button type="button" variant="outline" className="w-full gap-2" disabled={isSavingInstallments} onClick={() => void createUnifiedEconomicPlan()}>
                               <Banknote className="h-4 w-4" />
                               {isSavingInstallments ? "Salvataggio..." : "Crea piano totale"}
@@ -3334,7 +3335,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           </p>
                           <div className="space-y-2">
                             {kitRows.filter((row) => row.area === area).map((row) => (
-                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 sm:grid-cols-[1fr_190px_100px_110px_100px_100px] sm:items-center">
+                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 lg:grid-cols-[minmax(120px,1fr)_minmax(220px,1.4fr)_110px_120px] lg:items-center">
                                 <span className="text-sm font-medium">{row.label}</span>
                                 <Select value={row.listItemId || "_manual"} onValueChange={(value) => {
                                   const item = activeListItems.find((entry) => String(entry.id) === value);
@@ -3368,14 +3369,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                                       : "Da ordinare"
                                     : "N/D"}
                                 </Badge>
-                                <label className="flex items-center gap-2 text-sm">
-                                  <Checkbox checked={row.ordered} onCheckedChange={(v) => updateKitRow(row.key, { ordered: v === true })} />
-                                  Ordinato
-                                </label>
-                                <label className="flex items-center gap-2 text-sm">
-                                  <Checkbox checked={row.arrived} onCheckedChange={(v) => updateKitRow(row.key, { arrived: v === true })} />
-                                  Arrivato
-                                </label>
                               </div>
                             ))}
                           </div>

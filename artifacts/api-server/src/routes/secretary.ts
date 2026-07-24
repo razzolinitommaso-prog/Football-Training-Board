@@ -72,8 +72,11 @@ function makeWarehouseCode(section: string, name: string, category?: string | nu
 
 function makeWarehouseItemType(section: string, itemType: unknown, name: string, category?: string | null) {
   const explicit = itemType ? String(itemType).trim() : "";
-  if (["kit", "inventory"].includes(explicit)) return explicit;
+  if (["annual_fee", "insurance_fee", "shuttle_fee", "kit", "inventory"].includes(explicit)) return explicit;
   const label = `${category ?? ""} ${name}`.toLowerCase();
+  if (label.includes("assicur")) return "insurance_fee";
+  if (label.includes("pulmino")) return "shuttle_fee";
+  if (label.includes("quota") || label.includes("annuale") || label.includes("iscrizione")) return "annual_fee";
   return section === "apparel" && label.includes("kit") ? "kit" : "inventory";
 }
 
