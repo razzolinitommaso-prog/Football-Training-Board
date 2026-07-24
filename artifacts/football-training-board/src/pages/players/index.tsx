@@ -844,7 +844,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const annualFeeListItems = activeListItems.filter((item) => item.itemType === "annual_fee");
   const insuranceFeeListItems = activeListItems.filter((item) => item.itemType === "insurance_fee");
   const shuttleFeeListItems = activeListItems.filter((item) => item.itemType === "shuttle_fee");
-  const kitListItems = activeListItems.filter((item) => item.itemType === "kit");
+  const kitListItems = activeListItems.filter((item) =>
+    item.section === "apparel" &&
+    !["annual_fee", "insurance_fee", "shuttle_fee"].includes(item.itemType)
+  );
   const currentMedicalExpiry = editingMedicalCertificate?.expiryDate ?? editingPlayer?.medicalCertificateExpiry ?? null;
   const currentMedicalDaysLeft = currentMedicalExpiry
     ? Math.ceil((new Date(`${currentMedicalExpiry}T00:00:00`).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
@@ -3345,7 +3348,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                                     <SelectItem value="_manual">Manuale</SelectItem>
                                     {kitListItems.map((item) => (
                                       <SelectItem key={item.id} value={String(item.id)}>
-                                        {item.name}{item.size ? ` ${item.size}` : ""} - Disp. {Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0)} - Euro {formatEuro(item.price)}
+                                        {[item.name, item.category && item.category !== item.name ? item.category : "", item.size].filter(Boolean).join(" - ")}
+                                        {" "} - Disp. {Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0)} - Euro {formatEuro(item.price)}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
