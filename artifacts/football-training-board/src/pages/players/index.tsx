@@ -799,6 +799,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [insuranceFeeListItemId, setInsuranceFeeListItemId] = useState("");
   const [shuttleFeeListItemId, setShuttleFeeListItemId] = useState("");
   const [upfrontPaymentTotal, setUpfrontPaymentTotal] = useState("");
+  const [economicPlanPaid, setEconomicPlanPaid] = useState(false);
   const [installmentCount, setInstallmentCount] = useState("1");
   const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
   const [annualInstallments, setAnnualInstallments] = useState<InstallmentDraft[]>([]);
@@ -1190,7 +1191,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     toast({ title: "Quota eliminata" });
   };
 
-  const saveKitAssignmentOnly = async () => {
+  const saveKitAssignmentOnly = async (reserveWarehouse = false) => {
     if (!editingPlayer) return;
     const res = await fetch(withApi("/api/equipment"), {
       method: "POST",
@@ -1205,7 +1206,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       }),
     });
     if (!res.ok) throw new Error(await res.text());
-    await syncWarehouseKitReservations();
+    if (reserveWarehouse) await syncWarehouseKitReservations();
   };
 
   const syncWarehouseKitReservations = async () => {
@@ -1234,7 +1235,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (!editingPlayer || !canEditFinancials) return;
     const total = plannedEconomicTotal;
     const upfront = parseEuroInput(upfrontPaymentTotal);
-    const upfrontAmount = isSafePlayerPaymentAmount(upfront) ? upfront : 0;
+    const upfrontAmount = economicPlanPaid ? total : isSafePlayerPaymentAmount(upfront) ? upfront : 0;
     if (!isSafePlayerPaymentAmount(total)) {
       toast({ title: "Totale non valido", description: `Totale massimo Euro ${formatEuro(MAX_PLAYER_PAYMENT_AMOUNT)}.`, variant: "destructive" });
       return;
@@ -1253,7 +1254,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (editingPlayerPayments.length > 0 && !confirm("Creare il piano totale sostituira i pagamenti gia registrati per questo giocatore. Continuare?")) return;
     setIsSavingInstallments(true);
     try {
-      await saveKitAssignmentOnly();
+      await saveKitAssignmentOnly(upfrontAmount > 0);
       for (const payment of editingPlayerPayments) {
         const deleteRes = await fetch(withApi(`/api/player-payments/${payment.id}`), { method: "DELETE", credentials: "include" });
         if (!deleteRes.ok) throw new Error(await deleteRes.text());
@@ -1309,6 +1310,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players"] });
       setUpfrontPaymentTotal("");
+      setEconomicPlanPaid(false);
       toast({ title: "Piano totale creato" });
     } catch {
       toast({ title: "Errore creazione piano totale", variant: "destructive" });
@@ -1475,7 +1477,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      await syncWarehouseKitReservations();
+      if (kitPaymentStatus === "paid") await syncWarehouseKitReservations();
       const total = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
       if (total > 0) {
         for (const payment of editingKitPayments) {
@@ -3291,9 +3293,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                             <Label>Versato subito</Label>
                             <Input type="number" step="0.01" value={upfrontPaymentTotal} onChange={(e) => setUpfrontPaymentTotal(e.target.value)} />
                           </div>
+                          <label className="flex min-w-0 items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm">
+                            <Checkbox
+                              checked={economicPlanPaid}
+                              onCheckedChange={(value) => setEconomicPlanPaid(value === true)}
+                            />
+                            Pagato totale
+                          </label>
                           <div className="min-w-0">
                             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo da rateizzare</p>
-                            <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(Math.max(0, plannedEconomicTotal - (parseEuroInput(upfrontPaymentTotal) || 0)))}</p>
+                            <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(economicPlanPaid ? 0 : Math.max(0, plannedEconomicTotal - (parseEuroInput(upfrontPaymentTotal) || 0)))}</p>
                           </div>
                           <div className="flex min-w-0 items-end">
                             <Button type="button" variant="outline" className="w-full gap-2" disabled={isSavingInstallments} onClick={() => void createUnifiedEconomicPlan()}>
