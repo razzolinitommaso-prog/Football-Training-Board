@@ -240,6 +240,7 @@ type KitRow = {
   label: string;
   area: "training" | "match" | "representation";
   price: string;
+  quantity: string;
   ordered: boolean;
   arrived: boolean;
   listItemId?: string;
@@ -268,6 +269,24 @@ function formatEuro(value: string | number | null | undefined): string {
   return amount.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function normalizeKitLookup(value: string | null | undefined): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function kitRowQuantity(row: Pick<KitRow, "quantity">): number {
+  const value = Math.max(1, Math.floor(Number(row.quantity) || 1));
+  return Number.isFinite(value) ? value : 1;
+}
+
+function kitRowTotal(row: Pick<KitRow, "price" | "quantity">): number {
+  return (parseEuroInput(row.price) || 0) * kitRowQuantity(row);
+}
+
 const KIT_ITEMS: Array<Pick<KitRow, "key" | "label" | "area">> = [
   { key: "training_socks", label: "Calzettone allenamento", area: "training" },
   { key: "training_shorts", label: "Pantaloncino allenamento", area: "training" },
@@ -287,7 +306,7 @@ const KIT_ITEMS: Array<Pick<KitRow, "key" | "label" | "area">> = [
 ];
 
 function defaultKitRows(): KitRow[] {
-  return KIT_ITEMS.map((item) => ({ ...item, price: "", ordered: false, arrived: false }));
+  return KIT_ITEMS.map((item) => ({ ...item, price: "", quantity: "1", ordered: false, arrived: false }));
 }
 
 function parseKitRows(raw: string | null | undefined): KitRow[] {
@@ -300,6 +319,7 @@ function parseKitRows(raw: string | null | undefined): KitRow[] {
       return {
         ...base,
         price: saved?.price != null ? String(saved.price) : "",
+        quantity: saved?.quantity != null ? String(saved.quantity) : "1",
         ordered: saved?.ordered === true,
         arrived: saved?.arrived === true,
         listItemId: saved?.listItemId ? String(saved.listItemId) : "",
@@ -316,6 +336,7 @@ function serializeKitRows(rows: KitRow[]): string {
     label: row.label,
     area: row.area,
     price: row.price,
+    quantity: row.quantity || "1",
     ordered: row.ordered,
     arrived: row.arrived,
     listItemId: row.listItemId || "",
@@ -819,7 +840,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     ? playerEquipment.find((item) => item.playerId === editingPlayer.id)
     : undefined;
   const displayedKitRows = editingPlayerEquipment ? parseKitRows(editingPlayerEquipment.trainingKit) : kitRows;
-  const kitTotal = displayedKitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0);
+  const kitTotal = displayedKitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
   const editingKitPayments = editingPlayerPayments.filter((payment) => payment.paymentType === "kit_payment");
   const editingKitPayment = editingKitPayments[0];
   const editingShuttlePayments = editingPlayerPayments.filter((payment) => payment.paymentType === "shuttle_monthly");
@@ -827,7 +848,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const plannedAnnualFee = parseEuroInput(annualFeeTotal);
   const plannedInsuranceFee = parseEuroInput(insuranceFeeTotal);
   const plannedShuttleFee = parseEuroInput(shuttleMonthlyCost);
-  const plannedKitTotal = kitRows.reduce((sum, row) => sum + (parseEuroInput(row.price) || 0), 0);
+  const plannedKitTotal = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
   const plannedEconomicTotal =
     (isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0) +
     (isSafePlayerPaymentAmount(plannedInsuranceFee) ? plannedInsuranceFee : 0) +
@@ -848,6 +869,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     item.section === "apparel" &&
     !["annual_fee", "insurance_fee", "shuttle_fee"].includes(item.itemType)
   );
+  const kitListItemsForRow = (row: KitRow) => {
+    const rowNeedle = normalizeKitLookup(row.label);
+    const rowWords = rowNeedle.split(" ").filter((word) => word.length > 2);
+    const matches = kitListItems.filter((item) => {
+      const haystack = normalizeKitLookup(`${item.name} ${item.category ?? ""}`);
+      return rowWords.every((word) => haystack.includes(word));
+    });
+    return matches;
+  };
   const currentMedicalExpiry = editingMedicalCertificate?.expiryDate ?? editingPlayer?.medicalCertificateExpiry ?? null;
   const currentMedicalDaysLeft = currentMedicalExpiry
     ? Math.ceil((new Date(`${currentMedicalExpiry}T00:00:00`).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
@@ -1181,7 +1211,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const syncWarehouseKitReservations = async () => {
     const previousRows = parseKitRows(editingPlayerEquipment?.trainingKit);
     const countByItem = (rows: KitRow[]) => rows.reduce<Record<string, number>>((acc, row) => {
-      if (row.listItemId && row.ordered) acc[row.listItemId] = (acc[row.listItemId] ?? 0) + 1;
+      if (row.listItemId) acc[row.listItemId] = (acc[row.listItemId] ?? 0) + kitRowQuantity(row);
       return acc;
     }, {});
     const previous = countByItem(previousRows);
@@ -1446,7 +1476,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       });
       if (!res.ok) throw new Error(await res.text());
       await syncWarehouseKitReservations();
-      const total = kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0);
+      const total = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
       if (total > 0) {
         for (const payment of editingKitPayments) {
           const deleteRes = await fetch(withApi(`/api/player-payments/${payment.id}`), { method: "DELETE", credentials: "include" });
@@ -2481,7 +2511,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         <div key={row.key} className="flex flex-col gap-1 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <p className="font-medium">{row.label}</p>
-                            <p className="text-xs text-muted-foreground">{row.area === "training" ? "Allenamento" : row.area === "match" ? "Gara" : "Rappresentanza"}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {row.area === "training" ? "Allenamento" : row.area === "match" ? "Gara" : "Rappresentanza"}
+                              {activeListItems.find((entry) => String(entry.id) === row.listItemId)?.size ? ` - ${activeListItems.find((entry) => String(entry.id) === row.listItemId)?.size}` : ""}
+                              {" "} - {kitRowQuantity(row)} pz
+                            </p>
                           </div>
                           <div className="flex flex-wrap gap-2 text-xs">
                             <Badge variant={(getWarehouseNetAvailable(row.listItemId) ?? 0) > 0 ? "default" : "destructive"}>
@@ -2632,7 +2666,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <Package className="h-4 w-4 text-muted-foreground" />
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kit</p>
                     </div>
-                    <Badge variant="outline">Totale Euro {kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0).toFixed(2)}</Badge>
+                    <Badge variant="outline">Totale Euro {formatEuro(kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0))}</Badge>
                   </div>
                   <div className="space-y-2">
                     {(["training", "match", "representation"] as const).map((area) => (
@@ -2706,8 +2740,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     <div className="space-y-2">
                       <Label>Importo rata kit</Label>
                       <Input
-                        value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) > 0
-                          ? (kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) / Number(kitInstallmentCount)).toFixed(2)
+                        value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0) > 0
+                          ? (kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0) / Number(kitInstallmentCount)).toFixed(2)
                           : ""}
                         readOnly
                       />
@@ -3325,7 +3359,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         <Package className="h-4 w-4 text-muted-foreground" />
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kit</p>
                       </div>
-                      <Badge variant="outline">Totale Euro {kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0).toFixed(2)}</Badge>
+                      <Badge variant="outline">Totale Euro {formatEuro(kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0))}</Badge>
                     </div>
                     <div className="space-y-2">
                       {(["training", "match", "representation"] as const).map((area) => (
@@ -3335,19 +3369,20 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           </p>
                           <div className="space-y-2">
                             {kitRows.filter((row) => row.area === area).map((row) => (
-                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 lg:grid-cols-[minmax(120px,1fr)_minmax(220px,1.4fr)_110px_120px] lg:items-center">
-                                <span className="text-sm font-medium">{row.label}</span>
+                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 md:grid-cols-2 xl:grid-cols-4 xl:items-center">
+                                <span className="text-sm font-medium md:col-span-2 xl:col-span-1">{row.label}</span>
                                 <Select value={row.listItemId || "_manual"} onValueChange={(value) => {
                                   const item = activeListItems.find((entry) => String(entry.id) === value);
                                   updateKitRow(row.key, {
                                     listItemId: value === "_manual" ? "" : value,
                                     price: value === "_manual" ? row.price : item?.price != null ? String(item.price) : "",
+                                    ordered: value !== "_manual",
                                   });
                                 }}>
-                                  <SelectTrigger><SelectValue placeholder="Listino" /></SelectTrigger>
+                                  <SelectTrigger><SelectValue placeholder="Listino articolo" /></SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="_manual">Manuale</SelectItem>
-                                    {kitListItems.map((item) => (
+                                    {kitListItemsForRow(row).map((item) => (
                                       <SelectItem key={item.id} value={String(item.id)}>
                                         {[item.name, item.category && item.category !== item.name ? item.category : "", item.size].filter(Boolean).join(" - ")}
                                         {" "} - Disp. {Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0)} - Euro {formatEuro(item.price)}
@@ -3355,13 +3390,27 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                                     ))}
                                   </SelectContent>
                                 </Select>
+                                <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                                  {activeListItems.find((entry) => String(entry.id) === row.listItemId)?.size || "Taglia"}
+                                </div>
                                 <Input
                                   type="number"
                                   step="0.01"
-                                  placeholder="Prezzo"
+                                  placeholder="Prezzo unit."
                                   value={row.price}
                                   onChange={(e) => updateKitRow(row.key, { price: e.target.value, listItemId: "" })}
                                 />
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  step={1}
+                                  placeholder="Pezzi"
+                                  value={row.quantity}
+                                  onChange={(e) => updateKitRow(row.key, { quantity: e.target.value })}
+                                />
+                                <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm font-semibold">
+                                  Euro {formatEuro(kitRowTotal(row))}
+                                </div>
                                 <Badge variant={(getWarehouseNetAvailable(row.listItemId) ?? 1) > 0 ? "secondary" : "destructive"}>
                                   {row.listItemId
                                     ? (getWarehouseNetAvailable(row.listItemId) ?? 0) > 0
@@ -3414,8 +3463,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <div className="space-y-2">
                         <Label>Importo rata kit</Label>
                         <Input
-                          value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) > 0
-                            ? (kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0) / Number(kitInstallmentCount)).toFixed(2)
+                          value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0) > 0
+                            ? (kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0) / Number(kitInstallmentCount)).toFixed(2)
                             : ""}
                           readOnly
                         />
@@ -3439,7 +3488,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     <div className="text-lg font-bold text-emerald-900">
                       Euro {formatEuro(
                         editingPlayerPayments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0) +
-                        kitRows.reduce((sum, row) => sum + (Number(row.price) || 0), 0)
+                        kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0)
                       )}
                     </div>
                   </div>
