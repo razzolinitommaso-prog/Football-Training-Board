@@ -20,6 +20,7 @@ import {
   CreditCard,
   Package,
   ClipboardList,
+  ClipboardCheck,
   Banknote,
   Layers,
   Heart,
@@ -61,6 +62,9 @@ const SEZIONE_SUB_ITEMS: SubItem[] = [
   { label: "Squadre",              url: "teams",      icon: UsersRound,    roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Giocatori",            url: "players",    icon: Users,         roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Sessioni Allenamento", url: "training",   icon: CalendarDays,  roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
+  { label: "Convocazioni",          url: "training/convocazioni", icon: UsersRound, roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
+  { label: "Presenze allenamenti",  url: "training/presenze", icon: ClipboardCheck, roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
+  { label: "Calendario operativo",  url: "training/calendario-operativo", icon: CalendarRange, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Partite",              url: "matches",    icon: Trophy,        roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Stagioni",             url: "seasons",    icon: Layers,        roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"] },
   { label: "Presenze",             url: "attendance", icon: CalendarCheck, roles: ["admin", "presidente", "technical_director", "coach"] },
@@ -111,6 +115,9 @@ export function AppSidebar() {
     { titleKey: "dashboard",       url: "/dashboard",    icon: LayoutDashboard, roles: ["admin", "presidente", "coach", "secretary", "sporting_director", "technical_director", "fitness_coach", "director", "athletic_director"], group: "main" },
     { titleKey: "tacticalBoard",   url: "/tactical-board", icon: Crosshair,     roles: ["coach", "fitness_coach"], group: "main" },
     { label: "Le mie sessioni",    url: "/training",     icon: CalendarDays,    roles: ["technical_director", "coach", "fitness_coach"], group: "main" },
+    { label: "Convocazioni",       url: "/training/convocazioni", icon: UsersRound, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
+    { label: "Presenze allenamenti", url: "/training/presenze", icon: ClipboardCheck, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
+    { label: "Calendario operativo", url: "/training/calendario-operativo", icon: CalendarRange, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
     { label: "Esercitazioni",      url: "/exercises",    icon: BookOpen,        roles: ["coach", "fitness_coach", "athletic_director", "director", "technical_director"], group: "main" },
     { titleKey: "clubSettings",    url: "/club",         icon: Building2,       roles: ["admin", "presidente"], group: "main" },
     { titleKey: "members",         url: "/members",      icon: ShieldCheck,     roles: ["admin", "presidente", "secretary", "sporting_director"], group: "main" },
@@ -231,8 +238,9 @@ export function AppSidebar() {
     );
   }
 
-  const topMainItems    = mainNav.filter(i => i.url === "/dashboard" || i.url === "/tactical-board" || i.url === "/training" || i.url === "/exercises");
-  const bottomMainItems = mainNav.filter(i => i.url !== "/dashboard" && i.url !== "/tactical-board" && i.url !== "/training" && i.url !== "/exercises");
+  const topMainUrls = ["/dashboard", "/tactical-board", "/training", "/training/convocazioni", "/training/presenze", "/training/calendario-operativo", "/exercises"];
+  const topMainItems    = mainNav.filter(i => topMainUrls.includes(i.url));
+  const bottomMainItems = mainNav.filter(i => !topMainUrls.includes(i.url));
 
   return (
     <Sidebar variant="sidebar" className="border-r shadow-sm">

@@ -25,6 +25,7 @@ import TeamsList from "@/pages/teams/index";
 import TeamDetail from "@/pages/teams/detail";
 import PlayersList from "@/pages/players/index";
 import TrainingList from "@/pages/training/index";
+import TrainingOperationsPage from "@/pages/training/operations";
 import ClubSettings from "@/pages/club/index";
 import MembersList from "@/pages/members/index";
 import TacticalBoard from "@/pages/tactical-board/index";
@@ -55,6 +56,8 @@ const coachingRoles = ["admin", "coach", "technical_director", "director"];
 const secretaryRoles = ["admin", "secretary", "sporting_director"];
 const fitnessRoles = ["admin", "director", "technical_director", "fitness_coach", "athletic_director"];
 const playerPerformanceRoles = ["admin", "presidente", "director", "technical_director", "fitness_coach", "athletic_director"];
+const trainingEditRoles = ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"];
+const trainingCalendarRoles = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 
 function ProtectedAppRoutes() {
   return (
@@ -71,6 +74,15 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/players">
           <ProtectedRoute><PlayersList /></ProtectedRoute>
+        </Route>
+        <Route path="/training/convocazioni">
+          <ProtectedRoute allowedRoles={trainingEditRoles}><TrainingOperationsPage kind="callups" /></ProtectedRoute>
+        </Route>
+        <Route path="/training/presenze">
+          <ProtectedRoute allowedRoles={trainingEditRoles}><TrainingOperationsPage kind="attendance" /></ProtectedRoute>
+        </Route>
+        <Route path="/training/calendario-operativo">
+          <ProtectedRoute allowedRoles={trainingCalendarRoles}><TrainingOperationsPage kind="calendar" /></ProtectedRoute>
         </Route>
         <Route path="/training">
           <ProtectedRoute><TrainingList /></ProtectedRoute>
@@ -191,6 +203,15 @@ function ProtectedAppRoutes() {
         <Route path="/scuola-calcio/training">
           <ProtectedRoute><TrainingList /></ProtectedRoute>
         </Route>
+        <Route path="/scuola-calcio/training/convocazioni">
+          <ProtectedRoute allowedRoles={trainingEditRoles}><TrainingOperationsPage kind="callups" section="scuola_calcio" /></ProtectedRoute>
+        </Route>
+        <Route path="/scuola-calcio/training/presenze">
+          <ProtectedRoute allowedRoles={trainingEditRoles}><TrainingOperationsPage kind="attendance" section="scuola_calcio" /></ProtectedRoute>
+        </Route>
+        <Route path="/scuola-calcio/training/calendario-operativo">
+          <ProtectedRoute allowedRoles={trainingCalendarRoles}><TrainingOperationsPage kind="calendar" section="scuola_calcio" /></ProtectedRoute>
+        </Route>
         <Route path="/scuola-calcio/matches">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
             <SectionMatchCalendars section="scuola_calcio" />
@@ -215,6 +236,15 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/settore-giovanile/training">
         <ProtectedRoute><TrainingList section="settore_giovanile" /></ProtectedRoute>
+        </Route>
+        <Route path="/settore-giovanile/training/convocazioni">
+          <ProtectedRoute allowedRoles={trainingEditRoles}><TrainingOperationsPage kind="callups" section="settore_giovanile" /></ProtectedRoute>
+        </Route>
+        <Route path="/settore-giovanile/training/presenze">
+          <ProtectedRoute allowedRoles={trainingEditRoles}><TrainingOperationsPage kind="attendance" section="settore_giovanile" /></ProtectedRoute>
+        </Route>
+        <Route path="/settore-giovanile/training/calendario-operativo">
+          <ProtectedRoute allowedRoles={trainingCalendarRoles}><TrainingOperationsPage kind="calendar" section="settore_giovanile" /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/matches">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
@@ -243,6 +273,15 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/prima-squadra/training">
         <ProtectedRoute><TrainingList section="prima_squadra" /></ProtectedRoute>
+        </Route>
+        <Route path="/prima-squadra/training/convocazioni">
+          <ProtectedRoute allowedRoles={trainingEditRoles}><TrainingOperationsPage kind="callups" section="prima_squadra" /></ProtectedRoute>
+        </Route>
+        <Route path="/prima-squadra/training/presenze">
+          <ProtectedRoute allowedRoles={trainingEditRoles}><TrainingOperationsPage kind="attendance" section="prima_squadra" /></ProtectedRoute>
+        </Route>
+        <Route path="/prima-squadra/training/calendario-operativo">
+          <ProtectedRoute allowedRoles={trainingCalendarRoles}><TrainingOperationsPage kind="calendar" section="prima_squadra" /></ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/matches">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
