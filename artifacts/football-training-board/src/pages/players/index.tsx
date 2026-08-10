@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight, Copy, KeyRound } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight, Copy, KeyRound, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -246,6 +246,21 @@ type KitRow = {
   listItemId?: string;
 };
 
+type ExtraTimeRow = {
+  key: string;
+  group: "individual" | "group";
+  label: string;
+  activity: string;
+  playersCount: string;
+  lessonsCount: string;
+  durationMinutes: string;
+  hourlyCost: string;
+  packageDates: string;
+  lessonTime: string;
+  coachName: string;
+  parentVisible: boolean;
+};
+
 type InstallmentDraft = {
   amount: string;
   dueDate: string;
@@ -341,6 +356,34 @@ function serializeKitRows(rows: KitRow[]): string {
     arrived: row.arrived,
     listItemId: row.listItemId || "",
   })));
+}
+
+const EXTRA_TIME_ITEMS: Array<Pick<ExtraTimeRow, "key" | "group" | "label" | "activity">> = [
+  { key: "individual_technical", group: "individual", label: "Allenamento individuale", activity: "Tecnica" },
+  { key: "individual_motor", group: "individual", label: "Allenamento individuale", activity: "Motoria" },
+  { key: "group_technical", group: "group", label: "Lezione di gruppo", activity: "Tecnica di gruppo" },
+  { key: "group_motor", group: "group", label: "Lezione di gruppo", activity: "Motoria di gruppo" },
+];
+
+function defaultExtraTimeRows(): ExtraTimeRow[] {
+  return EXTRA_TIME_ITEMS.map((item) => ({
+    ...item,
+    playersCount: item.group === "group" ? "2" : "1",
+    lessonsCount: "",
+    durationMinutes: "60",
+    hourlyCost: "",
+    packageDates: "",
+    lessonTime: "",
+    coachName: "",
+    parentVisible: true,
+  }));
+}
+
+function extraTimeRowTotal(row: ExtraTimeRow): number {
+  const lessons = Math.max(0, Number(row.lessonsCount) || 0);
+  const durationHours = Math.max(0, Number(row.durationMinutes) || 0) / 60;
+  const hourlyCost = parseEuroInput(row.hourlyCost) || 0;
+  return lessons * durationHours * hourlyCost;
 }
 
 function buildInstallmentDrafts(totalValue: string, countValue: string, firstDueDate: string): InstallmentDraft[] {
@@ -811,7 +854,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [kitPaymentDueDate, setKitPaymentDueDate] = useState("");
   const [kitInstallmentCount, setKitInstallmentCount] = useState("1");
   const [shuttleMonthlyCost, setShuttleMonthlyCost] = useState("");
+  const [shuttleMonthsCount, setShuttleMonthsCount] = useState("1");
   const [shuttlePaymentDueDate, setShuttlePaymentDueDate] = useState("");
+  const [extraTimeRows, setExtraTimeRows] = useState<ExtraTimeRow[]>(defaultExtraTimeRows);
   const [isSavingKit, setIsSavingKit] = useState(false);
   const [parentDelegateRows, setParentDelegateRows] = useState<ParentDelegate[]>([emptyParentDelegate()]);
   const [isSavingParentDelegates, setIsSavingParentDelegates] = useState(false);
@@ -849,12 +894,19 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const plannedAnnualFee = parseEuroInput(annualFeeTotal);
   const plannedInsuranceFee = parseEuroInput(insuranceFeeTotal);
   const plannedShuttleFee = parseEuroInput(shuttleMonthlyCost);
+  const plannedShuttleMonths = Math.max(0, Math.floor(Number(shuttleMonthsCount) || 0));
   const plannedKitTotal = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
-  const plannedEconomicTotal =
+  const plannedExtraTimeTotal = extraTimeRows.reduce((sum, row) => sum + extraTimeRowTotal(row), 0);
+  const plannedQuotesTotal =
     (isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0) +
     (isSafePlayerPaymentAmount(plannedInsuranceFee) ? plannedInsuranceFee : 0) +
-    (isSafePlayerPaymentAmount(plannedShuttleFee) ? plannedShuttleFee : 0) +
-    plannedKitTotal;
+    (isSafePlayerPaymentAmount(plannedShuttleFee) ? plannedShuttleFee * plannedShuttleMonths : 0);
+  const plannedEconomicTotal =
+    plannedQuotesTotal +
+    plannedKitTotal +
+    plannedExtraTimeTotal;
+  const plannedUpfrontAmount = economicPlanPaid ? plannedEconomicTotal : Math.max(0, parseEuroInput(upfrontPaymentTotal) || 0);
+  const plannedResidualTotal = Math.max(0, plannedEconomicTotal - plannedUpfrontAmount);
   const overduePlayerPayments = editingPlayerPayments.filter((payment) => {
     if (payment.status === "paid" || !payment.dueDate) return false;
     return payment.dueDate <= new Date().toISOString().slice(0, 10);
@@ -1449,6 +1501,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setKitRows((rows) => rows.map((row) => row.key === key ? { ...row, ...patch } : row));
   };
 
+  const updateExtraTimeRow = (key: string, patch: Partial<ExtraTimeRow>) => {
+    setExtraTimeRows((rows) => rows.map((row) => row.key === key ? { ...row, ...patch } : row));
+  };
+
   const applyListItemPrice = (itemId: string, setter: (value: string) => void) => {
     const item = activeListItems.find((entry) => String(entry.id) === itemId);
     setter(item?.price != null ? String(item.price) : "");
@@ -1588,8 +1644,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   }, [watchRegisteredCreate, watchMedicalCertificateCreate, form]);
 
   useEffect(() => {
-    setAnnualInstallments(buildInstallmentDrafts(annualFeeTotal, installmentCount, firstInstallmentDueDate));
-  }, [annualFeeTotal, installmentCount, firstInstallmentDueDate]);
+    setAnnualInstallments(buildInstallmentDrafts(String(plannedResidualTotal), installmentCount, firstInstallmentDueDate));
+  }, [plannedResidualTotal, installmentCount, firstInstallmentDueDate]);
 
   useEffect(() => {
     if (!editingPlayer) {
@@ -1600,7 +1656,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       setKitPaymentDueDate("");
       setKitInstallmentCount("1");
       setShuttleMonthlyCost("");
+      setShuttleMonthsCount("1");
       setShuttlePaymentDueDate("");
+      setExtraTimeRows(defaultExtraTimeRows());
       return;
     }
     setKitRows(parseKitRows(editingPlayerEquipment?.trainingKit));
@@ -1633,7 +1691,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setParentDelegateRows(normalizeParentDelegateRows(player.parentDelegates));
     const shuttlePayment = playerPayments.find((payment) => payment.playerId === player.id && payment.paymentType === "shuttle_monthly");
     setShuttleMonthlyCost(shuttlePayment?.amount != null ? String(shuttlePayment.amount) : "");
+    setShuttleMonthsCount("1");
     setShuttlePaymentDueDate(shuttlePayment?.dueDate ?? "");
+    setExtraTimeRows(defaultExtraTimeRows());
     editForm.reset({
       firstName: player.firstName,
       lastName: player.lastName,
@@ -3248,17 +3308,45 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                             </SelectContent>
                           </Select>
                           <Input type="number" step="0.01" value={shuttleMonthlyCost} onChange={(e) => { setShuttleFeeListItemId(""); setShuttleMonthlyCost(e.target.value); }} disabled={editForm.watch("shuttleService") !== true} />
+                          <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            placeholder="Mesi pulmino"
+                            value={shuttleMonthsCount}
+                            onChange={(e) => setShuttleMonthsCount(e.target.value)}
+                            disabled={editForm.watch("shuttleService") !== true}
+                          />
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <div className="space-y-2">
-                        <Label>Numero rate</Label>
-                        <Input type="number" min={1} value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Prima scadenza</Label>
-                        <Input type="date" value={firstInstallmentDueDate} onChange={(e) => setFirstInstallmentDueDate(e.target.value)} />
-                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-md border bg-muted/30 px-3 py-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Totale quote</p>
+                          <p className="text-lg font-bold">Euro {formatEuro(plannedQuotesTotal)}</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Versato subito</Label>
+                          <Input type="number" step="0.01" value={upfrontPaymentTotal} onChange={(e) => setUpfrontPaymentTotal(e.target.value)} />
+                        </div>
+                        <div className="rounded-md border bg-muted/30 px-3 py-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Residuo da rateizzare</p>
+                          <p className="text-lg font-bold">Euro {formatEuro(plannedResidualTotal)}</p>
+                        </div>
+                        <label className="flex min-w-0 items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm">
+                          <Checkbox
+                            checked={economicPlanPaid}
+                            onCheckedChange={(value) => setEconomicPlanPaid(value === true)}
+                          />
+                          Pagato totale
+                        </label>
+                        <div className="space-y-2">
+                          <Label>Numero rate</Label>
+                          <Input type="number" min={1} value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Prima scadenza</Label>
+                          <Input type="date" value={firstInstallmentDueDate} onChange={(e) => setFirstInstallmentDueDate(e.target.value)} />
+                        </div>
                       </div>
                       {annualInstallments.length > 0 && (
                         <div className="space-y-2">
@@ -3271,7 +3359,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                                   type="number"
                                   step="0.01"
                                   value={installment.amount}
-                                  onChange={(e) => setAnnualInstallments((drafts) => rebalanceInstallments(drafts, index, e.target.value, annualFeeTotal))}
+                                  onChange={(e) => setAnnualInstallments((drafts) => rebalanceInstallments(drafts, index, e.target.value, String(plannedResidualTotal)))}
                                 />
                                 <Input
                                   type="date"
@@ -3283,38 +3371,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           </div>
                         </div>
                       )}
-                      <div className="rounded-md border border-emerald-200 bg-emerald-50/70 p-3">
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Totale quote + kit</p>
-                            <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedEconomicTotal)}</p>
-                          </div>
-                          <div className="min-w-0 space-y-2">
-                            <Label>Versato subito</Label>
-                            <Input type="number" step="0.01" value={upfrontPaymentTotal} onChange={(e) => setUpfrontPaymentTotal(e.target.value)} />
-                          </div>
-                          <label className="flex min-w-0 items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm">
-                            <Checkbox
-                              checked={economicPlanPaid}
-                              onCheckedChange={(value) => setEconomicPlanPaid(value === true)}
-                            />
-                            Pagato totale
-                          </label>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo da rateizzare</p>
-                            <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(economicPlanPaid ? 0 : Math.max(0, plannedEconomicTotal - (parseEuroInput(upfrontPaymentTotal) || 0)))}</p>
-                          </div>
-                          <div className="flex min-w-0 items-end">
-                            <Button type="button" variant="outline" className="w-full gap-2" disabled={isSavingInstallments} onClick={() => void createUnifiedEconomicPlan()}>
-                              <Banknote className="h-4 w-4" />
-                              {isSavingInstallments ? "Salvataggio..." : "Crea piano totale"}
-                            </Button>
-                          </div>
-                        </div>
-                        <p className="mt-2 text-xs text-emerald-800">
-                          Il piano totale sostituisce le quote gia registrate e crea acconto piu rate successive sul residuo.
-                        </p>
-                      </div>
                       {false && (
                       <div>
                         <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingInstallments} onClick={() => void createAnnualFeeInstallments()}>
@@ -3487,18 +3543,132 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </details>
               )}
 
-              {canViewFinancials && (
-                <details className="group rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
-                  <CollapsibleSectionSummary title="Totale economico giocatore" tone="success" />
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-xs text-emerald-700">Quote registrate + kit selezionato nella scheda.</p>
+              {canEditFinancials && (
+                <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                  <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} status={plannedExtraTimeTotal > 0 ? { tone: "yellow", label: "Programmato" } : { tone: "red", label: "Non registrato" }} />
+                  <div className="mt-3 space-y-3 rounded-md border bg-background p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Extra Time</p>
+                      </div>
+                      <Badge variant="outline">Totale Euro {formatEuro(plannedExtraTimeTotal)}</Badge>
                     </div>
-                    <div className="text-lg font-bold text-emerald-900">
-                      Euro {formatEuro(
-                        editingPlayerPayments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0) +
-                        kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0)
-                      )}
+                    {(["individual", "group"] as const).map((group) => (
+                      <div key={group} className="space-y-2 rounded-md border bg-muted/10 p-3">
+                        <p className="text-sm font-semibold">{group === "individual" ? "Allenamenti individuali" : "Lezioni di gruppo"}</p>
+                        {extraTimeRows.filter((row) => row.group === group).map((row) => (
+                          <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="space-y-2">
+                              <Label>Voce</Label>
+                              <Select value={row.activity} onValueChange={(value) => updateExtraTimeRow(row.key, { activity: value })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {group === "individual" ? (
+                                    <>
+                                      <SelectItem value="Tecnica">Tecnica</SelectItem>
+                                      <SelectItem value="Motoria">Motoria</SelectItem>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <SelectItem value="Tecnica di gruppo">Tecnica di gruppo</SelectItem>
+                                      <SelectItem value="Motoria di gruppo">Motoria di gruppo</SelectItem>
+                                    </>
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            {group === "group" && (
+                              <div className="space-y-2">
+                                <Label>N. giocatori</Label>
+                                <Input type="number" min={2} value={row.playersCount} onChange={(e) => updateExtraTimeRow(row.key, { playersCount: e.target.value })} />
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                              <Label>N. lezioni</Label>
+                              <Input type="number" min={0} value={row.lessonsCount} onChange={(e) => updateExtraTimeRow(row.key, { lessonsCount: e.target.value })} />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Durata minuti</Label>
+                              <Input type="number" min={0} step={15} value={row.durationMinutes} onChange={(e) => updateExtraTimeRow(row.key, { durationMinutes: e.target.value })} />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Costo orario</Label>
+                              <Input type="number" step="0.01" value={row.hourlyCost} onChange={(e) => updateExtraTimeRow(row.key, { hourlyCost: e.target.value })} />
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                              <Label>Date pacchetto calendario</Label>
+                              <Input placeholder="es. 12/09, 19/09, 26/09" value={row.packageDates} onChange={(e) => updateExtraTimeRow(row.key, { packageDates: e.target.value })} />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Orario lezioni</Label>
+                              <Input placeholder="es. 17:30" value={row.lessonTime} onChange={(e) => updateExtraTimeRow(row.key, { lessonTime: e.target.value })} />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Mister assegnato</Label>
+                              <Input value={row.coachName} onChange={(e) => updateExtraTimeRow(row.key, { coachName: e.target.value })} />
+                            </div>
+                            <label className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                              <Checkbox checked={row.parentVisible} onCheckedChange={(value) => updateExtraTimeRow(row.key, { parentVisible: value === true })} />
+                              Area genitori
+                            </label>
+                            <div className="rounded-md border bg-muted/30 px-3 py-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Totale voce</p>
+                              <p className="text-base font-bold">Euro {formatEuro(extraTimeRowTotal(row))}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    <p className="text-xs text-muted-foreground">
+                      Le voci Extra Time entrano nel totale economico finale. Il collegamento automatico con calendario e area genitori verra gestito come fase dedicata.
+                    </p>
+                  </div>
+                </details>
+              )}
+
+              {canViewFinancials && (
+                <details open className="group rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+                  <CollapsibleSectionSummary title="Totale economico giocatore" tone="success" />
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-md border border-emerald-100 bg-background/70 px-3 py-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Quote</p>
+                        <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedQuotesTotal)}</p>
+                      </div>
+                      <div className="rounded-md border border-emerald-100 bg-background/70 px-3 py-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Kit</p>
+                        <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedKitTotal)}</p>
+                      </div>
+                      <div className="rounded-md border border-emerald-100 bg-background/70 px-3 py-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Extra Time</p>
+                        <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedExtraTimeTotal)}</p>
+                      </div>
+                      <div className="rounded-md border border-emerald-200 bg-emerald-100 px-3 py-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Totale finale</p>
+                        <p className="text-xl font-bold text-emerald-950">Euro {formatEuro(plannedEconomicTotal)}</p>
+                      </div>
+                    </div>
+                    {canEditFinancials && (
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Versato subito</p>
+                          <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedUpfrontAmount)}</p>
+                        </div>
+                        <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo da rateizzare</p>
+                          <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedResidualTotal)}</p>
+                        </div>
+                        <div className="flex min-w-0 items-end xl:col-span-2">
+                          <Button type="button" variant="outline" className="w-full gap-2" disabled={isSavingInstallments} onClick={() => void createUnifiedEconomicPlan()}>
+                            <Banknote className="h-4 w-4" />
+                            {isSavingInstallments ? "Salvataggio..." : "Crea piano totale"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="text-xs text-emerald-800">
+                      Il piano totale sostituisce i pagamenti gia registrati e crea acconto piu rate successive sul residuo.
                     </div>
                   </div>
                 </details>
