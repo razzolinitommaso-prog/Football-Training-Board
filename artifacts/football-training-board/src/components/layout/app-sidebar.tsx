@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useGetMyClub } from "@workspace/api-client-react";
 import {
   LayoutDashboard,
+  User,
   Users,
   UsersRound,
   CalendarDays,
@@ -140,10 +141,14 @@ export function AppSidebar() {
     // Genitori
     { label: "Dashboard",          url: "/parent-dashboard",      icon: LayoutDashboard, roles: ["parent"], group: "parent" },
     { label: "Squadre & Atleti",   url: "/parent/children",       icon: Users,           roles: ["parent"], group: "parent" },
+    { label: "Scheda figlio",      url: "/parent/player-card",    icon: User,            roles: ["parent"], group: "parent" },
     { label: "Comunicazioni",      url: "/parent/communications", icon: MessageSquare,   roles: ["parent"], group: "parent" },
+    { label: "Convocazioni",       url: "/parent/callups",        icon: UsersRound,      roles: ["parent"], group: "parent" },
+    { label: "Presenze",           url: "/parent/attendance",     icon: ClipboardCheck,  roles: ["parent"], group: "parent" },
     { label: "Partite",            url: "/parent/matches",        icon: Trophy,          roles: ["parent"], group: "parent" },
     { label: "Documenti",          url: "/parent/documents",      icon: FileText,        roles: ["parent"], group: "parent" },
     { label: "Pagamenti",          url: "/parent/payments",       icon: Banknote,        roles: ["parent"], group: "parent" },
+    { label: "Kit",                url: "/parent/kit",            icon: Package,         roles: ["parent"], group: "parent" },
     { label: "Notifiche",          url: "/parent/notifications",  icon: Bell,            roles: ["parent"], group: "parent" },
   ];
 

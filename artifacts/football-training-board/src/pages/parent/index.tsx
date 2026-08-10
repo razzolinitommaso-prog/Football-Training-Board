@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Users, Trophy, CalendarDays, Bell, ChevronRight, Banknote, MessageSquare } from "lucide-react";
+import { Users, Trophy, CalendarDays, Bell, ChevronRight, Banknote, MessageSquare, ClipboardCheck, FileText, Package, User, UserCheck } from "lucide-react";
 import { withApi } from "@/lib/api-base";
 
 async function apiFetch(path: string) {
@@ -15,7 +15,11 @@ export default function ParentDashboard() {
   const [teams, setTeams] = useState<any[]>([]);
   const [training, setTraining] = useState<any[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
+  const [callups, setCallups] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [kit, setKit] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -24,13 +28,21 @@ export default function ParentDashboard() {
       apiFetch("/parent/children"),
       apiFetch("/parent/training"),
       apiFetch("/parent/matches"),
+      apiFetch("/parent/callups"),
+      apiFetch("/parent/attendance"),
       apiFetch("/parent/payments"),
+      apiFetch("/parent/documents"),
+      apiFetch("/parent/kit"),
       apiFetch("/parent/notifications"),
-    ]).then(([t, tr, m, p, n]) => {
+    ]).then(([t, tr, m, c, a, p, d, k, n]) => {
       setTeams(t);
       setTraining(tr);
       setMatches(m);
+      setCallups(c);
+      setAttendance(a);
       setPayments(p);
+      setDocuments(Array.isArray(d) ? d : [...(d.clubDocs ?? []), ...(d.uploads ?? [])]);
+      setKit(k);
       setNotifications(n);
     }).catch((error) => {
       if (import.meta.env.DEV) console.error(error);
@@ -39,6 +51,18 @@ export default function ParentDashboard() {
 
   const totalPlayers = teams.reduce((sum, t) => sum + (t.players?.length ?? 0), 0);
   const pendingPayments = payments.filter(p => p.status === "pending");
+  const linkedPlayers = teams.flatMap((team) => team.players ?? []);
+  const unavailablePlayers = linkedPlayers.filter((player) => player.available === false);
+  const pendingCallups = callups.filter((item) => item.status === "pending");
+  const presentCount = attendance.filter((item) => item.status === "present").length;
+  const kitRows = kit.flatMap((item) => {
+    try {
+      const parsed = JSON.parse(item.trainingKit || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }).filter((row) => row.listItemId || row.price || row.quantity);
   const now = new Date();
   const unreadNotifications = notifications.filter((n) => !n.isRead);
   const upcomingTraining = training.filter(t => new Date(t.scheduledAt) >= now).slice(0, 1)[0];
@@ -65,11 +89,46 @@ export default function ParentDashboard() {
             <div className="text-xs text-muted-foreground">Squadr{teams.length === 1 ? "a" : "e"} · {totalPlayers} atleti</div>
           </div>
         </Link>
+        <Link href="/parent/player-card">
+          <div className={`border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer ${unavailablePlayers.length > 0 ? "bg-red-500/5 border-red-500/20" : "bg-card"}`}>
+            <User className={`w-6 h-6 mb-2 ${unavailablePlayers.length > 0 ? "text-red-400" : "text-primary"}`} />
+            <div className="text-2xl font-bold">{linkedPlayers.length}</div>
+            <div className="text-xs text-muted-foreground">Stato figlio</div>
+          </div>
+        </Link>
+        <Link href="/parent/callups">
+          <div className={`border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer ${pendingCallups.length > 0 ? "bg-amber-500/10 border-amber-500/30" : "bg-card"}`}>
+            <UserCheck className={`w-6 h-6 mb-2 ${pendingCallups.length > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
+            <div className="text-2xl font-bold">{callups.length}</div>
+            <div className="text-xs text-muted-foreground">Convocazioni</div>
+          </div>
+        </Link>
+        <Link href="/parent/attendance">
+          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
+            <ClipboardCheck className="w-6 h-6 text-emerald-500 mb-2" />
+            <div className="text-2xl font-bold">{presentCount}</div>
+            <div className="text-xs text-muted-foreground">Presenze</div>
+          </div>
+        </Link>
         <Link href="/parent/payments">
           <div className={`border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer ${pendingPayments.length > 0 ? "bg-red-500/5 border-red-500/20" : "bg-card"}`}>
             <Banknote className={`w-6 h-6 mb-2 ${pendingPayments.length > 0 ? "text-red-400" : "text-muted-foreground"}`} />
             <div className="text-2xl font-bold">{pendingPayments.length}</div>
             <div className="text-xs text-muted-foreground">Pagamenti in sospeso</div>
+          </div>
+        </Link>
+        <Link href="/parent/documents">
+          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
+            <FileText className="w-6 h-6 text-blue-400 mb-2" />
+            <div className="text-2xl font-bold">{documents.length}</div>
+            <div className="text-xs text-muted-foreground">Documenti</div>
+          </div>
+        </Link>
+        <Link href="/parent/kit">
+          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
+            <Package className="w-6 h-6 text-purple-400 mb-2" />
+            <div className="text-2xl font-bold">{kitRows.length}</div>
+            <div className="text-xs text-muted-foreground">Kit</div>
           </div>
         </Link>
       </div>

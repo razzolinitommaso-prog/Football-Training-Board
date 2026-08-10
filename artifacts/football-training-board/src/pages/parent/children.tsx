@@ -111,7 +111,8 @@ export default function ParentChildren() {
                 ) : (
                   <div className="divide-y">
                     {team.players.map((player: any) => (
-                      <div key={player.id} className="flex items-center gap-3 px-4 py-3">
+                      <Link key={player.id} href="/parent/player-card">
+                      <div className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-muted/30">
                         <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                           {player.jerseyNumber ?? player.firstName[0]}
                         </div>
@@ -122,7 +123,9 @@ export default function ParentChildren() {
                         <Badge variant={player.available ? "default" : "secondary"} className="text-xs">
                           {player.available ? "Disp." : "N/D"}
                         </Badge>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </div>
+                      </Link>
                     ))}
                   </div>
                 )}

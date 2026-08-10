@@ -15,9 +15,13 @@ import ParentDashboard from "@/pages/parent/index";
 import ParentChildren from "@/pages/parent/children";
 import ParentTeamInfo from "@/pages/parent/team";
 import ParentCommunications from "@/pages/parent/communications";
+import ParentCallups from "@/pages/parent/callups";
+import ParentAttendance from "@/pages/parent/attendance";
 import ParentMatches from "@/pages/parent/matches";
 import ParentDocuments from "@/pages/parent/documents";
 import ParentPayments from "@/pages/parent/payments";
+import ParentKit from "@/pages/parent/kit";
+import ParentPlayerCard from "@/pages/parent/player-card";
 import ParentNotifications from "@/pages/parent/notifications";
 import ParentAdminManagement from "@/pages/parent/admin-management";
 import Dashboard from "@/pages/dashboard";
@@ -165,11 +169,20 @@ function ProtectedAppRoutes() {
         <Route path="/parent/children">
           <ProtectedRoute allowedRoles={["parent"]}><ParentChildren /></ProtectedRoute>
         </Route>
+        <Route path="/parent/player-card">
+          <ProtectedRoute allowedRoles={["parent"]}><ParentPlayerCard /></ProtectedRoute>
+        </Route>
         <Route path="/parent/team/:teamId">
           <ProtectedRoute allowedRoles={["parent"]}><ParentTeamInfo /></ProtectedRoute>
         </Route>
         <Route path="/parent/communications">
           <ProtectedRoute allowedRoles={["parent"]}><ParentCommunications /></ProtectedRoute>
+        </Route>
+        <Route path="/parent/callups">
+          <ProtectedRoute allowedRoles={["parent"]}><ParentCallups /></ProtectedRoute>
+        </Route>
+        <Route path="/parent/attendance">
+          <ProtectedRoute allowedRoles={["parent"]}><ParentAttendance /></ProtectedRoute>
         </Route>
         <Route path="/parent/matches">
           <ProtectedRoute allowedRoles={["parent"]}><ParentMatches /></ProtectedRoute>
@@ -179,6 +192,9 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/parent/payments">
           <ProtectedRoute allowedRoles={["parent"]}><ParentPayments /></ProtectedRoute>
+        </Route>
+        <Route path="/parent/kit">
+          <ProtectedRoute allowedRoles={["parent"]}><ParentKit /></ProtectedRoute>
         </Route>
         <Route path="/parent/notifications">
           <ProtectedRoute allowedRoles={["parent"]}><ParentNotifications /></ProtectedRoute>
