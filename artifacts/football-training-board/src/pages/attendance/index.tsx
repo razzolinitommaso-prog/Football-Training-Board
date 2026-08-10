@@ -67,11 +67,15 @@ export default function AttendancePage() {
   const { toast } = useToast();
   const { role } = useAuth();
   const qc = useQueryClient();
-  const initialSessionId = new URLSearchParams(window.location.search).get("sessionId");
+  const initialParams = new URLSearchParams(window.location.search);
+  const initialSessionId = initialParams.get("sessionId");
+  const initialTeamId = initialParams.get("teamId");
+  const initialDate = initialParams.get("date");
+  const initialStart = initialParams.get("start");
   const [sessionId, setSessionId] = useState<number | null>(initialSessionId ? Number(initialSessionId) : null);
   const isTechnicalDirector = role === "technical_director";
-  const [teamScope, setTeamScope] = useState<string>("");
-  const [sessionDateFilter, setSessionDateFilter] = useState<"all" | string>("all");
+  const [teamScope, setTeamScope] = useState<string>(initialTeamId || "");
+  const [sessionDateFilter, setSessionDateFilter] = useState<"all" | string>(initialDate || "all");
   const [sessionKindFilter, setSessionKindFilter] = useState<"all" | string>("all");
   const [sessionObjectiveFilter, setSessionObjectiveFilter] = useState<"all" | string>("all");
 
@@ -82,6 +86,27 @@ export default function AttendancePage() {
     queryFn: () => apiFetch(`/api/attendance?sessionId=${sessionId}`),
     enabled: !!sessionId,
   });
+
+  useEffect(() => {
+    if (sessionId || !sessions.length) return;
+    const match = sessions.find((session) => {
+      if (initialTeamId && String(session.teamId ?? "") !== initialTeamId) return false;
+      if (initialDate && sessionDateKey(session.scheduledAt) !== initialDate) return false;
+      if (initialStart) {
+        const d = new Date(session.scheduledAt);
+        const time = Number.isNaN(d.getTime())
+          ? ""
+          : d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", hour12: false });
+        if (time !== initialStart) return false;
+      }
+      return true;
+    });
+    if (match) {
+      setSessionId(match.id);
+      if (match.teamId != null) setTeamScope(String(match.teamId));
+      setSessionDateFilter(sessionDateKey(match.scheduledAt) || "all");
+    }
+  }, [sessionId, sessions, initialTeamId, initialDate, initialStart]);
 
   const markAttendance = useMutation({
     mutationFn: (data: { trainingSessionId: number; playerId: number; status: string }) =>

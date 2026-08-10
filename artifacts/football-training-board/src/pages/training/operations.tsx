@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { withApi } from "@/lib/api-base";
+import { useLocation } from "wouter";
 
 type TrainingOperationKind = "callups" | "attendance" | "calendar";
 type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
@@ -69,6 +70,7 @@ function canEditOperation(role: string) {
 
 export default function TrainingOperationsPage({ kind, section }: { kind: TrainingOperationKind; section?: ClubSection }) {
   const { role } = useAuth();
+  const [, setLocation] = useLocation();
   const normalizedRole = normalizeSessionRole(role);
   const config = CONFIG[kind];
   const Icon = config.icon;
@@ -85,6 +87,18 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
       .sort((a, b) => String(a.scheduledAt ?? "").localeCompare(String(b.scheduledAt ?? "")))
       .slice(0, 12);
   }, [sessions]);
+
+  const openSession = (session: TrainingSession) => {
+    if (kind === "attendance") {
+      setLocation(`/attendance?sessionId=${session.id}`);
+      return;
+    }
+    if (kind === "calendar") {
+      setLocation(`/training?sessionId=${session.id}`);
+      return;
+    }
+    setLocation(`/training?sessionId=${session.id}`);
+  };
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-4 sm:p-6">
@@ -147,7 +161,7 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {session.status && <Badge variant="outline">{session.status}</Badge>}
-                  <Button type="button" size="sm" variant={canEdit ? "default" : "outline"} className="gap-2">
+                  <Button type="button" size="sm" variant={canEdit ? "default" : "outline"} className="gap-2" onClick={() => openSession(session)}>
                     {canEdit ? <Pencil className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     {canEdit ? config.action : "Visualizza"}
                   </Button>

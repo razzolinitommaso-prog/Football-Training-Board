@@ -3084,8 +3084,19 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                     </div>
                   )}
                   {canPrepareFromDashboardCalendar && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <Button type="button" onClick={() => setLocation("/training")}>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          const query = selectedCalendarItem.teamId && selectedCalendarItem.originalDate
+                            ? `?teamId=${selectedCalendarItem.teamId}&date=${selectedCalendarItem.originalDate}${selectedCalendarItem.originalStartTime ? `&start=${encodeURIComponent(selectedCalendarItem.originalStartTime)}` : ""}`
+                            : "";
+                          setLocation(`/attendance${query}`);
+                        }}
+                      >
+                        Presenze
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => setLocation("/training")}>
                         Apri sessioni
                       </Button>
                       <Button type="button" variant="outline" onClick={() => setLocation("/exercises")}>
