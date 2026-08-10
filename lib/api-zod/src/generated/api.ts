@@ -453,6 +453,10 @@ export const ListPlayersResponseItem = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  availabilityOverrideActive: zod.boolean().optional(),
+  availabilityOverrideFrom: zod.string().nullish(),
+  availabilityOverrideUntil: zod.string().nullish(),
+  availabilityOverrideReason: zod.string().nullish(),
   parentDelegates: zod.array(ParentDelegateItem).optional(),
   createdAt: zod.date(),
 });
@@ -493,6 +497,10 @@ export const CreatePlayerBody = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  availabilityOverrideActive: zod.boolean().optional(),
+  availabilityOverrideFrom: zod.string().nullish(),
+  availabilityOverrideUntil: zod.string().nullish(),
+  availabilityOverrideReason: zod.string().nullish(),
   parentDelegates: zod.array(ParentDelegateItem).optional(),
 });
 
@@ -538,6 +546,10 @@ export const GetPlayerResponse = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  availabilityOverrideActive: zod.boolean().optional(),
+  availabilityOverrideFrom: zod.string().nullish(),
+  availabilityOverrideUntil: zod.string().nullish(),
+  availabilityOverrideReason: zod.string().nullish(),
   parentDelegates: zod.array(ParentDelegateItem).optional(),
   createdAt: zod.date(),
 });
@@ -581,6 +593,10 @@ export const UpdatePlayerBody = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  availabilityOverrideActive: zod.boolean().optional(),
+  availabilityOverrideFrom: zod.string().nullish(),
+  availabilityOverrideUntil: zod.string().nullish(),
+  availabilityOverrideReason: zod.string().nullish(),
   parentDelegates: zod.array(ParentDelegateItem).optional(),
 });
 
@@ -619,6 +635,10 @@ export const UpdatePlayerResponse = zod.object({
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
+  availabilityOverrideActive: zod.boolean().optional(),
+  availabilityOverrideFrom: zod.string().nullish(),
+  availabilityOverrideUntil: zod.string().nullish(),
+  availabilityOverrideReason: zod.string().nullish(),
   parentDelegates: zod.array(ParentDelegateItem).optional(),
   createdAt: zod.date(),
 });

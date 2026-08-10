@@ -6,6 +6,11 @@ import { requireAuth } from "../lib/auth";
 const router: IRouter = Router();
 const ATTENDANCE_MANAGE_ALL_ROLES = ["admin", "presidente", "director", "technical_director", "secretary"];
 const ATTENDANCE_TEAM_ROLES = ["coach", "fitness_coach", "athletic_director"];
+type PlayerAvailabilityOverrideFields = {
+  availabilityOverrideActive?: boolean | null;
+  availabilityOverrideFrom?: string | null;
+  availabilityOverrideUntil?: string | null;
+};
 
 async function getSessionForAttendance(sessionId: number, clubId: number) {
   const [session] = await db
@@ -55,6 +60,28 @@ async function playerIsValidForSession(playerId: number, clubId: number, session
   return !!player;
 }
 
+function playerHasActiveAvailabilityOverride(player: typeof playersTable.$inferSelect): boolean {
+  const availabilityOverride = player as typeof player & PlayerAvailabilityOverrideFields;
+  if (availabilityOverride.availabilityOverrideActive !== true) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  const from = String(availabilityOverride.availabilityOverrideFrom ?? "");
+  const until = String(availabilityOverride.availabilityOverrideUntil ?? "");
+  if (!until) return false;
+  if (from && from > today) return false;
+  if (until < today) return false;
+  return true;
+}
+
+async function playerCanAttend(playerId: number, clubId: number): Promise<{ ok: boolean; reason?: string | null }> {
+  const [player] = await db.select().from(playersTable)
+    .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)))
+    .limit(1);
+  if (!player) return { ok: false, reason: "Giocatore non trovato" };
+  if (player.available !== false) return { ok: true };
+  if (playerHasActiveAvailabilityOverride(player)) return { ok: true };
+  return { ok: false, reason: player.unavailabilityReason ?? "non_disponibile" };
+}
+
 router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
   const sessionId = req.query.sessionId ? parseInt(req.query.sessionId as string) : null;
   if (!sessionId || isNaN(sessionId)) { res.status(400).json({ error: "sessionId required" }); return; }
@@ -84,6 +111,14 @@ router.post("/attendance", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: "Giocatore non valido per questa sessione" });
     return;
   }
+  const nextStatus = status ?? "present";
+  if (nextStatus !== "absent") {
+    const availability = await playerCanAttend(playerNumericId, req.session.clubId!);
+    if (!availability.ok) {
+      res.status(400).json({ error: "Giocatore non disponibile per questa sessione", reason: availability.reason });
+      return;
+    }
+  }
   const existing = await db.select().from(trainingAttendancesTable)
     .where(and(
       eq(trainingAttendancesTable.trainingSessionId, sessionId),
@@ -91,14 +126,14 @@ router.post("/attendance", requireAuth, async (req, res): Promise<void> => {
       eq(trainingAttendancesTable.clubId, req.session.clubId!),
     ));
   if (existing.length > 0) {
-    const [updated] = await db.update(trainingAttendancesTable).set({ status: status ?? "present", notes: notes ?? null })
+    const [updated] = await db.update(trainingAttendancesTable).set({ status: nextStatus, notes: notes ?? null })
       .where(eq(trainingAttendancesTable.id, existing[0].id)).returning();
     res.json(updated);
     return;
   }
   const [record] = await db.insert(trainingAttendancesTable).values({
     trainingSessionId: sessionId, playerId: playerNumericId,
-    clubId: req.session.clubId!, status: status ?? "present", notes: notes ?? null,
+    clubId: req.session.clubId!, status: nextStatus, notes: notes ?? null,
   }).returning();
   res.status(201).json(record);
 });

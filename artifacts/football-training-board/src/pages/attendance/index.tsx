@@ -23,7 +23,18 @@ interface TrainingSession {
   notes?: string | null;
   description?: string | null;
 }
-interface Player { id: number; firstName: string; lastName: string; teamId?: number | null; teamName?: string | null; }
+interface Player {
+  id: number;
+  firstName: string;
+  lastName: string;
+  teamId?: number | null;
+  teamName?: string | null;
+  available?: boolean | null;
+  unavailabilityReason?: string | null;
+  availabilityOverrideActive?: boolean | null;
+  availabilityOverrideFrom?: string | null;
+  availabilityOverrideUntil?: string | null;
+}
 interface AttendanceRecord { id: number; playerId: number; playerName?: string; status: string; }
 
 async function apiFetch(url: string, options?: RequestInit) {
@@ -40,6 +51,21 @@ const statusColors = {
   requested: "text-sky-600",
   injured: "text-amber-500",
 };
+
+function reasonLabel(reason?: string | null) {
+  if (reason === "payment") return "pagamenti non in regola";
+  if (reason === "injury") return "infortunio";
+  if (reason === "other") return "certificato/tesseramento da verificare";
+  return "non disponibile";
+}
+
+function hasActiveAvailabilityOverride(player: Player) {
+  if (player.availabilityOverrideActive !== true) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  if (player.availabilityOverrideFrom && player.availabilityOverrideFrom > today) return false;
+  if (!player.availabilityOverrideUntil || player.availabilityOverrideUntil < today) return false;
+  return true;
+}
 
 function formatSessionDateTime(value: string) {
   const d = new Date(value);
@@ -376,12 +402,20 @@ export default function AttendancePage() {
               {sortedFilteredPlayers.map((player) => {
                 const status = getPlayerStatus(player.id);
                 const Icon = status ? statusIcons[status as keyof typeof statusIcons] : Users;
+                const blocked = player.available === false && !hasActiveAvailabilityOverride(player);
                 return (
-                  <Card key={player.id} className="hover:shadow-sm transition-shadow">
-                    <CardContent className="py-3 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                  <Card key={player.id} className={`transition-shadow ${blocked ? "border-red-200 bg-red-50/50" : "hover:shadow-sm"}`}>
+                    <CardContent className="py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
                         <Icon className={`w-5 h-5 ${status ? statusColors[status as keyof typeof statusColors] : "text-muted-foreground"}`} />
-                        <span className="font-medium">{player.lastName} {player.firstName}</span>
+                        <div className="min-w-0">
+                          <span className="font-medium">{player.lastName} {player.firstName}</span>
+                          {blocked && (
+                            <p className="text-xs font-medium text-red-700">
+                              Non disponibile: {reasonLabel(player.unavailabilityReason)}
+                            </p>
+                          )}
+                        </div>
                       </div>
                       {isTechnicalDirector ? (
                         <Badge variant={status ? "default" : "secondary"}>
@@ -400,6 +434,7 @@ export default function AttendancePage() {
                                       ? "bg-amber-500 hover:bg-amber-600 border-amber-500"
                                       : ""
                               }
+                              disabled={blocked && s !== "absent"}
                               onClick={() => handleStatusChange(player.id, s)}>
                               {s === "requested" ? "Richiesto" : (t[s as keyof typeof t] as string)}
                             </Button>

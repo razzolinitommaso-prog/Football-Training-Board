@@ -2190,8 +2190,33 @@ function SessionDetailsDialog({
 
                     {exerciseForm.playersRequiredMode === "selected" && (
                       <div className="space-y-2 rounded-md border bg-background p-3">
-                        <div className="text-xs text-muted-foreground">
-                          {exerciseForm.teamId ? "Seleziona giocatori della squadra scelta" : "Seleziona giocatori dalle squadre assegnate all'allenatore"}
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="text-xs text-muted-foreground">
+                            {exerciseForm.teamId ? "Seleziona giocatori della squadra scelta" : "Seleziona giocatori dalle squadre assegnate all'allenatore"}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setExerciseForm((prev) => ({
+                                ...prev,
+                                selectedPlayerIdsJson: selectablePlayers.length > 0 ? JSON.stringify(selectablePlayers.map((player) => player.id)) : "",
+                              }))}
+                              disabled={selectablePlayers.length === 0}
+                            >
+                              Tutti disponibili
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setExerciseForm((prev) => ({ ...prev, selectedPlayerIdsJson: "" }))}
+                              disabled={selectedPlayersCount === 0}
+                            >
+                              Nessuno
+                            </Button>
+                          </div>
                         </div>
                         {selectablePlayersQuery.isLoading ? (
                           <p className="text-sm text-muted-foreground italic">Caricamento giocatori...</p>

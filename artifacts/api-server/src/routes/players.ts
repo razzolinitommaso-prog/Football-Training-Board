@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, playersTable, teamsTable, teamStaffAssignmentsTable, clubNotificationsTable, playerParentDelegatesTable } from "@workspace/db";
+import { db, playersTable, teamsTable, teamStaffAssignmentsTable, clubNotificationsTable, playerParentDelegatesTable, parentPlayerRelationsTable, parentNotificationsTable } from "@workspace/db";
 import { eq, and, asc } from "drizzle-orm";
 import {
   ListPlayersResponse,
@@ -20,6 +20,7 @@ import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 /** Il direttore tecnico elenca tutti i giocatori del club; coach/preparatori solo le proprie squadre. */
 const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
 const PLAYER_MANAGE_ROLES = ["secretary", "sporting_director"];
+const PLAYER_AVAILABILITY_OVERRIDE_ROLES = ["admin", "presidente", "director", "secretary"];
 const PLAYER_NOTE_ONLY_ROLES = [
   "admin",
   "presidente",
@@ -55,6 +56,13 @@ type ParentDelegateInput = {
   email?: string | null;
   isActive?: boolean | null;
 };
+type PlayerAvailabilityOverrideFields = {
+  availabilityOverrideActive?: boolean | null;
+  availabilityOverrideFrom?: string | null;
+  availabilityOverrideUntil?: string | null;
+  availabilityOverrideReason?: string | null;
+};
+type PlayerWithAvailabilityOverride = typeof playersTable.$inferSelect & PlayerAvailabilityOverrideFields;
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();
@@ -201,19 +209,59 @@ function hasValidMedicalCertificate(value?: string | null): boolean {
   return expiry >= today;
 }
 
+function todayDateOnly(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isAvailabilityOverrideActive(source: (Record<string, unknown> | PlayerAvailabilityOverrideFields) | undefined): boolean {
+  if (!source) return false;
+  const active = "availabilityOverrideActive" in source ? source.availabilityOverrideActive === true : false;
+  if (!active) return false;
+  const today = todayDateOnly();
+  const from = String(source.availabilityOverrideFrom ?? "");
+  const until = String(source.availabilityOverrideUntil ?? "");
+  if (from && from > today) return false;
+  if (until && until < today) return false;
+  return Boolean(until);
+}
+
 function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?: typeof playersTable.$inferSelect) {
   const registered = "registered" in data ? data.registered === true : existing?.registered === true;
   const certificate = "medicalCertificateExpiry" in data
     ? (data.medicalCertificateExpiry as string | null | undefined)
     : existing?.medicalCertificateExpiry;
-  if (!registered || !hasValidMedicalCertificate(certificate)) {
+  const overrideSource = {
+    availabilityOverrideActive: "availabilityOverrideActive" in data ? data.availabilityOverrideActive : (existing as PlayerWithAvailabilityOverride | undefined)?.availabilityOverrideActive,
+    availabilityOverrideFrom: "availabilityOverrideFrom" in data ? data.availabilityOverrideFrom : (existing as PlayerWithAvailabilityOverride | undefined)?.availabilityOverrideFrom,
+    availabilityOverrideUntil: "availabilityOverrideUntil" in data ? data.availabilityOverrideUntil : (existing as PlayerWithAvailabilityOverride | undefined)?.availabilityOverrideUntil,
+  };
+  if ((!registered || !hasValidMedicalCertificate(certificate)) && !isAvailabilityOverrideActive(overrideSource)) {
     data.available = false;
     data.unavailabilityReason = "other";
     data.expectedReturn = null;
   }
 }
 
+async function notifyParentAvailabilityOverride(clubId: number, player: typeof playersTable.$inferSelect, until?: unknown) {
+  const relations = await db
+    .select({ parentUserId: parentPlayerRelationsTable.parentUserId })
+    .from(parentPlayerRelationsTable)
+    .where(eq(parentPlayerRelationsTable.playerId, player.id));
+  if (relations.length === 0) return;
+  const fullName = `${player.firstName} ${player.lastName}`.trim();
+  for (const relation of relations) {
+    await db.insert(parentNotificationsTable).values({
+      parentUserId: relation.parentUserId,
+      clubId,
+      type: "availability_override",
+      title: `Disponibilita temporanea ${fullName}`,
+      message: `La societa ha autorizzato temporaneamente la disponibilita del giocatore fino al ${String(until || "periodo indicato")}.`,
+    });
+  }
+}
+
 async function enrichPlayer(player: typeof playersTable.$inferSelect) {
+  const availabilityOverride = player as PlayerWithAvailabilityOverride;
   const playerContact = player as typeof player & {
     phone?: string | null;
     email?: string | null;
@@ -266,6 +314,10 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     available: player.available ?? true,
     unavailabilityReason: player.unavailabilityReason ?? null,
     expectedReturn: player.expectedReturn ?? null,
+    availabilityOverrideActive: availabilityOverride.availabilityOverrideActive ?? false,
+    availabilityOverrideFrom: availabilityOverride.availabilityOverrideFrom ?? null,
+    availabilityOverrideUntil: availabilityOverride.availabilityOverrideUntil ?? null,
+    availabilityOverrideReason: availabilityOverride.availabilityOverrideReason ?? null,
     parentDelegates,
   };
 }
@@ -419,7 +471,16 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  if (!PLAYER_MANAGE_ROLES.includes(role)) {
+  const isAvailabilityOverrideOnlyUpdate =
+    PLAYER_AVAILABILITY_OVERRIDE_ROLES.includes(role) &&
+    Object.keys(updateData).every((key) => [
+      "availabilityOverrideActive",
+      "availabilityOverrideFrom",
+      "availabilityOverrideUntil",
+      "availabilityOverrideReason",
+    ].includes(key));
+
+  if (!PLAYER_MANAGE_ROLES.includes(role) && !isAvailabilityOverrideOnlyUpdate) {
     if (!PLAYER_NOTE_ONLY_ROLES.includes(role)) {
       res.status(403).json({ error: "Non autorizzato a modificare questo giocatore" });
       return;
@@ -437,7 +498,17 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   if (PLAYER_MANAGE_ROLES.includes(role)) {
     enforcePlayerAvailabilityRules(updateData, existingPlayer);
   }
-  if (existingPlayer.unavailabilityReason === "payment" && role !== "admin" && role !== "presidente" && role !== "director") {
+  if (!PLAYER_AVAILABILITY_OVERRIDE_ROLES.includes(role)) {
+    delete updateData.availabilityOverrideActive;
+    delete updateData.availabilityOverrideFrom;
+    delete updateData.availabilityOverrideUntil;
+    delete updateData.availabilityOverrideReason;
+  } else if (updateData.availabilityOverrideActive === true) {
+    updateData.available = true;
+    updateData.unavailabilityReason = null;
+    updateData.expectedReturn = null;
+  }
+  if (existingPlayer.unavailabilityReason === "payment" && !PLAYER_AVAILABILITY_OVERRIDE_ROLES.includes(role)) {
     if (updateData.available === true) {
       delete updateData.available;
       delete updateData.unavailabilityReason;
@@ -481,6 +552,22 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
 
   if (PLAYER_MANAGE_ROLES.includes(role) && incomingParentDelegates) {
     await replaceParentDelegates(req.session.clubId!, player.id, incomingParentDelegates);
+  }
+
+  const overrideActivated =
+    updateData.availabilityOverrideActive === true &&
+    (existingPlayer as PlayerWithAvailabilityOverride).availabilityOverrideActive !== true &&
+    isAvailabilityOverrideActive(player);
+  if (overrideActivated && req.session.clubId) {
+    const fullName = `${player.firstName} ${player.lastName}`.trim();
+    await db.insert(clubNotificationsTable).values({
+      clubId: req.session.clubId,
+      title: `Forza disponibilita: ${fullName}`,
+      message: `Disponibilita forzata fino al ${(player as PlayerWithAvailabilityOverride).availabilityOverrideUntil ?? "periodo indicato"}. Motivo: ${(player as PlayerWithAvailabilityOverride).availabilityOverrideReason ?? "non indicato"}.`,
+      type: "warning",
+      createdByUserId: req.session.userId,
+    });
+    await notifyParentAvailabilityOverride(req.session.clubId, player, (player as PlayerWithAvailabilityOverride).availabilityOverrideUntil);
   }
 
   if (newlyAddedThreadItems.length > 0 && req.session.clubId) {

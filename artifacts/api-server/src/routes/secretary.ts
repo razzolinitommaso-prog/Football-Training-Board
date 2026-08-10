@@ -25,6 +25,11 @@ const PAYMENT_VIEW_ROLES = new Set(["admin", "presidente", "director", "secretar
 const PAYMENT_EDIT_ROLES = new Set(["secretary"]);
 const WAREHOUSE_VIEW_ROLES = new Set(["admin", "presidente", "director", "secretary", "sporting_director"]);
 const WAREHOUSE_EDIT_ROLES = new Set(["secretary"]);
+type PlayerAvailabilityOverrideFields = {
+  availabilityOverrideActive?: boolean | null;
+  availabilityOverrideFrom?: string | null;
+  availabilityOverrideUntil?: string | null;
+};
 
 function canViewFinancials(role?: string | null): boolean {
   return PAYMENT_VIEW_ROLES.has(normalizeSessionRole(role));
@@ -84,6 +89,18 @@ function todayDateOnly(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function playerHasActiveAvailabilityOverride(player: typeof playersTable.$inferSelect): boolean {
+  const availabilityOverride = player as typeof player & PlayerAvailabilityOverrideFields;
+  if (availabilityOverride.availabilityOverrideActive !== true) return false;
+  const today = todayDateOnly();
+  const from = String(availabilityOverride.availabilityOverrideFrom ?? "");
+  const until = String(availabilityOverride.availabilityOverrideUntil ?? "");
+  if (!until) return false;
+  if (from && from > today) return false;
+  if (until < today) return false;
+  return true;
+}
+
 async function enforcePaymentAvailability(clubId: number, playerId: number) {
   const today = todayDateOnly();
   const overdue = await db
@@ -100,6 +117,10 @@ async function enforcePaymentAvailability(clubId: number, playerId: number) {
     .limit(1);
 
   if (overdue.length > 0) {
+    const [player] = await db.select().from(playersTable)
+      .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)))
+      .limit(1);
+    if (player && playerHasActiveAvailabilityOverride(player)) return;
     await db.update(playersTable).set({
       available: false,
       unavailabilityReason: "payment",

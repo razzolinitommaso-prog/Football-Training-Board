@@ -111,6 +111,10 @@ const editSchema = z.object({
   available: z.boolean().optional(),
   unavailabilityReason: z.string().optional(),
   expectedReturn: z.string().optional(),
+  availabilityOverrideActive: z.boolean().optional(),
+  availabilityOverrideFrom: z.string().optional().nullable(),
+  availabilityOverrideUntil: z.string().optional().nullable(),
+  availabilityOverrideReason: z.string().optional().nullable(),
   squad: z.enum(["A", "B", "C", "D"]).optional().nullable(),
   imageUrl: z.string().optional().nullable(),
   supplementalTeamId: z.coerce.number().optional().nullable(),
@@ -153,6 +157,10 @@ type Player = {
   available?: boolean;
   unavailabilityReason?: string | null;
   expectedReturn?: string | null;
+  availabilityOverrideActive?: boolean | null;
+  availabilityOverrideFrom?: string | null;
+  availabilityOverrideUntil?: string | null;
+  availabilityOverrideReason?: string | null;
   squad?: "A" | "B" | "C" | "D" | null;
   imageUrl?: string | null;
 };
@@ -869,6 +877,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const canEditFullPlayer = canManagePlayers && playerDialogMode === "edit";
   const canEditFinancials = nr === "secretary" && playerDialogMode === "edit";
   const canEditAvailability = canManagePlayers && playerDialogMode === "edit";
+  const canForceAvailability = ["admin", "presidente", "director", "secretary"].includes(nr) && playerDialogMode === "edit";
   const canEditRoleAndSquad = canManagePlayers && playerDialogMode === "edit";
   const canUploadPlayerImage = canManagePlayers && playerDialogMode === "edit";
   const canEditSupplementalTeam = canUploadPlayerImage;
@@ -1623,6 +1632,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   });
 
   const watchAvailable = editForm.watch("available");
+  const watchAvailabilityOverrideActive = editForm.watch("availabilityOverrideActive");
   const watchRegisteredEdit = editForm.watch("registered");
   const watchRegisteredCreate = form.watch("registered");
   const watchPhoneOwnerCreate = form.watch("phoneOwnerType");
@@ -1726,6 +1736,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       available: player.available ?? true,
       unavailabilityReason: player.unavailabilityReason ?? undefined,
       expectedReturn: player.expectedReturn ?? undefined,
+      availabilityOverrideActive: player.availabilityOverrideActive ?? false,
+      availabilityOverrideFrom: player.availabilityOverrideFrom ?? undefined,
+      availabilityOverrideUntil: player.availabilityOverrideUntil ?? undefined,
+      availabilityOverrideReason: player.availabilityOverrideReason ?? undefined,
       squad: player.squad ?? meta.squad ?? null,
       imageUrl: player.imageUrl ?? meta.imageUrl ?? null,
       supplementalTeamId: meta.supplementalTeamId ?? null,
@@ -1951,6 +1965,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (availabilityBlocks.length === 0 && canManagePlayers && playerDialogMode === "edit") {
       thread = addAutomaticMedicalCertificateWarningNotes(thread, data.medicalCertificateExpiry, role ?? undefined, authorName);
     }
+    if (data.availabilityOverrideActive === true && !data.availabilityOverrideUntil) {
+      toast({
+        title: "Periodo deroga obbligatorio",
+        description: "Indica la data finale per forzare la disponibilita.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const payload: Record<string, unknown> = {
       ...data,
@@ -1966,7 +1988,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       parentDelegates: cleanParentDelegates(parentDelegateRows),
     };
     delete payload.supplementalTeamId;
-    if (availabilityBlocks.length > 0) {
+    const availabilityOverrideEnabled =
+      data.availabilityOverrideActive === true &&
+      Boolean(data.availabilityOverrideUntil);
+    if (availabilityBlocks.length > 0 && !availabilityOverrideEnabled) {
       payload.available = false;
       payload.unavailabilityReason = "other";
       payload.expectedReturn = null;
@@ -1974,6 +1999,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (payload.status === "injured") {
       payload.available = false;
       payload.unavailabilityReason = "injury";
+    }
+    if (availabilityOverrideEnabled) {
+      payload.available = true;
+      payload.unavailabilityReason = null;
+      payload.expectedReturn = null;
     }
     if (payload.available && availabilityBlocks.length === 0) {
       payload.unavailabilityReason = null;
@@ -2519,14 +2549,20 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </details>
 
-              {watchAvailable === false && (
+              {(watchAvailable === false || editingPlayer.availabilityOverrideActive) && (
                 <details className="group rounded-lg border p-3" open>
                   <CollapsibleSectionSummary title="Disponibilita" tone="muted" />
                   <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    <div><span className="text-muted-foreground">Motivo</span><p>{reasonLabel(editingPlayer.unavailabilityReason, t)}</p></div>
-                    <div><span className="text-muted-foreground">Rientro previsto</span><p>{editingPlayer.expectedReturn || "-"}</p></div>
-                  </div>
-                </details>
+                  <div><span className="text-muted-foreground">Motivo</span><p>{reasonLabel(editingPlayer.unavailabilityReason, t)}</p></div>
+                  <div><span className="text-muted-foreground">Rientro previsto</span><p>{editingPlayer.expectedReturn || "-"}</p></div>
+                  {editingPlayer.availabilityOverrideActive && (
+                    <>
+                      <div><span className="text-muted-foreground">Forza disponibilita</span><p>Attiva fino al {editingPlayer.availabilityOverrideUntil || "-"}</p></div>
+                      <div><span className="text-muted-foreground">Motivo deroga</span><p>{editingPlayer.availabilityOverrideReason || "-"}</p></div>
+                    </>
+                  )}
+                </div>
+              </details>
               )}
 
               {canViewFinancials && (
@@ -3934,6 +3970,49 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 {editAvailabilityBlocks.length > 0 && (
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                     Non disponibile automaticamente: {editAvailabilityBlocks.join(" e ")}.
+                  </div>
+                )}
+
+                {canForceAvailability && (
+                  <div className="space-y-3 rounded-md border border-blue-200 bg-blue-50/70 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-blue-900">Forza disponibilita</p>
+                        <p className="text-xs text-blue-800">
+                          Deroga temporanea per certificato, tesseramento o pagamenti da regolarizzare.
+                        </p>
+                      </div>
+                      <Controller
+                        control={editForm.control}
+                        name="availabilityOverrideActive"
+                        render={({ field }) => (
+                          <Switch
+                            id="availabilityOverrideActive"
+                            checked={field.value === true}
+                            onCheckedChange={field.onChange}
+                          />
+                        )}
+                      />
+                    </div>
+                    {watchAvailabilityOverrideActive && (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label>Dal</Label>
+                          <Input type="date" {...editForm.register("availabilityOverrideFrom")} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Al</Label>
+                          <Input type="date" {...editForm.register("availabilityOverrideUntil")} />
+                        </div>
+                        <div className="space-y-2 sm:col-span-3">
+                          <Label>Motivo deroga</Label>
+                          <Input
+                            placeholder="es. autorizzazione temporanea presidenza"
+                            {...editForm.register("availabilityOverrideReason")}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
