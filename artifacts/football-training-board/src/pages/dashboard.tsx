@@ -2588,12 +2588,92 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
           </div>
           {!dashboardCalendarCollapsed && (
             <>
-              <div className="grid grid-cols-7 border-b bg-muted/30 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className="sm:hidden divide-y">
+                {dashboardCalendarDays
+                  .filter((day) => {
+                    const key = format(day, "yyyy-MM-dd");
+                    const events = dashboardEventsByDay.get(key) ?? [];
+                    return isSameMonth(day, dashboardCalendarMonth) || events.length > 0;
+                  })
+                  .map((day) => {
+                    const key = format(day, "yyyy-MM-dd");
+                    const events = dashboardEventsByDay.get(key) ?? [];
+                    const today = startOfDay(day).getTime() === startOfDay(new Date()).getTime();
+                    return (
+                      <div key={`mobile-${key}`} className="px-3 py-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className={cn("text-sm font-semibold capitalize", today && "text-emerald-700")}>
+                              {format(day, "EEEE d MMMM", { locale: itLocale })}
+                            </p>
+                          </div>
+                          {today && (
+                            <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                              Oggi
+                            </span>
+                          )}
+                        </div>
+                        {events.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">Nessun impegno.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {events.map((item) => {
+                              const postponed = item.kind === "match" && !!item.match.isPostponed;
+                              const typeLabel = postponed
+                                ? "Rinviata"
+                                : item.kind === "training"
+                                  ? item.trainingStatus === "cancelled"
+                                    ? "Allenamento annullato"
+                                    : item.trainingStatus === "joined" || item.trainingStatus === "joined-original"
+                                      ? "Allenamento congiunto"
+                                      : item.trainingStatus === "moved"
+                                        ? "Recupero allenamento"
+                                        : item.trainingStatus === "moved-original"
+                                          ? "Allenamento spostato"
+                                          : "Allenamento"
+                                  : item.kind === "tournament"
+                                    ? "Torneo"
+                                    : "Partita";
+                              const className = postponed
+                                ? "bg-amber-50 text-amber-900 border-amber-300"
+                                : item.kind === "training"
+                                  ? item.trainingStatus === "cancelled"
+                                    ? "bg-red-50 text-red-800 border-red-200"
+                                    : item.trainingStatus === "moved-original" || item.trainingStatus === "joined-original"
+                                      ? "bg-slate-100 text-slate-700 border-slate-300"
+                                      : item.trainingStatus === "moved"
+                                        ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                                        : item.trainingStatus === "joined"
+                                          ? "bg-cyan-50 text-cyan-900 border-cyan-300"
+                                          : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                  : item.kind === "tournament"
+                                    ? "bg-violet-50 text-violet-800 border-violet-200"
+                                    : "bg-blue-50 text-blue-800 border-blue-200";
+                              return (
+                                <button
+                                  key={item.key}
+                                  type="button"
+                                  className={cn("w-full rounded-lg border px-3 py-2 text-left text-xs leading-snug", className)}
+                                  onClick={() => setSelectedCalendarItem(item)}
+                                >
+                                  <span className="block font-semibold">{item.time} · {typeLabel}</span>
+                                  <span className="mt-0.5 block font-medium break-words">{item.title}</span>
+                                  <span className="mt-0.5 block text-muted-foreground break-words">{item.subtitle}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+              <div className="hidden sm:grid grid-cols-7 border-b bg-muted/30 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((day) => (
                   <div key={day} className="px-2 py-2 text-center">{day}</div>
                 ))}
               </div>
-              <div className="grid grid-cols-7">
+              <div className="hidden sm:grid grid-cols-7">
                 {dashboardCalendarDays.map((day) => {
                   const key = format(day, "yyyy-MM-dd");
                   const events = dashboardEventsByDay.get(key) ?? [];
