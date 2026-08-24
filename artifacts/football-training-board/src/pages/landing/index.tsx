@@ -262,7 +262,6 @@ export default function LandingPage() {
             </div>
           </div>
           <span>© {new Date().getFullYear()} Football Training Board. {t.landingFooterRights}</span>
-          <a href="/platform-login" className="text-[10px] text-gray-800 hover:text-gray-600 transition-colors select-none">·</a>
         </div>
       </footer>
     </div>
