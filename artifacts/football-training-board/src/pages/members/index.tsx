@@ -23,53 +23,17 @@ import { exportToExcel, mapMembersForExcel } from "@/lib/excel-export";
 const CLUB_SECTIONS = ["scuola_calcio", "settore_giovanile", "prima_squadra"] as const;
 type ClubSection = typeof CLUB_SECTIONS[number];
 
-const SECTION_CONFIG: Record<ClubSection, { label: string; hex: string; bgRgb: string; badge: string }> = {
+const SECTION_CONFIG: Record<ClubSection, { label: string }> = {
   scuola_calcio: {
     label: "Scuola Calcio",
-    hex: "#38bdf8",
-    bgRgb: "14,165,233",
-    badge: "bg-sky-500/15 text-sky-300 border border-sky-500/30",
   },
   settore_giovanile: {
     label: "Settore Giovanile",
-    hex: "#818cf8",
-    bgRgb: "99,102,241",
-    badge: "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30",
   },
   prima_squadra: {
     label: "Prima Squadra",
-    hex: "#fbbf24",
-    bgRgb: "245,158,11",
-    badge: "bg-yellow-500/15 text-yellow-300 border border-yellow-500/30",
   },
 };
-
-const ADMIN_HEX = "#a855f7";
-const ADMIN_BG_RGB = "168,85,247";
-
-function buildStripStyle(isAdmin: boolean, secs: ClubSection[]): string {
-  if (isAdmin) return ADMIN_HEX;
-  if (secs.length === 1) return SECTION_CONFIG[secs[0]]?.hex ?? SECTION_CONFIG.scuola_calcio.hex;
-  const stops = secs.map((s, i) => {
-    const pct = Math.round((i / (secs.length - 1)) * 100);
-    return `${SECTION_CONFIG[s]?.hex ?? "#38bdf8"} ${pct}%`;
-  });
-  return `linear-gradient(to bottom, ${stops.join(", ")})`;
-}
-
-function buildBgStyle(isAdmin: boolean, secs: ClubSection[]): string {
-  if (isAdmin) return `rgba(${ADMIN_BG_RGB},0.22)`;
-  if (secs.length === 1) return `rgba(${SECTION_CONFIG[secs[0]]?.bgRgb ?? SECTION_CONFIG.scuola_calcio.bgRgb},0.20)`;
-  const n = secs.length;
-  const stops: string[] = [];
-  secs.forEach((s, i) => {
-    const from = Math.round((i / n) * 100);
-    const to = Math.round(((i + 1) / n) * 100);
-    const rgb = SECTION_CONFIG[s]?.bgRgb ?? "14,165,233";
-    stops.push(`rgba(${rgb},0.20) ${from}%`, `rgba(${rgb},0.20) ${to}%`);
-  });
-  return `linear-gradient(120deg, ${stops.join(", ")})`;
-}
 
 const inviteSchema = z.object({
   firstName: z.string().min(2, "Required"),
@@ -928,16 +892,12 @@ export default function MembersList() {
           </div>
         ) : filteredMembers?.map(member => {
           const canManageThisMember = canManageMember(member);
-          const isAdmin = member.role === "admin";
           const memberSecs: ClubSection[] = Array.isArray(member.clubSection) && member.clubSection.length > 0
             ? (member.clubSection as ClubSection[])
             : ["scuola_calcio" as ClubSection];
-          const stripStyle = buildStripStyle(isAdmin, memberSecs);
-          const bgStyle = buildBgStyle(isAdmin, memberSecs);
           return (
-          <div key={member.id} className="relative border border-border/50 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow" style={{ background: bgStyle }}>
-            <div className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: stripStyle }} />
-            <div className="flex items-start gap-4 p-5 pl-[18px] w-full">
+          <div key={member.id} className="relative overflow-hidden rounded-xl border border-border/50 bg-card shadow-md transition-shadow hover:shadow-lg">
+            <div className="flex w-full min-w-0 items-start gap-4 p-5">
             <Avatar className="h-14 w-14 border-2 border-primary/20 shrink-0">
               <AvatarFallback className="bg-primary/5 text-primary text-lg font-bold">
                 {member.firstName[0]}{member.lastName[0]}
@@ -952,32 +912,32 @@ export default function MembersList() {
               <div className="flex flex-col gap-1.5 mt-2">
                 <div className="flex flex-wrap items-center gap-1.5">
                   {memberSecs.map(s => (
-                    <span key={s} className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest bg-black/10 dark:bg-white/12 text-foreground/75 border border-black/8 dark:border-white/10">
+                    <span key={s} className="inline-flex max-w-full items-center rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                       {SECTION_CONFIG[s]?.label ?? s}
                     </span>
                   ))}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-black/10 dark:bg-white/12 text-foreground/75 border border-black/8 dark:border-white/10">
+                  <span className="inline-flex max-w-full items-center rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                     {roleLabel(member.role)}
                   </span>
                   {member.staffRole && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-black/10 dark:bg-white/12 text-foreground/75 border border-black/8 dark:border-white/10">
+                    <span className="inline-flex max-w-full items-center rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                       {staffRoleOptions(member.role).find(o => o.value === member.staffRole)?.label ?? member.staffRole}
                     </span>
                   )}
                   {member.licenseType && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-black/10 dark:bg-white/12 text-foreground/75 border border-black/8 dark:border-white/10">
+                    <span className="inline-flex max-w-full items-center gap-1 rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                       🪪 {{"UEFA_A":"UEFA A","UEFA_B":"UEFA B","UEFA_C":"UEFA C","UEFA_Pro":"UEFA Pro","Grassroots":"Grassroots"}[member.licenseType] ?? member.licenseType}
                     </span>
                   )}
                   {member.degreeScienzeMoto && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-black/10 dark:bg-white/12 text-foreground/75 border border-black/8 dark:border-white/10">
+                    <span className="inline-flex max-w-full items-center gap-1 rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                       🎓 Sc. Motorie{member.degreeScienzeMotoType ? ` (${member.degreeScienzeMotoType})` : ""}
                     </span>
                   )}
                   {member.registered && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-black/10 dark:bg-white/12 text-foreground/75 border border-black/8 dark:border-white/10">
+                    <span className="inline-flex max-w-full items-center rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                       {t.registered}
                     </span>
                   )}
@@ -986,7 +946,7 @@ export default function MembersList() {
               {(member.teamAssignments && member.teamAssignments.length > 0) && (
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {member.teamAssignments.map(a => (
-                    <span key={a.id} className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                    <span key={a.id} className="max-w-full truncate rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
                       {a.teamName}
                     </span>
                   ))}
@@ -997,7 +957,7 @@ export default function MembersList() {
               )}
             </div>
             {canManageThisMember && (
-            <div className="flex flex-col gap-1 shrink-0">
+            <div className="flex shrink-0 flex-col gap-1">
               <Button
                 variant="ghost"
                 size="icon"
