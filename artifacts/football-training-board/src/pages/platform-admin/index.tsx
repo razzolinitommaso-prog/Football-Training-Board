@@ -350,7 +350,7 @@ export default function PlatformAdminPage() {
       </aside>
 
       {/* Main content */}
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="mobile-contain-x flex flex-col flex-1 min-w-0">
         {/* Mobile top bar */}
         <div className="flex items-center gap-3 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] border-b border-white/5 bg-[#0d0d14] md:hidden">
           <button
@@ -369,7 +369,7 @@ export default function PlatformAdminPage() {
           </span>
         </div>
 
-        <main className="flex-1 overflow-auto">
+        <main className="mobile-contain-x flex-1 overflow-auto">
           {activeTab === "overview" && <OverviewTab stats={stats} clubs={clubs} />}
           {activeTab === "clubs" && (
             <ClubsTab
@@ -448,13 +448,13 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any; label: strin
 
 function OverviewTab({ stats, clubs }: { stats: Stats | null; clubs: Club[] }) {
   return (
-    <div className="p-8 space-y-8">
+    <div className="mobile-contain-x space-y-6 p-4 sm:p-6 lg:p-8 lg:space-y-8">
       <div>
         <h1 className="text-2xl font-extrabold text-white">Panoramica Piattaforma</h1>
         <p className="text-gray-500 text-sm mt-1">Stato generale di Football Training Board</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={Building2} label="Società registrate" value={stats?.totalClubs} color="bg-emerald-500/15 text-emerald-400" />
         <StatCard icon={Users} label="Utenti staff" value={stats?.totalUsers} color="bg-blue-500/15 text-blue-400" />
         <StatCard icon={Dumbbell} label="Giocatori" value={stats?.totalPlayers} color="bg-purple-500/15 text-purple-400" />
@@ -646,7 +646,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="bg-[#111118] border-white/10 text-white max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="mobile-contain-x bg-[#111118] border-white/10 text-white max-w-[calc(100vw-2rem)] sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg font-extrabold">
             <Building2 className="w-5 h-5 text-emerald-400" />
@@ -679,7 +679,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
           <form onSubmit={handleSubmit} className="space-y-5">
             <SectionHeader icon={User} label="Accesso Presidente (opzionale)" />
             <p className="text-xs text-gray-500 -mt-3">Se fornito, verra creato un account Presidente per la societa.</p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FieldRow label="Nome">
                 <Input value={form.adminFirstName} onChange={set("adminFirstName")} placeholder="Mario" className={inputClass} />
               </FieldRow>
@@ -695,7 +695,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
             </div>
 
             <SectionHeader icon={Building2} label="Dati Principali" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FieldRow label="Nome Società *">
                 <Input value={form.name} onChange={set("name")} required placeholder="Es. ASD Fiorentina" className={inputClass} />
               </FieldRow>
@@ -717,7 +717,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
             </FieldRow>
 
             <SectionHeader icon={CalendarDays} label="Stagione iniziale" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FieldRow label="Stagione attiva *">
                 <Input value={form.initialSeasonName} onChange={set("initialSeasonName")} required placeholder="Es. 2026/2027" className={inputClass} />
               </FieldRow>
@@ -727,7 +727,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
             </div>
 
             <SectionHeader icon={Receipt} label="Dati Fiscali & Fatturazione" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FieldRow label="Partita IVA">
                 <Input value={form.vatNumber} onChange={set("vatNumber")} placeholder="IT12345678901" className={inputClass} />
               </FieldRow>
@@ -743,7 +743,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
             </div>
 
             <SectionHeader icon={Phone} label="Contatti Principali" />
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <FieldRow label="Telefono">
                 <Input value={form.phone} onChange={set("phone")} placeholder="+39 055 000000" className={inputClass} />
               </FieldRow>
@@ -756,7 +756,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
             </div>
 
             <SectionHeader icon={MapPin} label="Sede Legale" />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="col-span-2">
                 <FieldRow label="Indirizzo">
                   <Input value={form.legalAddress} onChange={set("legalAddress")} placeholder="Via Roma 1" className={inputClass} />
@@ -784,7 +784,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
               Stessa della sede legale
             </label>
             {!sameAddress && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <FieldRow label="Indirizzo">
                     <Input value={form.operationalAddress} onChange={set("operationalAddress")} placeholder="Via Stadio 1" className={inputClass} />
@@ -803,7 +803,7 @@ function CreateClubDialog({ open, onClose, onCreated }: {
             )}
 
             <SectionHeader icon={Mail} label="Referente Principale" />
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <FieldRow label="Nome Referente">
                 <Input value={form.contactName} onChange={set("contactName")} placeholder="Mario Rossi" className={inputClass} />
               </FieldRow>
@@ -926,7 +926,7 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="bg-[#111118] border-white/10 text-white max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="mobile-contain-x bg-[#111118] border-white/10 text-white max-w-[calc(100vw-2rem)] sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg font-extrabold">
             <Pencil className="w-5 h-5 text-blue-400" />
@@ -938,7 +938,7 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
           <p className="text-xs text-gray-500 -mt-3">
             Inserisci email e nuova password per creare o reimpostare l'accesso Presidente della societa.
           </p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldRow label="Nome">
               <Input value={form.adminFirstName} onChange={set("adminFirstName")} placeholder="Presidente" className={inputClass} />
             </FieldRow>
@@ -954,7 +954,7 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
           </div>
 
           <SectionHeader icon={Building2} label="Dati Principali" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldRow label="Nome Società *"><Input value={form.name} onChange={set("name")} required className={inputClass} /></FieldRow>
             <FieldRow label="Ragione Sociale"><Input value={form.legalName} onChange={set("legalName")} placeholder="Ragione sociale completa" className={inputClass} /></FieldRow>
             <FieldRow label="Città"><Input value={form.city} onChange={set("city")} placeholder="Es. Firenze" className={inputClass} /></FieldRow>
@@ -966,7 +966,7 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
           </FieldRow>
 
           <SectionHeader icon={CalendarDays} label="Stagione attiva" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldRow label="Stagione società">
               <Input value={form.activeSeasonName} onChange={set("activeSeasonName")} placeholder="Es. 2026/2027" className={inputClass} />
             </FieldRow>
@@ -976,7 +976,7 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
           </div>
 
           <SectionHeader icon={Receipt} label="Dati Fiscali & Fatturazione" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FieldRow label="Partita IVA"><Input value={form.vatNumber} onChange={set("vatNumber")} placeholder="IT12345678901" className={inputClass} /></FieldRow>
             <FieldRow label="Codice Fiscale"><Input value={form.fiscalCode} onChange={set("fiscalCode")} className={inputClass} /></FieldRow>
             <FieldRow label="Codice SDI"><Input value={form.sdiCode} onChange={set("sdiCode")} maxLength={7} className={inputClass} /></FieldRow>
@@ -984,14 +984,14 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
           </div>
 
           <SectionHeader icon={Phone} label="Contatti Principali" />
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <FieldRow label="Telefono"><Input value={form.phone} onChange={set("phone")} className={inputClass} /></FieldRow>
             <FieldRow label="Email"><Input value={form.email} onChange={set("email")} type="email" className={inputClass} /></FieldRow>
             <FieldRow label="Sito Web"><Input value={form.website} onChange={set("website")} placeholder="https://..." className={inputClass} /></FieldRow>
           </div>
 
           <SectionHeader icon={MapPin} label="Sede Legale" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="col-span-2"><FieldRow label="Indirizzo"><Input value={form.legalAddress} onChange={set("legalAddress")} className={inputClass} /></FieldRow></div>
             <FieldRow label="Città"><Input value={form.legalCity} onChange={set("legalCity")} className={inputClass} /></FieldRow>
             <FieldRow label="CAP"><Input value={form.legalZip} onChange={set("legalZip")} maxLength={5} className={inputClass} /></FieldRow>
@@ -999,7 +999,7 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
           </div>
 
           <SectionHeader icon={MapPin} label="Sede Operativa" />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="col-span-2"><FieldRow label="Indirizzo"><Input value={form.operationalAddress} onChange={set("operationalAddress")} className={inputClass} /></FieldRow></div>
             <FieldRow label="Città"><Input value={form.operationalCity} onChange={set("operationalCity")} className={inputClass} /></FieldRow>
             <FieldRow label="CAP"><Input value={form.operationalZip} onChange={set("operationalZip")} maxLength={5} className={inputClass} /></FieldRow>
@@ -1007,7 +1007,7 @@ function EditClubDialog({ club, onClose, onUpdated }: { club: Club; onClose: () 
           </div>
 
           <SectionHeader icon={Mail} label="Referente Principale" />
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <FieldRow label="Nome Referente"><Input value={form.contactName} onChange={set("contactName")} className={inputClass} /></FieldRow>
             <FieldRow label="Telefono"><Input value={form.contactPhone} onChange={set("contactPhone")} className={inputClass} /></FieldRow>
             <FieldRow label="Email"><Input value={form.contactEmail} onChange={set("contactEmail")} type="email" className={inputClass} /></FieldRow>
@@ -1071,7 +1071,7 @@ function ClubsTab({ clubs, onDelete, onRefresh, onCreated, onUpdated }: {
   );
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="mobile-contain-x space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-extrabold text-white">Gestione Società</h1>
@@ -1244,7 +1244,7 @@ function CommunicationsTab({
   }, [targetMode, setAnnoTargets]);
 
   return (
-    <div className="p-8 space-y-8">
+    <div className="mobile-contain-x space-y-6 p-4 sm:p-6 lg:p-8 lg:space-y-8">
       <div>
         <h1 className="text-2xl font-extrabold text-white">Comunicazioni</h1>
         <p className="text-gray-500 text-sm mt-1">Invia messaggi e avvisi alle società registrate</p>
@@ -1414,7 +1414,7 @@ function BillingTab({ clubs, onRefresh }: { clubs: Club[]; onRefresh: () => void
     .reduce((sum, p) => sum + p.amount, 0);
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="mobile-contain-x space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-extrabold text-white">Fatturazione</h1>
@@ -1426,7 +1426,7 @@ function BillingTab({ clubs, onRefresh }: { clubs: Club[]; onRefresh: () => void
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5">
           <div className="text-3xl font-extrabold text-white">€{totalRevenue.toFixed(2)}</div>
           <div className="text-sm text-gray-400 mt-1">Incassato (recente)</div>

@@ -50,7 +50,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <SidebarProvider defaultOpen={defaultSidebarOpen} style={style}>
       <div className="flex h-dvh min-h-svh w-full overflow-hidden bg-muted/30">
         <AppSidebar />
-        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <div className="mobile-contain-x flex flex-col flex-1 min-w-0 overflow-hidden">
           <header
             className={`flex shrink-0 items-center justify-between overflow-hidden px-4 pb-0 pt-[env(safe-area-inset-top)] sm:px-6 sm:pt-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 transition-all duration-200 ${
               isTacticalBoardRoute && hideTacticalHeader
@@ -131,7 +131,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   }
                 : undefined
             }
-            className={isTacticalBoardRoute ? "relative flex-1 overflow-auto overscroll-contain" : "relative flex-1 overflow-auto overscroll-contain p-3 sm:p-6 lg:p-8"}
+            className={isTacticalBoardRoute ? "relative flex-1 overflow-auto overscroll-contain" : "mobile-contain-x relative flex-1 overflow-auto overscroll-contain p-3 sm:p-6 lg:p-8"}
           >
             {clubLogoUrl && backgroundLogoEnabled && !isTacticalBoardRoute && (
               <div className="pointer-events-none sticky top-0 z-0 -mx-3 -mb-[100svh] h-[100svh] min-h-[100svh] overflow-hidden sm:-mx-6 lg:-mx-8">
@@ -159,7 +159,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             )}
             <div
               className={
-                isTacticalBoardRoute ? "relative z-10 w-full min-w-0" : "relative z-10 mx-auto w-full min-w-0 max-w-7xl"
+                isTacticalBoardRoute ? "relative z-10 w-full min-w-0" : "mobile-contain-x relative z-10 mx-auto w-full min-w-0 max-w-7xl"
               }
             >
               {children}
