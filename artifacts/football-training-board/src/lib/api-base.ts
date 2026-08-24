@@ -1,4 +1,7 @@
-const rawApiBase = String(import.meta.env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
+const fallbackProductionApiBase = import.meta.env.PROD
+  ? "https://football-training-board-api.onrender.com"
+  : "";
+const rawApiBase = String(import.meta.env.VITE_API_URL ?? fallbackProductionApiBase).trim().replace(/\/$/, "");
 const basePath = String(import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 
 function isLocalBrowserHost(hostname: string) {
