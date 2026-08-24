@@ -358,15 +358,6 @@ export function AppSidebar() {
         <div className="px-2">
           <LanguageToggle />
         </div>
-        <div className="px-2">
-          <a
-            href={`${import.meta.env.BASE_URL}platform-login`}
-            className="text-[10px] text-sidebar-foreground/30 hover:text-sidebar-foreground/60 transition-colors cursor-pointer select-none tracking-widest"
-            title="Platform Owner Portal"
-          >
-            · · ·
-          </a>
-        </div>
       </SidebarFooter>
     </Sidebar>
   );

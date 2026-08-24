@@ -342,6 +342,7 @@ export default function PlatformAdminPage() {
         fixed inset-y-0 left-0 z-50 w-72 flex flex-col
         border-r border-white/5 bg-[#0d0d14]
         transform transition-transform duration-300 ease-in-out
+        pt-[env(safe-area-inset-top)] md:pt-0
         md:relative md:w-64 md:translate-x-0 md:z-auto md:flex md:shrink-0
         ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
       `}>
@@ -351,7 +352,7 @@ export default function PlatformAdminPage() {
       {/* Main content */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Mobile top bar */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5 bg-[#0d0d14] md:hidden">
+        <div className="flex items-center gap-3 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] border-b border-white/5 bg-[#0d0d14] md:hidden">
           <button
             onClick={() => setSidebarOpen(true)}
             className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
