@@ -358,6 +358,8 @@ function Router() {
       <Route path="/admin/login" component={AdminLoginPage} />
       <Route path="/fitness/login" component={FitnessLoginPage} />
       <Route path="/parent/login" component={ParentLoginPage} />
+      <Route path="/platform-login" component={PlatformLoginPage} />
+      <Route path="/platform-admin" component={PlatformAdminPage} />
       <Route path="/*" component={ProtectedAppRoutes} />
     </Switch>
   );
