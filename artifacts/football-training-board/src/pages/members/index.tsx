@@ -102,14 +102,14 @@ export default function MembersList() {
   const currentRoleRank = MEMBER_ROLE_ORDER[role ?? ""] ?? 99;
   const canInviteMembers = ["admin", "presidente", "director", "sporting_director", "technical_director", "secretary"].includes(role ?? "");
   const roleOptions = [
-    { value: "coach", label: t.coach },
-    { value: "fitness_coach", label: t.fitnessCoach },
-    { value: "athletic_director", label: t.athleticDirector },
-    { value: "secretary", label: t.secretary },
-    { value: "sporting_director", label: "Direttore Sportivo" },
-    { value: "technical_director", label: t.technicalDirector },
     { value: "director", label: t.director },
     { value: "admin", label: t.admin },
+    { value: "sporting_director", label: "Direttore Sportivo" },
+    { value: "technical_director", label: t.technicalDirector },
+    { value: "secretary", label: t.secretary },
+    { value: "athletic_director", label: t.athleticDirector },
+    { value: "fitness_coach", label: t.fitnessCoach },
+    { value: "coach", label: t.coach },
   ].filter((option) => {
     if (role === "admin" || role === "presidente") return true;
     if (role === "director") return option.value !== "admin" && option.value !== "presidente" && (MEMBER_ROLE_ORDER[option.value] ?? 99) > currentRoleRank;
@@ -208,7 +208,7 @@ export default function MembersList() {
 
   const roleLabel = (role: string) => {
     const map: Record<string, string> = {
-      admin: t.admin, coach: t.coach, secretary: t.secretary, sporting_director: "Direttore Sportivo",
+      presidente: "Presidente", admin: t.admin, coach: t.coach, secretary: t.secretary, sporting_director: "Direttore Sportivo",
       technical_director: t.technicalDirector, athletic_director: t.athleticDirector,
       fitness_coach: t.fitnessCoach, director: t.director,
     };
@@ -285,14 +285,15 @@ export default function MembersList() {
   ].filter(Boolean).length;
 
   const ROLE_ORDER: Record<string, number> = {
-    admin: 0,
-    director: 1,
-    sporting_director: 2,
-    secretary: 3,
+    presidente: 0,
+    admin: 1,
+    director: 2,
+    sporting_director: 3,
     technical_director: 4,
-    athletic_director: 5,
-    coach: 5,
-    fitness_coach: 6,
+    secretary: 5,
+    athletic_director: 6,
+    fitness_coach: 7,
+    coach: 8,
   };
 
   const LICENSE_ORDER: Record<string, number> = {
@@ -776,14 +777,15 @@ export default function MembersList() {
               <div className="flex flex-wrap gap-1">
                 {[
                   { v: "all", l: "Tutti" },
-                  { v: "coach", l: t.coach },
-                  { v: "fitness_coach", l: t.fitnessCoach },
-                  { v: "technical_director", l: "Dir. Tecnico" },
-                  { v: "sporting_director", l: "Dir. Sportivo" },
-                  { v: "athletic_director", l: "Resp. Atletico" },
-                  { v: "secretary", l: t.secretary },
-                  { v: "director", l: t.director },
+                  { v: "presidente", l: "Presidente" },
                   { v: "admin", l: t.admin },
+                  { v: "director", l: t.director },
+                  { v: "sporting_director", l: "Dir. Sportivo" },
+                  { v: "technical_director", l: "Dir. Tecnico" },
+                  { v: "secretary", l: t.secretary },
+                  { v: "athletic_director", l: "Resp. Atletico" },
+                  { v: "fitness_coach", l: t.fitnessCoach },
+                  { v: "coach", l: t.coach },
                 ].map(o => (
                   <button key={o.v} type="button" onClick={() => setRoleFilter(o.v)}
                     className={`px-2.5 py-0.5 text-[11px] rounded font-medium transition-colors ${roleFilter === o.v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>
