@@ -1072,19 +1072,19 @@ function ClubsTab({ clubs, onDelete, onRefresh, onCreated, onUpdated }: {
 
   return (
     <div className="mobile-contain-x space-y-6 p-4 sm:p-6 lg:p-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-extrabold text-white">Gestione Società</h1>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-extrabold text-white break-words">Gestione Società</h1>
           <p className="text-gray-500 text-sm mt-1">{clubs.length} società registrate sulla piattaforma</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={onRefresh} variant="outline" size="sm" className="border-white/10 text-gray-300 hover:bg-white/5 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+          <Button onClick={onRefresh} variant="outline" size="sm" className="min-w-0 border-white/10 text-gray-300 hover:bg-white/5 gap-2">
             <RefreshCw className="w-4 h-4" />
-            Aggiorna
+            <span className="truncate">Aggiorna</span>
           </Button>
-          <Button onClick={() => setShowCreate(true)} size="sm" className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
+          <Button onClick={() => setShowCreate(true)} size="sm" className="min-w-0 bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
             <Plus className="w-4 h-4" />
-            Nuova Società
+            <span className="truncate">Nuova Società</span>
           </Button>
         </div>
       </div>
@@ -1110,14 +1110,14 @@ function ClubsTab({ clubs, onDelete, onRefresh, onCreated, onUpdated }: {
 
       <div className="space-y-3">
         {filtered.map(club => (
-          <div key={club.id} className="bg-white/[0.03] border border-white/5 rounded-2xl p-5 hover:border-white/10 transition-all">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-4">
+          <div key={club.id} className="mobile-contain-x bg-white/[0.03] border border-white/5 rounded-2xl p-4 sm:p-5 hover:border-white/10 transition-all">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3 sm:gap-4">
                 <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 font-extrabold text-sm shrink-0">
                   {club.name.slice(0, 2).toUpperCase()}
                 </div>
-                <div>
-                  <div className="font-semibold text-white text-base">{club.name}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-white text-base leading-snug break-words">{club.name}</div>
                   <div className="text-sm text-gray-500 mt-0.5">
                     {[club.city, club.country].filter(Boolean).join(", ") || "Posizione non specificata"}
                   </div>
@@ -1144,17 +1144,17 @@ function ClubsTab({ clubs, onDelete, onRefresh, onCreated, onUpdated }: {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end sm:shrink-0">
                 {club.subscription && (
-                  <Badge className={`text-xs ${
+                  <Badge className={`max-w-full text-xs ${
                     club.subscription.status === "active"
                       ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                       : "bg-gray-500/10 text-gray-400 border-gray-500/20"
                   }`}>
-                    {club.subscription.planName} · {club.subscription.status}
+                    <span className="truncate">{club.subscription.planName} · {club.subscription.status}</span>
                   </Badge>
                 )}
-                <span className="text-xs text-gray-600">
+                <span className="text-xs text-gray-600 shrink-0">
                   {new Date(club.createdAt).toLocaleDateString("it-IT")}
                 </span>
                 <Button
