@@ -31,6 +31,9 @@ function parseSameSite(value: string | undefined): "lax" | "strict" | "none" {
 
 const configuredOrigins = new Set(
   [
+    "capacitor://localhost",
+    "ionic://localhost",
+    "http://localhost",
     process.env.APP_ORIGIN,
     ...parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS),
   ].filter(Boolean) as string[],

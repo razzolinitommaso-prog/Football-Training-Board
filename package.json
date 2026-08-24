@@ -7,6 +7,8 @@
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "build:web": "pnpm --filter @workspace/football-training-board build",
     "build:api": "pnpm --filter @workspace/api-server build",
+    "cap:sync": "pnpm run build:web && cap sync",
+    "cap:open:android": "cap open android",
     "start:api": "pnpm --filter @workspace/api-server start",
     "db:push": "pnpm --filter @workspace/db push",
     "dev:api:local": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-api-local.ps1",
@@ -20,6 +22,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.4.4",
     "@rollup/rollup-win32-x64-msvc": "^4.60.1",
     "@tailwindcss/oxide-win32-x64-msvc": "^4.2.2",
     "lightningcss-win32-x64-msvc": "^1.32.0",
@@ -28,6 +31,8 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.29.2",
+    "@capacitor/android": "^7.4.4",
+    "@capacitor/core": "^7.4.4",
     "@floating-ui/core": "^1.7.5",
     "@floating-ui/dom": "^1.7.6",
     "@floating-ui/react-dom": "^2.1.8",

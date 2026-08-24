@@ -446,7 +446,8 @@ router.post("/auth/logout", (req, res): void => {
     res.clearCookie("connect.sid", {
       path: "/",
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: (process.env.SESSION_COOKIE_SAMESITE === "none" ? "none" : "lax") as "none" | "lax",
+      secure: String(process.env.SESSION_COOKIE_SECURE ?? "").trim().toLowerCase() === "true",
     });
     if (err) {
       res.status(500).json({ error: "Logout failed" });
