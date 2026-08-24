@@ -34,6 +34,7 @@ const configuredOrigins = new Set(
     "capacitor://localhost",
     "ionic://localhost",
     "http://localhost",
+    "https://localhost",
     process.env.APP_ORIGIN,
     ...parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS),
   ].filter(Boolean) as string[],
@@ -58,6 +59,7 @@ app.use(
 
       const isLocalDevOrigin =
         /^http:\/\/localhost:\d+$/.test(origin) ||
+        /^https:\/\/localhost:\d+$/.test(origin) ||
         /^http:\/\/127\.0\.0\.1:\d+$/.test(origin);
 
       if (isLocalDevOrigin || configuredOrigins.has(origin)) {
