@@ -24,6 +24,19 @@ pnpm cap:open:android
 Do not use `http://localhost:3001` for mobile builds. Inside an installed app,
 `localhost` means the phone itself, not the Render backend.
 
+To create a debug APK from the command line:
+
+```powershell
+cd android
+.\gradlew.bat assembleDebug
+```
+
+The generated debug APK is:
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
 ## Backend CORS
 
 The API accepts Capacitor origins in code:

@@ -57,3 +57,4 @@ Thumbs.db
 !.env.example
 .vite-dev.log
 artifacts/db-export/
+.tools/
