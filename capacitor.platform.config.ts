@@ -4,6 +4,10 @@ const config: CapacitorConfig = {
   appId: "com.footballtrainingboard.platform",
   appName: "FTB Platform",
   webDir: "artifacts/football-training-board/dist/public",
+  server: {
+    url: "https://football-training-board.onrender.com/platform-login",
+    cleartext: false,
+  },
   android: {
     path: "android-platform",
   },

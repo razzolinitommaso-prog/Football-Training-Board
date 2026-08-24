@@ -49,6 +49,10 @@ $platformCapacitorConfig = Join-Path $androidPlatform "app\src\main\assets\capac
   appId = "com.footballtrainingboard.platform"
   appName = "FTB Platform"
   webDir = "artifacts/football-training-board/dist/public"
+  server = @{
+    url = "https://football-training-board.onrender.com/platform-login"
+    cleartext = $false
+  }
 } | ConvertTo-Json | Set-Content $platformCapacitorConfig
 
 $jdk = Get-ChildItem (Join-Path $root ".tools") -Directory -ErrorAction SilentlyContinue |
