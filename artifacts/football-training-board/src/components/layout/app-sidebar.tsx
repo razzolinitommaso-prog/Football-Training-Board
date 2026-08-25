@@ -82,8 +82,8 @@ const SEZIONI = [
 // Ruoli che hanno accesso ad almeno una sezione (il direttore tecnico usa il menu “area tecnica” unificato, senza albero a 3 sezioni)
 const SEZIONE_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director"];
 
-// Club-wide: tutte e tre le sezioni nel menu. Il DT non è incluso: vede squadre/giocatori/sessioni da percorsi globali /teams, /players, ecc.
-const ALL_SECTIONS_ROLES = ["admin", "presidente", "director"];
+// Ruoli gestionali: le tre sezioni restano visibili, ma quelle non assegnate sono grigie/disabilitate.
+const SECTION_MANAGEMENT_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director"];
 
 /** Voci aggiuntive per il direttore tecnico: metodologia, coordinamento staff, lettura attività (non segreteria, non gestione fitness). */
 const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof UsersRound }[] = [
@@ -97,7 +97,7 @@ const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof Users
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { role, section, club } = useAuth();
+  const { role, section, sections, club } = useAuth();
   const { data: liveClub } = useGetMyClub();
   const activeClub = liveClub ?? club;
   const { t } = useLanguage();
@@ -159,20 +159,37 @@ export function AppSidebar() {
   const adminNav      = visibleNav.filter(item => item.group === "admin");
   const parentNav     = visibleNav.filter(item => item.group === "parent");
 
-  // Normalizza section (underscore → hyphen) per confronto con SEZIONI key
-  const userSectionKey = section ? section.replace(/_/g, "-") : null;
-  const seeAllSections = ALL_SECTIONS_ROLES.includes(role || "");
+  // Normalizza section (underscore -> hyphen) per confronto con SEZIONI key.
+  const userSectionKeys = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(sections) ? sections : []),
+        section,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).replace(/_/g, "-"))
+    )
+  );
+  const isSectionManagementRole = SECTION_MANAGEMENT_ROLES.includes(role || "");
+  const hasExplicitSectionAssignments = userSectionKeys.length > 0;
 
   function shouldShowSection(sectionKey: string): boolean {
     if (!SEZIONE_ROLES.includes(role || "")) return false;
-    if (seeAllSections) return true;
-    return userSectionKey === sectionKey;
+    if (isSectionManagementRole) return true;
+    return userSectionKeys.includes(sectionKey);
+  }
+
+  function canOpenSection(sectionKey: string): boolean {
+    if (!SEZIONE_ROLES.includes(role || "")) return false;
+    if (isSectionManagementRole && !hasExplicitSectionAssignments) return true;
+    return userSectionKeys.includes(sectionKey);
   }
 
   function CollapsibleSection({ sectionKey, label, Icon }: { sectionKey: string; label: string; Icon: any }) {
     if (!shouldShowSection(sectionKey)) return null;
 
     const basePath = `/${sectionKey}`;
+    const disabled = !canOpenSection(sectionKey);
     const subItems = SEZIONE_SUB_ITEMS
       .filter(s => s.roles.includes(role || ""))
       .map(s => ({ ...s, url: `${basePath}/${s.url}` }));
@@ -181,6 +198,22 @@ export function AppSidebar() {
 
     const subActive = subItems.some(s => location.startsWith(s.url));
     const isActive  = subActive || location === basePath;
+
+    if (disabled) {
+      return (
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            disabled
+            tooltip={`${label} non assegnata`}
+            className="font-medium w-full cursor-not-allowed opacity-45 grayscale"
+          >
+            <Icon className="w-5 h-5 text-sidebar-foreground/40" />
+            <span>{label}</span>
+            <ChevronRight className="ml-auto w-4 h-4 text-sidebar-foreground/30" />
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      );
+    }
 
     return (
       <Collapsible defaultOpen={isActive} className="group/collapsible">
