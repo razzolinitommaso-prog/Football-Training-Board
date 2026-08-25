@@ -98,6 +98,23 @@ type DashboardTrainingOverride = {
 
 type DashboardMatchPhase = "autunnale" | "primaverile" | "tornei" | "amichevoli";
 
+type TrainingCalendarOverridePayload = {
+  teamId: number;
+  originalDate: string;
+  originalStartTime: string;
+  originalEndTime: string;
+  status: "note" | "moved" | "cancelled" | "joined";
+  newDate: string | null;
+  newStartTime: string | null;
+  newEndTime: string | null;
+  targetTeamId?: number | null;
+  targetDate?: string | null;
+  targetStartTime?: string | null;
+  targetEndTime?: string | null;
+  location: string | null;
+  notes: string | null;
+};
+
 type DashboardCalendarItem =
   | {
       kind: "training" | "extra";
@@ -699,6 +716,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   const [trainingEditLocation, setTrainingEditLocation] = useState("");
   const [trainingEditNotes, setTrainingEditNotes] = useState("");
   const [trainingJoinTargetKey, setTrainingJoinTargetKey] = useState("");
+  const [trainingEditScope, setTrainingEditScope] = useState<"single" | "future" | "count">("single");
+  const [trainingEditCount, setTrainingEditCount] = useState("4");
 
   const dashboardOverrideFrom = useMemo(
     () => format(startOfWeek(startOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd"),
@@ -846,6 +865,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       setTrainingEditLocation("");
       setTrainingEditNotes("");
       setTrainingJoinTargetKey("");
+      setTrainingEditScope("single");
+      setTrainingEditCount("4");
       return;
     }
     const item = selectedCalendarItem;
@@ -869,6 +890,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
         ? String(override.targetTeamId)
         : "",
     );
+    setTrainingEditScope("single");
+    setTrainingEditCount("4");
   }, [selectedCalendarItem]);
 
   const updateDashboardMatchMutation = useMutation({
@@ -911,39 +934,34 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   });
 
   const updateDashboardTrainingMutation = useMutation({
-    mutationFn: async (payload: {
-      teamId: number;
-      originalDate: string;
-      originalStartTime: string;
-      originalEndTime: string;
-      status: "note" | "moved" | "cancelled" | "joined";
-      newDate: string | null;
-      newStartTime: string | null;
-      newEndTime: string | null;
-      targetTeamId?: number | null;
-      targetDate?: string | null;
-      targetStartTime?: string | null;
-      targetEndTime?: string | null;
-      location: string | null;
-      notes: string | null;
-    }) => {
-      const res = await fetch(withApi("/api/training-calendar-overrides"), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error((await res.text()) || "Aggiornamento allenamento non riuscito");
-      return res.json();
+    mutationFn: async (payload: TrainingCalendarOverridePayload | TrainingCalendarOverridePayload[]) => {
+      const payloads = Array.isArray(payload) ? payload : [payload];
+      const rows = [];
+      for (const item of payloads) {
+        const res = await fetch(withApi("/api/training-calendar-overrides"), {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(item),
+        });
+        if (!res.ok) throw new Error((await res.text()) || "Aggiornamento allenamento non riuscito");
+        rows.push(await res.json());
+      }
+      return rows;
     },
-    onSuccess: async () => {
+    onSuccess: async (rows) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["/api/training-calendar-overrides"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/training-sessions"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/club/notifications"] }),
       ]);
       setSelectedCalendarItem(null);
-      toast({ title: "Allenamento aggiornato", description: "Calendario, sessioni collegate e bacheca sono stati aggiornati." });
+      toast({
+        title: rows.length > 1 ? "Allenamenti aggiornati" : "Allenamento aggiornato",
+        description: rows.length > 1
+          ? `${rows.length} eventi del calendario sono stati aggiornati.`
+          : "Calendario, sessioni collegate e bacheca sono stati aggiornati.",
+      });
     },
     onError: (error: any) => {
       toast({
@@ -1293,6 +1311,46 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       }),
     [dashboardCalendarMonth],
   );
+
+  const trainingEditOccurrences = useMemo(() => {
+    if (
+      selectedCalendarItem?.kind !== "training" ||
+      !selectedCalendarItem.teamId ||
+      !selectedCalendarItem.originalDate ||
+      !selectedCalendarItem.originalStartTime
+    ) {
+      return [];
+    }
+
+    const selectedDate = selectedCalendarItem.originalDate;
+    const selectedStart = selectedCalendarItem.originalStartTime;
+    const selectedEnd = selectedCalendarItem.originalEndTime ?? "";
+    const items = dashboardCalendarItems.filter((item): item is Extract<DashboardCalendarItem, { kind: "training" | "extra" }> => {
+      if (item.kind !== "training") return false;
+      if (!item.teamId || Number(item.teamId) !== Number(selectedCalendarItem.teamId)) return false;
+      if (!item.originalDate || item.originalDate < selectedDate) return false;
+      if (item.originalStartTime !== selectedStart) return false;
+      if ((item.originalEndTime ?? "") !== selectedEnd) return false;
+      if (item.trainingStatus === "moved" || item.trainingStatus === "joined") return false;
+      return true;
+    });
+
+    return items.sort((a, b) => {
+      const byDate = String(a.originalDate).localeCompare(String(b.originalDate));
+      return byDate || String(a.originalStartTime).localeCompare(String(b.originalStartTime));
+    });
+  }, [dashboardCalendarItems, selectedCalendarItem]);
+
+  const trainingEditTargetOccurrences = useMemo(() => {
+    if (trainingEditScope === "single") {
+      return trainingEditOccurrences.slice(0, 1);
+    }
+    if (trainingEditScope === "count") {
+      const count = Math.max(1, Math.min(52, Number.parseInt(trainingEditCount, 10) || 1));
+      return trainingEditOccurrences.slice(0, count);
+    }
+    return trainingEditOccurrences;
+  }, [trainingEditCount, trainingEditOccurrences, trainingEditScope]);
 
   const dashboardEventsByDay = useMemo(() => {
     const map = new Map<string, DashboardCalendarItem[]>();
@@ -3248,6 +3306,37 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                           )}
                         </div>
                       )}
+                      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_8rem]">
+                        <div>
+                          <Label>Applica modifica</Label>
+                          <Select value={trainingEditScope} onValueChange={(value) => setTrainingEditScope(value as "single" | "future" | "count")}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="single">Solo questo evento</SelectItem>
+                              <SelectItem value="future">Questo e tutti i futuri visibili</SelectItem>
+                              <SelectItem value="count">Questo e i prossimi N eventi</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Trovati {trainingEditOccurrences.length} eventi compatibili da questa data in avanti.
+                          </p>
+                        </div>
+                        {trainingEditScope === "count" && (
+                          <div>
+                            <Label htmlFor="training-edit-count">Numero</Label>
+                            <Input
+                              id="training-edit-count"
+                              type="number"
+                              min={1}
+                              max={52}
+                              value={trainingEditCount}
+                              onChange={(e) => setTrainingEditCount(e.target.value)}
+                            />
+                          </div>
+                        )}
+                      </div>
                       <div className="mt-3">
                         <Label htmlFor="training-edit-notes">Note per staff tecnico</Label>
                         <Textarea
@@ -3285,25 +3374,38 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                             end === selectedCalendarItem.originalEndTime
                               ? "note"
                               : trainingEditMode;
-                          updateDashboardTrainingMutation.mutate({
-                            teamId: selectedCalendarItem.teamId,
-                            originalDate: selectedCalendarItem.originalDate,
-                            originalStartTime: selectedCalendarItem.originalStartTime,
-                            originalEndTime: selectedCalendarItem.originalEndTime,
-                            status: effectiveStatus,
-                            newDate: effectiveStatus === "moved" || effectiveStatus === "joined" ? trainingEditDate : null,
-                            newStartTime: effectiveStatus === "moved" || effectiveStatus === "joined" ? start : null,
-                            newEndTime: effectiveStatus === "moved" || effectiveStatus === "joined" ? end : null,
-                            targetTeamId: joinTarget?.id ?? null,
-                            targetDate: effectiveStatus === "joined" ? trainingEditDate : null,
-                            targetStartTime: effectiveStatus === "joined" ? start : null,
-                            targetEndTime: effectiveStatus === "joined" ? end : null,
-                            location: effectiveStatus === "moved" || effectiveStatus === "joined" ? trainingEditLocation.trim() || null : null,
-                            notes: trainingEditNotes.trim() || null,
+                          const selectedBaseDate = new Date(`${selectedCalendarItem.originalDate}T00:00:00`);
+                          const selectedNewDate = trainingEditDate ? new Date(`${trainingEditDate}T00:00:00`) : selectedBaseDate;
+                          const dayDelta = Math.round((selectedNewDate.getTime() - selectedBaseDate.getTime()) / 86400000);
+                          const targetOccurrences = trainingEditTargetOccurrences.length > 0
+                            ? trainingEditTargetOccurrences
+                            : [selectedCalendarItem];
+                          const payloads: TrainingCalendarOverridePayload[] = targetOccurrences.map((occurrence) => {
+                            const occurrenceDate = occurrence.originalDate ?? selectedCalendarItem.originalDate!;
+                            const shiftedDate = format(addDays(new Date(`${occurrenceDate}T00:00:00`), dayDelta), "yyyy-MM-dd");
+                            return {
+                              teamId: selectedCalendarItem.teamId!,
+                              originalDate: occurrenceDate,
+                              originalStartTime: occurrence.originalStartTime ?? selectedCalendarItem.originalStartTime!,
+                              originalEndTime: occurrence.originalEndTime ?? selectedCalendarItem.originalEndTime!,
+                              status: effectiveStatus,
+                              newDate: effectiveStatus === "moved" || effectiveStatus === "joined" ? shiftedDate : null,
+                              newStartTime: effectiveStatus === "moved" || effectiveStatus === "joined" ? start : null,
+                              newEndTime: effectiveStatus === "moved" || effectiveStatus === "joined" ? end : null,
+                              targetTeamId: joinTarget?.id ?? null,
+                              targetDate: effectiveStatus === "joined" ? shiftedDate : null,
+                              targetStartTime: effectiveStatus === "joined" ? start : null,
+                              targetEndTime: effectiveStatus === "joined" ? end : null,
+                              location: effectiveStatus === "moved" || effectiveStatus === "joined" ? trainingEditLocation.trim() || null : null,
+                              notes: trainingEditNotes.trim() || null,
+                            };
                           });
+                          updateDashboardTrainingMutation.mutate(payloads);
                         }}
                       >
-                        Salva modifica allenamento
+                        {trainingEditTargetOccurrences.length > 1
+                          ? `Salva ${trainingEditTargetOccurrences.length} modifiche`
+                          : "Salva modifica allenamento"}
                       </Button>
                     </div>
                   )}
