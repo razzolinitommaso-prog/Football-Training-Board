@@ -2732,8 +2732,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                       >
                         {format(day, "d")}
                       </button>
-                      <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
-                        {events.map((item) => {
+                      <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-hidden">
+                        {events.slice(0, 3).map((item) => {
                           const postponed = item.kind === "match" && !!item.match.isPostponed;
                           const typeLabel = postponed
                             ? "Rinviata"
@@ -2779,10 +2779,85 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                             </button>
                           );
                         })}
+                        {events.length > 3 && (
+                          <button
+                            type="button"
+                            className="w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                            onClick={() => setDashboardSelectedDayKey(key)}
+                          >
+                            +{events.length - 3} altri
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
                 })}
+              </div>
+              <div className="hidden border-t bg-muted/10 p-4 sm:block">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold capitalize">
+                      {format(dashboardSelectedDay, "EEEE d MMMM", { locale: itLocale })}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Eventi del giorno selezionato</p>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0 text-[10px]">
+                    {dashboardSelectedDayEvents.length} eventi
+                  </Badge>
+                </div>
+                {dashboardSelectedDayEvents.length === 0 ? (
+                  <div className="rounded-lg border border-dashed bg-card px-3 py-4 text-center text-sm text-muted-foreground">
+                    Nessun impegno per questo giorno.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {dashboardSelectedDayEvents.map((item) => {
+                      const postponed = item.kind === "match" && !!item.match.isPostponed;
+                      const typeLabel = postponed
+                        ? "Rinviata"
+                        : item.kind === "training"
+                          ? item.trainingStatus === "cancelled"
+                            ? "Allenamento annullato"
+                            : item.trainingStatus === "joined" || item.trainingStatus === "joined-original"
+                              ? "Allenamento congiunto"
+                              : item.trainingStatus === "moved"
+                                ? "Recupero allenamento"
+                                : item.trainingStatus === "moved-original"
+                                  ? "Allenamento spostato"
+                                  : "Allenamento"
+                          : item.kind === "tournament"
+                            ? "Torneo"
+                            : "Partita";
+                      const className = postponed
+                        ? "bg-amber-50 text-amber-900 border-amber-300"
+                        : item.kind === "training"
+                          ? item.trainingStatus === "cancelled"
+                            ? "bg-red-50 text-red-800 border-red-200"
+                            : item.trainingStatus === "moved-original" || item.trainingStatus === "joined-original"
+                              ? "bg-slate-100 text-slate-700 border-slate-300"
+                              : item.trainingStatus === "moved"
+                                ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                                : item.trainingStatus === "joined"
+                                  ? "bg-cyan-50 text-cyan-900 border-cyan-300"
+                                  : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                          : item.kind === "tournament"
+                            ? "bg-violet-50 text-violet-800 border-violet-200"
+                            : "bg-blue-50 text-blue-800 border-blue-200";
+                      return (
+                        <button
+                          key={`desktop-selected-${item.key}`}
+                          type="button"
+                          className={cn("rounded-lg border px-3 py-2 text-left text-xs leading-snug transition hover:shadow-sm", className)}
+                          onClick={() => setSelectedCalendarItem(item)}
+                        >
+                          <span className="block font-semibold">{item.time} · {typeLabel}</span>
+                          <span className="mt-0.5 block font-medium">{item.title}</span>
+                          <span className="mt-0.5 block text-muted-foreground">{item.subtitle}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </>
           )}
