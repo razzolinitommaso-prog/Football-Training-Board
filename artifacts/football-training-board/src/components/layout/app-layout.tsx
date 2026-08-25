@@ -24,6 +24,13 @@ const ROLE_LABELS: Record<string, string> = {
 
 const MOBILE_BREAKPOINT = 768;
 
+function getWorkspaceAreaLabel(path: string): string | null {
+  if (path.startsWith("/scuola-calcio")) return "Scuola Calcio";
+  if (path.startsWith("/settore-giovanile")) return "Settore Giovanile";
+  if (path.startsWith("/prima-squadra")) return "Prima Squadra";
+  return null;
+}
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, club, role, logout } = useAuth();
   const { data: liveClub } = useGetMyClub();
@@ -31,6 +38,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const isTacticalBoardRoute = location.startsWith("/tactical-board");
   const showBackButton = location !== "/dashboard" && !location.startsWith("/workspace");
+  const workspaceAreaLabel = getWorkspaceAreaLabel(location);
   const [hideTacticalHeader, setHideTacticalHeader] = useState(false);
   const clubLogoUrl = String((activeClub as { logoUrl?: string | null } | null)?.logoUrl ?? "");
   const backgroundLogoEnabled = Number((activeClub as { backgroundLogoEnabled?: number | null } | null)?.backgroundLogoEnabled ?? 1) !== 0;
@@ -89,6 +97,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 {role && ROLE_LABELS[role] && (
                   <Badge variant="secondary" className="text-xs font-medium shrink-0">
                     {ROLE_LABELS[role]}
+                  </Badge>
+                )}
+                {workspaceAreaLabel && (
+                  <Badge variant="outline" className="text-xs font-medium shrink-0">
+                    {workspaceAreaLabel}
                   </Badge>
                 )}
               </div>

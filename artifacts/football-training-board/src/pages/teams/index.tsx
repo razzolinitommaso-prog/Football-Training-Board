@@ -207,7 +207,18 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const { t } = useLanguage();
   const { role, section: loginSection } = useAuth();
   const nr = normalizeSessionRole(role);
-  const { data: allTeams, isLoading } = useListTeams();
+  const effectiveSection = (section ?? loginSection ?? "") as ClubSection | "";
+  const { data: allTeams, isLoading } = useQuery<NonNullable<ReturnType<typeof useListTeams>["data"]>>({
+    queryKey: ["/api/teams", effectiveSection || "all"],
+    queryFn: async () => {
+      const url = effectiveSection
+        ? `/api/teams?section=${encodeURIComponent(effectiveSection)}`
+        : "/api/teams";
+      const res = await fetch(withApi(url), { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
   const { data: seasons = [] } = useQuery<Array<{ id: number; name: string; startDate: string; endDate: string; isActive: boolean }>>({
     queryKey: ["/api/seasons"],
     queryFn: async () => {
@@ -233,7 +244,6 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
   const canEditSchedule = nr === "admin" || nr === "coach" || nr === "director" || nr === "secretary";
   const canEditTeam = nr === "admin" || nr === "director" || nr === "secretary";
-  const effectiveSection = (section ?? loginSection ?? "") as ClubSection | "";
   const canChooseTeamSection = !effectiveSection && (nr === "admin" || nr === "director" || nr === "presidente");
   const teams = effectiveSection ? allTeams?.filter(t => t.clubSection === effectiveSection) : allTeams;
 

@@ -754,8 +754,19 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     ? new URLSearchParams(window.location.search).get("teamId") || "all"
     : "all";
   const [teamFilter, setTeamFilter] = useState<string>(initialTeamFilter);
-  const { data: players, isLoading } = useListPlayers();
-  const { data: teams } = useListTeams();
+  const listSectionParams = section ? ({ section } as any) : undefined;
+  const { data: players, isLoading } = useListPlayers(listSectionParams);
+  const { data: teams } = useQuery<NonNullable<ReturnType<typeof useListTeams>["data"]>>({
+    queryKey: ["/api/teams", section || "all"],
+    queryFn: async () => {
+      const url = section
+        ? `/api/teams?section=${encodeURIComponent(section)}`
+        : "/api/teams";
+      const res = await fetch(withApi(url), { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
   const { data: parentAccessCredentials } = useQuery<ParentAccessCredentials>({
     queryKey: ["/api/clubs/me/credentials"],
     queryFn: async () => {
