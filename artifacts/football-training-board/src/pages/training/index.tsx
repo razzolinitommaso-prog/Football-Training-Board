@@ -1133,8 +1133,12 @@ function EditSessionDialog({
       toast({ title: "Sessione aggiornata" });
       onSaved();
       onClose();
-    } catch {
-      toast({ title: "Errore nel salvataggio", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: "Errore nel salvataggio",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }

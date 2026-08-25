@@ -725,7 +725,7 @@ export const UpdateTrainingSessionBody = zod.object({
   teamId: zod.number().nullish(),
   title: zod.string().optional(),
   description: zod.string().nullish(),
-  scheduledAt: zod.date().optional(),
+  scheduledAt: zod.coerce.date().optional(),
   durationMinutes: zod.number().nullish(),
   location: zod.string().nullish(),
   status: zod.string().optional(),
