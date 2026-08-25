@@ -87,6 +87,7 @@ export const LoginUserResponse = zod.object({
     createdAt: zod.date(),
   }),
   role: zod.string(),
+  sections: zod.array(zod.string()).optional(),
 });
 
 /**
@@ -123,6 +124,7 @@ export const GetCurrentUserResponse = zod.object({
     createdAt: zod.date(),
   }),
   role: zod.string(),
+  sections: zod.array(zod.string()).optional(),
 });
 
 /**

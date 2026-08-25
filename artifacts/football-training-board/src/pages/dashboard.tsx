@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useGetDashboardStats, useListPlayers, useListTeams } from "@workspace/api-client-react";
+import { useGetDashboardStats, useListPlayers } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell, Heart, Eye, RotateCcw, Leaf, Grape, Handshake } from "lucide-react";
@@ -422,10 +422,15 @@ export default function Dashboard() {
   const { t, language } = useLanguage();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { role, user, club, section } = useAuth();
+  const { role, user, club, section, sections } = useAuth();
   const nr = normalizeSessionRole(role);
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
   const dashboardSection = section || "scuola_calcio";
+  const dashboardSections = useMemo(() => {
+    if (["admin", "presidente", "director", "technical_director"].includes(nr)) return [] as string[];
+    const unique = Array.from(new Set((sections.length ? sections : [dashboardSection]).filter(Boolean)));
+    return unique.length ? unique : [dashboardSection];
+  }, [dashboardSection, nr, sections]);
   const dashboardMembersAreClubWide = ["admin", "presidente", "director", "technical_director"].includes(nr);
   const dashboardMembersUrl = dashboardMembersAreClubWide
     ? "/api/clubs/me/members"
@@ -446,11 +451,20 @@ export default function Dashboard() {
       enabled: Boolean(user),
     },
   });
-  const { data: allTeams } = useListTeams({
-    query: {
-      queryKey: ["/api/teams", clubIdNum, nr],
-      enabled: Boolean(user),
+  const { data: allTeams = [] } = useQuery<DashboardTeam[]>({
+    queryKey: ["/api/teams", clubIdNum, nr, dashboardSections.join("|") || "club"],
+    queryFn: async () => {
+      const urls = dashboardSections.length
+        ? dashboardSections.map((s) => `/api/teams?section=${encodeURIComponent(s)}`)
+        : ["/api/teams"];
+      const results = await Promise.all(urls.map((url) => fetchJsonOrThrow<DashboardTeam[]>(url)));
+      const byId = new Map<number, DashboardTeam>();
+      results.flat().forEach((team) => {
+        if (Number(team?.id) > 0) byId.set(Number(team.id), team);
+      });
+      return Array.from(byId.values());
     },
+    enabled: Boolean(user),
   });
   const canQuickCreateTrainingTools =
     nr === "coach" || nr === "fitness_coach" || nr === "technical_director";
@@ -651,8 +665,16 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   });
 
   const { data: dashboardExtraEvents = [] } = useQuery<DashboardExtraEvent[]>({
-    queryKey: ["/api/calendar-extra-events", clubIdNum, nr, dashboardSection, "dashboard-calendar"],
-    queryFn: () => fetchJsonOrThrow<DashboardExtraEvent[]>(`/api/calendar-extra-events?section=${dashboardSection}`),
+    queryKey: ["/api/calendar-extra-events", clubIdNum, nr, dashboardSections.join("|") || dashboardSection, "dashboard-calendar"],
+    queryFn: async () => {
+      const targetSections = dashboardSections.length ? dashboardSections : [dashboardSection];
+      const results = await Promise.all(
+        targetSections.map((s) => fetchJsonOrThrow<DashboardExtraEvent[]>(`/api/calendar-extra-events?section=${encodeURIComponent(s)}`)),
+      );
+      const byKey = new Map<string, DashboardExtraEvent>();
+      results.flat().forEach((event) => byKey.set(`${event.id}-${event.section ?? ""}`, event));
+      return Array.from(byKey.values());
+    },
     enabled: Boolean(user),
   });
 
@@ -688,11 +710,20 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   );
 
   const { data: dashboardTrainingOverrides = [] } = useQuery<DashboardTrainingOverride[]>({
-    queryKey: ["/api/training-calendar-overrides", clubIdNum, nr, dashboardSection, dashboardOverrideFrom, dashboardOverrideTo],
-    queryFn: () =>
-      fetchJsonOrThrow<DashboardTrainingOverride[]>(
-        `/api/training-calendar-overrides?section=${dashboardSection}&from=${dashboardOverrideFrom}&to=${dashboardOverrideTo}`,
-      ),
+    queryKey: ["/api/training-calendar-overrides", clubIdNum, nr, dashboardSections.join("|") || dashboardSection, dashboardOverrideFrom, dashboardOverrideTo],
+    queryFn: async () => {
+      const targetSections = dashboardSections.length ? dashboardSections : [dashboardSection];
+      const results = await Promise.all(
+        targetSections.map((s) =>
+          fetchJsonOrThrow<DashboardTrainingOverride[]>(
+            `/api/training-calendar-overrides?section=${encodeURIComponent(s)}&from=${dashboardOverrideFrom}&to=${dashboardOverrideTo}`,
+          ),
+        ),
+      );
+      const byId = new Map<number, DashboardTrainingOverride>();
+      results.flat().forEach((override) => byId.set(Number(override.id), override));
+      return Array.from(byId.values());
+    },
     enabled: Boolean(user),
   });
 
@@ -1434,11 +1465,14 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
     if (isClubWideTechnicalRole && n > fromApi) return n;
     return fromApi;
   }, [stats?.totalTeams, allTeams?.length, isClubWideTechnicalRole]);
-  const dashboardSectionLabel = dashboardSection === "settore_giovanile"
+  const sectionLabel = (value: string) => value === "settore_giovanile"
     ? "Settore giovanile"
-    : dashboardSection === "prima_squadra"
+    : value === "prima_squadra"
       ? "Prima squadra"
       : "Scuola calcio";
+  const dashboardSectionLabel = dashboardSections.length > 1
+    ? dashboardSections.map(sectionLabel).join(", ")
+    : sectionLabel(dashboardSection);
 
   const dashboardTeamYearsLabel = useMemo(() => {
     const teamNames = ((allTeams as any[] | undefined) ?? [])

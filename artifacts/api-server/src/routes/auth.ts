@@ -35,6 +35,16 @@ function sessionAuthToken(req: any): string {
   });
 }
 
+function membershipSections(membership: { clubSection?: string[] | string | null } | null | undefined): string[] {
+  if (!membership) return [];
+  if (Array.isArray(membership.clubSection)) {
+    return membership.clubSection.filter((section): section is string => typeof section === "string" && section.trim().length > 0);
+  }
+  return typeof membership.clubSection === "string" && membership.clubSection.trim()
+    ? [membership.clubSection.trim()]
+    : [];
+}
+
 router.post("/auth/register", async (req, res): Promise<void> => {
   const parsed = RegisterUserBody.safeParse(req.body);
   if (!parsed.success) {
@@ -359,6 +369,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
         createdAt: club.createdAt,
       },
       role: normalizeSessionRole(membership.role),
+      sections: membershipSections(membership),
     });
 
     res.json({ ...response, authToken: sessionAuthToken(req) });
@@ -519,6 +530,10 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Club not found" });
     return;
   }
+  const [membership] = await db
+    .select()
+    .from(clubMembershipsTable)
+    .where(and(eq(clubMembershipsTable.userId, user.id), eq(clubMembershipsTable.clubId, req.session.clubId!)));
   const sessionClubView = club as typeof club & {
     backgroundLogoEnabled?: number | null;
     backgroundLogoMode?: string | null;
@@ -549,6 +564,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
       createdAt: club.createdAt,
     },
     role: normalizeSessionRole(req.session.role!),
+    sections: membershipSections(membership),
   });
 
   res.json({ ...response, section: req.session.section ?? null });

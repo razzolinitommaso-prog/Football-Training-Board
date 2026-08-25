@@ -18,6 +18,7 @@ interface AuthContextType {
   club: AuthResponse["club"] | null;
   role: string | null;
   section: string | null;
+  sections: string[];
   isLoading: boolean;
   login: (data: LoginRequest) => void;
   register: (data: RegisterRequest) => void;
@@ -192,6 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         club: authData?.club || null,
         role: authData?.role || null,
         section: (authData as any)?.section || null,
+        sections: Array.isArray((authData as any)?.sections) ? (authData as any).sections : [],
         isLoading,
         login: (data) => {
           if (!data.section) {
