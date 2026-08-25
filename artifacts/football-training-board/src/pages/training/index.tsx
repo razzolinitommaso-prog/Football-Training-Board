@@ -1077,11 +1077,13 @@ function EditSessionDialog({
   session,
   onClose,
   onSaved,
+  onManageExercises,
   teams,
 }: {
   session: TrainingSession;
   onClose: () => void;
   onSaved: () => void;
+  onManageExercises?: () => void;
   teams: { id: number; name: string }[];
 }) {
   const { toast } = useToast();
@@ -1218,6 +1220,12 @@ function EditSessionDialog({
               <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="Campo 1..." />
             </div>
           </div>
+
+          {onManageExercises && (
+            <Button type="button" variant="outline" className="w-full justify-center" onClick={onManageExercises}>
+              Aggiungi / modifica esercitazioni
+            </Button>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={onClose}>Annulla</Button>
@@ -2829,6 +2837,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             session={editingSession}
             onClose={() => setEditingSession(null)}
             onSaved={invalidateSessions}
+            onManageExercises={() => {
+              setDetailsSession(editingSession);
+              setEditingSession(null);
+            }}
             teams={teams}
           />
         )}
@@ -2898,6 +2910,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             session={editingSession}
             onClose={() => setEditingSession(null)}
             onSaved={invalidateSessions}
+            onManageExercises={() => {
+              setDetailsSession(editingSession);
+              setEditingSession(null);
+            }}
             teams={teams}
           />
         )}
@@ -3082,6 +3098,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           session={editingSession}
           onClose={() => setEditingSession(null)}
           onSaved={invalidateSessions}
+          onManageExercises={() => {
+            setDetailsSession(editingSession);
+            setEditingSession(null);
+          }}
           teams={teams}
         />
       )}
