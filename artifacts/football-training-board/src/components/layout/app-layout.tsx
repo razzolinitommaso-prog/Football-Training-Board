@@ -105,6 +105,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   </Badge>
                 )}
               </div>
+              <div className="flex min-w-0 flex-col gap-1 sm:hidden">
+                {role && ROLE_LABELS[role] && (
+                  <Badge variant="secondary" className="w-fit max-w-[42vw] truncate text-[10px] font-medium">
+                    {ROLE_LABELS[role]}
+                  </Badge>
+                )}
+                {workspaceAreaLabel && (
+                  <Badge variant="outline" className="w-fit max-w-[42vw] truncate text-[10px] font-medium">
+                    {workspaceAreaLabel}
+                  </Badge>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4">
