@@ -659,6 +659,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   const [selectedCalendarItem, setSelectedCalendarItem] = useState<DashboardCalendarItem | null>(null);
   const [dashboardCalendarMonth, setDashboardCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [dashboardCalendarCollapsed, setDashboardCalendarCollapsed] = useState(false);
+  const [dashboardSelectedDayKey, setDashboardSelectedDayKey] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [matchCalendarsCollapsed, setMatchCalendarsCollapsed] = useState(true);
   const [dashboardSelectedTeamIds, setDashboardSelectedTeamIds] = useState<Set<number>>(new Set());
   const [phaseTeamPicker, setPhaseTeamPicker] = useState<null | { phase: DashboardMatchPhase; title: string }>(null);
@@ -1276,6 +1277,12 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
     });
     return map;
   }, [dashboardCalendarItems]);
+
+  const dashboardSelectedDay = useMemo(() => {
+    const parsed = new Date(`${dashboardSelectedDayKey}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  }, [dashboardSelectedDayKey]);
+  const dashboardSelectedDayEvents = dashboardEventsByDay.get(dashboardSelectedDayKey) ?? [];
 
   const trainingJoinTargetOptions = useMemo(() => {
     if (selectedCalendarItem?.kind !== "training") return scheduledTrainingJoinTargetOptions;
@@ -2458,7 +2465,16 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
               <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => subMonths(m, 1))}>
                 <ChevronLeft className="w-4 h-4" />
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setDashboardCalendarMonth(startOfMonth(new Date()))}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const today = new Date();
+                  setDashboardCalendarMonth(startOfMonth(today));
+                  setDashboardSelectedDayKey(format(today, "yyyy-MM-dd"));
+                }}
+              >
                 Oggi
               </Button>
               <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => addMonths(m, 1))}>
@@ -2588,36 +2604,53 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
           </div>
           {!dashboardCalendarCollapsed && (
             <>
-              <div className="sm:hidden divide-y">
-                {dashboardCalendarDays
-                  .filter((day) => {
+              <div className="sm:hidden">
+                <div className="grid grid-cols-7 border-b bg-muted/20 px-2 py-2 text-center text-[10px] font-semibold uppercase text-muted-foreground">
+                  {["L", "M", "M", "G", "V", "S", "D"].map((day, index) => (
+                    <div key={`${day}-${index}`}>{day}</div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1 border-b p-2">
+                  {dashboardCalendarDays.map((day) => {
                     const key = format(day, "yyyy-MM-dd");
                     const events = dashboardEventsByDay.get(key) ?? [];
-                    return isSameMonth(day, dashboardCalendarMonth) || events.length > 0;
-                  })
-                  .map((day) => {
-                    const key = format(day, "yyyy-MM-dd");
-                    const events = dashboardEventsByDay.get(key) ?? [];
+                    const muted = !isSameMonth(day, dashboardCalendarMonth);
                     const today = startOfDay(day).getTime() === startOfDay(new Date()).getTime();
+                    const selected = key === dashboardSelectedDayKey;
                     return (
-                      <div key={`mobile-${key}`} className="px-3 py-3">
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className={cn("text-sm font-semibold capitalize", today && "text-emerald-700")}>
-                              {format(day, "EEEE d MMMM", { locale: itLocale })}
-                            </p>
-                          </div>
-                          {today && (
-                            <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                              Oggi
-                            </span>
-                          )}
-                        </div>
-                        {events.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">Nessun impegno.</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {events.map((item) => {
+                      <button
+                        key={`mobile-day-${key}`}
+                        type="button"
+                        className={cn(
+                          "relative flex h-12 flex-col items-center justify-center rounded-lg text-xs transition",
+                          muted && "text-muted-foreground/50",
+                          selected ? "bg-emerald-600 text-white shadow-sm" : "hover:bg-muted",
+                          today && !selected && "text-emerald-700",
+                        )}
+                        onClick={() => setDashboardSelectedDayKey(key)}
+                      >
+                        <span className="font-semibold">{format(day, "d")}</span>
+                        {events.length > 0 && (
+                          <span className={cn("mt-1 h-1.5 w-1.5 rounded-full", selected ? "bg-white" : "bg-emerald-500")} />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="px-3 py-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold capitalize">
+                      {format(dashboardSelectedDay, "EEEE d MMMM", { locale: itLocale })}
+                    </p>
+                    <Badge variant="secondary" className="shrink-0 text-[10px]">
+                      {dashboardSelectedDayEvents.length} eventi
+                    </Badge>
+                  </div>
+                  {dashboardSelectedDayEvents.length === 0 ? (
+                    <p className="rounded-lg border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">Nessun impegno.</p>
+                  ) : (
+                    <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+                      {dashboardSelectedDayEvents.map((item) => {
                               const postponed = item.kind === "match" && !!item.match.isPostponed;
                               const typeLabel = postponed
                                 ? "Rinviata"
@@ -2649,24 +2682,22 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                                   : item.kind === "tournament"
                                     ? "bg-violet-50 text-violet-800 border-violet-200"
                                     : "bg-blue-50 text-blue-800 border-blue-200";
-                              return (
-                                <button
-                                  key={item.key}
-                                  type="button"
-                                  className={cn("w-full rounded-lg border px-3 py-2 text-left text-xs leading-snug", className)}
-                                  onClick={() => setSelectedCalendarItem(item)}
-                                >
-                                  <span className="block font-semibold">{item.time} · {typeLabel}</span>
-                                  <span className="mt-0.5 block font-medium break-words">{item.title}</span>
-                                  <span className="mt-0.5 block text-muted-foreground break-words">{item.subtitle}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className={cn("w-full rounded-lg border px-3 py-2 text-left text-xs leading-snug", className)}
+                            onClick={() => setSelectedCalendarItem(item)}
+                          >
+                            <span className="block font-semibold">{item.time} · {typeLabel}</span>
+                            <span className="mt-0.5 block font-medium break-words">{item.title}</span>
+                            <span className="mt-0.5 block text-muted-foreground break-words">{item.subtitle}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="hidden sm:grid grid-cols-7 border-b bg-muted/30 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((day) => (
@@ -2679,19 +2710,30 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                   const events = dashboardEventsByDay.get(key) ?? [];
                   const muted = !isSameMonth(day, dashboardCalendarMonth);
                   const today = startOfDay(day).getTime() === startOfDay(new Date()).getTime();
+                  const selected = key === dashboardSelectedDayKey;
                   return (
                     <div
                       key={key}
                       className={cn(
-                        "min-h-[118px] border-b border-r p-2",
+                        "flex h-[156px] flex-col border-b border-r p-2",
                         muted && "bg-muted/20 text-muted-foreground",
+                        selected && "bg-emerald-50/40",
                       )}
                     >
-                      <div className={cn("inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-semibold", today && "bg-emerald-600 text-white")}>
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex h-6 min-w-6 items-center justify-center self-start rounded-full px-1 text-xs font-semibold hover:bg-muted",
+                          today && "bg-emerald-600 text-white hover:bg-emerald-600",
+                          selected && !today && "bg-emerald-100 text-emerald-800",
+                        )}
+                        onClick={() => setDashboardSelectedDayKey(key)}
+                        title={`Apri ${format(day, "d MMMM yyyy", { locale: itLocale })}`}
+                      >
                         {format(day, "d")}
-                      </div>
-                      <div className="mt-2 space-y-1">
-                        {events.slice(0, 4).map((item) => {
+                      </button>
+                      <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+                        {events.map((item) => {
                           const postponed = item.kind === "match" && !!item.match.isPostponed;
                           const typeLabel = postponed
                             ? "Rinviata"
@@ -2737,9 +2779,6 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                             </button>
                           );
                         })}
-                        {events.length > 4 && (
-                          <div className="text-[11px] text-muted-foreground">+{events.length - 4} altri</div>
-                        )}
                       </div>
                     </div>
                   );
