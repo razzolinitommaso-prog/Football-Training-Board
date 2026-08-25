@@ -52,10 +52,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <AppSidebar />
         <div className="mobile-contain-x flex flex-col flex-1 min-w-0 overflow-hidden">
           <header
-            className={`flex shrink-0 items-center justify-between overflow-hidden px-4 pb-0 pt-[env(safe-area-inset-top)] sm:px-6 sm:pt-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 transition-all duration-200 ${
+            className={`mobile-safe-header flex shrink-0 items-center justify-between overflow-hidden px-4 pb-0 sm:px-6 sm:pt-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 transition-all duration-200 ${
               isTacticalBoardRoute && hideTacticalHeader
                 ? "h-0 border-b-0 opacity-0 pointer-events-none"
-                : "h-[calc(4rem+env(safe-area-inset-top))] border-b opacity-100 sm:h-16"
+                : "h-[calc(4rem+max(env(safe-area-inset-top),2.25rem))] border-b opacity-100 sm:h-16"
             }`}
           >
             <div className="flex items-center gap-3">

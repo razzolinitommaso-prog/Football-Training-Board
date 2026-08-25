@@ -154,7 +154,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#080d18] text-white flex items-center justify-center">
+      <div className="mobile-safe-screen bg-[#080d18] text-white flex items-center justify-center">
         <Loader2 className="w-10 h-10 animate-spin text-gray-400" aria-label="Caricamento sessione" />
       </div>
     );
@@ -226,11 +226,11 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
   }
 
   return (
-    <div className="min-h-screen bg-[#080d18] text-white flex flex-col">
+    <div className="mobile-safe-screen bg-[#080d18] text-white flex flex-col">
       <div className={`absolute inset-0 bg-gradient-to-br ${config.gradientFrom} via-[#080d18] to-[#080d18] pointer-events-none`} />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] opacity-50 rounded-full blur-3xl pointer-events-none bg-white/3" />
 
-      <header className="relative z-10 flex items-center justify-between px-8 py-6">
+      <header className="mobile-safe-header relative z-10 flex items-center justify-between px-4 pb-5 sm:px-8 sm:py-6">
         <button
           onClick={() => window.history.back()}
           className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm"
@@ -246,7 +246,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
         </div>
       </header>
 
-      <div className="relative z-10 flex-1 flex items-center justify-center px-6 py-12">
+      <div className="mobile-safe-content relative z-10 flex-1 flex items-center justify-center px-6 pb-8 pt-6 sm:py-12">
         <div className="w-full max-w-md">
           <div className="text-center mb-10">
             <div className={`w-16 h-16 rounded-2xl ${config.accentBg} border ${config.accentBorder} flex items-center justify-center mx-auto mb-6`}>
@@ -361,7 +361,7 @@ export function ParentLoginPage() {
   const [error, setError] = useState("");
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#080d18] text-white flex items-center justify-center">
+      <div className="mobile-safe-screen bg-[#080d18] text-white flex items-center justify-center">
         <Loader2 className="w-10 h-10 animate-spin text-gray-400" aria-label="Caricamento sessione" />
       </div>
     );
@@ -395,9 +395,9 @@ export function ParentLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#080d18] text-white flex flex-col">
+    <div className="mobile-safe-screen bg-[#080d18] text-white flex flex-col">
       <div className="absolute inset-0 bg-gradient-to-br from-pink-950/30 via-[#080d18] to-[#080d18] pointer-events-none" />
-      <header className="relative z-10 flex items-center justify-between px-8 py-6">
+      <header className="mobile-safe-header relative z-10 flex items-center justify-between px-4 pb-5 sm:px-8 sm:py-6">
         <button onClick={() => window.history.back()} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm">
           <ArrowLeft className="w-4 h-4" /> Indietro
         </button>

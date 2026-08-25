@@ -269,6 +269,31 @@
     overflow-wrap: anywhere;
   }
 
+  .mobile-safe-screen {
+    min-height: 100vh;
+    min-height: 100dvh;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .mobile-safe-header {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .mobile-safe-content {
+    padding-bottom: max(env(safe-area-inset-bottom), 1.5rem);
+  }
+
+  @media (max-width: 767px) {
+    .mobile-safe-header {
+      padding-top: max(env(safe-area-inset-top), 2.25rem);
+    }
+
+    .mobile-safe-content {
+      padding-bottom: max(env(safe-area-inset-bottom), 2rem);
+    }
+  }
+
   input[type="search"]::-webkit-search-cancel-button {
     @apply hidden;
   }

@@ -90,11 +90,11 @@ export default function WorkspacePage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#080d18] text-white">
+    <div className="mobile-safe-screen bg-[#080d18] text-white">
       <div className="absolute inset-0 bg-gradient-to-br from-slate-900/60 via-[#080d18] to-slate-900/40 pointer-events-none" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
-      <header className="relative z-10 flex items-center justify-between px-8 py-6 border-b border-white/5">
+      <header className="mobile-safe-header relative z-10 flex items-center justify-between border-b border-white/5 px-4 pb-5 sm:px-8 sm:py-6">
         <button
           onClick={() => setLocation("/login-club")}
           className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm"
@@ -126,7 +126,7 @@ export default function WorkspacePage() {
         </div>
       </header>
 
-      <div className="relative z-10 max-w-3xl mx-auto px-6 py-16">
+      <div className="mobile-safe-content relative z-10 mx-auto max-w-3xl px-6 pb-10 pt-10 sm:py-16">
         {/* Club header */}
         <div className="text-center mb-14">
           {loading ? (
