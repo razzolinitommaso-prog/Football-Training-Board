@@ -2766,8 +2766,13 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                       >
                         {format(day, "d")}
                       </button>
-                      <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-hidden">
-                        {events.slice(0, 3).map((item) => {
+                      <div
+                        className={cn(
+                          "mt-2 min-h-0 flex-1 space-y-1 pr-1",
+                          events.length > 2 && "overflow-y-auto",
+                        )}
+                      >
+                        {events.map((item) => {
                           const postponed = item.kind === "match" && !!item.match.isPostponed;
                           const typeLabel = postponed
                             ? "Rinviata"
@@ -2813,15 +2818,6 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                             </button>
                           );
                         })}
-                        {events.length > 3 && (
-                          <button
-                            type="button"
-                            className="w-full rounded-md px-1.5 py-1 text-left text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-                            onClick={() => setDashboardSelectedDayKey(key)}
-                          >
-                            +{events.length - 3} altri
-                          </button>
-                        )}
                       </div>
                     </div>
                   );
