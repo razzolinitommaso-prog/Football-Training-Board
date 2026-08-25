@@ -99,6 +99,7 @@ export default function AttendancePage() {
   const initialDate = initialParams.get("date");
   const initialStart = initialParams.get("start");
   const [sessionId, setSessionId] = useState<number | null>(initialSessionId ? Number(initialSessionId) : null);
+  const directSessionMode = !!initialSessionId;
   const isTechnicalDirector = role === "technical_director";
   const [teamScope, setTeamScope] = useState<string>(initialTeamId || "");
   const [sessionDateFilter, setSessionDateFilter] = useState<"all" | string>(initialDate || "all");
@@ -133,6 +134,14 @@ export default function AttendancePage() {
       setSessionDateFilter(sessionDateKey(match.scheduledAt) || "all");
     }
   }, [sessionId, sessions, initialTeamId, initialDate, initialStart]);
+
+  useEffect(() => {
+    if (!directSessionMode || !sessionId || !sessions.length) return;
+    const selected = sessions.find((session) => session.id === sessionId);
+    if (!selected) return;
+    if (selected.teamId != null) setTeamScope(String(selected.teamId));
+    setSessionDateFilter(sessionDateKey(selected.scheduledAt) || "all");
+  }, [directSessionMode, sessionId, sessions]);
 
   const markAttendance = useMutation({
     mutationFn: (data: { trainingSessionId: number; playerId: number; status: string }) =>
@@ -263,9 +272,27 @@ export default function AttendancePage() {
         <p className="text-sm text-muted-foreground mt-1">{t.attendanceDesc}</p>
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="space-y-3">
+      {directSessionMode && selectedSession ? (
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Seduta selezionata</div>
+                <div className="mt-1 font-semibold leading-snug">{selectedSession.title ?? "Allenamento"}</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {formatSessionDateTime(selectedSession.scheduledAt)}
+                  {selectedSession.teamName ? ` · ${selectedSession.teamName}` : ""}
+                  {selectedSession.location ? ` · ${selectedSession.location}` : ""}
+                </div>
+              </div>
+              <Badge variant="secondary" className="w-fit">Presenze</Badge>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="space-y-3">
             {teamOptions.length > 1 ? (
               <div className="space-y-2">
                 <Label>Annata / squadra di riferimento</Label>
@@ -365,9 +392,10 @@ export default function AttendancePage() {
                 </div>
               </>
             )}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {sessionId && (
         <>
