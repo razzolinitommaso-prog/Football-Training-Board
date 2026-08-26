@@ -20,18 +20,26 @@ import { useAuth } from "@/hooks/use-auth";
 import type { ClubMember } from "@workspace/api-client-react";
 import { exportToExcel, mapMembersForExcel } from "@/lib/excel-export";
 
-const CLUB_SECTIONS = ["scuola_calcio", "settore_giovanile", "prima_squadra"] as const;
+const CLUB_SECTIONS = ["scuola_calcio", "settore_giovanile", "prima_squadra", "extra_time"] as const;
 type ClubSection = typeof CLUB_SECTIONS[number];
+const WORKSPACE_SECTIONS = CLUB_SECTIONS.filter((section) => section !== "extra_time");
 
-const SECTION_CONFIG: Record<ClubSection, { label: string }> = {
+const SECTION_CONFIG: Record<ClubSection, { label: string; badge: string }> = {
   scuola_calcio: {
     label: "Scuola Calcio",
+    badge: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
   },
   settore_giovanile: {
     label: "Settore Giovanile",
+    badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
   },
   prima_squadra: {
     label: "Prima Squadra",
+    badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  },
+  extra_time: {
+    label: "Extra Time",
+    badge: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
   },
 };
 
@@ -49,6 +57,7 @@ const inviteSchema = z.object({
   specialization: z.string().optional(),
   degreeScienzeMoto: z.boolean().optional(),
   degreeScienzeMotoType: z.string().optional(),
+  teamIds: z.array(z.number()).optional(),
 });
 
 const editSchema = z.object({
@@ -172,7 +181,7 @@ export default function MembersList() {
 
   const inviteForm = useForm<z.infer<typeof inviteSchema>>({
     resolver: zodResolver(inviteSchema),
-    defaultValues: { role: "coach", clubSection: ["scuola_calcio"], registered: false }
+    defaultValues: { role: "coach", clubSection: ["scuola_calcio"], registered: false, teamIds: [] }
   });
 
   const editForm = useForm<z.infer<typeof editSchema>>({
@@ -252,6 +261,7 @@ export default function MembersList() {
   const locale = language === "it" ? itLocale : undefined;
   const showCoachInviteFields = watchedInviteRole === "coach";
   const showFitnessInviteFields = watchedInviteRole === "fitness_coach" || watchedInviteRole === "athletic_director";
+  const showInviteTeams = watchedInviteRole === "coach" || watchedInviteRole === "fitness_coach" || watchedInviteRole === "athletic_director" || watchedInviteRole === "technical_director";
   const showEditStaffRole = staffRoleOptions(watchedEditRole).length > 0;
   const showEditCoachFields = watchedEditRole === "coach";
   const showEditFitnessFields = watchedEditRole === "fitness_coach" || watchedEditRole === "athletic_director";
@@ -264,6 +274,23 @@ export default function MembersList() {
     } else {
       editForm.setValue("teamIds", [...current, teamId]);
     }
+  }
+
+  function toggleInviteTeam(teamId: number) {
+    const current = inviteForm.getValues("teamIds") ?? [];
+    if (current.includes(teamId)) {
+      inviteForm.setValue("teamIds", current.filter(id => id !== teamId), { shouldDirty: true, shouldValidate: true });
+    } else {
+      inviteForm.setValue("teamIds", [...current, teamId], { shouldDirty: true, shouldValidate: true });
+    }
+  }
+
+  function setExtraTimeSection(formApi: typeof inviteForm | typeof editForm, enabled: boolean) {
+    const current = formApi.getValues("clubSection") ?? [];
+    const next = enabled
+      ? Array.from(new Set([...current, "extra_time" as ClubSection]))
+      : current.filter(section => section !== "extra_time");
+    formApi.setValue("clubSection", next.length > 0 ? next : ["scuola_calcio"], { shouldDirty: true, shouldValidate: true });
   }
 
   const allStaffRoleOptions = [
@@ -403,7 +430,7 @@ export default function MembersList() {
                   <Label>Sezioni di appartenenza</Label>
                   <Controller control={inviteForm.control} name="clubSection" render={({ field }) => (
                     <div className="flex flex-wrap gap-3">
-                      {CLUB_SECTIONS.map(sec => (
+                      {WORKSPACE_SECTIONS.map(sec => (
                         <label key={sec} className="flex items-center gap-2 cursor-pointer select-none">
                           <Checkbox
                             checked={field.value?.includes(sec) ?? false}
@@ -468,6 +495,42 @@ export default function MembersList() {
                     <Checkbox id="invReg" checked={field.value ?? false} onCheckedChange={field.onChange} />
                   )} />
                   <Label htmlFor="invReg" className="cursor-pointer">{t.registered}</Label>
+                </div>
+              )}
+              {showInviteTeams && (
+                <div className="space-y-2">
+                  <Label>{t.assignedTeams}</Label>
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border bg-muted/30 p-3">
+                    <Controller control={inviteForm.control} name="teamIds" render={({ field }) => (
+                      <>
+                        {[...(teams ?? [])].sort((a, b) => a.name.localeCompare(b.name, "it")).map(team => (
+                          <div key={team.id} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`invite-team-${team.id}`}
+                              checked={(field.value ?? []).includes(team.id)}
+                              onCheckedChange={() => toggleInviteTeam(team.id)}
+                            />
+                            <Label htmlFor={`invite-team-${team.id}`} className="cursor-pointer font-normal text-sm">
+                              {team.name}
+                              {team.ageGroup && <span className="text-muted-foreground ml-1">({team.ageGroup})</span>}
+                            </Label>
+                          </div>
+                        ))}
+                      </>
+                    )} />
+                    <Controller control={inviteForm.control} name="clubSection" render={({ field }) => (
+                      <div className="flex items-center gap-2 border-t pt-2">
+                        <Checkbox
+                          id="invite-extra-time"
+                          checked={field.value?.includes("extra_time") ?? false}
+                          onCheckedChange={(checked) => setExtraTimeSection(inviteForm, checked === true)}
+                        />
+                        <Label htmlFor="invite-extra-time" className="cursor-pointer font-normal text-sm">
+                          Extra Time
+                        </Label>
+                      </div>
+                    )} />
+                  </div>
                 </div>
               )}
               {/* Laurea in Scienze Motorie */}
@@ -579,7 +642,7 @@ export default function MembersList() {
                   <Label>Sezioni di appartenenza</Label>
                   <Controller control={editForm.control} name="clubSection" render={({ field }) => (
                     <div className="flex flex-wrap gap-3">
-                      {CLUB_SECTIONS.map(sec => (
+                      {WORKSPACE_SECTIONS.map(sec => (
                         <label key={sec} className="flex items-center gap-2 cursor-pointer select-none">
                           <Checkbox
                             checked={field.value?.includes(sec) ?? false}
@@ -697,13 +760,13 @@ export default function MembersList() {
               </div>
             </div>
 
-            {showEditTeams && teams && teams.length > 0 && (
+            {showEditTeams && (
               <div className="space-y-2">
                 <Label>{t.assignedTeams}</Label>
                 <div className="border rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto bg-muted/30">
                   <Controller control={editForm.control} name="teamIds" render={({ field }) => (
                     <>
-                      {[...teams].sort((a, b) => a.name.localeCompare(b.name, "it")).map(team => (
+                      {[...(teams ?? [])].sort((a, b) => a.name.localeCompare(b.name, "it")).map(team => (
                         <div key={team.id} className="flex items-center gap-2">
                           <Checkbox
                             id={`team-${team.id}`}
@@ -717,6 +780,18 @@ export default function MembersList() {
                         </div>
                       ))}
                     </>
+                  )} />
+                  <Controller control={editForm.control} name="clubSection" render={({ field }) => (
+                    <div className="flex items-center gap-2 border-t pt-2">
+                      <Checkbox
+                        id="edit-extra-time"
+                        checked={field.value?.includes("extra_time") ?? false}
+                        onCheckedChange={(checked) => setExtraTimeSection(editForm, checked === true)}
+                      />
+                      <Label htmlFor="edit-extra-time" className="cursor-pointer font-normal text-sm">
+                        Extra Time
+                      </Label>
+                    </div>
                   )} />
                 </div>
               </div>

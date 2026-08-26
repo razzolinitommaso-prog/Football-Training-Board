@@ -225,7 +225,7 @@ export const InviteClubMemberBody = zod.object({
   lastName: zod.string(),
   password: zod.string(),
   role: zod.string(),
-  clubSection: zod.array(zod.enum(["scuola_calcio", "settore_giovanile", "prima_squadra"])).optional(),
+  clubSection: zod.array(zod.enum(["scuola_calcio", "settore_giovanile", "prima_squadra", "extra_time"])).optional(),
   registered: zod.boolean().optional(),
   registrationNumber: zod.string().optional(),
   phone: zod.string().optional(),
@@ -233,6 +233,7 @@ export const InviteClubMemberBody = zod.object({
   specialization: zod.string().optional(),
   degreeScienzeMoto: zod.boolean().optional(),
   degreeScienzeMotoType: zod.string().optional(),
+  teamIds: zod.array(zod.number()).optional(),
 });
 
 /**
@@ -248,7 +249,7 @@ export const UpdateClubMemberRoleBody = zod.object({
   email: zod.string().email().optional(),
   newPassword: zod.string().min(6).optional(),
   role: zod.string(),
-  clubSection: zod.array(zod.enum(["scuola_calcio", "settore_giovanile", "prima_squadra"])).optional(),
+  clubSection: zod.array(zod.enum(["scuola_calcio", "settore_giovanile", "prima_squadra", "extra_time"])).optional(),
   staffRole: zod.string().optional(),
   registered: zod.boolean().optional(),
   registrationNumber: zod.string().optional(),

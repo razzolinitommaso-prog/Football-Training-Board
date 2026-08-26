@@ -243,7 +243,7 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
     return;
   }
 
-  const { email, firstName, lastName, password, role, clubSection, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType } = parsed.data;
+  const { email, firstName, lastName, password, role, clubSection, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
 
   if (!canAssignMemberRole(req.session.role, role)) {
     res.status(403).json({ error: "Non puoi creare membri con questo ruolo" });
@@ -289,6 +289,16 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
     degreeScienzeMoto: degreeScienzeMoto ?? false,
     degreeScienzeMotoType: degreeScienzeMotoType ?? null,
   });
+
+  const assignedTeamIds = Array.isArray(teamIds)
+    ? Array.from(new Set(teamIds.filter((teamId) => Number.isFinite(teamId) && teamId > 0)))
+    : [];
+
+  if (assignedTeamIds.length > 0) {
+    await db.insert(teamStaffAssignmentsTable).values(
+      assignedTeamIds.map((teamId: number) => ({ teamId, userId, clubId: req.session.clubId!, role }))
+    );
+  }
 
   const [member] = await db
     .select({

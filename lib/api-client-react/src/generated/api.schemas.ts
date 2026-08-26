@@ -124,7 +124,7 @@ export interface InviteMemberRequest {
   lastName: string;
   password: string;
   role: string;
-  clubSection?: ("scuola_calcio" | "settore_giovanile" | "prima_squadra")[];
+  clubSection?: ("scuola_calcio" | "settore_giovanile" | "prima_squadra" | "extra_time")[];
   registered?: boolean;
   registrationNumber?: string;
   phone?: string;
@@ -132,6 +132,7 @@ export interface InviteMemberRequest {
   specialization?: string;
   degreeScienzeMoto?: boolean;
   degreeScienzeMotoType?: string;
+  teamIds?: number[];
 }
 
 export interface UpdateMemberRoleRequest {
@@ -140,7 +141,7 @@ export interface UpdateMemberRoleRequest {
   email?: string;
   newPassword?: string;
   role: string;
-  clubSection?: ("scuola_calcio" | "settore_giovanile" | "prima_squadra")[];
+  clubSection?: ("scuola_calcio" | "settore_giovanile" | "prima_squadra" | "extra_time")[];
   staffRole?: string;
   registered?: boolean;
   registrationNumber?: string;

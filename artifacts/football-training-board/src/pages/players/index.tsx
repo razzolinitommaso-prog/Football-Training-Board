@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam } from "@workspace/api-client-react";
+import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam, useListClubMembers, type ClubMember } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight, Copy, KeyRound, Clock } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight, Copy, KeyRound, Clock, ClipboardCheck, Trophy, Activity, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -269,6 +269,33 @@ type ExtraTimeRow = {
   parentVisible: boolean;
 };
 
+type PlayerActivitySummary = {
+  conduct: { status: string; reason?: string | null; training?: Record<string, number> };
+  trainingAttendance: {
+    totalPastSessions: number;
+    present: number;
+    unrecorded: number;
+    percentage: number | null;
+  };
+  matchAttendance: {
+    totalPastMatches: number;
+    callups: number;
+    appearances: number;
+    percentage: number | null;
+  };
+  fitnessTests: Array<{
+    id: number;
+    date: string;
+    endurance?: number | null;
+    strength?: number | null;
+    speed?: number | null;
+    notes?: string | null;
+  }>;
+  discipline: {
+    cards: Array<{ id?: number; matchId?: number; date?: string; type?: string; reason?: string; opponent?: string; notes?: string | null }>;
+  };
+};
+
 type InstallmentDraft = {
   amount: string;
   dueDate: string;
@@ -462,6 +489,124 @@ function playerName(player: Pick<Player, "firstName" | "lastName">, order: Playe
   const lastName = String(player.lastName ?? "").trim();
   const parts = order === "surname_first" ? [lastName, firstName] : [firstName, lastName];
   return parts.filter(Boolean).join(" ");
+}
+
+function percentLabel(value: number | null): string {
+  return value == null ? "N/D" : `${value}%`;
+}
+
+function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: number; isYouthSection: boolean }) {
+  const { data, isLoading, isError } = useQuery<PlayerActivitySummary>({
+    queryKey: ["/api/players", playerId, "activity-summary"],
+    queryFn: async () => {
+      const res = await fetch(withApi(`/api/players/${playerId}/activity-summary`), { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: Number.isFinite(playerId),
+  });
+
+  return (
+    <details className="group rounded-lg border p-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+        <span className="text-sm font-semibold">Andamento automatico</span>
+        <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
+      </summary>
+      {isLoading ? (
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Skeleton className="h-20 rounded-lg" />
+          <Skeleton className="h-20 rounded-lg" />
+        </div>
+      ) : isError || !data ? (
+        <p className="mt-3 text-sm text-muted-foreground">Riepilogo non disponibile.</p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <ClipboardCheck className="h-4 w-4 text-primary" />
+                Presenze allenamenti
+              </div>
+              <div className="mt-2 text-2xl font-bold">{percentLabel(data.trainingAttendance.percentage)}</div>
+              <p className="text-xs text-muted-foreground">
+                {data.trainingAttendance.present}/{data.trainingAttendance.totalPastSessions} presenti
+                {data.trainingAttendance.unrecorded > 0 ? ` - ${data.trainingAttendance.unrecorded} non registrati` : ""}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Trophy className="h-4 w-4 text-primary" />
+                Presenze partite
+              </div>
+              <div className="mt-2 text-2xl font-bold">{percentLabel(data.matchAttendance.percentage)}</div>
+              <p className="text-xs text-muted-foreground">
+                {data.matchAttendance.appearances}/{data.matchAttendance.totalPastMatches} partite - {data.matchAttendance.callups} convocazioni
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Activity className="h-4 w-4 text-primary" />
+              Risultati test
+            </div>
+            {data.fitnessTests.length === 0 ? (
+              <p className="mt-2 text-sm text-muted-foreground">Nessun test registrato.</p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                {data.fitnessTests.map((test) => (
+                  <div key={test.id} className="rounded border bg-background px-2 py-1.5 text-xs">
+                    <div className="font-medium">{new Date(`${test.date}T00:00:00`).toLocaleDateString("it-IT")}</div>
+                    <div className="text-muted-foreground">
+                      Resistenza {test.endurance ?? "-"} - Forza {test.strength ?? "-"} - Velocita {test.speed ?? "-"}
+                    </div>
+                    {test.notes ? <div className="mt-0.5 text-muted-foreground">{test.notes}</div> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <ShieldAlert className="h-4 w-4 text-primary" />
+              Condotta
+            </div>
+            <p className="mt-2 text-sm">{data.conduct.status}</p>
+            {data.conduct.reason ? <p className="text-xs text-muted-foreground">Motivo: {data.conduct.reason}</p> : null}
+            <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+              <span className="rounded border bg-background px-2 py-0.5">Ottima: {data.conduct.training?.ottima ?? 0}</span>
+              <span className="rounded border bg-background px-2 py-0.5">Buona: {data.conduct.training?.buona ?? 0}</span>
+              <span className="rounded border bg-background px-2 py-0.5">Insufficiente: {data.conduct.training?.insufficiente ?? 0}</span>
+            </div>
+          </div>
+
+          {isYouthSection && (
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <ShieldAlert className="h-4 w-4 text-amber-500" />
+                Cartellini settore giovanile
+              </div>
+              {data.discipline.cards.length === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">Nessun cartellino registrato.</p>
+              ) : (
+                <div className="mt-2 space-y-1">
+                  {data.discipline.cards.map((card, index) => (
+                    <div key={`${card.id ?? index}`} className="rounded border bg-background px-2 py-1 text-xs">
+                      {card.date ? new Date(card.date).toLocaleDateString("it-IT") : "-"} - {card.type ?? "Cartellino"} - {card.reason ?? "altro"}
+                      {card.opponent ? ` - vs ${card.opponent}` : ""}
+                      {card.notes ? ` - ${card.notes}` : ""}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">Motivazioni: proteste, fallo di gioco, altro.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </details>
+  );
 }
 
 function comparePlayersBySurname(a: Pick<Player, "firstName" | "lastName">, b: Pick<Player, "firstName" | "lastName">): number {
@@ -767,6 +912,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return res.json();
     },
   });
+  const { data: clubMembers = [] } = useListClubMembers();
   const { data: parentAccessCredentials } = useQuery<ParentAccessCredentials>({
     queryKey: ["/api/clubs/me/credentials"],
     queryFn: async () => {
@@ -917,6 +1063,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const plannedShuttleMonths = Math.max(0, Math.floor(Number(shuttleMonthsCount) || 0));
   const plannedKitTotal = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
   const plannedExtraTimeTotal = extraTimeRows.reduce((sum, row) => sum + extraTimeRowTotal(row), 0);
+  const editingPlayerTeam = editingPlayer?.teamId ? teams?.find((team) => team.id === editingPlayer.teamId) : undefined;
+  const editingPlayerIsYouthSection = (editingPlayerTeam as any)?.clubSection === "settore_giovanile" || section === "settore_giovanile";
+  const extraTimeAssignableStaff = (clubMembers as ClubMember[])
+    .filter((member) => {
+      const memberSections = Array.isArray(member.clubSection) ? member.clubSection : [member.clubSection ?? ""];
+      return ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(member.role) && memberSections.includes("extra_time");
+    })
+    .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it"));
   const plannedQuotesTotal =
     (isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0) +
     (isSafePlayerPaymentAmount(plannedInsuranceFee) ? plannedInsuranceFee : 0) +
@@ -2531,6 +2685,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 })()}
               </div>
 
+              <PlayerActivitySummaryPanel playerId={editingPlayer.id} isYouthSection={editingPlayerIsYouthSection} />
+
               <details className="group rounded-lg border p-3">
                 <CollapsibleSectionSummary title="Dati principali" />
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
@@ -2737,6 +2893,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   Scambia nome/cognome
                 </Button>
               )}
+
+              <PlayerActivitySummaryPanel playerId={editingPlayer.id} isYouthSection={editingPlayerIsYouthSection} />
 
               <details className="group rounded-lg border border-border/60 bg-muted/10 p-3" open>
                 <CollapsibleSectionSummary title="Dati giocatore" />
@@ -3653,7 +3811,28 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                             </div>
                             <div className="space-y-2">
                               <Label>Mister assegnato</Label>
-                              <Input value={row.coachName} onChange={(e) => updateExtraTimeRow(row.key, { coachName: e.target.value })} />
+                              <Select
+                                value={row.coachName || "unassigned"}
+                                onValueChange={(value) => updateExtraTimeRow(row.key, { coachName: value === "unassigned" ? "" : value })}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Seleziona mister/preparatore" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="unassigned">Non assegnato</SelectItem>
+                                  {extraTimeAssignableStaff.map((member) => {
+                                    const fullName = `${member.firstName} ${member.lastName}`.trim();
+                                    return (
+                                      <SelectItem key={member.id} value={fullName}>
+                                        {fullName}
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
+                              {extraTimeAssignableStaff.length === 0 && (
+                                <p className="text-xs text-muted-foreground">Assegna Extra Time al membro dalla sezione Membri.</p>
+                              )}
                             </div>
                             <label className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm">
                               <Checkbox checked={row.parentVisible} onCheckedChange={(value) => updateExtraTimeRow(row.key, { parentVisible: value === true })} />
