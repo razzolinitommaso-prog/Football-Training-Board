@@ -24,7 +24,11 @@ const router: IRouter = Router();
 function teamPayloadForSession<T extends object>(payload: T, req: Request): T & { clubSection?: string } {
   const role = normalizeSessionRole(req.session.role ?? "");
   const sessionSection = typeof req.session.section === "string" ? req.session.section : "";
-  if (sessionSection && role !== "admin" && role !== "presidente") {
+  const hasExplicitSection =
+    Object.prototype.hasOwnProperty.call(payload, "clubSection") &&
+    typeof (payload as { clubSection?: unknown }).clubSection === "string" &&
+    (payload as { clubSection?: string }).clubSection!.trim().length > 0;
+  if (!hasExplicitSection && sessionSection && role !== "admin" && role !== "presidente") {
     return { ...payload, clubSection: sessionSection };
   }
   return payload;
