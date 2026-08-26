@@ -1042,7 +1042,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                   name="clubSection"
                   control={editForm.control}
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={(value) => { field.onChange(value); editForm.setValue("category", ""); }}>
+                    <Select value={field.value} onValueChange={field.onChange}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
