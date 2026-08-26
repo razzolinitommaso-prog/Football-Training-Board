@@ -1,12 +1,12 @@
 import { useParams, Link } from "wouter";
 import { useGetTeam, useListPlayers, useDeletePlayer, useUpdatePlayer } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Users, UserCheck, Pencil, Trash2, AlertTriangle, ShieldOff, UserMinus, Eye } from "lucide-react";
+import { Activity, ArrowLeft, ClipboardCheck, ShieldAlert, Trophy, Users, UserCheck, Pencil, Trash2, AlertTriangle, ShieldOff, UserMinus, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { it as itLocale } from "date-fns/locale";
 import { useState, useEffect } from "react";
@@ -95,6 +95,43 @@ type Player = {
   expectedReturn?: string | null;
 };
 
+type PlayerActivitySummary = {
+  conduct: { status: string; reason?: string | null; notes?: string | null };
+  trainingAttendance: {
+    totalPastSessions: number;
+    recorded: number;
+    present: number;
+    absent: number;
+    unrecorded: number;
+    percentage: number | null;
+  };
+  matchAttendance: {
+    totalPastMatches: number;
+    callups: number;
+    appearances: number;
+    percentage: number | null;
+  };
+  fitnessTests: Array<{
+    id: number;
+    date: string;
+    endurance?: number | null;
+    strength?: number | null;
+    speed?: number | null;
+    notes?: string | null;
+  }>;
+  discipline: {
+    cards: Array<{ id?: number; date?: string; type?: string; reason?: string; match?: string }>;
+    supportedReasons: string[];
+    source?: string;
+  };
+};
+
+async function apiFetch<T>(url: string): Promise<T> {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 function playerName(player: Pick<Player, "firstName" | "lastName">): string {
   return [String(player.lastName ?? "").trim(), String(player.firstName ?? "").trim()]
     .filter(Boolean)
@@ -144,6 +181,110 @@ function composePlayerNotes(plainNote: string, thread: PlayerNoteThreadItem[]): 
   if (!thread.length) return cleanPlain;
   const encoded = `${PLAYER_NOTES_MARKER}${JSON.stringify(thread)}`;
   return cleanPlain ? `${cleanPlain}\n\n${encoded}` : encoded;
+}
+
+function percentLabel(value: number | null): string {
+  return value == null ? "N/D" : `${value}%`;
+}
+
+function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: number; isYouthSection: boolean }) {
+  const { data, isLoading, isError } = useQuery<PlayerActivitySummary>({
+    queryKey: ["/api/players", playerId, "activity-summary"],
+    queryFn: () => apiFetch<PlayerActivitySummary>(`/api/players/${playerId}/activity-summary`),
+    enabled: Number.isFinite(playerId),
+  });
+
+  return (
+    <details className="rounded-lg border p-3">
+      <summary className="cursor-pointer text-sm font-semibold">Andamento automatico</summary>
+      {isLoading ? (
+        <div className="mt-3 space-y-2">
+          <Skeleton className="h-16 rounded-lg" />
+          <Skeleton className="h-16 rounded-lg" />
+        </div>
+      ) : isError || !data ? (
+        <p className="mt-3 text-sm text-muted-foreground">Riepilogo non disponibile.</p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <ClipboardCheck className="h-4 w-4 text-primary" />
+                Presenze allenamenti
+              </div>
+              <div className="mt-2 text-2xl font-bold">{percentLabel(data.trainingAttendance.percentage)}</div>
+              <p className="text-xs text-muted-foreground">
+                {data.trainingAttendance.present}/{data.trainingAttendance.totalPastSessions} presenti
+                {data.trainingAttendance.unrecorded > 0 ? ` · ${data.trainingAttendance.unrecorded} non registrati` : ""}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Trophy className="h-4 w-4 text-primary" />
+                Presenze partite
+              </div>
+              <div className="mt-2 text-2xl font-bold">{percentLabel(data.matchAttendance.percentage)}</div>
+              <p className="text-xs text-muted-foreground">
+                {data.matchAttendance.appearances}/{data.matchAttendance.totalPastMatches} partite · {data.matchAttendance.callups} convocazioni
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Activity className="h-4 w-4 text-primary" />
+              Risultati test
+            </div>
+            {data.fitnessTests.length === 0 ? (
+              <p className="mt-2 text-sm text-muted-foreground">Nessun test registrato.</p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                {data.fitnessTests.map((test) => (
+                  <div key={test.id} className="rounded border bg-background px-2 py-1.5 text-xs">
+                    <div className="font-medium">{new Date(`${test.date}T00:00:00`).toLocaleDateString("it-IT")}</div>
+                    <div className="text-muted-foreground">
+                      Resistenza {test.endurance ?? "-"} · Forza {test.strength ?? "-"} · Velocita {test.speed ?? "-"}
+                    </div>
+                    {test.notes ? <div className="mt-0.5 text-muted-foreground">{test.notes}</div> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <ShieldAlert className="h-4 w-4 text-primary" />
+              Condotta
+            </div>
+            <p className="mt-2 text-sm">{data.conduct.status}</p>
+            {data.conduct.reason ? <p className="text-xs text-muted-foreground">Motivo: {data.conduct.reason}</p> : null}
+          </div>
+
+          {isYouthSection && (
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <ShieldAlert className="h-4 w-4 text-amber-500" />
+                Cartellini settore giovanile
+              </div>
+              {data.discipline.cards.length === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">Nessun cartellino registrato.</p>
+              ) : (
+                <div className="mt-2 space-y-1">
+                  {data.discipline.cards.map((card, index) => (
+                    <div key={`${card.id ?? index}`} className="rounded border bg-background px-2 py-1 text-xs">
+                      {card.date ?? "-"} · {card.type ?? "Cartellino"} · {card.reason ?? "altro"}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">Motivazioni: proteste, fallo di gioco, altro.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </details>
+  );
 }
 
 export default function TeamDetail() {
@@ -569,6 +710,8 @@ export default function TeamDetail() {
                 </div>
               </div>
 
+              <PlayerActivitySummaryPanel playerId={editingPlayer.id} isYouthSection={(team as any)?.clubSection === "settore_giovanile"} />
+
               <div className="space-y-2 rounded-lg border p-3">
                 <div>
                   <Label className="text-sm font-semibold">Comunicazioni</Label>
@@ -662,6 +805,8 @@ export default function TeamDetail() {
             </form>
             ) : (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
+              <PlayerActivitySummaryPanel playerId={editingPlayer.id} isYouthSection={(team as any)?.clubSection === "settore_giovanile"} />
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{t.firstName} <span className="text-destructive">*</span></Label>

@@ -1,6 +1,20 @@
 import { Router, type IRouter } from "express";
-import { db, playersTable, teamsTable, teamStaffAssignmentsTable, clubNotificationsTable, playerParentDelegatesTable, parentPlayerRelationsTable, parentNotificationsTable } from "@workspace/db";
-import { eq, and, asc } from "drizzle-orm";
+import {
+  db,
+  playersTable,
+  teamsTable,
+  teamStaffAssignmentsTable,
+  clubNotificationsTable,
+  playerParentDelegatesTable,
+  parentPlayerRelationsTable,
+  parentNotificationsTable,
+  trainingSessionsTable,
+  trainingAttendancesTable,
+  matchesTable,
+  callUpsTable,
+  playerFitnessDataTable,
+} from "@workspace/db";
+import { eq, and, asc, desc, inArray } from "drizzle-orm";
 import {
   ListPlayersResponse,
   ListPlayersQueryParams,
@@ -443,6 +457,108 @@ router.get("/players/:id", requireAuth, async (req, res): Promise<void> => {
 
   const enriched = await enrichPlayer(player);
   res.json(GetPlayerResponse.parse(enriched));
+});
+
+router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promise<void> => {
+  const params = GetPlayerParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const clubId = req.session.clubId!;
+  const [player] = await db
+    .select()
+    .from(playersTable)
+    .where(and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, clubId)));
+
+  if (!player) {
+    res.status(404).json({ error: "Player not found" });
+    return;
+  }
+
+  const now = new Date();
+  const trainingSessions = player.teamId
+    ? (await db
+        .select()
+        .from(trainingSessionsTable)
+        .where(and(eq(trainingSessionsTable.clubId, clubId), eq(trainingSessionsTable.teamId, player.teamId)))
+        .orderBy(desc(trainingSessionsTable.scheduledAt)))
+        .filter((session) => new Date(session.scheduledAt).getTime() <= now.getTime() && session.status !== "cancelled")
+    : [];
+  const trainingSessionIds = trainingSessions.map((session) => session.id);
+  const trainingAttendanceRows = trainingSessionIds.length > 0
+    ? await db
+        .select()
+        .from(trainingAttendancesTable)
+        .where(and(
+          eq(trainingAttendancesTable.clubId, clubId),
+          eq(trainingAttendancesTable.playerId, player.id),
+          inArray(trainingAttendancesTable.trainingSessionId, trainingSessionIds),
+        ))
+    : [];
+  const presentTraining = trainingAttendanceRows.filter((row) => row.status === "present").length;
+  const absentTraining = trainingAttendanceRows.filter((row) => row.status === "absent").length;
+  const trainingTotal = trainingSessions.length;
+  const trainingRecorded = trainingAttendanceRows.length;
+
+  const matches = player.teamId
+    ? (await db
+        .select()
+        .from(matchesTable)
+        .where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, player.teamId)))
+        .orderBy(desc(matchesTable.date)))
+        .filter((match) => new Date(match.date).getTime() <= now.getTime())
+    : [];
+  const matchIds = matches.map((match) => match.id);
+  const callups = matchIds.length > 0
+    ? await db
+        .select()
+        .from(callUpsTable)
+        .where(and(eq(callUpsTable.playerId, player.id), inArray(callUpsTable.matchId, matchIds)))
+    : [];
+  const matchAppearances = callups.filter((callup) => !["absent", "unavailable", "not_called"].includes(String(callup.status ?? "").toLowerCase())).length;
+
+  const fitnessData = await db
+    .select()
+    .from(playerFitnessDataTable)
+    .where(and(eq(playerFitnessDataTable.clubId, clubId), eq(playerFitnessDataTable.playerId, player.id)))
+    .orderBy(desc(playerFitnessDataTable.date));
+
+  res.json({
+    conduct: {
+      status: player.available === false ? "Da monitorare" : "Regolare",
+      reason: player.available === false ? player.unavailabilityReason ?? "non_disponibile" : null,
+      notes: stripMetaFromNotes(player.notes),
+    },
+    trainingAttendance: {
+      totalPastSessions: trainingTotal,
+      recorded: trainingRecorded,
+      present: presentTraining,
+      absent: absentTraining,
+      unrecorded: Math.max(trainingTotal - trainingRecorded, 0),
+      percentage: trainingTotal > 0 ? Math.round((presentTraining / trainingTotal) * 100) : null,
+    },
+    matchAttendance: {
+      totalPastMatches: matches.length,
+      callups: callups.length,
+      appearances: matchAppearances,
+      percentage: matches.length > 0 ? Math.round((matchAppearances / matches.length) * 100) : null,
+    },
+    fitnessTests: fitnessData.slice(0, 5).map((entry) => ({
+      id: entry.id,
+      date: entry.date,
+      endurance: entry.endurance ?? null,
+      strength: entry.strength ?? null,
+      speed: entry.speed ?? null,
+      notes: entry.notes ?? null,
+    })),
+    discipline: {
+      cards: [],
+      supportedReasons: ["proteste", "fallo_di_gioco", "altro"],
+      source: "Nessun registro cartellini strutturato presente",
+    },
+  });
 });
 
 router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {

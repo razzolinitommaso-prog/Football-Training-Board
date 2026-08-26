@@ -322,22 +322,36 @@ export function downloadPlayerTemplate() {
 function generatedTeamImportName(row: Record<string, unknown>) {
   const name = cellToTrimmedString(row["Nome Squadra"]);
   if (name) return name;
+  const importedTeamName = cellToTrimmedString(row["Squadra"]);
+  if (importedTeamName) return importedTeamName;
   return [
     cellToTrimmedString(row["Categoria"]),
     cellToTrimmedString(readCell(row, TEAM_AGE_GROUP_KEYS)),
   ].filter(Boolean).join(" ").trim() || "Squadra";
 }
 
+function importedTeamCategory(row: Record<string, unknown>) {
+  return cellToTrimmedString(row["Categoria"]) || cellToTrimmedString(row["Squadra"]) || undefined;
+}
+
+function importedTeamAgeGroup(row: Record<string, unknown>) {
+  const explicitAgeGroup = cellToTrimmedString(readCell(row, TEAM_AGE_GROUP_KEYS));
+  if (explicitAgeGroup) return explicitAgeGroup;
+  const birthDate = cellToDateOfBirth(row["Data di Nascita"]);
+  const year = birthDate?.match(/^(\d{4})-/)?.[1];
+  return year || undefined;
+}
+
 export function mapExcelRowToTeam(row: Record<string, unknown>) {
   return {
     name: generatedTeamImportName(row),
-    category: cellToTrimmedString(row["Categoria"]) || undefined,
-    ageGroup: cellToTrimmedString(readCell(row, TEAM_AGE_GROUP_KEYS)) || undefined,
+    category: importedTeamCategory(row),
+    ageGroup: importedTeamAgeGroup(row),
   };
 }
 
 export function isValidTeamRow(row: Record<string, unknown>) {
-  return generatedTeamImportName(row).length >= 2 && cellToTrimmedString(row["Categoria"]).length >= 2;
+  return generatedTeamImportName(row).length >= 2 && Boolean(importedTeamCategory(row));
 }
 
 export function downloadTeamTemplate() {

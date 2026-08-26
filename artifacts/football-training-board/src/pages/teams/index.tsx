@@ -553,6 +553,39 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                   onDownloadTemplate={downloadTeamTemplate}
                   onParseRow={(row) => mapExcelRowToTeam(row) as Record<string, unknown>}
                   isValidRow={isValidTeamRow}
+                  onImportValidRows={async (rows) => {
+                    const uniqueTeams = Array.from(
+                      rows
+                        .map((row) => mapExcelRowToTeam(row) as Record<string, unknown>)
+                        .reduce((map, row) => {
+                          const key = [
+                            String(row.category ?? "").trim().toLowerCase(),
+                            String(row.ageGroup ?? "").trim().toLowerCase(),
+                            effectiveSection || String((row as any).clubSection ?? "scuola_calcio"),
+                          ].join("|");
+                          if (!map.has(key)) map.set(key, row);
+                          return map;
+                        }, new Map<string, Record<string, unknown>>())
+                        .values()
+                    );
+                    let success = 0;
+                    const errors: string[] = [];
+                    for (const row of uniqueTeams) {
+                      try {
+                        await createMutation.mutateAsync({
+                          data: {
+                            ...(row as any),
+                            clubSection: effectiveSection || (row as any).clubSection || "scuola_calcio",
+                          },
+                        });
+                        success++;
+                      } catch {
+                        errors.push(`Squadra ${String(row.category ?? row.name ?? "senza nome")}: errore durante l'importazione`);
+                      }
+                    }
+                    queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
+                    return { success, failed: errors.length, errors };
+                  }}
                   onImportRows={async ([row]) => {
                     await createMutation.mutateAsync({
                       data: {
