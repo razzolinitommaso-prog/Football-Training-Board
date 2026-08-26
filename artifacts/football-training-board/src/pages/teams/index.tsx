@@ -369,14 +369,14 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
       name: team.name ?? "",
       ageGroup: team.ageGroup ?? "",
       category: team.category ?? "",
-      clubSection: effectiveSection || team.clubSection || "scuola_calcio",
+      clubSection: team.clubSection || effectiveSection || "scuola_calcio",
       seasonTrainingStartDate: team.seasonTrainingStartDate ?? activeSeason?.startDate ?? "",
       officialTrainingEndDate: team.officialTrainingEndDate ?? activeSeason?.endDate ?? "",
     });
   }
 
-  function normalizeTeamFormData(data: z.infer<typeof teamSchema>) {
-    const clubSection = effectiveSection || data.clubSection;
+  function normalizeTeamFormData(data: z.infer<typeof teamSchema>, forcePageSection = false) {
+    const clubSection = forcePageSection && effectiveSection ? effectiveSection : data.clubSection;
     return {
       ...data,
       name: generatedTeamName({ ...data, clubSection }),
@@ -485,8 +485,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   useEffect(() => {
     form.setValue("clubSection", effectiveSection || "scuola_calcio");
-    editForm.setValue("clubSection", effectiveSection || editForm.getValues("clubSection") || "scuola_calcio");
-  }, [effectiveSection]);
+  }, [effectiveSection, form]);
 
   const uniqueAgeGroups = Array.from(new Set(teams?.map(t => t.ageGroup).filter(Boolean) as string[])).sort((a, b) => {
     const numA = parseInt(a.replace(/\D/g, ""), 10);
@@ -551,7 +550,12 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                   onParseRow={(row) => mapExcelRowToTeam(row) as Record<string, unknown>}
                   isValidRow={isValidTeamRow}
                   onImportRows={async ([row]) => {
-                    await createMutation.mutateAsync({ data: row as any });
+                    await createMutation.mutateAsync({
+                      data: {
+                        ...(row as any),
+                        clubSection: effectiveSection || (row as any).clubSection || "scuola_calcio",
+                      },
+                    });
                     queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
                   }}
                 />
@@ -574,7 +578,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
             </DialogHeader>
             <form onSubmit={form.handleSubmit((data) => {
               if (!assertScheduleAvailable(createScheduleRows, null)) return;
-              createMutation.mutate({ data: { ...normalizeTeamFormData(data), trainingSchedule: normalizeScheduleRows(createScheduleRows) } });
+              createMutation.mutate({ data: { ...normalizeTeamFormData(data, true), trainingSchedule: normalizeScheduleRows(createScheduleRows) } });
             })} className="space-y-4 pt-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -1026,10 +1030,10 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               )}
             </div>
 
-            {!canChooseTeamSection ? (
+            {!canChooseTeamSection && !canEditTeam ? (
               <div className="flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2 text-sm">
                 <span className="text-muted-foreground">Sezione:</span>
-                <span className="font-medium">{sectionLabel(effectiveSection || editForm.watch("clubSection"))}</span>
+                <span className="font-medium">{sectionLabel(editForm.watch("clubSection"))}</span>
               </div>
             ) : (
               <div className="space-y-2">
