@@ -360,6 +360,13 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  if (team.clubSection) {
+    await db
+      .update(playersTable)
+      .set({ clubSection: team.clubSection })
+      .where(and(eq(playersTable.clubId, req.session.clubId!), eq(playersTable.teamId, team.id)));
+  }
+
   const playerCountResult = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(playersTable)
