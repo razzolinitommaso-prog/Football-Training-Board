@@ -76,13 +76,16 @@ function categoryOptionsForSection(section?: string | null) {
   return SCHOOL_CATEGORY_SUGGESTIONS;
 }
 
-function generatedTeamName(data: { name?: string | null; category?: string | null; ageGroup?: string | null; clubSection?: string | null }) {
-  const name = data.name?.trim();
-  if (name) return name;
+function teamSportDisplayName(data: { name?: string | null; category?: string | null; ageGroup?: string | null; clubSection?: string | null }) {
   const category = data.category?.trim();
   const ageGroup = data.ageGroup?.trim();
-  const generated = [category, ageGroup].filter(Boolean).join(" ").trim();
-  return generated || sectionLabel(data.clubSection) || "Squadra";
+  const shouldAppendAgeGroup = Boolean(ageGroup && !/^\d{4}$/.test(ageGroup) && !normalizeTeamLabel(category).includes(normalizeTeamLabel(ageGroup)));
+  const generated = [category, shouldAppendAgeGroup ? ageGroup : null].filter(Boolean).join(" ").trim();
+  return generated || category || ageGroup || data.name?.trim() || sectionLabel(data.clubSection) || "Squadra";
+}
+
+function storedTeamAlias(data: { name?: string | null; category?: string | null; ageGroup?: string | null; clubSection?: string | null }) {
+  return data.name?.trim() || teamSportDisplayName(data);
 }
 
 function sectionPlayersPath(val?: string | null) {
@@ -379,7 +382,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     const clubSection = forcePageSection && effectiveSection ? effectiveSection : data.clubSection;
     return {
       ...data,
-      name: generatedTeamName({ ...data, clubSection }),
+      name: storedTeamAlias({ ...data, clubSection }),
       ageGroup: data.ageGroup?.trim() || null,
       category: data.category.trim(),
       clubSection,
@@ -506,6 +509,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const filteredTeams = teams?.filter(t => {
     const normalizedSearch = search.trim().toLowerCase();
     const searchable = [
+      teamSportDisplayName(t),
       t.name,
       t.category,
       t.ageGroup,
@@ -521,7 +525,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
     if (!isNaN(numA)) return -1;
     if (!isNaN(numB)) return 1;
-    return a.name.localeCompare(b.name);
+    return teamSportDisplayName(a).localeCompare(teamSportDisplayName(b), "it", { numeric: true, sensitivity: "base" });
   });
   const filteredTeamIds = (filteredTeams ?? []).map((team) => team.id);
   const selectedVisibleTeamIds = selectedTeamIds.filter((id) => filteredTeamIds.includes(id));
@@ -609,8 +613,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="name">{t.teamName} <span className="text-muted-foreground">(opzionale)</span></Label>
-                <Input id="name" placeholder="Vuoto = generato da categoria e annata" {...form.register("name")} />
+                <Label htmlFor="name">Alias torneo/parser <span className="text-muted-foreground">(opzionale)</span></Label>
+                <Input id="name" placeholder="Es. Fortis Juventus" {...form.register("name")} />
               </div>
               {!canChooseTeamSection ? (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border text-sm">
@@ -838,6 +842,9 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
             const staff = (team as any).assignedStaff as { userId: number; name: string; role: string }[] | undefined;
             const coaches = staff?.filter(s => s.role === "coach" || s.role === "fitness_coach" || s.role === "technical_director") ?? [];
             const selected = selectedTeamIds.includes(team.id);
+            const displayName = teamSportDisplayName(team);
+            const aliasName = team.name?.trim();
+            const showAlias = Boolean(aliasName && normalizeTeamLabel(aliasName) !== normalizeTeamLabel(displayName));
 
             return (
               <Card key={team.id} className="overflow-hidden group hover:shadow-lg transition-all border-border/50">
@@ -855,11 +862,11 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                                   : current.filter((id) => id !== team.id)
                               );
                             }}
-                            aria-label={`Seleziona ${team.name}`}
+                            aria-label={`Seleziona ${displayName}`}
                           />
                         )}
                         <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-xl">
-                          {team.name.substring(0, 2).toUpperCase()}
+                          {displayName.substring(0, 2).toUpperCase()}
                         </div>
                       </div>
                       <div className="flex gap-1">
@@ -872,7 +879,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                         ) : canEditSchedule ? (
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
                             title="Giorni e orari di allenamento"
-                            onClick={() => openScheduleDialog({ id: team.id, name: team.name, trainingSchedule: (team as any).trainingSchedule })}>
+                            onClick={() => openScheduleDialog({ id: team.id, name: displayName, trainingSchedule: (team as any).trainingSchedule })}>
                             <Clock className="w-4 h-4" />
                           </Button>
                         ) : null}
@@ -887,10 +894,15 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
                     <Link href={`${sectionPlayersPath(team.clubSection)}?teamId=${team.id}`} className="block group/link">
                       <h3 className="text-xl font-bold font-display group-hover/link:text-primary transition-colors flex items-center gap-2">
-                        {team.name}
+                        {displayName}
                         <ChevronRight className="w-4 h-4 opacity-0 -translate-x-2 group-hover/link:opacity-100 group-hover/link:translate-x-0 transition-all" />
                       </h3>
                     </Link>
+                    {showAlias && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Alias parser: {aliasName}
+                      </p>
+                    )}
 
                     <div className="mt-3 flex flex-wrap gap-2">
                       {team.clubSection && (
@@ -1002,8 +1014,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-name">{t.teamName} <span className="text-muted-foreground">(opzionale)</span></Label>
-              <Input id="edit-name" placeholder="Vuoto = generato da categoria e annata" {...editForm.register("name")} />
+              <Label htmlFor="edit-name">Alias torneo/parser <span className="text-muted-foreground">(opzionale)</span></Label>
+              <Input id="edit-name" placeholder="Es. Fortis Juventus" {...editForm.register("name")} />
             </div>
 
             <div className="rounded-lg border bg-muted/30 px-3 py-3">
