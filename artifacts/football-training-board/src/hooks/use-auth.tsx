@@ -29,6 +29,13 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const WORKSPACE_SECTIONS = new Set(["scuola-calcio", "settore-giovanile", "prima-squadra"]);
+
+function normalizeWorkspaceSection(value: unknown): string {
+  const key = String(value ?? "").trim().replace(/_/g, "-");
+  return WORKSPACE_SECTIONS.has(key) ? key : "";
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -78,15 +85,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           toast({ title: "Welcome back!", description: "Successfully logged in." });
 
-          const requestedSection =
+          const requestedSection = normalizeWorkspaceSection(
             variables &&
             typeof variables === "object" &&
             "data" in variables &&
             variables.data &&
             typeof variables.data === "object" &&
             "section" in variables.data
-              ? String((variables.data as { section?: string }).section ?? "").trim()
-              : "";
+              ? (variables.data as { section?: string }).section
+              : ""
+          );
           const savedClub = localStorage.getItem("ftb-login-club");
 
           if (savedClub && requestedSection) {

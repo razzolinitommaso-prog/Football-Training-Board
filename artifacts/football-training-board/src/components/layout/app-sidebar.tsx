@@ -79,6 +79,8 @@ const SEZIONI = [
   { key: "prima-squadra",     label: "Prima Squadra",     icon: Star },
 ] as const;
 
+const WORKSPACE_SECTION_KEYS = new Set(SEZIONI.map((section) => section.key));
+
 // Ruoli che hanno accesso ad almeno una sezione (il direttore tecnico usa il menu “area tecnica” unificato, senza albero a 3 sezioni)
 const SEZIONE_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director"];
 
@@ -168,6 +170,7 @@ export function AppSidebar() {
       ]
         .filter(Boolean)
         .map((value) => String(value).replace(/_/g, "-"))
+        .filter((value) => WORKSPACE_SECTION_KEYS.has(value))
     )
   );
   const isSectionManagementRole = SECTION_MANAGEMENT_ROLES.includes(role || "");

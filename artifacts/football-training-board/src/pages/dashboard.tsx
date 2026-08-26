@@ -450,6 +450,13 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
   return reason || "";
 }
 
+const VALID_DASHBOARD_SECTIONS = new Set(["scuola_calcio", "settore_giovanile", "prima_squadra"]);
+
+function normalizeDashboardSection(value: unknown) {
+  const key = String(value ?? "").trim().replace(/-/g, "_");
+  return VALID_DASHBOARD_SECTIONS.has(key) ? key : "";
+}
+
 export default function Dashboard() {
   const { t, language } = useLanguage();
   const { toast } = useToast();
@@ -457,10 +464,16 @@ export default function Dashboard() {
   const { role, user, club, section, sections } = useAuth();
   const nr = normalizeSessionRole(role);
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
-  const dashboardSection = section || "scuola_calcio";
+  const dashboardSection = normalizeDashboardSection(section) || "scuola_calcio";
   const dashboardSections = useMemo(() => {
     if (["admin", "presidente", "director", "technical_director"].includes(nr)) return [] as string[];
-    const unique = Array.from(new Set((sections.length ? sections : [dashboardSection]).filter(Boolean)));
+    const unique = Array.from(
+      new Set(
+        (sections.length ? sections : [dashboardSection])
+          .map(normalizeDashboardSection)
+          .filter(Boolean)
+      )
+    );
     return unique.length ? unique : [dashboardSection];
   }, [dashboardSection, nr, sections]);
   const dashboardMembersAreClubWide = ["admin", "presidente", "director", "technical_director"].includes(nr);
