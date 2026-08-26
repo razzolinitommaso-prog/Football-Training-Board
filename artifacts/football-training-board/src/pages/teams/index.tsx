@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useListTeams, useCreateTeam, useDeleteTeam, useUpdateTeam } from "@workspace/api-client-react";
+import { useListTeams, useCreateTeam, useDeleteTeam, useUpdateTeam, useCreatePlayer } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -20,7 +20,7 @@ import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { exportToExcel, mapTeamsForExcel } from "@/lib/excel-export";
-import { mapExcelRowToTeam, isValidTeamRow, downloadTeamTemplate } from "@/lib/excel-import";
+import { mapExcelRowToPlayer, mapExcelRowToTeam, isValidPlayerRow, isValidTeamRow, downloadTeamTemplate, normalizeImportedTeamDisplayName } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
 import { withApi } from "@/lib/api-base";
 
@@ -274,6 +274,14 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
         setCreateScheduleRows([]);
       }
     }
+  });
+
+  const createPlayerMutation = useCreatePlayer({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+      },
+    },
   });
 
   const deleteMutation = useDeleteTeam({
@@ -554,6 +562,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                   onParseRow={(row) => mapExcelRowToTeam(row) as Record<string, unknown>}
                   isValidRow={isValidTeamRow}
                   onImportValidRows={async (rows) => {
+                    const sectionValue = effectiveSection || "scuola_calcio";
                     const uniqueTeams = Array.from(
                       rows
                         .map((row) => mapExcelRowToTeam(row) as Record<string, unknown>)
@@ -561,30 +570,74 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                           const key = [
                             String(row.category ?? "").trim().toLowerCase(),
                             String(row.ageGroup ?? "").trim().toLowerCase(),
-                            effectiveSection || String((row as any).clubSection ?? "scuola_calcio"),
+                            sectionValue,
                           ].join("|");
                           if (!map.has(key)) map.set(key, row);
                           return map;
                         }, new Map<string, Record<string, unknown>>())
                         .values()
                     );
-                    let success = 0;
+                    let teamSuccess = 0;
+                    let playerSuccess = 0;
                     const errors: string[] = [];
+                    const teamLookup = new Map<string, { id: number; name: string }>();
+                    const addTeamLookup = (id: number, label: unknown) => {
+                      const normalized = normalizeImportedTeamDisplayName(label);
+                      if (id && normalized && !teamLookup.has(normalized)) {
+                        teamLookup.set(normalized, { id, name: String(label ?? "").trim() });
+                      }
+                    };
+                    for (const team of (allTeams ?? [])) {
+                      if (team.clubSection && team.clubSection !== sectionValue) continue;
+                      addTeamLookup(team.id, team.name);
+                      addTeamLookup(team.id, team.category);
+                    }
                     for (const row of uniqueTeams) {
                       try {
-                        await createMutation.mutateAsync({
-                          data: {
-                            ...(row as any),
-                            clubSection: effectiveSection || (row as any).clubSection || "scuola_calcio",
-                          },
-                        });
-                        success++;
-                      } catch {
-                        errors.push(`Squadra ${String(row.category ?? row.name ?? "senza nome")}: errore durante l'importazione`);
+                        const lookupName = normalizeImportedTeamDisplayName(row.category ?? row.name);
+                        let team = lookupName ? teamLookup.get(lookupName) : null;
+                        if (!team) {
+                          const created = await createMutation.mutateAsync({
+                            data: {
+                              ...(row as any),
+                              clubSection: sectionValue,
+                            },
+                          });
+                          team = { id: Number((created as any).id), name: String((created as any).name ?? row.name ?? row.category ?? "").trim() };
+                          teamSuccess++;
+                        }
+                        if (team?.id) {
+                          addTeamLookup(team.id, row.name);
+                          addTeamLookup(team.id, row.category);
+                        }
+                      } catch (err: any) {
+                        errors.push(`Squadra ${String(row.category ?? row.name ?? "senza nome")}: ${err?.message ?? "errore durante l'importazione"}`);
+                      }
+                    }
+
+                    const playerRows = rows.filter(isValidPlayerRow);
+                    const teamOptionsForPlayers = Array.from(teamLookup.values());
+                    for (const row of playerRows) {
+                      try {
+                        const mapped = mapExcelRowToPlayer(row, teamOptionsForPlayers) as Record<string, unknown>;
+                        if (!mapped.teamId) {
+                          const importedTeam = normalizeImportedTeamDisplayName((row as any).Squadra);
+                          const team = importedTeam ? teamLookup.get(importedTeam) : null;
+                          if (team) mapped.teamId = team.id;
+                        }
+                        if (!mapped.teamId) {
+                          errors.push(`Giocatore ${String((mapped as any).lastName ?? "")} ${String((mapped as any).firstName ?? "")}: squadra non riconosciuta`);
+                          continue;
+                        }
+                        await createPlayerMutation.mutateAsync({ data: mapped as any });
+                        playerSuccess++;
+                      } catch (err: any) {
+                        errors.push(`Giocatore: ${err?.message ?? "errore durante l'importazione"}`);
                       }
                     }
                     queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
-                    return { success, failed: errors.length, errors };
+                    queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+                    return { success: teamSuccess + playerSuccess, failed: errors.length, errors };
                   }}
                   onImportRows={async ([row]) => {
                     await createMutation.mutateAsync({
