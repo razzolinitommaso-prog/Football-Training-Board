@@ -398,7 +398,15 @@ function serializeKitRows(rows: KitRow[]): string {
 
 const EXTRA_TIME_ITEMS: Array<Pick<ExtraTimeRow, "key" | "group" | "label" | "activity">> = [
   { key: "individual_package", group: "individual", label: "Allenamento individuale", activity: "Tecnica" },
-  { key: "group_package", group: "group", label: "Lezione di gruppo", activity: "Tecnica di gruppo" },
+  { key: "group_package", group: "group", label: "Lezione di gruppo", activity: "Tecnica" },
+];
+
+const EXTRA_TIME_ACTIVITY_OPTIONS = [
+  "Motoria",
+  "Tecnica",
+  "Motoria + tecnica",
+  "Recupero infortuni",
+  "Preparazione",
 ];
 
 const EXTRA_TIME_PACKAGE_PRICES: Record<ExtraTimeRow["group"], Array<{ value: string; label: string; price: string }>> = {
@@ -3825,17 +3833,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                               <Select value={row.activity} onValueChange={(value) => updateExtraTimeRow(row.key, { activity: value })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                  {group === "individual" ? (
-                                    <>
-                                      <SelectItem value="Tecnica">Tecnica</SelectItem>
-                                      <SelectItem value="Motoria">Motoria</SelectItem>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <SelectItem value="Tecnica di gruppo">Tecnica di gruppo</SelectItem>
-                                      <SelectItem value="Motoria di gruppo">Motoria di gruppo</SelectItem>
-                                    </>
-                                  )}
+                                  {EXTRA_TIME_ACTIVITY_OPTIONS.map((activity) => (
+                                    <SelectItem key={activity} value={activity}>{activity}</SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
                             </div>
