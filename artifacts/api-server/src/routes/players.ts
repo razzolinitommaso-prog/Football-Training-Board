@@ -47,6 +47,7 @@ const PLAYER_NOTE_ONLY_ROLES = [
 ];
 const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
 const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
+const ATTENDANCE_META_PREFIX = "[FTB_ATTENDANCE_META]";
 const PARENT_DELEGATE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 type PlayerNoteRecipient = "secretary" | "technical_director" | "coach_staff";
@@ -210,6 +211,34 @@ function parsePlayerNotesThread(raw?: string | null): PlayerNoteThreadItem[] {
   } catch {
     return [];
   }
+}
+
+function parseAttendanceConduct(raw?: string | null): "ottima" | "buona" | "insufficiente" | null {
+  const line = String(raw ?? "").split(/\r?\n/).find((item) => item.startsWith(ATTENDANCE_META_PREFIX));
+  if (!line) return null;
+  try {
+    const parsed = JSON.parse(line.slice(ATTENDANCE_META_PREFIX.length).trim()) as { conduct?: unknown };
+    const conduct = parsed?.conduct;
+    return conduct === "ottima" || conduct === "buona" || conduct === "insufficiente" ? conduct : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDisciplineCards(matchPlan: unknown): Array<{ playerId: number; cardType: string; reason: string; notes?: string | null }> {
+  const source = matchPlan && typeof matchPlan === "object" ? (matchPlan as { disciplineCards?: unknown }) : null;
+  if (!Array.isArray(source?.disciplineCards)) return [];
+  return source.disciplineCards
+    .map((item) => {
+      const card = item as { playerId?: unknown; cardType?: unknown; reason?: unknown; notes?: unknown };
+      return {
+        playerId: Number(card.playerId),
+        cardType: String(card.cardType ?? "giallo"),
+        reason: String(card.reason ?? "altro"),
+        notes: card.notes == null ? null : String(card.notes),
+      };
+    })
+    .filter((card) => Number.isFinite(card.playerId) && card.playerId > 0);
 }
 
 const router: IRouter = Router();
@@ -499,6 +528,11 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
     : [];
   const presentTraining = trainingAttendanceRows.filter((row) => row.status === "present").length;
   const absentTraining = trainingAttendanceRows.filter((row) => row.status === "absent").length;
+  const conductCounts = trainingAttendanceRows.reduce<Record<string, number>>((acc, row) => {
+    const conduct = parseAttendanceConduct(row.notes);
+    if (conduct) acc[conduct] = (acc[conduct] ?? 0) + 1;
+    return acc;
+  }, {});
   const trainingTotal = trainingSessions.length;
   const trainingRecorded = trainingAttendanceRows.length;
 
@@ -518,6 +552,18 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
         .where(and(eq(callUpsTable.playerId, player.id), inArray(callUpsTable.matchId, matchIds)))
     : [];
   const matchAppearances = callups.filter((callup) => !["absent", "unavailable", "not_called"].includes(String(callup.status ?? "").toLowerCase())).length;
+  const disciplineCards = matches.flatMap((match) =>
+    normalizeDisciplineCards(match.matchPlan)
+      .filter((card) => card.playerId === player.id)
+      .map((card) => ({
+        matchId: match.id,
+        date: match.date,
+        opponent: match.opponent,
+        type: card.cardType,
+        reason: card.reason,
+        notes: card.notes ?? null,
+      })),
+  );
 
   const fitnessData = await db
     .select()
@@ -527,8 +573,9 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
 
   res.json({
     conduct: {
-      status: player.available === false ? "Da monitorare" : "Regolare",
+      status: conductCounts.insufficiente > 0 ? "Da monitorare" : player.available === false ? "Da monitorare" : "Regolare",
       reason: player.available === false ? player.unavailabilityReason ?? "non_disponibile" : null,
+      training: conductCounts,
       notes: stripMetaFromNotes(player.notes),
     },
     trainingAttendance: {
@@ -554,9 +601,9 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
       notes: entry.notes ?? null,
     })),
     discipline: {
-      cards: [],
+      cards: disciplineCards,
       supportedReasons: ["proteste", "fallo_di_gioco", "altro"],
-      source: "Nessun registro cartellini strutturato presente",
+      source: "Scheda partita",
     },
   });
 });

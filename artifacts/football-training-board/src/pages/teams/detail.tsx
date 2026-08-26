@@ -96,7 +96,7 @@ type Player = {
 };
 
 type PlayerActivitySummary = {
-  conduct: { status: string; reason?: string | null; notes?: string | null };
+  conduct: { status: string; reason?: string | null; notes?: string | null; training?: Record<string, number> };
   trainingAttendance: {
     totalPastSessions: number;
     recorded: number;
@@ -120,7 +120,7 @@ type PlayerActivitySummary = {
     notes?: string | null;
   }>;
   discipline: {
-    cards: Array<{ id?: number; date?: string; type?: string; reason?: string; match?: string }>;
+    cards: Array<{ id?: number; matchId?: number; date?: string; type?: string; reason?: string; opponent?: string; notes?: string | null }>;
     supportedReasons: string[];
     source?: string;
   };
@@ -259,6 +259,11 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
             </div>
             <p className="mt-2 text-sm">{data.conduct.status}</p>
             {data.conduct.reason ? <p className="text-xs text-muted-foreground">Motivo: {data.conduct.reason}</p> : null}
+            <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+              <span className="rounded border bg-background px-2 py-0.5">Ottima: {data.conduct.training?.ottima ?? 0}</span>
+              <span className="rounded border bg-background px-2 py-0.5">Buona: {data.conduct.training?.buona ?? 0}</span>
+              <span className="rounded border bg-background px-2 py-0.5">Insufficiente: {data.conduct.training?.insufficiente ?? 0}</span>
+            </div>
           </div>
 
           {isYouthSection && (
@@ -273,7 +278,9 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
                 <div className="mt-2 space-y-1">
                   {data.discipline.cards.map((card, index) => (
                     <div key={`${card.id ?? index}`} className="rounded border bg-background px-2 py-1 text-xs">
-                      {card.date ?? "-"} · {card.type ?? "Cartellino"} · {card.reason ?? "altro"}
+                      {card.date ? new Date(card.date).toLocaleDateString("it-IT") : "-"} · {card.type ?? "Cartellino"} · {card.reason ?? "altro"}
+                      {card.opponent ? ` · vs ${card.opponent}` : ""}
+                      {card.notes ? ` · ${card.notes}` : ""}
                     </div>
                   ))}
                 </div>

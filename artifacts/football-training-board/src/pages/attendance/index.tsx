@@ -35,7 +35,8 @@ interface Player {
   availabilityOverrideFrom?: string | null;
   availabilityOverrideUntil?: string | null;
 }
-interface AttendanceRecord { id: number; playerId: number; playerName?: string; status: string; }
+interface AttendanceRecord { id: number; playerId: number; playerName?: string; status: string; notes?: string | null; }
+type TrainingConduct = "ottima" | "buona" | "insufficiente";
 type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 type Team = { id: number; name: string; clubSection?: string | null };
 
@@ -53,6 +54,35 @@ const statusColors = {
   requested: "text-sky-600",
   injured: "text-amber-500",
 };
+const conductLabels: Record<TrainingConduct, string> = {
+  ottima: "Ottima",
+  buona: "Buona",
+  insufficiente: "Insufficiente",
+};
+const ATTENDANCE_META_PREFIX = "[FTB_ATTENDANCE_META]";
+
+function parseAttendanceMeta(notes?: string | null): { conduct?: TrainingConduct } {
+  const raw = String(notes ?? "").trim();
+  const line = raw.split(/\r?\n/).find((item) => item.startsWith(ATTENDANCE_META_PREFIX));
+  if (!line) return {};
+  try {
+    const parsed = JSON.parse(line.slice(ATTENDANCE_META_PREFIX.length).trim());
+    const conduct = parsed?.conduct;
+    return conduct === "ottima" || conduct === "buona" || conduct === "insufficiente" ? { conduct } : {};
+  } catch {
+    return {};
+  }
+}
+
+function composeAttendanceNotes(existingNotes: string | null | undefined, meta: { conduct?: TrainingConduct }) {
+  const plain = String(existingNotes ?? "")
+    .split(/\r?\n/)
+    .filter((line) => !line.startsWith(ATTENDANCE_META_PREFIX))
+    .join("\n")
+    .trim();
+  const encoded = `${ATTENDANCE_META_PREFIX}${JSON.stringify(meta)}`;
+  return plain ? `${plain}\n${encoded}` : encoded;
+}
 
 function reasonLabel(reason?: string | null) {
   if (reason === "payment") return "pagamenti non in regola";
@@ -158,7 +188,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   }, [directSessionMode, sessionId, sessions]);
 
   const markAttendance = useMutation({
-    mutationFn: (data: { trainingSessionId: number; playerId: number; status: string }) =>
+    mutationFn: (data: { trainingSessionId: number; playerId: number; status: string; notes?: string | null }) =>
       apiFetch("/api/attendance", { method: "POST", body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/attendance", sessionId] }),
     onError: () => toast({ title: "Error", variant: "destructive" }),
@@ -168,9 +198,25 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
     return attendance.find(a => a.playerId === playerId)?.status ?? null;
   }
 
+  function getPlayerAttendance(playerId: number) {
+    return attendance.find(a => a.playerId === playerId) ?? null;
+  }
+
   function handleStatusChange(playerId: number, status: string) {
     if (!sessionId || isTechnicalDirector) return;
-    markAttendance.mutate({ trainingSessionId: sessionId, playerId, status });
+    const existing = getPlayerAttendance(playerId);
+    markAttendance.mutate({ trainingSessionId: sessionId, playerId, status, notes: existing?.notes ?? null });
+  }
+
+  function handleConductChange(playerId: number, conduct: TrainingConduct) {
+    if (!sessionId || isTechnicalDirector) return;
+    const existing = getPlayerAttendance(playerId);
+    markAttendance.mutate({
+      trainingSessionId: sessionId,
+      playerId,
+      status: existing?.status ?? "present",
+      notes: composeAttendanceNotes(existing?.notes, { conduct }),
+    });
   }
 
   const teamOptions = useMemo<TeamOption[]>(() => {
@@ -443,6 +489,8 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
             <div className="grid gap-2">
               {sortedFilteredPlayers.map((player) => {
                 const status = getPlayerStatus(player.id);
+                const existingAttendance = getPlayerAttendance(player.id);
+                const conduct = parseAttendanceMeta(existingAttendance?.notes).conduct;
                 const Icon = status ? statusIcons[status as keyof typeof statusIcons] : Users;
                 const blocked = player.available === false && !hasActiveAvailabilityOverride(player);
                 return (
@@ -464,6 +512,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                           {status === "requested" ? "Richiesto" : status ? (t[status as keyof typeof t] as string) : "Non segnato"}
                         </Badge>
                       ) : (
+                        <div className="flex flex-col gap-2 sm:items-end">
                         <div className="flex gap-2">
                           {(["present", "absent", "requested", "injured"] as const).map(s => (
                             <Button key={s} size="sm" variant={status === s ? "default" : "outline"}
@@ -481,6 +530,17 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                               {s === "requested" ? "Richiesto" : (t[s as keyof typeof t] as string)}
                             </Button>
                           ))}
+                        </div>
+                        <Select value={conduct ?? ""} onValueChange={(value) => handleConductChange(player.id, value as TrainingConduct)}>
+                          <SelectTrigger className="h-8 w-full sm:w-[170px] text-xs">
+                            <SelectValue placeholder="Condotta" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(["ottima", "buona", "insufficiente"] as TrainingConduct[]).map((value) => (
+                              <SelectItem key={value} value={value}>{conductLabels[value]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         </div>
                       )}
                     </CardContent>

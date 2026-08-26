@@ -223,11 +223,19 @@ type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   boardSnapshotAt?: string | null;
   boardConfirmed?: boolean | null;
 };
+type MatchDisciplineCard = {
+  id: string;
+  playerId: number;
+  cardType: "giallo" | "rosso";
+  reason: "proteste" | "fallo_di_gioco" | "altro";
+  notes?: string;
+};
 type MatchPlanData = {
   boardLink?: string;
   fourthTime?: boolean;
   convocationAt?: string;
   convocationPlace?: string;
+  disciplineCards?: MatchDisciplineCard[];
   periods: MatchPlanPeriodRuntime[];
 };
 
@@ -1125,6 +1133,7 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
     fourthTime: !!base?.fourthTime,
     convocationAt: base?.convocationAt ?? "",
     convocationPlace: base?.convocationPlace ?? "",
+    disciplineCards: Array.isArray(base?.disciplineCards) ? base.disciplineCards : [],
     periods: defaults.map((d) => ({
       ...d,
       formation: map.get(d.key)?.formation ?? "",
@@ -1389,6 +1398,12 @@ function MatchCard({
   const [rescheduleDateTime, setRescheduleDateTime] = useState(() => toTimeInputValue(match.rescheduleDate));
   const [convocationDateInput, setConvocationDateInput] = useState(() => toDateInputValue(match.matchPlan?.convocationAt ?? ""));
   const [convocationTimeInput, setConvocationTimeInput] = useState(() => toTimeInputValue(match.matchPlan?.convocationAt ?? ""));
+  const [disciplineDraft, setDisciplineDraft] = useState<Omit<MatchDisciplineCard, "id">>({
+    playerId: 0,
+    cardType: "giallo",
+    reason: "fallo_di_gioco",
+    notes: "",
+  });
 
   const preTextareaRef = useRef<HTMLTextAreaElement>(null);
   const postFileInputRef = useRef<HTMLInputElement>(null);
@@ -1733,6 +1748,7 @@ function MatchCard({
     setPlanDraft(next);
     setConvocationDateInput(toDateInputValue(next.convocationAt));
     setConvocationTimeInput(toTimeInputValue(next.convocationAt));
+    setDisciplineDraft({ playerId: 0, cardType: "giallo", reason: "fallo_di_gioco", notes: "" });
   }, [match.matchPlan, matchSection, teamName, teamCategory]);
 
   useEffect(() => {
@@ -1826,6 +1842,29 @@ function MatchCard({
       }
       toast({ title: err?.message ?? "Errore salvataggio piano partita", variant: "destructive" });
     }
+  }
+
+  function addDisciplineCard() {
+    if (!disciplineDraft.playerId) return;
+    setPlanDraft((prev) => ({
+      ...prev,
+      disciplineCards: [
+        ...(prev.disciplineCards ?? []),
+        {
+          ...disciplineDraft,
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          notes: disciplineDraft.notes?.trim() || undefined,
+        },
+      ],
+    }));
+    setDisciplineDraft({ playerId: 0, cardType: "giallo", reason: "fallo_di_gioco", notes: "" });
+  }
+
+  function removeDisciplineCard(id: string) {
+    setPlanDraft((prev) => ({
+      ...prev,
+      disciplineCards: (prev.disciplineCards ?? []).filter((card) => card.id !== id),
+    }));
   }
 
   async function publishCallupsToParents() {
@@ -2248,6 +2287,85 @@ function MatchCard({
                   >
                     Apri su Google Maps
                   </a>
+                )}
+                {matchSection === "settore_giovanile" && (
+                  <div className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs font-semibold text-muted-foreground">Cartellini partita</Label>
+                      <Badge variant="outline" className="text-[10px]">{planDraft.disciplineCards?.length ?? 0}</Badge>
+                    </div>
+                    {(planDraft.disciplineCards ?? []).length > 0 && (
+                      <div className="space-y-1">
+                        {(planDraft.disciplineCards ?? []).map((card) => {
+                          const player = sortedTeamPlayers.find((p) => p.id === card.playerId);
+                          return (
+                            <div key={card.id} className="flex items-center justify-between gap-2 rounded border bg-muted/20 px-2 py-1 text-xs">
+                              <span className="min-w-0 truncate">
+                                {player ? `${player.lastName} ${player.firstName}` : "Giocatore"} · {card.cardType} · {card.reason.replace(/_/g, " ")}
+                                {card.notes ? ` · ${card.notes}` : ""}
+                              </span>
+                              <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => removeDisciplineCard(card.id)}>
+                                Rimuovi
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_150px]">
+                      <Select
+                        value={disciplineDraft.playerId ? String(disciplineDraft.playerId) : ""}
+                        onValueChange={(value) => setDisciplineDraft((prev) => ({ ...prev, playerId: Number(value) }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Giocatore" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sortedTeamPlayers.map((player) => (
+                            <SelectItem key={player.id} value={String(player.id)}>
+                              {player.lastName} {player.firstName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={disciplineDraft.cardType}
+                        onValueChange={(value) => setDisciplineDraft((prev) => ({ ...prev, cardType: value as MatchDisciplineCard["cardType"] }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="giallo">Giallo</SelectItem>
+                          <SelectItem value="rosso">Rosso</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={disciplineDraft.reason}
+                        onValueChange={(value) => setDisciplineDraft((prev) => ({ ...prev, reason: value as MatchDisciplineCard["reason"] }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="proteste">Proteste</SelectItem>
+                          <SelectItem value="fallo_di_gioco">Fallo di gioco</SelectItem>
+                          <SelectItem value="altro">Altro</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                      <Input
+                        className="h-8 text-xs"
+                        value={disciplineDraft.notes ?? ""}
+                        onChange={(e) => setDisciplineDraft((prev) => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Nota opzionale"
+                      />
+                      <Button type="button" size="sm" className="h-8 text-xs" disabled={!disciplineDraft.playerId} onClick={addDisciplineCard}>
+                        Aggiungi cartellino
+                      </Button>
+                    </div>
+                  </div>
                 )}
                 <div className="flex items-center gap-2">
                   <Checkbox
