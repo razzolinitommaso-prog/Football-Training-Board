@@ -36,6 +36,8 @@ interface Player {
   availabilityOverrideUntil?: string | null;
 }
 interface AttendanceRecord { id: number; playerId: number; playerName?: string; status: string; }
+type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
+type Team = { id: number; name: string; clubSection?: string | null };
 
 async function apiFetch(url: string, options?: RequestInit) {
   const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
@@ -88,7 +90,7 @@ function sessionDateKey(value: string): string {
 
 type TeamOption = { id: string; label: string; teamId: number | null };
 
-export default function AttendancePage() {
+export default function AttendancePage({ section }: { section?: ClubSection } = {}) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { role } = useAuth();
@@ -106,8 +108,20 @@ export default function AttendancePage() {
   const [sessionKindFilter, setSessionKindFilter] = useState<"all" | string>("all");
   const [sessionObjectiveFilter, setSessionObjectiveFilter] = useState<"all" | string>("all");
 
-  const { data: sessions = [] } = useQuery<TrainingSession[]>({ queryKey: ["/api/training-sessions"], queryFn: () => apiFetch("/api/training-sessions") });
-  const { data: players = [] } = useQuery<Player[]>({ queryKey: ["/api/players"], queryFn: () => apiFetch("/api/players") });
+  const { data: rawSessions = [] } = useQuery<TrainingSession[]>({ queryKey: ["/api/training-sessions"], queryFn: () => apiFetch("/api/training-sessions") });
+  const { data: sectionTeams = [] } = useQuery<Team[]>({
+    queryKey: ["/api/teams", section || "all", "attendance"],
+    queryFn: () => apiFetch(section ? `/api/teams?section=${encodeURIComponent(section)}` : "/api/teams"),
+  });
+  const sectionTeamIds = useMemo(() => new Set(sectionTeams.map((team) => Number(team.id))), [sectionTeams]);
+  const sessions = useMemo(() => {
+    if (!section) return rawSessions;
+    return rawSessions.filter((session) => session.teamId != null && sectionTeamIds.has(Number(session.teamId)));
+  }, [rawSessions, section, sectionTeamIds]);
+  const { data: players = [] } = useQuery<Player[]>({
+    queryKey: ["/api/players", section || "all", "attendance"],
+    queryFn: () => apiFetch(section ? `/api/players?section=${encodeURIComponent(section)}` : "/api/players"),
+  });
   const { data: attendance = [], isLoading: attLoading } = useQuery<AttendanceRecord[]>({
     queryKey: ["/api/attendance", sessionId],
     queryFn: () => apiFetch(`/api/attendance?sessionId=${sessionId}`),

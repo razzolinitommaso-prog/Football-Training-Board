@@ -60,6 +60,7 @@ const coachingRoles = ["admin", "coach", "technical_director", "director"];
 const secretaryRoles = ["admin", "secretary", "sporting_director"];
 const fitnessRoles = ["admin", "director", "technical_director", "fitness_coach", "athletic_director"];
 const playerPerformanceRoles = ["admin", "presidente", "director", "technical_director", "fitness_coach", "athletic_director"];
+const sectionAttendanceRoles = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 const trainingEditRoles = ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 const trainingCalendarRoles = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 
@@ -234,7 +235,7 @@ function ProtectedAppRoutes() {
           </ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/attendance">
-          <ProtectedRoute allowedRoles={coachingRoles}><AttendancePage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={sectionAttendanceRoles}><AttendancePage section="scuola_calcio" /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/calendar">
           <ProtectedRoute allowedRoles={["admin", "secretary", "sporting_director", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>
@@ -268,7 +269,7 @@ function ProtectedAppRoutes() {
           </ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/attendance">
-          <ProtectedRoute allowedRoles={coachingRoles}><AttendancePage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={sectionAttendanceRoles}><AttendancePage section="settore_giovanile" /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile">
           <ProtectedRoute allowedRoles={["admin"]}><SettoreGiovanilePage /></ProtectedRoute>
@@ -305,7 +306,7 @@ function ProtectedAppRoutes() {
           </ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/attendance">
-          <ProtectedRoute allowedRoles={coachingRoles}><AttendancePage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={sectionAttendanceRoles}><AttendancePage section="prima_squadra" /></ProtectedRoute>
         </Route>
         <Route path="/prima-squadra">
           <ProtectedRoute allowedRoles={["admin"]}><PrimaSquadraPage /></ProtectedRoute>

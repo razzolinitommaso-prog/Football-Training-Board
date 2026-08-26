@@ -68,7 +68,7 @@ const SEZIONE_SUB_ITEMS: SubItem[] = [
   { label: "Calendario operativo",  url: "training/calendario-operativo", icon: CalendarRange, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Partite",              url: "matches",    icon: Trophy,        roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Stagioni",             url: "seasons",    icon: Layers,        roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"] },
-  { label: "Presenze",             url: "attendance", icon: CalendarCheck, roles: ["admin", "presidente", "technical_director", "coach"] },
+  { label: "Presenze",             url: "attendance", icon: CalendarCheck, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Calendario",           url: "calendar",   icon: CalendarRange, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
 ];
 
