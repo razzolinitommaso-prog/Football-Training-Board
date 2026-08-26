@@ -259,6 +259,8 @@ type ExtraTimeRow = {
   group: "individual" | "group";
   label: string;
   activity: string;
+  packageType: string;
+  packagePrice: string;
   playersCount: string;
   lessonsCount: string;
   durationMinutes: string;
@@ -266,6 +268,7 @@ type ExtraTimeRow = {
   packageDates: string;
   lessonTime: string;
   coachName: string;
+  notes: string;
   parentVisible: boolean;
 };
 
@@ -394,15 +397,64 @@ function serializeKitRows(rows: KitRow[]): string {
 }
 
 const EXTRA_TIME_ITEMS: Array<Pick<ExtraTimeRow, "key" | "group" | "label" | "activity">> = [
-  { key: "individual_technical", group: "individual", label: "Allenamento individuale", activity: "Tecnica" },
-  { key: "individual_motor", group: "individual", label: "Allenamento individuale", activity: "Motoria" },
-  { key: "group_technical", group: "group", label: "Lezione di gruppo", activity: "Tecnica di gruppo" },
-  { key: "group_motor", group: "group", label: "Lezione di gruppo", activity: "Motoria di gruppo" },
+  { key: "individual_package", group: "individual", label: "Allenamento individuale", activity: "Tecnica" },
+  { key: "group_package", group: "group", label: "Lezione di gruppo", activity: "Tecnica di gruppo" },
 ];
+
+const EXTRA_TIME_PACKAGE_PRICES: Record<ExtraTimeRow["group"], Array<{ value: string; label: string; price: string }>> = {
+  individual: [
+    { value: "package_1", label: "Pacchetto 1", price: "35" },
+    { value: "package_2", label: "Pacchetto 2", price: "45" },
+    { value: "package_3", label: "Pacchetto 3", price: "50" },
+  ],
+  group: [
+    { value: "package_1", label: "Pacchetto 1", price: "10" },
+    { value: "package_2", label: "Pacchetto 2", price: "25" },
+    { value: "package_3", label: "Pacchetto 3", price: "30" },
+  ],
+};
+
+function extraTimePackageLabel(row: ExtraTimeRow): string {
+  const item = EXTRA_TIME_PACKAGE_PRICES[row.group].find((entry) => entry.value === row.packageType);
+  return item ? `${item.label} - Euro ${formatEuro(item.price)}` : "Seleziona pacchetto";
+}
+
+function extraTimePackagePrice(group: ExtraTimeRow["group"], value: string): string {
+  return EXTRA_TIME_PACKAGE_PRICES[group].find((entry) => entry.value === value)?.price ?? "";
+}
+
+function extraTimePackageOptions(group: ExtraTimeRow["group"]) {
+  return EXTRA_TIME_PACKAGE_PRICES[group];
+}
+
+function normalizeExtraTimeRows(rows: ExtraTimeRow[]): ExtraTimeRow[] {
+  return defaultExtraTimeRows().map((base) => {
+    const saved = rows.find((row) => row.key === base.key || row.group === base.group);
+    return saved
+      ? {
+          ...base,
+          activity: saved.activity || base.activity,
+          packageType: saved.packageType || "",
+          packagePrice: saved.packagePrice || extraTimePackagePrice(base.group, saved.packageType || ""),
+          playersCount: saved.playersCount || base.playersCount,
+          lessonsCount: saved.lessonsCount || "",
+          durationMinutes: saved.durationMinutes || base.durationMinutes,
+          hourlyCost: saved.hourlyCost || "",
+          packageDates: saved.packageDates || "",
+          lessonTime: saved.lessonTime || "",
+          coachName: saved.coachName || "",
+          notes: saved.notes || "",
+          parentVisible: saved.parentVisible !== false,
+        }
+      : base;
+  });
+}
 
 function defaultExtraTimeRows(): ExtraTimeRow[] {
   return EXTRA_TIME_ITEMS.map((item) => ({
     ...item,
+    packageType: "",
+    packagePrice: "",
     playersCount: item.group === "group" ? "2" : "1",
     lessonsCount: "",
     durationMinutes: "60",
@@ -410,12 +462,15 @@ function defaultExtraTimeRows(): ExtraTimeRow[] {
     packageDates: "",
     lessonTime: "",
     coachName: "",
+    notes: "",
     parentVisible: true,
   }));
 }
 
 function extraTimeRowTotal(row: ExtraTimeRow): number {
   const lessons = Math.max(0, Number(row.lessonsCount) || 0);
+  const packagePrice = parseEuroInput(row.packagePrice) || 0;
+  if (packagePrice > 0) return lessons * packagePrice;
   const durationHours = Math.max(0, Number(row.durationMinutes) || 0) / 60;
   const hourlyCost = parseEuroInput(row.hourlyCost) || 0;
   return lessons * durationHours * hourlyCost;
@@ -1062,7 +1117,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const plannedShuttleFee = parseEuroInput(shuttleMonthlyCost);
   const plannedShuttleMonths = Math.max(0, Math.floor(Number(shuttleMonthsCount) || 0));
   const plannedKitTotal = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
-  const plannedExtraTimeTotal = extraTimeRows.reduce((sum, row) => sum + extraTimeRowTotal(row), 0);
+  const normalizedExtraTimeRows = normalizeExtraTimeRows(extraTimeRows);
+  const plannedExtraTimeTotal = normalizedExtraTimeRows.reduce((sum, row) => sum + extraTimeRowTotal(row), 0);
   const editingPlayerTeam = editingPlayer?.teamId ? teams?.find((team) => team.id === editingPlayer.teamId) : undefined;
   const editingPlayerIsYouthSection = (editingPlayerTeam as any)?.clubSection === "settore_giovanile" || section === "settore_giovanile";
   const extraTimeAssignableStaff = (clubMembers as ClubMember[])
@@ -1676,7 +1732,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   };
 
   const updateExtraTimeRow = (key: string, patch: Partial<ExtraTimeRow>) => {
-    setExtraTimeRows((rows) => rows.map((row) => row.key === key ? { ...row, ...patch } : row));
+    setExtraTimeRows((rows) => normalizeExtraTimeRows(rows).map((row) => row.key === key ? { ...row, ...patch } : row));
   };
 
   const applyListItemPrice = (itemId: string, setter: (value: string) => void) => {
@@ -3762,7 +3818,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     {(["individual", "group"] as const).map((group) => (
                       <div key={group} className="space-y-2 rounded-md border bg-muted/10 p-3">
                         <p className="text-sm font-semibold">{group === "individual" ? "Allenamenti individuali" : "Lezioni di gruppo"}</p>
-                        {extraTimeRows.filter((row) => row.group === group).map((row) => (
+                        {normalizedExtraTimeRows.filter((row) => row.group === group).map((row) => (
                           <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 md:grid-cols-2 xl:grid-cols-4">
                             <div className="space-y-2">
                               <Label>Voce</Label>
@@ -3783,6 +3839,29 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                                 </SelectContent>
                               </Select>
                             </div>
+                            <div className="space-y-2">
+                              <Label>Tipologia pacchetto</Label>
+                              <Select
+                                value={row.packageType || "_none"}
+                                onValueChange={(value) => {
+                                  const packageType = value === "_none" ? "" : value;
+                                  updateExtraTimeRow(row.key, {
+                                    packageType,
+                                    packagePrice: extraTimePackagePrice(row.group, packageType),
+                                  });
+                                }}
+                              >
+                                <SelectTrigger><SelectValue placeholder={extraTimePackageLabel(row)} /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="_none">Da definire</SelectItem>
+                                  {extraTimePackageOptions(row.group).map((item) => (
+                                    <SelectItem key={item.value} value={item.value}>
+                                      {item.label} - Euro {formatEuro(item.price)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
                             {group === "group" && (
                               <div className="space-y-2">
                                 <Label>N. giocatori</Label>
@@ -3794,12 +3873,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                               <Input type="number" min={0} value={row.lessonsCount} onChange={(e) => updateExtraTimeRow(row.key, { lessonsCount: e.target.value })} />
                             </div>
                             <div className="space-y-2">
-                              <Label>Durata minuti</Label>
+                              <Label>Minuti per lezione</Label>
                               <Input type="number" min={0} step={15} value={row.durationMinutes} onChange={(e) => updateExtraTimeRow(row.key, { durationMinutes: e.target.value })} />
                             </div>
                             <div className="space-y-2">
-                              <Label>Costo orario</Label>
-                              <Input type="number" step="0.01" value={row.hourlyCost} onChange={(e) => updateExtraTimeRow(row.key, { hourlyCost: e.target.value })} />
+                              <Label>Prezzo pacchetto</Label>
+                              <Input type="number" step="0.01" value={row.packagePrice || row.hourlyCost} onChange={(e) => updateExtraTimeRow(row.key, { packagePrice: e.target.value, packageType: "" })} />
                             </div>
                             <div className="space-y-2 md:col-span-2">
                               <Label>Date pacchetto calendario</Label>
@@ -3838,6 +3917,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                               <Checkbox checked={row.parentVisible} onCheckedChange={(value) => updateExtraTimeRow(row.key, { parentVisible: value === true })} />
                               Area genitori
                             </label>
+                            <div className="space-y-2 md:col-span-2">
+                              <Label>Note</Label>
+                              <Textarea
+                                placeholder="Note interne sul pacchetto, obiettivi o accordi specifici"
+                                value={row.notes}
+                                onChange={(e) => updateExtraTimeRow(row.key, { notes: e.target.value })}
+                              />
+                            </div>
                             <div className="rounded-md border bg-muted/30 px-3 py-2">
                               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Totale voce</p>
                               <p className="text-base font-bold">Euro {formatEuro(extraTimeRowTotal(row))}</p>
