@@ -115,6 +115,21 @@ type TrainingCalendarOverridePayload = {
   notes: string | null;
 };
 
+type DashboardTrainingBand = "first" | "second";
+type DashboardTrainingBandTone = "orange" | "green" | "blue" | "violet";
+
+const DASHBOARD_TRAINING_BAND_TONES: Record<DashboardTrainingBandTone, { label: string; className: string; dotClassName: string }> = {
+  orange: { label: "Arancione", className: "bg-orange-50 text-orange-900 border-orange-300", dotClassName: "bg-orange-500" },
+  green: { label: "Verde", className: "bg-emerald-50 text-emerald-800 border-emerald-200", dotClassName: "bg-emerald-500" },
+  blue: { label: "Blu", className: "bg-blue-50 text-blue-800 border-blue-200", dotClassName: "bg-blue-500" },
+  violet: { label: "Viola", className: "bg-violet-50 text-violet-800 border-violet-200", dotClassName: "bg-violet-500" },
+};
+
+function dashboardTrainingBandFromTime(time?: string | null): DashboardTrainingBand {
+  const hour = Number(String(time ?? "").split(":")[0]);
+  return Number.isFinite(hour) && hour < 17 ? "first" : "second";
+}
+
 type DashboardCalendarItem =
   | {
       kind: "training" | "extra";
@@ -718,6 +733,16 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   const [trainingJoinTargetKey, setTrainingJoinTargetKey] = useState("");
   const [trainingEditScope, setTrainingEditScope] = useState<"single" | "future" | "count">("single");
   const [trainingEditCount, setTrainingEditCount] = useState("4");
+  const [trainingFirstBandTone, setTrainingFirstBandTone] = useState<DashboardTrainingBandTone>(() => {
+    if (typeof window === "undefined") return "orange";
+    const stored = window.localStorage.getItem("ftb-dashboard-training-first-band-tone");
+    return stored && stored in DASHBOARD_TRAINING_BAND_TONES ? stored as DashboardTrainingBandTone : "orange";
+  });
+  const [trainingSecondBandTone, setTrainingSecondBandTone] = useState<DashboardTrainingBandTone>(() => {
+    if (typeof window === "undefined") return "green";
+    const stored = window.localStorage.getItem("ftb-dashboard-training-second-band-tone");
+    return stored && stored in DASHBOARD_TRAINING_BAND_TONES ? stored as DashboardTrainingBandTone : "green";
+  });
 
   const dashboardOverrideFrom = useMemo(
     () => format(startOfWeek(startOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd"),
@@ -727,6 +752,16 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
     () => format(endOfWeek(endOfMonth(dashboardCalendarMonth), { weekStartsOn: 1 }), "yyyy-MM-dd"),
     [dashboardCalendarMonth],
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("ftb-dashboard-training-first-band-tone", trainingFirstBandTone);
+  }, [trainingFirstBandTone]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("ftb-dashboard-training-second-band-tone", trainingSecondBandTone);
+  }, [trainingSecondBandTone]);
 
   const { data: dashboardTrainingOverrides = [] } = useQuery<DashboardTrainingOverride[]>({
     queryKey: ["/api/training-calendar-overrides", clubIdNum, nr, dashboardSections.join("|") || dashboardSection, dashboardOverrideFrom, dashboardOverrideTo],
@@ -1351,6 +1386,20 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
     }
     return trainingEditOccurrences;
   }, [trainingEditCount, trainingEditOccurrences, trainingEditScope]);
+
+  function dashboardCalendarItemClassName(item: DashboardCalendarItem, postponed = false): string {
+    if (postponed) return "bg-amber-50 text-amber-900 border-amber-300";
+    if (item.kind === "tournament") return "bg-violet-50 text-violet-800 border-violet-200";
+    if (item.kind === "match") return "bg-blue-50 text-blue-800 border-blue-200";
+    if (item.kind === "extra") return "bg-sky-50 text-sky-800 border-sky-200";
+    if (item.trainingStatus === "cancelled") return "bg-red-50 text-red-800 border-red-200";
+    if (item.trainingStatus === "moved-original" || item.trainingStatus === "joined-original") return "bg-slate-100 text-slate-700 border-slate-300";
+    if (item.trainingStatus === "moved") return "bg-emerald-100 text-emerald-900 border-emerald-300";
+    if (item.trainingStatus === "joined") return "bg-cyan-50 text-cyan-900 border-cyan-300";
+    const band = dashboardTrainingBandFromTime(item.originalStartTime ?? item.time);
+    const tone = band === "first" ? trainingFirstBandTone : trainingSecondBandTone;
+    return DASHBOARD_TRAINING_BAND_TONES[tone].className;
+  }
 
   const dashboardEventsByDay = useMemo(() => {
     const map = new Map<string, DashboardCalendarItem[]>();
@@ -2572,6 +2621,42 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
               <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => addMonths(m, 1))}>
                 <ChevronRight className="w-4 h-4" />
               </Button>
+              <div className="flex items-center gap-1 rounded-md border bg-background px-2 py-1">
+                <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Prima fascia</span>
+                <Select value={trainingFirstBandTone} onValueChange={(value) => setTrainingFirstBandTone(value as DashboardTrainingBandTone)}>
+                  <SelectTrigger className="h-7 w-[92px] border-0 px-1 text-xs shadow-none focus:ring-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(DASHBOARD_TRAINING_BAND_TONES).map(([value, tone]) => (
+                      <SelectItem key={value} value={value}>
+                        <span className="inline-flex items-center gap-2">
+                          <span className={cn("h-2 w-2 rounded-full", tone.dotClassName)} />
+                          {tone.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-1 rounded-md border bg-background px-2 py-1">
+                <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Seconda fascia</span>
+                <Select value={trainingSecondBandTone} onValueChange={(value) => setTrainingSecondBandTone(value as DashboardTrainingBandTone)}>
+                  <SelectTrigger className="h-7 w-[92px] border-0 px-1 text-xs shadow-none focus:ring-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(DASHBOARD_TRAINING_BAND_TONES).map(([value, tone]) => (
+                      <SelectItem key={value} value={value}>
+                        <span className="inline-flex items-center gap-2">
+                          <span className={cn("h-2 w-2 rounded-full", tone.dotClassName)} />
+                          {tone.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Link href="/scuola-calcio/calendar">
                 <Button type="button" variant="outline" size="sm" className="gap-2">
                   Apri completo
@@ -2667,19 +2752,12 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                     item.kind === "training" && item.trainingNotes
                       ? item.trainingNotes.replace(/\s+/g, " ").trim()
                       : "";
+                  const className = dashboardCalendarItemClassName(item, postponed);
                   return (
                   <button
                     key={`preview-${item.key}`}
                     type="button"
-                    className={cn(
-                      "rounded-lg border bg-card px-3 py-2 text-left text-xs hover:border-primary/50",
-                      postponed && "border-amber-300 bg-amber-50 text-amber-900",
-                      item.kind === "training" && item.trainingStatus === "moved-original" && "border-slate-300 bg-slate-50 text-slate-700",
-                      item.kind === "training" && item.trainingStatus === "joined-original" && "border-slate-300 bg-slate-50 text-slate-700",
-                      item.kind === "training" && item.trainingStatus === "cancelled" && "border-red-200 bg-red-50 text-red-800",
-                      item.kind === "training" && item.trainingStatus === "moved" && "border-emerald-300 bg-emerald-50 text-emerald-900",
-                      item.kind === "training" && item.trainingStatus === "joined" && "border-cyan-300 bg-cyan-50 text-cyan-900",
-                    )}
+                    className={cn("rounded-lg border px-3 py-2 text-left text-xs hover:border-primary/50", className)}
                     onClick={() => setSelectedCalendarItem(item)}
                   >
                     <span className={cn("font-semibold text-primary", postponed && "text-amber-700")}>
@@ -2759,21 +2837,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                                   : item.kind === "tournament"
                                     ? "Torneo"
                                     : "Partita";
-                              const className = postponed
-                                ? "bg-amber-50 text-amber-900 border-amber-300"
-                                : item.kind === "training"
-                                  ? item.trainingStatus === "cancelled"
-                                    ? "bg-red-50 text-red-800 border-red-200"
-                                    : item.trainingStatus === "moved-original" || item.trainingStatus === "joined-original"
-                                      ? "bg-slate-100 text-slate-700 border-slate-300"
-                                      : item.trainingStatus === "moved"
-                                        ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-                                        : item.trainingStatus === "joined"
-                                          ? "bg-cyan-50 text-cyan-900 border-cyan-300"
-                                          : "bg-emerald-50 text-emerald-800 border-emerald-200"
-                                  : item.kind === "tournament"
-                                    ? "bg-violet-50 text-violet-800 border-violet-200"
-                                    : "bg-blue-50 text-blue-800 border-blue-200";
+                              const className = dashboardCalendarItemClassName(item, postponed);
                         return (
                           <button
                             key={item.key}
@@ -2847,23 +2911,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                               : item.kind === "tournament"
                                 ? "Torneo"
                                 : "Partita";
-                          const className = postponed
-                            ? "bg-amber-50 text-amber-900 border-amber-300"
-                            : item.kind === "training"
-                              ? item.trainingStatus === "cancelled"
-                                ? "bg-red-50 text-red-800 border-red-200"
-                                : item.trainingStatus === "moved-original"
-                                  ? "bg-slate-100 text-slate-700 border-slate-300"
-                                  : item.trainingStatus === "joined-original"
-                                    ? "bg-slate-100 text-slate-700 border-slate-300"
-                                    : item.trainingStatus === "moved"
-                                      ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-                                      : item.trainingStatus === "joined"
-                                        ? "bg-cyan-50 text-cyan-900 border-cyan-300"
-                                        : "bg-emerald-50 text-emerald-800 border-emerald-200"
-                              : item.kind === "tournament"
-                                ? "bg-violet-50 text-violet-800 border-violet-200"
-                                : "bg-blue-50 text-blue-800 border-blue-200";
+                          const className = dashboardCalendarItemClassName(item, postponed);
                           return (
                             <button
                               key={item.key}
@@ -2916,21 +2964,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                           : item.kind === "tournament"
                             ? "Torneo"
                             : "Partita";
-                      const className = postponed
-                        ? "bg-amber-50 text-amber-900 border-amber-300"
-                        : item.kind === "training"
-                          ? item.trainingStatus === "cancelled"
-                            ? "bg-red-50 text-red-800 border-red-200"
-                            : item.trainingStatus === "moved-original" || item.trainingStatus === "joined-original"
-                              ? "bg-slate-100 text-slate-700 border-slate-300"
-                              : item.trainingStatus === "moved"
-                                ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-                                : item.trainingStatus === "joined"
-                                  ? "bg-cyan-50 text-cyan-900 border-cyan-300"
-                                  : "bg-emerald-50 text-emerald-800 border-emerald-200"
-                          : item.kind === "tournament"
-                            ? "bg-violet-50 text-violet-800 border-violet-200"
-                            : "bg-blue-50 text-blue-800 border-blue-200";
+                      const className = dashboardCalendarItemClassName(item, postponed);
                       return (
                         <button
                           key={`desktop-selected-${item.key}`}
