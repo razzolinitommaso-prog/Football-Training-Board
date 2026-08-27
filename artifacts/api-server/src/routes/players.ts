@@ -722,15 +722,19 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     (existingPlayer as PlayerWithAvailabilityOverride).availabilityOverrideActive !== true &&
     isAvailabilityOverrideActive(player);
   if (overrideActivated && req.session.clubId) {
-    const fullName = `${player.firstName} ${player.lastName}`.trim();
-    await db.insert(clubNotificationsTable).values({
-      clubId: req.session.clubId,
-      title: `Forza disponibilita: ${fullName}`,
-      message: `Disponibilita forzata fino al ${(player as PlayerWithAvailabilityOverride).availabilityOverrideUntil ?? "periodo indicato"}. Motivo: ${(player as PlayerWithAvailabilityOverride).availabilityOverrideReason ?? "non indicato"}.`,
-      type: "warning",
-      createdByUserId: req.session.userId,
-    });
-    await notifyParentAvailabilityOverride(req.session.clubId, player, (player as PlayerWithAvailabilityOverride).availabilityOverrideUntil);
+    try {
+      const fullName = `${player.firstName} ${player.lastName}`.trim();
+      await db.insert(clubNotificationsTable).values({
+        clubId: req.session.clubId,
+        title: `Forza disponibilita: ${fullName}`,
+        message: `Disponibilita forzata fino al ${(player as PlayerWithAvailabilityOverride).availabilityOverrideUntil ?? "periodo indicato"}. Motivo: ${(player as PlayerWithAvailabilityOverride).availabilityOverrideReason ?? "non indicato"}.`,
+        type: "warning",
+        createdByUserId: req.session.userId,
+      });
+      await notifyParentAvailabilityOverride(req.session.clubId, player, (player as PlayerWithAvailabilityOverride).availabilityOverrideUntil);
+    } catch (error) {
+      console.error("[players] availability override notification failed", error);
+    }
   }
 
   if (newlyAddedThreadItems.length > 0 && req.session.clubId) {

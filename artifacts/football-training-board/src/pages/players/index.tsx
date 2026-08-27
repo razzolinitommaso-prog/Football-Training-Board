@@ -2261,7 +2261,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     };
     const canSubmitAvailabilityOverrideOnly =
       canForceAvailability &&
-      !canManagePlayers &&
+      availabilityOverrideEnabled &&
       playerDialogMode === "edit";
 
     if (canSubmitAvailabilityOverrideOnly) {
