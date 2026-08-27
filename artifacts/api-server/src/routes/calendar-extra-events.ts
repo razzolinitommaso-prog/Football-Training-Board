@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { and, eq, inArray } from "drizzle-orm";
-import { db, teamStaffAssignmentsTable, teamsTable } from "@workspace/db";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { db, parentNotificationsTable, parentPlayerRelationsTable, playersTable, teamStaffAssignmentsTable, teamsTable, clubNotificationsTable } from "@workspace/db";
 import { calendarExtraEventsTable } from "@workspace/db/schema";
 import { requireAuth } from "../lib/auth";
 import { normalizeSessionRole } from "../lib/club-scope";
@@ -9,6 +9,21 @@ const router: IRouter = Router();
 
 const CALENDAR_VIEW_ROLES = ["admin", "presidente", "director", "technical_director", "secretary", "coach", "fitness_coach", "athletic_director"];
 const CALENDAR_MANAGE_ROLES = ["admin", "presidente", "director", "technical_director", "secretary"];
+const VALID_AUDIENCES = ["all", "staff", "parents", "teams"] as const;
+
+let ensuredCalendarExtraEventColumns = false;
+
+async function ensureCalendarExtraEventColumns() {
+  if (ensuredCalendarExtraEventColumns) return;
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS target_audience TEXT NOT NULL DEFAULT 'all'`);
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS notify_staff INTEGER NOT NULL DEFAULT 1`);
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS notify_parents INTEGER NOT NULL DEFAULT 0`);
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS attachment_name TEXT`);
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS attachment_mime_type TEXT`);
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS attachment_data TEXT`);
+  ensuredCalendarExtraEventColumns = true;
+}
 
 function normalizeSection(value: unknown): "scuola_calcio" | "settore_giovanile" | "prima_squadra" | null {
   const v = String(value ?? "").trim().toLowerCase();
@@ -17,6 +32,7 @@ function normalizeSection(value: unknown): "scuola_calcio" | "settore_giovanile"
 }
 
 router.get("/calendar-extra-events", requireAuth, async (req, res): Promise<void> => {
+  await ensureCalendarExtraEventColumns();
   const role = normalizeSessionRole(req.session.role);
   if (!CALENDAR_VIEW_ROLES.includes(role)) {
     res.status(403).json({ error: "Non autorizzato" });
@@ -40,6 +56,7 @@ router.get("/calendar-extra-events", requireAuth, async (req, res): Promise<void
       .where(and(eq(teamStaffAssignmentsTable.clubId, req.session.clubId!), eq(teamStaffAssignmentsTable.userId, req.session.userId!)));
     const assignedTeamIds = new Set(assignments.map((a) => a.teamId));
     const filtered = rows.filter((evt) => {
+      if (evt.targetAudience === "parents") return false;
       if (evt.targetMode === "all") return true;
       const teamIds = Array.isArray(evt.teamIds) ? evt.teamIds : [];
       return teamIds.some((id: number) => assignedTeamIds.has(Number(id)));
@@ -52,6 +69,7 @@ router.get("/calendar-extra-events", requireAuth, async (req, res): Promise<void
 });
 
 router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<void> => {
+  await ensureCalendarExtraEventColumns();
   const role = normalizeSessionRole(req.session.role);
   if (!CALENDAR_MANAGE_ROLES.includes(role)) {
     res.status(403).json({ error: "Non autorizzato" });
@@ -67,6 +85,14 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
   const endTime = String(req.body?.endTime ?? "").trim();
   const frequency = String(req.body?.frequency ?? "everyday").trim();
   const targetMode = String(req.body?.targetMode ?? "all").trim();
+  const targetAudience = String(req.body?.targetAudience ?? "all").trim();
+  const notifyStaff = req.body?.notifyStaff !== false;
+  const notifyParents = req.body?.notifyParents === true || targetAudience === "all" || targetAudience === "parents";
+  const notes = String(req.body?.notes ?? "").trim();
+  const attachment = typeof req.body?.attachment === "object" && req.body.attachment !== null ? req.body.attachment : null;
+  const attachmentName = String(attachment?.name ?? "").trim();
+  const attachmentMimeType = String(attachment?.mimeType ?? "").trim();
+  const attachmentData = String(attachment?.data ?? "").trim();
   const weekdaysRaw = Array.isArray(req.body?.weekdays) ? req.body.weekdays : [];
   const teamIdsRaw = Array.isArray(req.body?.teamIds) ? req.body.teamIds : [];
   const playerIdsRaw = Array.isArray(req.body?.playerIds) ? req.body.playerIds : [];
@@ -83,6 +109,10 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
     res.status(400).json({ error: "targetMode non valido" });
     return;
   }
+  if (!VALID_AUDIENCES.includes(targetAudience as typeof VALID_AUDIENCES[number])) {
+    res.status(400).json({ error: "Destinatari non validi" });
+    return;
+  }
   const weekdays = weekdaysRaw.map((v: unknown) => Number(v)).filter((n: number) => Number.isInteger(n) && n >= 0 && n <= 6);
   const teamIds = teamIdsRaw.map((v: unknown) => Number(v)).filter((n: number) => Number.isInteger(n) && n > 0);
   const playerIds = playerIdsRaw.map((v: unknown) => Number(v)).filter((n: number) => Number.isInteger(n) && n > 0);
@@ -92,6 +122,14 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
   }
   if (targetMode === "selected" && teamIds.length === 0) {
     res.status(400).json({ error: "Seleziona almeno un'annata" });
+    return;
+  }
+  if (attachmentData && (!attachmentName || !attachmentMimeType)) {
+    res.status(400).json({ error: "Allegato non valido" });
+    return;
+  }
+  if (attachmentData && attachmentData.length > 7_000_000) {
+    res.status(400).json({ error: "Allegato troppo grande. Usa un file entro 5 MB." });
     return;
   }
 
@@ -121,13 +159,67 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
       frequency,
       weekdays,
       targetMode,
+      targetAudience,
+      notifyStaff: notifyStaff ? 1 : 0,
+      notifyParents: notifyParents ? 1 : 0,
+      notes: notes || null,
+      attachmentName: attachmentData ? attachmentName : null,
+      attachmentMimeType: attachmentData ? attachmentMimeType : null,
+      attachmentData: attachmentData || null,
       teamIds,
       playerIds,
-    })
+    } as any)
     .returning();
+
+  const when = dateFrom === dateTo ? `${dateFrom} ${startTime}-${endTime}` : `${dateFrom} - ${dateTo} ${startTime}-${endTime}`;
+  const message = [`${title}`, when, notes, attachmentData ? `Allegato: ${attachmentName}` : ""].filter(Boolean).join("\n");
+
+  if (notifyStaff && targetAudience !== "parents") {
+    await db.insert(clubNotificationsTable).values({
+      clubId: req.session.clubId!,
+      title: `Calendario: ${title}`,
+      message,
+      type: targetAudience === "staff" ? "staff_calendar" : "calendar",
+      createdByUserId: req.session.userId ?? null,
+    });
+  }
+
+  if (notifyParents) {
+    const playerConditions = [eq(playersTable.clubId, req.session.clubId!)];
+    if (playerIds.length > 0) {
+      playerConditions.push(inArray(playersTable.id, playerIds) as any);
+    } else if (teamIds.length > 0) {
+      playerConditions.push(inArray(playersTable.teamId, teamIds) as any);
+    } else {
+      const teams = await db
+        .select({ id: teamsTable.id })
+        .from(teamsTable)
+        .where(and(eq(teamsTable.clubId, req.session.clubId!), eq(teamsTable.clubSection, section)));
+      const sectionTeamIds = teams.map((team) => team.id);
+      if (sectionTeamIds.length > 0) playerConditions.push(inArray(playersTable.teamId, sectionTeamIds) as any);
+    }
+
+    const parentRows = await db
+      .select({ parentUserId: parentPlayerRelationsTable.parentUserId })
+      .from(parentPlayerRelationsTable)
+      .innerJoin(playersTable, eq(parentPlayerRelationsTable.playerId, playersTable.id))
+      .where(and(...playerConditions));
+
+    const uniqueParentIds = Array.from(new Set(parentRows.map((row) => row.parentUserId).filter((id) => Number(id) > 0)));
+    if (uniqueParentIds.length > 0) {
+      await db.insert(parentNotificationsTable).values(
+        uniqueParentIds.map((parentUserId) => ({
+          parentUserId,
+          clubId: req.session.clubId!,
+          type: "calendar",
+          title: `Calendario: ${title}`,
+          message,
+        })),
+      );
+    }
+  }
 
   res.status(201).json(created);
 });
 
 export default router;
-

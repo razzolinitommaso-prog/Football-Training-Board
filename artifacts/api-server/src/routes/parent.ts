@@ -5,8 +5,9 @@ import {
   trainingAttendancesTable, equipmentAssignmentsTable,
   playerPaymentsTable, playerDocumentsTable,
   platformAnnouncementsTable, parentNotificationsTable,
+  calendarExtraEventsTable,
 } from "@workspace/db";
-import { eq, and, gte, asc, desc } from "drizzle-orm";
+import { eq, and, gte, asc, desc, or } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -177,6 +178,47 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
   }));
 
   res.json(enriched);
+});
+
+router.get("/parent/calendar-extra-events", requireParentSession, async (req, res): Promise<void> => {
+  const clubId = req.session.clubId!;
+  const parentPlayerId = getParentPlayerId(req);
+  let parentTeamId: number | null = null;
+
+  if (parentPlayerId) {
+    const [player] = await db.select({ teamId: playersTable.teamId }).from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, parentPlayerId)));
+    parentTeamId = player?.teamId ?? null;
+    if (!parentTeamId) {
+      res.json([]);
+      return;
+    }
+  }
+
+  const rows = await db
+    .select()
+    .from(calendarExtraEventsTable)
+    .where(and(
+      eq(calendarExtraEventsTable.clubId, clubId),
+      or(
+        eq(calendarExtraEventsTable.targetAudience, "all"),
+        eq(calendarExtraEventsTable.targetAudience, "parents"),
+        eq(calendarExtraEventsTable.notifyParents, 1),
+      ) as any,
+    ))
+    .orderBy(asc(calendarExtraEventsTable.dateFrom));
+
+  if (!parentPlayerId || !parentTeamId) {
+    res.json(rows);
+    return;
+  }
+
+  res.json(rows.filter((event) => {
+    if (event.targetMode === "all") return true;
+    const teamIds = Array.isArray(event.teamIds) ? event.teamIds.map(Number) : [];
+    const playerIds = Array.isArray(event.playerIds) ? event.playerIds.map(Number) : [];
+    return teamIds.includes(parentTeamId!) || playerIds.includes(parentPlayerId);
+  }));
 });
 
 router.get("/parent/callups", requireParentSession, async (req, res): Promise<void> => {

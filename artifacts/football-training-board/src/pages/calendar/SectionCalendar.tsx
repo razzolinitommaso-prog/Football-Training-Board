@@ -6,7 +6,7 @@ import {
   isBefore, isAfter,
 } from "date-fns";
 import { it } from "date-fns/locale";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CalendarRange, Trophy, Dumbbell, Filter, RotateCcw, Plus, ClipboardList } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CalendarRange, Trophy, Dumbbell, Filter, RotateCcw, Plus, ClipboardList, Paperclip, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -14,6 +14,7 @@ import { normalizeSessionRole } from "@/lib/session-role";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -40,8 +41,9 @@ interface Team {
 }
 interface Match { id: number; opponent: string; date: string; homeAway: string; result?: string; teamId?: number; teamName?: string; competition?: string; }
 interface PlayerLite { id: number; firstName?: string; lastName?: string; teamId?: number | null; }
-type ExtraCategory = "allenamento_preparazione" | "camp_estivo" | "partita_interna" | "provino";
+type ExtraCategory = "torneo" | "cena" | "corso" | "riunione" | "evento_societario" | "staff" | "allenamento_preparazione" | "camp_estivo" | "partita_interna" | "provino";
 type ExtraFrequency = "everyday" | "selected_days";
+type ExtraTargetAudience = "all" | "staff" | "parents" | "teams";
 interface ExtraEvent {
   id: number;
   section: Section;
@@ -54,6 +56,13 @@ interface ExtraEvent {
   frequency: ExtraFrequency;
   weekdays: number[];
   targetMode: "all" | "selected";
+  targetAudience?: ExtraTargetAudience | string | null;
+  notifyStaff?: number | boolean | null;
+  notifyParents?: number | boolean | null;
+  notes?: string | null;
+  attachmentName?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentData?: string | null;
   teamIds: number[];
   playerIds: number[];
 }
@@ -90,6 +99,19 @@ const SECTION_LABELS: Record<Section, string> = {
   prima_squadra: "Prima Squadra",
 };
 
+const EXTRA_CATEGORY_LABELS: Record<ExtraCategory, string> = {
+  torneo: "Torneo",
+  cena: "Cena",
+  corso: "Corso",
+  riunione: "Riunione",
+  evento_societario: "Evento societario",
+  staff: "Impegno staff",
+  allenamento_preparazione: "Allenamento preparazione",
+  camp_estivo: "Camp estivo",
+  partita_interna: "Partita interna",
+  provino: "Provino",
+};
+
 interface CalendarEvent {
   type: "training" | "match" | "extra";
   teamId: number;
@@ -120,6 +142,12 @@ function getInitialMonth(today: Date): Date {
   if (month === 6 || month === 7) return new Date(year, 8, 1);
   return new Date(year, month, 1);
 }
+
+type ExtraAttachment = {
+  name: string;
+  mimeType: string;
+  data: string;
+};
 
 function parseDateOnly(value?: string | null, endOfDay = false): Date | null {
   const raw = String(value ?? "").trim();
@@ -180,8 +208,13 @@ export default function SectionCalendar({ section }: { section: Section }) {
   }));
   const [showScheduleFilters, setShowScheduleFilters] = useState(true);
   const [extraDialogOpen, setExtraDialogOpen] = useState(false);
-  const [extraCategory, setExtraCategory] = useState<ExtraCategory>("allenamento_preparazione");
+  const [extraCategory, setExtraCategory] = useState<ExtraCategory>("evento_societario");
+  const [extraTargetAudience, setExtraTargetAudience] = useState<ExtraTargetAudience>("all");
+  const [extraNotifyStaff, setExtraNotifyStaff] = useState(true);
+  const [extraNotifyParents, setExtraNotifyParents] = useState(true);
   const [extraTitle, setExtraTitle] = useState("");
+  const [extraNotes, setExtraNotes] = useState("");
+  const [extraAttachment, setExtraAttachment] = useState<ExtraAttachment | null>(null);
   const [extraDateFrom, setExtraDateFrom] = useState("");
   const [extraDateTo, setExtraDateTo] = useState("");
   const [extraStartTime, setExtraStartTime] = useState("17:00");
@@ -369,27 +402,49 @@ export default function SectionCalendar({ section }: { section: Section }) {
     setExtraTeamIds((prev) => (prev.includes(teamId) ? prev.filter((id) => id !== teamId) : [...prev, teamId]));
   };
 
+  const handleExtraAttachmentChange = (file?: File | null) => {
+    if (!file) {
+      setExtraAttachment(null);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Allegato troppo grande", description: "Usa un file entro 5 MB.", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = typeof reader.result === "string" ? reader.result : "";
+      if (!data) {
+        toast({ title: "Allegato non letto", description: "Riprova con un altro file.", variant: "destructive" });
+        return;
+      }
+      setExtraAttachment({ name: file.name, mimeType: file.type || "application/octet-stream", data });
+    };
+    reader.onerror = () => {
+      toast({ title: "Allegato non letto", description: "Riprova con un altro file.", variant: "destructive" });
+    };
+    reader.readAsDataURL(file);
+  };
+
   const createExtraEventMutation = useMutation({
     mutationFn: async () => {
-      const categoryLabel =
-        extraCategory === "allenamento_preparazione"
-          ? "Allenamento preparazione"
-          : extraCategory === "camp_estivo"
-            ? "Camp estivo"
-            : extraCategory === "partita_interna"
-              ? "Partita interna"
-              : "Provino";
+      const categoryLabel = EXTRA_CATEGORY_LABELS[extraCategory] ?? "Evento";
       const title = extraTitle.trim() || categoryLabel;
       const body = {
         section,
         category: extraCategory,
         title,
+        notes: extraNotes.trim(),
         dateFrom: extraDateFrom,
         dateTo: extraDateTo,
         startTime: extraStartTime,
         endTime: extraEndTime,
         frequency: extraFrequency,
         weekdays: extraFrequency === "selected_days" ? extraWeekdays : [],
+        targetAudience: extraTargetAudience,
+        notifyStaff: extraNotifyStaff,
+        notifyParents: extraNotifyParents,
+        attachment: extraAttachment,
         targetMode: extraTargetMode,
         teamIds: extraTargetMode === "selected" ? extraTeamIds : [],
         playerIds: extraPlayerIds,
@@ -405,7 +460,13 @@ export default function SectionCalendar({ section }: { section: Section }) {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["/api/calendar-extra-events", section] });
       setExtraDialogOpen(false);
+      setExtraCategory("evento_societario");
+      setExtraTargetAudience("all");
+      setExtraNotifyStaff(true);
+      setExtraNotifyParents(true);
       setExtraTitle("");
+      setExtraNotes("");
+      setExtraAttachment(null);
       setExtraDateFrom("");
       setExtraDateTo("");
       setExtraStartTime("17:00");
@@ -642,7 +703,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
                       <div
                         key={`x-${i}`}
                         title={`${evt.teamName} — ${evt.label} ${evt.time ?? ""}`.trim()}
-                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border leading-tight cursor-default bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200`}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border leading-tight cursor-default bg-sky-100 text-sky-800 border-sky-200"
                       >
                         <ClipboardList className="w-2.5 h-2.5 flex-shrink-0 opacity-80" />
                         <span className="truncate">{evt.label}</span>
@@ -690,6 +751,12 @@ export default function SectionCalendar({ section }: { section: Section }) {
               <Select value={extraCategory} onValueChange={(v) => setExtraCategory(v as ExtraCategory)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="evento_societario">Evento societario</SelectItem>
+                  <SelectItem value="torneo">Torneo</SelectItem>
+                  <SelectItem value="cena">Cena</SelectItem>
+                  <SelectItem value="corso">Corso</SelectItem>
+                  <SelectItem value="riunione">Riunione</SelectItem>
+                  <SelectItem value="staff">Impegno staff</SelectItem>
                   <SelectItem value="allenamento_preparazione">Allenamenti preparazione</SelectItem>
                   <SelectItem value="camp_estivo">Camp estivo</SelectItem>
                   <SelectItem value="partita_interna">Partite interne</SelectItem>
@@ -699,7 +766,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
             </div>
             <div className="space-y-1">
               <Label>Titolo (opzionale)</Label>
-              <Input value={extraTitle} onChange={(e) => setExtraTitle(e.target.value)} placeholder="Es. Preparazione pre-campionato" />
+              <Input value={extraTitle} onChange={(e) => setExtraTitle(e.target.value)} placeholder="Es. Riunione staff, cena sociale, torneo..." />
             </div>
             <div className="space-y-1">
               <Label>Data da</Label>
@@ -728,6 +795,26 @@ export default function SectionCalendar({ section }: { section: Section }) {
               </Select>
             </div>
             <div className="space-y-1">
+              <Label>Destinatari</Label>
+              <Select
+                value={extraTargetAudience}
+                onValueChange={(v) => {
+                  const value = v as ExtraTargetAudience;
+                  setExtraTargetAudience(value);
+                  setExtraNotifyStaff(value !== "parents");
+                  setExtraNotifyParents(value === "all" || value === "parents");
+                }}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tutti: staff e genitori</SelectItem>
+                  <SelectItem value="staff">Solo staff</SelectItem>
+                  <SelectItem value="parents">Solo genitori</SelectItem>
+                  <SelectItem value="teams">Squadre/annate selezionate</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
               <Label>Invia calendari</Label>
               <Select value={extraTargetMode} onValueChange={(v) => setExtraTargetMode(v as "all" | "selected")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -736,6 +823,52 @@ export default function SectionCalendar({ section }: { section: Section }) {
                   <SelectItem value="selected">Solo calendari selezionati</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="flex items-center gap-2 rounded-lg border p-3 text-sm">
+              <Checkbox checked={extraNotifyStaff} onCheckedChange={(value) => setExtraNotifyStaff(value === true)} disabled={extraTargetAudience === "parents"} />
+              <span>Notifica interna staff/società</span>
+            </label>
+            <label className="flex items-center gap-2 rounded-lg border p-3 text-sm">
+              <Checkbox checked={extraNotifyParents} onCheckedChange={(value) => setExtraNotifyParents(value === true)} disabled={extraTargetAudience === "staff"} />
+              <span>Notifica app genitori</span>
+            </label>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Note comunicazione</Label>
+            <Textarea
+              value={extraNotes}
+              onChange={(e) => setExtraNotes(e.target.value)}
+              rows={3}
+              placeholder="Dettagli luogo, convocazione, cosa portare, indicazioni per famiglie o staff..."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="extra-event-attachment">Allegato documento o immagine</Label>
+            <div className="rounded-lg border p-3">
+              {extraAttachment ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2 text-sm">
+                    <Paperclip className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="truncate font-medium">{extraAttachment.name}</span>
+                  </div>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setExtraAttachment(null)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <Input
+                  id="extra-event-attachment"
+                  type="file"
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                  onChange={(event) => handleExtraAttachmentChange(event.currentTarget.files?.[0] ?? null)}
+                />
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">Massimo 5 MB. L'allegato resta salvato con l'evento.</p>
             </div>
           </div>
 

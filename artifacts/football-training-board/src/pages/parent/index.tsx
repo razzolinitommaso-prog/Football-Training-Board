@@ -15,6 +15,7 @@ export default function ParentDashboard() {
   const [teams, setTeams] = useState<any[]>([]);
   const [training, setTraining] = useState<any[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
+  const [extraEvents, setExtraEvents] = useState<any[]>([]);
   const [callups, setCallups] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
@@ -28,16 +29,18 @@ export default function ParentDashboard() {
       apiFetch("/parent/children"),
       apiFetch("/parent/training"),
       apiFetch("/parent/matches"),
+      apiFetch("/parent/calendar-extra-events"),
       apiFetch("/parent/callups"),
       apiFetch("/parent/attendance"),
       apiFetch("/parent/payments"),
       apiFetch("/parent/documents"),
       apiFetch("/parent/kit"),
       apiFetch("/parent/notifications"),
-    ]).then(([t, tr, m, c, a, p, d, k, n]) => {
+    ]).then(([t, tr, m, e, c, a, p, d, k, n]) => {
       setTeams(t);
       setTraining(tr);
       setMatches(m);
+      setExtraEvents(e);
       setCallups(c);
       setAttendance(a);
       setPayments(p);
@@ -67,6 +70,10 @@ export default function ParentDashboard() {
   const unreadNotifications = notifications.filter((n) => !n.isRead);
   const upcomingTraining = training.filter(t => new Date(t.scheduledAt) >= now).slice(0, 1)[0];
   const upcomingMatch = matches.filter(m => new Date(m.date) >= now).slice(0, 1)[0];
+  const upcomingExtraEvent = extraEvents
+    .map((event) => ({ ...event, at: new Date(`${event.dateFrom}T${event.startTime || "00:00"}:00`) }))
+    .filter((event) => event.at >= now)
+    .sort((a, b) => a.at.getTime() - b.at.getTime())[0];
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -176,6 +183,32 @@ export default function ParentDashboard() {
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {upcomingExtraEvent && (
+        <div className="bg-card border rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <CalendarDays className="w-4 h-4 text-sky-500" />
+            <span className="font-semibold text-sm">Evento calendario</span>
+          </div>
+          <p className="font-medium">{upcomingExtraEvent.title}</p>
+          <p className="text-sm text-muted-foreground capitalize">{String(upcomingExtraEvent.category ?? "evento").replace(/_/g, " ")}</p>
+          <p className="text-sm text-sky-600 mt-1">
+            {upcomingExtraEvent.at.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+          </p>
+          {upcomingExtraEvent.notes && <p className="text-sm text-muted-foreground mt-2">{upcomingExtraEvent.notes}</p>}
+          {upcomingExtraEvent.attachmentData && (
+            <a
+              href={upcomingExtraEvent.attachmentData}
+              download={upcomingExtraEvent.attachmentName || "allegato-evento"}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex items-center rounded-md border px-3 py-2 text-xs font-medium hover:bg-muted"
+            >
+              {upcomingExtraEvent.attachmentName || "Apri allegato"}
+            </a>
+          )}
         </div>
       )}
 

@@ -75,6 +75,13 @@ type DashboardExtraEvent = {
   frequency?: "everyday" | "selected_days" | string | null;
   weekdays?: number[] | null;
   targetMode?: "all" | "selected" | string | null;
+  targetAudience?: "all" | "staff" | "parents" | "teams" | string | null;
+  notifyStaff?: number | boolean | null;
+  notifyParents?: number | boolean | null;
+  notes?: string | null;
+  attachmentName?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentData?: string | null;
   teamIds?: number[] | null;
 };
 
@@ -146,6 +153,7 @@ type DashboardCalendarItem =
       trainingStatus?: "regular" | "moved" | "cancelled" | "moved-original" | "note" | "joined" | "joined-original";
       trainingOverride?: DashboardTrainingOverride;
       trainingNotes?: string | null;
+      extraEvent?: DashboardExtraEvent;
     }
   | {
       kind: "match";
@@ -1335,13 +1343,22 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
         if (day < startOfDay(from) || day > to || day > maxDay) return;
         if (evt.frequency === "selected_days" && Array.isArray(evt.weekdays) && !evt.weekdays.includes(day.getDay())) return;
         const at = combineLocalDateAndTime(day, evt.startTime);
+        const audienceLabel =
+          evt.targetAudience === "staff"
+            ? "Staff"
+            : evt.targetAudience === "parents"
+              ? "Genitori"
+              : evt.targetAudience === "teams"
+                ? "Squadre selezionate"
+                : "Tutti";
         items.push({
           kind: "extra",
           key: `extra-${evt.id}-${format(day, "yyyy-MM-dd")}`,
           date: at,
           time: `${evt.startTime ?? ""}${evt.endTime ? `-${evt.endTime}` : ""}` || matchTimeLabel(at),
           title: evt.title,
-          subtitle: evt.category ? String(evt.category).replace(/_/g, " ") : "Impegno",
+          subtitle: [evt.category ? String(evt.category).replace(/_/g, " ") : "Impegno", audienceLabel].filter(Boolean).join(" - "),
+          extraEvent: evt,
         });
       });
     });
@@ -3065,6 +3082,21 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                   )}
                 {selectedCalendarItem.teamName && (
                   <p className="mt-1 text-muted-foreground">Squadra: {selectedCalendarItem.teamName}</p>
+                )}
+                {selectedCalendarItem.kind === "extra" && selectedCalendarItem.extraEvent?.notes && (
+                  <p className="mt-2 whitespace-pre-line text-muted-foreground">{selectedCalendarItem.extraEvent.notes}</p>
+                )}
+                {selectedCalendarItem.kind === "extra" && selectedCalendarItem.extraEvent?.attachmentData && (
+                  <a
+                    href={selectedCalendarItem.extraEvent.attachmentData}
+                    download={selectedCalendarItem.extraEvent.attachmentName || "allegato-evento"}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    {selectedCalendarItem.extraEvent.attachmentName || "Apri allegato"}
+                  </a>
                 )}
               </div>
 

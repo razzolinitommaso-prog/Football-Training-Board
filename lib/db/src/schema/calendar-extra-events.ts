@@ -16,8 +16,14 @@ export const calendarExtraEventsTable = pgTable("calendar_extra_events", {
   frequency: text("frequency").notNull().default("everyday"),
   weekdays: jsonb("weekdays").$type<number[]>().notNull().default([]),
   targetMode: text("target_mode").notNull().default("all"),
+  targetAudience: text("target_audience").notNull().default("all"),
+  notifyStaff: integer("notify_staff").notNull().default(1),
+  notifyParents: integer("notify_parents").notNull().default(0),
+  notes: text("notes"),
+  attachmentName: text("attachment_name"),
+  attachmentMimeType: text("attachment_mime_type"),
+  attachmentData: text("attachment_data"),
   teamIds: jsonb("team_ids").$type<number[]>().notNull().default([]),
   playerIds: jsonb("player_ids").$type<number[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
-
