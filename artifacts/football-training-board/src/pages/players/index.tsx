@@ -116,8 +116,13 @@ const editSchema = z.object({
   availabilityOverrideUntil: z.string().optional().nullable(),
   availabilityOverrideReason: z.string().optional().nullable(),
   squad: z.enum(["A", "B", "C", "D"]).optional().nullable(),
+  supplementalSquad: z.enum(["A", "B", "C", "D"]).optional().nullable(),
   imageUrl: z.string().optional().nullable(),
   supplementalTeamId: z.coerce.number().optional().nullable(),
+  primarySpecificRole: z.string().optional().nullable(),
+  primaryLineupStatus: z.enum(["starter", "reserve"]).optional().nullable(),
+  supplementalSpecificRole: z.string().optional().nullable(),
+  supplementalLineupStatus: z.enum(["starter", "reserve"]).optional().nullable(),
 });
 
 type EditForm = z.infer<typeof editSchema>;
@@ -547,6 +552,66 @@ const PLAYER_DOCUMENT_TYPES = [
   { value: "other", label: "Altro documento", hasExpiry: false },
 ] as const;
 
+const SPECIFIC_ROLE_OPTIONS = [
+  { value: "CB", label: "CB - Centrale difesa" },
+  { value: "LIB", label: "LIB - Libero" },
+  { value: "FB", label: "FB - Esterno basso" },
+  { value: "WB", label: "WB - Esterno" },
+  { value: "BR", label: "BR - Braccetto" },
+  { value: "CM", label: "CM - Centrocampista centrale" },
+  { value: "WM", label: "WM - Centrocampista esterno" },
+  { value: "REG", label: "REG - Play" },
+  { value: "AM", label: "AM - Trequartista" },
+  { value: "WF", label: "WF - Attaccante esterno" },
+  { value: "ST", label: "ST - Attaccante centrale" },
+  { value: "WA", label: "WA - Esterno alto" },
+] as const;
+
+function SpecificRoleSelect({
+  value,
+  onChange,
+  disabled,
+  placeholder = "Ruolo specifico",
+}: {
+  value?: string | null;
+  onChange: (value: string | null) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <Select onValueChange={(v) => onChange(v === "_none" ? null : v)} value={value || "_none"} disabled={disabled}>
+      <SelectTrigger><SelectValue placeholder={placeholder} /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="_none">Non indicato</SelectItem>
+        {SPECIFIC_ROLE_OPTIONS.map((option) => (
+          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function LineupStatusSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value?: "starter" | "reserve" | null;
+  onChange: (value: "starter" | "reserve" | null) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Select onValueChange={(v) => onChange(v === "_none" ? null : v as "starter" | "reserve")} value={value || "_none"} disabled={disabled}>
+      <SelectTrigger><SelectValue placeholder="Titolare/Riserva" /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="_none">Non indicato</SelectItem>
+        <SelectItem value="starter">Titolare</SelectItem>
+        <SelectItem value="reserve">Riserva</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
 function playerName(player: Pick<Player, "firstName" | "lastName">, order: PlayerNameOrder = "surname_first"): string {
   const firstName = String(player.firstName ?? "").trim();
   const lastName = String(player.lastName ?? "").trim();
@@ -772,8 +837,13 @@ const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
 const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
 type PlayerMeta = {
   squad?: "A" | "B" | "C" | "D" | null;
+  supplementalSquad?: "A" | "B" | "C" | "D" | null;
   imageUrl?: string | null;
   supplementalTeamId?: number | null;
+  primarySpecificRole?: string | null;
+  primaryLineupStatus?: "starter" | "reserve" | null;
+  supplementalSpecificRole?: string | null;
+  supplementalLineupStatus?: "starter" | "reserve" | null;
 };
 
 function splitPlayerMeta(raw?: string | null): { notesRaw: string; meta: PlayerMeta } {
@@ -790,8 +860,13 @@ function splitPlayerMeta(raw?: string | null): { notesRaw: string; meta: PlayerM
       notesRaw: notesRaw.trim(),
       meta: {
         squad: parsed?.squad ?? null,
+        supplementalSquad: parsed?.supplementalSquad ?? null,
         imageUrl: parsed?.imageUrl ?? null,
         supplementalTeamId: parsed?.supplementalTeamId ?? null,
+        primarySpecificRole: parsed?.primarySpecificRole ?? null,
+        primaryLineupStatus: parsed?.primaryLineupStatus ?? null,
+        supplementalSpecificRole: parsed?.supplementalSpecificRole ?? null,
+        supplementalLineupStatus: parsed?.supplementalLineupStatus ?? null,
       },
     };
   } catch {
@@ -801,12 +876,26 @@ function splitPlayerMeta(raw?: string | null): { notesRaw: string; meta: PlayerM
 
 function composePlayerMeta(notesRaw: string, meta: PlayerMeta): string {
   const cleanNotes = notesRaw.trim();
-  const hasAnyMeta = Boolean(meta?.squad || meta?.imageUrl || meta?.supplementalTeamId);
+  const hasAnyMeta = Boolean(
+    meta?.squad ||
+    meta?.supplementalSquad ||
+    meta?.imageUrl ||
+    meta?.supplementalTeamId ||
+    meta?.primarySpecificRole ||
+    meta?.primaryLineupStatus ||
+    meta?.supplementalSpecificRole ||
+    meta?.supplementalLineupStatus
+  );
   if (!hasAnyMeta) return cleanNotes;
   const encoded = `${PLAYER_META_MARKER}${JSON.stringify({
     squad: meta.squad ?? null,
+    supplementalSquad: meta.supplementalSquad ?? null,
     imageUrl: meta.imageUrl ?? null,
     supplementalTeamId: meta.supplementalTeamId ?? null,
+    primarySpecificRole: meta.primarySpecificRole ?? null,
+    primaryLineupStatus: meta.primaryLineupStatus ?? null,
+    supplementalSpecificRole: meta.supplementalSpecificRole ?? null,
+    supplementalLineupStatus: meta.supplementalLineupStatus ?? null,
   })}`;
   return cleanNotes ? `${encoded}\n${cleanNotes}` : encoded;
 }
@@ -1984,8 +2073,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       availabilityOverrideUntil: player.availabilityOverrideUntil ?? undefined,
       availabilityOverrideReason: player.availabilityOverrideReason ?? undefined,
       squad: player.squad ?? meta.squad ?? null,
+      supplementalSquad: meta.supplementalSquad ?? null,
       imageUrl: player.imageUrl ?? meta.imageUrl ?? null,
       supplementalTeamId: meta.supplementalTeamId ?? null,
+      primarySpecificRole: meta.primarySpecificRole ?? null,
+      primaryLineupStatus: meta.primaryLineupStatus ?? null,
+      supplementalSpecificRole: meta.supplementalSpecificRole ?? null,
+      supplementalLineupStatus: meta.supplementalLineupStatus ?? null,
     });
   };
 
@@ -2224,13 +2318,24 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         composePlayerNotes(parsed.plainNote, thread),
         {
           squad: data.squad ?? null,
+          supplementalSquad: data.supplementalSquad ?? null,
           imageUrl: data.imageUrl ?? null,
           supplementalTeamId: data.supplementalTeamId ?? null,
+          primarySpecificRole: data.primarySpecificRole ?? null,
+          primaryLineupStatus: data.primaryLineupStatus ?? null,
+          supplementalSpecificRole: data.supplementalSpecificRole ?? null,
+          supplementalLineupStatus: data.supplementalLineupStatus ?? null,
         }
       ),
       parentDelegates: cleanParentDelegates(parentDelegateRows),
     };
+    delete payload.imageUrl;
     delete payload.supplementalTeamId;
+    delete payload.supplementalSquad;
+    delete payload.primarySpecificRole;
+    delete payload.primaryLineupStatus;
+    delete payload.supplementalSpecificRole;
+    delete payload.supplementalLineupStatus;
     const availabilityOverrideEnabled =
       data.availabilityOverrideActive === true &&
       Boolean(data.availabilityOverrideUntil);
@@ -3429,98 +3534,185 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
               <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
                 <CollapsibleSectionSummary title="Squadra assegnata" />
-                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>{t.assignToTeam}</Label>
-                    <Controller
-                      control={editForm.control}
-                      name="teamId"
-                      render={({ field }) => (
-                        <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString() || ""} disabled={!canEditFullPlayer}>
-                          <SelectTrigger><SelectValue placeholder={t.noTeamAssigned} /></SelectTrigger>
-                          <SelectContent>
-                            {teams?.map(team => <SelectItem key={team.id} value={team.id.toString()}>{team.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
+                <div className="mt-3 space-y-4">
+                  <div className="rounded-md border bg-background p-3 space-y-3">
+                    <p className="text-sm font-semibold">Squadra principale</p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>{t.assignToTeam}</Label>
+                        <Controller
+                          control={editForm.control}
+                          name="teamId"
+                          render={({ field }) => (
+                            <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString() || ""} disabled={!canEditFullPlayer}>
+                              <SelectTrigger><SelectValue placeholder={t.noTeamAssigned} /></SelectTrigger>
+                              <SelectContent>
+                                {teams?.map(team => <SelectItem key={team.id} value={team.id.toString()}>{team.name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Squadra</Label>
+                        <Controller
+                          control={editForm.control}
+                          name="squad"
+                          render={({ field }) => (
+                            <Select onValueChange={(v) => field.onChange(v)} value={field.value || ""} disabled={!canEditRoleAndSquad}>
+                              <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="A">A</SelectItem>
+                                <SelectItem value="B">B</SelectItem>
+                                <SelectItem value="C">C</SelectItem>
+                                <SelectItem value="D">D</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Ruolo specifico</Label>
+                        <Controller
+                          control={editForm.control}
+                          name="primarySpecificRole"
+                          render={({ field }) => (
+                            <SpecificRoleSelect value={field.value} onChange={field.onChange} disabled={!canEditRoleAndSquad} />
+                          )}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Titolare/Riserva</Label>
+                        <Controller
+                          control={editForm.control}
+                          name="primaryLineupStatus"
+                          render={({ field }) => (
+                            <LineupStatusSelect
+                              value={field.value}
+                              onChange={field.onChange}
+                              disabled={!canEditRoleAndSquad || !editingPlayerIsYouthSection}
+                            />
+                          )}
+                        />
+                        {!editingPlayerIsYouthSection && (
+                          <p className="text-xs text-muted-foreground">Campo preparato per il Settore Giovanile.</p>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Assegna squadra supplementare</Label>
-                    <Controller
-                      control={editForm.control}
-                      name="supplementalTeamId"
-                      render={({ field }) => (
-                        <Select
-                          onValueChange={(v) => field.onChange(v === "_none" ? null : parseInt(v))}
-                          value={field.value ? String(field.value) : "_none"}
-                          disabled={!canEditSupplementalTeam}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Nessuna" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="_none">Nessuna</SelectItem>
-                            {teams?.map(team => (
-                              <SelectItem key={`early-supp-${team.id}`} value={team.id.toString()}>
-                                {team.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
+
+                  <div className="rounded-md border bg-background p-3 space-y-3">
+                    <p className="text-sm font-semibold">Squadra supplementare</p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Assegna squadra supplementare</Label>
+                        <Controller
+                          control={editForm.control}
+                          name="supplementalTeamId"
+                          render={({ field }) => (
+                            <Select
+                              onValueChange={(v) => field.onChange(v === "_none" ? null : parseInt(v))}
+                              value={field.value ? String(field.value) : "_none"}
+                              disabled={!canEditSupplementalTeam}
+                            >
+                              <SelectTrigger><SelectValue placeholder="Nessuna" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none">Nessuna</SelectItem>
+                                {teams?.map(team => (
+                                  <SelectItem key={`early-supp-${team.id}`} value={team.id.toString()}>
+                                    {team.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Squadra supplementare</Label>
+                        <Controller
+                          control={editForm.control}
+                          name="supplementalSquad"
+                          render={({ field }) => (
+                            <Select onValueChange={(v) => field.onChange(v === "_none" ? null : v)} value={field.value || "_none"} disabled={!canEditSupplementalTeam}>
+                              <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none">Non indicata</SelectItem>
+                                <SelectItem value="A">A</SelectItem>
+                                <SelectItem value="B">B</SelectItem>
+                                <SelectItem value="C">C</SelectItem>
+                                <SelectItem value="D">D</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Ruolo specifico supplementare</Label>
+                        <Controller
+                          control={editForm.control}
+                          name="supplementalSpecificRole"
+                          render={({ field }) => (
+                            <SpecificRoleSelect value={field.value} onChange={field.onChange} disabled={!canEditSupplementalTeam} />
+                          )}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Titolare/Riserva supplementare</Label>
+                        <Controller
+                          control={editForm.control}
+                          name="supplementalLineupStatus"
+                          render={({ field }) => (
+                            <LineupStatusSelect
+                              value={field.value}
+                              onChange={field.onChange}
+                              disabled={!canEditSupplementalTeam || !editingPlayerIsYouthSection}
+                            />
+                          )}
+                        />
+                        {!editingPlayerIsYouthSection && (
+                          <p className="text-xs text-muted-foreground">Campo preparato per il Settore Giovanile.</p>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Squadra</Label>
-                    <Controller
-                      control={editForm.control}
-                      name="squad"
-                      render={({ field }) => (
-                        <Select onValueChange={(v) => field.onChange(v)} value={field.value || ""} disabled={!canEditRoleAndSquad}>
-                          <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="A">A</SelectItem>
-                            <SelectItem value="B">B</SelectItem>
-                            <SelectItem value="C">C</SelectItem>
-                            <SelectItem value="D">D</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t.position}</Label>
-                    <Controller
-                      control={editForm.control}
-                      name="position"
-                      render={({ field }) => (
-                        <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditRoleAndSquad}>
-                          <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="GK">{t.goalkeeper}</SelectItem>
-                            <SelectItem value="DEF">{t.defender}</SelectItem>
-                            <SelectItem value="MID">{t.midfielder}</SelectItem>
-                            <SelectItem value="FWD">{t.forward}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
-                  </div>
-                  <div className="space-y-2 sm:col-span-2">
-                    <Label>{t.status}</Label>
-                    <Controller
-                      control={editForm.control}
-                      name="status"
-                      render={({ field }) => (
-                        <Select onValueChange={field.onChange} value={field.value || "active"} disabled={!canEditFullPlayer}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="active">{t.active}</SelectItem>
-                            <SelectItem value="injured">{t.injured}</SelectItem>
-                            <SelectItem value="inactive">{t.inactive}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Ruolo generico</Label>
+                      <Controller
+                        control={editForm.control}
+                        name="position"
+                        render={({ field }) => (
+                          <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditRoleAndSquad}>
+                            <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="GK">{t.goalkeeper}</SelectItem>
+                              <SelectItem value="DEF">{t.defender}</SelectItem>
+                              <SelectItem value="MID">{t.midfielder}</SelectItem>
+                              <SelectItem value="FWD">{t.forward}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>{t.status}</Label>
+                      <Controller
+                        control={editForm.control}
+                        name="status"
+                        render={({ field }) => (
+                          <Select onValueChange={field.onChange} value={field.value || "active"} disabled={!canEditFullPlayer}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">{t.active}</SelectItem>
+                              <SelectItem value="injured">{t.injured}</SelectItem>
+                              <SelectItem value="inactive">{t.inactive}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                    </div>
                   </div>
                 </div>
               </details>
