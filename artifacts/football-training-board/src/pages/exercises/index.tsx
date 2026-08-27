@@ -126,6 +126,37 @@ function getPhaseColor(v: string) { return PHASES.find(p => p.value === v)?.colo
 function getPrincipioLabel(v: string) { return PRINCIPI.find(p => p.value === v)?.label ?? v; }
 function getPrincipioColor(v: string) { return PRINCIPI.find(p => p.value === v)?.color ?? "bg-gray-100 text-gray-700"; }
 
+function getPhaseRank(value: string | null | undefined): number {
+  switch ((value ?? "").toLowerCase()) {
+    case "iniziale":
+      return 0;
+    case "centrale":
+      return 1;
+    case "finale":
+      return 2;
+    default:
+      return 9;
+  }
+}
+
+function getExerciseGroupKey(ex: Exercise): string {
+  return [
+    ex.teamId ?? "all",
+    ex.trainingDay ?? "no-day",
+    ex.trainingSession ?? "no-session",
+    ex.principio ?? "no-principio",
+  ].join("|");
+}
+
+function stripExerciseNumberPrefix(title: string): string {
+  return title.replace(/^Esercitazione\s+\d+\s*[-–]\s*/i, "").trim();
+}
+
+function getDisplayExerciseTitle(ex: Exercise, orderNumber: number): string {
+  const cleanTitle = stripExerciseNumberPrefix(ex.title);
+  return cleanTitle ? `Esercitazione ${orderNumber} - ${cleanTitle}` : `Esercitazione ${orderNumber}`;
+}
+
 function emptyForm(): Omit<Exercise, "id"> {
   return {
     title: "",
@@ -512,7 +543,38 @@ export default function ExercisesPage() {
         .join(" ")
         .toLowerCase();
       return haystack.includes(normalizedExerciseSearch);
+    })
+    .sort((a, b) => {
+      const sessionCompare = (formatTrainingSession(a.trainingSession ?? a.trainingDay) ?? "").localeCompare(
+        formatTrainingSession(b.trainingSession ?? b.trainingDay) ?? "",
+        "it",
+        { numeric: true },
+      );
+      if (sessionCompare !== 0) return sessionCompare;
+
+      const dayCompare = (formatTrainingDay(a.trainingDay) ?? "").localeCompare(
+        formatTrainingDay(b.trainingDay) ?? "",
+        "it",
+        { numeric: true },
+      );
+      if (dayCompare !== 0) return dayCompare;
+
+      const principioCompare = (a.principio ?? "").localeCompare(b.principio ?? "", "it", { numeric: true });
+      if (principioCompare !== 0) return principioCompare;
+
+      const phaseCompare = getPhaseRank(a.trainingPhase) - getPhaseRank(b.trainingPhase);
+      if (phaseCompare !== 0) return phaseCompare;
+
+      return a.id - b.id;
     });
+  const exerciseOrderById = new Map<number, number>();
+  const exerciseGroupCounts = new Map<string, number>();
+  for (const ex of filtered) {
+    const groupKey = getExerciseGroupKey(ex);
+    const nextOrder = (exerciseGroupCounts.get(groupKey) ?? 0) + 1;
+    exerciseGroupCounts.set(groupKey, nextOrder);
+    exerciseOrderById.set(ex.id, nextOrder);
+  }
   const guidelinesByCategory = GUIDELINE_CATEGORIES.map(cat => ({ ...cat, items: guidelines.filter(g => g.category === cat.value) })).filter(cat => cat.items.length > 0);
 
   return (
@@ -582,7 +644,9 @@ export default function ExercisesPage() {
                               Originale creato da {ex.originalCreatedByName}
                             </span>
                           )}
-                          <CardTitle className="text-base leading-snug">{ex.title}</CardTitle>
+                          <CardTitle className="text-base leading-snug">
+                            {getDisplayExerciseTitle(ex, exerciseOrderById.get(ex.id) ?? 1)}
+                          </CardTitle>
                         </div>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {ex.category && (
@@ -748,7 +812,9 @@ export default function ExercisesPage() {
       <Dialog open={!!viewingEx} onOpenChange={(open) => { if (!open) setViewingEx(null); }}>
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{viewingEx?.title ?? "Esercitazione"}</DialogTitle>
+            <DialogTitle>
+              {viewingEx ? getDisplayExerciseTitle(viewingEx, exerciseOrderById.get(viewingEx.id) ?? 1) : "Esercitazione"}
+            </DialogTitle>
           </DialogHeader>
           {viewingEx ? (
             <div className="space-y-4">
