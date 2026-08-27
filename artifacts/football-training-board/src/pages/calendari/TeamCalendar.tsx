@@ -1154,6 +1154,15 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
   };
 }
 
+function normalizePlanPeriodsForSection(plan: MatchPlanData, section: MatchSection): MatchPlanData {
+  if (section === "scuola_calcio") return plan;
+  return {
+    ...plan,
+    fourthTime: false,
+    periods: plan.periods.filter((period) => period.key === "t1" || period.key === "t2").slice(0, 2),
+  };
+}
+
 async function apiFetch(url: string, options?: RequestInit) {
   const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
   if (!res.ok) {
@@ -1352,7 +1361,10 @@ function MatchCard({
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set());
   const [callupSearch, setCallupSearch] = useState("");
   const [planDraft, setPlanDraft] = useState<MatchPlanData>(() =>
-    ensurePlanPeriods(match.matchPlan ?? null, defaultPeriodsForTeam(matchSection, teamName, teamCategory)),
+    normalizePlanPeriodsForSection(
+      ensurePlanPeriods(match.matchPlan ?? null, defaultPeriodsForTeam(matchSection, teamName, teamCategory)),
+      matchSection,
+    ),
   );
   const matchFormat = matchFormatForTeam(matchSection, teamName, teamCategory);
   const isFriendlyMatch = matchPhase(match) === "amichevoli";
@@ -1728,7 +1740,10 @@ function MatchCard({
   }, [callups, canViewMatchPlan, selectableTeamPlayers]);
 
   useEffect(() => {
-    const next = ensurePlanPeriods(match.matchPlan ?? null, defaultPeriodsForTeam(matchSection, teamName, teamCategory));
+    const next = normalizePlanPeriodsForSection(
+      ensurePlanPeriods(match.matchPlan ?? null, defaultPeriodsForTeam(matchSection, teamName, teamCategory)),
+      matchSection,
+    );
     const hasFourth = next.periods.some((p) => p.key === "t4");
     if (next.fourthTime && !hasFourth) {
       next.periods = [
@@ -2367,35 +2382,37 @@ function MatchCard({
                     </div>
                   </div>
                 )}
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={!!planDraft.fourthTime}
-                    onCheckedChange={(v) =>
-                      setPlanDraft((prev) => {
-                        const enabled = v === true;
-                        const hasFourth = prev.periods.some((p) => p.key === "t4");
-                        let periods = prev.periods;
-                        if (enabled && !hasFourth) {
-                          periods = [
-                            ...prev.periods,
-                            {
-                              key: "t4",
-                              label: "4° tempo",
-                              minutes: prev.periods[2]?.minutes || prev.periods[0]?.minutes || "15",
-                              module: prev.periods[2]?.module || prev.periods[0]?.module || "",
-                              lineupPlayerIds: [],
-                            },
-                          ];
-                        }
-                        if (!enabled && hasFourth) {
-                          periods = prev.periods.filter((p) => p.key !== "t4");
-                        }
-                        return { ...prev, fourthTime: enabled, periods };
-                      })
-                    }
-                  />
-                  <Label className="text-xs cursor-pointer">Abilita 4° tempo</Label>
-                </div>
+                {matchSection === "scuola_calcio" && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={!!planDraft.fourthTime}
+                      onCheckedChange={(v) =>
+                        setPlanDraft((prev) => {
+                          const enabled = v === true;
+                          const hasFourth = prev.periods.some((p) => p.key === "t4");
+                          let periods = prev.periods;
+                          if (enabled && !hasFourth) {
+                            periods = [
+                              ...prev.periods,
+                              {
+                                key: "t4",
+                                label: "4° tempo",
+                                minutes: prev.periods[2]?.minutes || prev.periods[0]?.minutes || "15",
+                                module: prev.periods[2]?.module || prev.periods[0]?.module || "",
+                                lineupPlayerIds: [],
+                              },
+                            ];
+                          }
+                          if (!enabled && hasFourth) {
+                            periods = prev.periods.filter((p) => p.key !== "t4");
+                          }
+                          return { ...prev, fourthTime: enabled, periods };
+                        })
+                      }
+                    />
+                    <Label className="text-xs cursor-pointer">Abilita 4° tempo</Label>
+                  </div>
+                )}
                 <div className="space-y-2">
                   {planDraft.periods.map((p, i) => {
                     const periodFormat = p.format ?? matchFormat;
