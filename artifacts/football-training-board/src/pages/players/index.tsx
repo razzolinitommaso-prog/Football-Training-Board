@@ -1356,7 +1356,21 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         setEditingPlayer(null);
         toast({ title: t.editPlayer });
       },
-      onError: () => toast({ title: "Error saving", variant: "destructive" })
+      onError: (error: any) => {
+        const raw =
+          error?.data?.error ??
+          error?.data?.message ??
+          error?.message ??
+          "Salvataggio non riuscito.";
+        let message = String(raw);
+        try {
+          const parsed = JSON.parse(message) as { error?: unknown; message?: unknown };
+          message = String(parsed.error ?? parsed.message ?? message);
+        } catch {
+          // Plain text error from API.
+        }
+        toast({ title: "Errore salvataggio", description: message, variant: "destructive" });
+      },
     }
   });
 
@@ -2239,7 +2253,20 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       payload.expectedReturn = null;
     }
 
-    if (playerDialogMode === "view" || isLimitedEditor) {
+    const overridePayload: Record<string, unknown> = {
+      availabilityOverrideActive: data.availabilityOverrideActive === true,
+      availabilityOverrideFrom: data.availabilityOverrideFrom || null,
+      availabilityOverrideUntil: data.availabilityOverrideUntil || null,
+      availabilityOverrideReason: data.availabilityOverrideReason || null,
+    };
+    const canSubmitAvailabilityOverrideOnly =
+      canForceAvailability &&
+      !canManagePlayers &&
+      playerDialogMode === "edit";
+
+    if (canSubmitAvailabilityOverrideOnly) {
+      updateMutation.mutate({ id: editingPlayer.id, data: overridePayload as any });
+    } else if (playerDialogMode === "view" || isLimitedEditor) {
       const limitedPayload: Record<string, unknown> = {
         notes: payload.notes,
       };
