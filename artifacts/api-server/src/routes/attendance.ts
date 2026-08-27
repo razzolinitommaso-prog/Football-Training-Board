@@ -98,6 +98,50 @@ router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
   res.json(enriched);
 });
 
+router.get("/attendance-summary", requireAuth, async (req, res): Promise<void> => {
+  const rawIds = String(req.query.sessionIds ?? "")
+    .split(",")
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isInteger(value) && value > 0);
+  const sessionIds = Array.from(new Set(rawIds)).slice(0, 80);
+  if (sessionIds.length === 0) {
+    res.json({});
+    return;
+  }
+
+  const summaries: Record<number, { present: number; absent: number; requested: number; injured: number; total: number; recorded: number; percentage: number }> = {};
+  for (const sessionId of sessionIds) {
+    if (!(await userCanManageAttendanceForSession(req.session.userId!, req.session.clubId!, req.session.role ?? "", sessionId))) {
+      continue;
+    }
+    const session = await getSessionForAttendance(sessionId, req.session.clubId!);
+    if (!session) continue;
+
+    const playerConditions = [eq(playersTable.clubId, req.session.clubId!)];
+    if (session.teamId) playerConditions.push(eq(playersTable.teamId, session.teamId));
+    const players = await db
+      .select({ id: playersTable.id })
+      .from(playersTable)
+      .where(and(...playerConditions));
+    const total = players.length;
+
+    const records = await db
+      .select({ status: trainingAttendancesTable.status })
+      .from(trainingAttendancesTable)
+      .where(and(eq(trainingAttendancesTable.trainingSessionId, sessionId), eq(trainingAttendancesTable.clubId, req.session.clubId!)));
+    const present = records.filter((record) => record.status === "present").length;
+    const absent = records.filter((record) => record.status === "absent").length;
+    const requested = records.filter((record) => record.status === "requested").length;
+    const injured = records.filter((record) => record.status === "injured").length;
+    const recorded = present + absent + requested + injured;
+    const denominator = total || recorded;
+    const percentage = denominator > 0 ? Math.round((present / denominator) * 100) : 0;
+    summaries[sessionId] = { present, absent, requested, injured, total, recorded, percentage };
+  }
+
+  res.json(summaries);
+});
+
 router.post("/attendance", requireAuth, async (req, res): Promise<void> => {
   const { trainingSessionId, playerId, status, notes } = req.body;
   if (!trainingSessionId || !playerId) { res.status(400).json({ error: "trainingSessionId and playerId required" }); return; }

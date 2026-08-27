@@ -36,6 +36,15 @@ interface Player {
   availabilityOverrideUntil?: string | null;
 }
 interface AttendanceRecord { id: number; playerId: number; playerName?: string; status: string; notes?: string | null; }
+interface AttendanceSummary {
+  present: number;
+  absent: number;
+  requested: number;
+  injured: number;
+  total: number;
+  recorded: number;
+  percentage: number;
+}
 type TrainingConduct = "ottima" | "buona" | "insufficiente";
 type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 type Team = { id: number; name: string; clubSection?: string | null };
@@ -190,7 +199,10 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const markAttendance = useMutation({
     mutationFn: (data: { trainingSessionId: number; playerId: number; status: string; notes?: string | null }) =>
       apiFetch("/api/attendance", { method: "POST", body: JSON.stringify(data) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/attendance", sessionId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/attendance", sessionId] });
+      qc.invalidateQueries({ queryKey: ["/api/attendance-summary"] });
+    },
     onError: () => toast({ title: "Error", variant: "destructive" }),
   });
 
@@ -277,6 +289,12 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
       .filter((s) => (sessionObjectiveFilter === "all" ? true : (s.objectives ?? "").trim() === sessionObjectiveFilter))
       .sort((a, b) => +new Date(b.scheduledAt) - +new Date(a.scheduledAt));
   }, [sessionsByScope, sessionDateFilter, sessionKindFilter, sessionObjectiveFilter]);
+  const filteredSessionIds = useMemo(() => filteredSessions.map((session) => session.id), [filteredSessions]);
+  const { data: attendanceSummaries = {} } = useQuery<Record<string, AttendanceSummary>>({
+    queryKey: ["/api/attendance-summary", filteredSessionIds.join(",")],
+    queryFn: () => apiFetch(`/api/attendance-summary?sessionIds=${filteredSessionIds.join(",")}`),
+    enabled: filteredSessionIds.length > 0,
+  });
 
   const selectedSession = useMemo(
     () => sessions.find((s) => s.id === sessionId) ?? null,
@@ -423,29 +441,48 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                 </div>
 
                 <div className="grid gap-2">
-                  {filteredSessions.map((s) => (
-                    <Card
-                      key={s.id}
-                      className={`cursor-pointer transition-colors ${sessionId === s.id ? "border-primary bg-primary/5" : "hover:border-primary/50"}`}
-                      onClick={() => setSessionId(s.id)}
-                    >
-                      <CardContent className="py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm truncate">
-                              {formatSessionDateTime(s.scheduledAt)} {s.title ? `— ${s.title}` : ""}
+                  {filteredSessions.map((s) => {
+                    const summary = attendanceSummaries[String(s.id)];
+                    const total = summary?.total ?? 0;
+                    const present = summary?.present ?? 0;
+                    const absent = summary?.absent ?? 0;
+                    const percentage = summary?.percentage ?? 0;
+                    const hasSummary = Boolean(summary);
+                    return (
+                      <Card
+                        key={s.id}
+                        className={`cursor-pointer transition-colors ${sessionId === s.id ? "border-primary bg-primary/5" : "hover:border-primary/50"}`}
+                        onClick={() => setSessionId(s.id)}
+                      >
+                        <CardContent className="py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium text-sm truncate">
+                                {formatSessionDateTime(s.scheduledAt)} {s.title ? `— ${s.title}` : ""}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {s.teamName ? `${s.teamName} · ` : ""}
+                                {s.sessionKind ? `${s.sessionKind} · ` : ""}
+                                {s.location ?? "Luogo non indicato"}
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700 border border-emerald-100">
+                                  {hasSummary ? `${present} su ${total || present}` : "0 su 0"}
+                                </span>
+                                <span className="rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-700 border border-red-100">
+                                  {absent} assenze
+                                </span>
+                                <span className="rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary border border-primary/10">
+                                  {percentage}% presenze
+                                </span>
+                              </div>
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">
-                              {s.teamName ? `${s.teamName} · ` : ""}
-                              {s.sessionKind ? `${s.sessionKind} · ` : ""}
-                              {s.location ?? "Luogo non indicato"}
-                            </div>
+                            {sessionId === s.id && <Badge>Selezionata</Badge>}
                           </div>
-                          {sessionId === s.id && <Badge>Selezionata</Badge>}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                   {filteredSessions.length === 0 && (
                     <div className="text-sm text-muted-foreground py-2">Nessuna sessione trovata con questi filtri.</div>
                   )}
