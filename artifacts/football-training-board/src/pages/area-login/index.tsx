@@ -217,8 +217,8 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
         return;
       }
 
-      // Successful login: go to dashboard; AuthProvider will hydrate from /api/auth/me
-      window.location.href = "/dashboard";
+      // Successful login: force a fresh dashboard document in mobile WebView after deploys.
+      window.location.replace(`/dashboard?ftb_boot=${Date.now()}`);
     } catch {
       setSubmitError("Errore di connessione. Riprova.");
       setSubmitting(false);

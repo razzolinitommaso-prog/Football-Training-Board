@@ -9,6 +9,49 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      (function () {
+        var recoveryKey = "ftb-app-load-recovered";
+        function recover(reason) {
+          try {
+            if (sessionStorage.getItem(recoveryKey) === "1") return;
+            sessionStorage.setItem(recoveryKey, "1");
+          } catch (_) {}
+          var url = new URL(window.location.href);
+          url.searchParams.set("ftb_reload", String(Date.now()));
+          url.searchParams.set("ftb_reason", reason);
+          window.location.replace(url.toString());
+        }
+        window.addEventListener("error", function (event) {
+          var target = event && event.target;
+          if (target && (target.tagName === "SCRIPT" || target.tagName === "LINK")) {
+            recover("asset");
+          }
+        }, true);
+        window.addEventListener("unhandledrejection", function (event) {
+          var message = String((event && event.reason && (event.reason.message || event.reason)) || "");
+          if (/Loading chunk|ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed/i.test(message)) {
+            recover("chunk");
+          }
+        });
+        window.setTimeout(function () {
+          var root = document.getElementById("root");
+          if (!root || root.childElementCount > 0 || root.textContent.trim()) return;
+          var fallback = document.createElement("div");
+          fallback.style.cssText = "min-height:100svh;display:flex;align-items:center;justify-content:center;background:#080d18;color:white;font-family:Inter,system-ui,sans-serif;padding:24px;text-align:center";
+          fallback.innerHTML = '<div><p style="font-size:18px;font-weight:700;margin:0 0 8px">Caricamento app</p><p style="margin:0 0 16px;color:#94a3b8">Sto aggiornando i file della app.</p><button id="ftb-reload-button" style="border:0;border-radius:12px;background:#10b981;color:white;padding:12px 18px;font-weight:700">Ricarica app</button></div>';
+          root.appendChild(fallback);
+          var button = document.getElementById("ftb-reload-button");
+          if (button) {
+            button.addEventListener("click", function () {
+              var url = new URL(window.location.href);
+              url.searchParams.set("ftb_reload", String(Date.now()));
+              window.location.replace(url.toString());
+            });
+          }
+        }, 8000);
+      })();
+    </script>
   </head>
   <body translate="no" class="notranslate">
     <div id="root" translate="no" class="notranslate"></div>
