@@ -47,7 +47,15 @@ interface AttendanceSummary {
 }
 type TrainingConduct = "ottima" | "buona" | "insufficiente";
 type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
-type Team = { id: number; name: string; clubSection?: string | null };
+type Team = {
+  id: number;
+  name: string;
+  clubSection?: string | null;
+  category?: string | null;
+  ageGroup?: string | null;
+  seasonId?: number | null;
+  seasonName?: string | null;
+};
 
 async function apiFetch(url: string, options?: RequestInit) {
   const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
@@ -128,6 +136,16 @@ function sessionDateKey(value: string): string {
 }
 
 type TeamOption = { id: string; label: string; teamId: number | null };
+type AnnataOption = { id: string; label: string };
+
+function teamAnnataKey(team: Team | undefined): string {
+  const value = team?.ageGroup || team?.category || team?.name || "";
+  return value.trim().toLowerCase();
+}
+
+function teamAnnataLabel(team: Team | undefined): string {
+  return team?.ageGroup || team?.category || team?.name || "Annata non indicata";
+}
 
 export default function AttendancePage({ section }: { section?: ClubSection } = {}) {
   const { t } = useLanguage();
@@ -142,6 +160,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const [sessionId, setSessionId] = useState<number | null>(initialSessionId ? Number(initialSessionId) : null);
   const directSessionMode = !!initialSessionId;
   const isTechnicalDirector = role === "technical_director";
+  const [annataScope, setAnnataScope] = useState<string>("");
   const [teamScope, setTeamScope] = useState<string>(initialTeamId || "");
   const [sessionDateFilter, setSessionDateFilter] = useState<"all" | string>(initialDate || "all");
   const [sessionKindFilter, setSessionKindFilter] = useState<"all" | string>("all");
@@ -152,11 +171,16 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
     queryKey: ["/api/teams", section || "all", "attendance"],
     queryFn: () => apiFetch(section ? `/api/teams?section=${encodeURIComponent(section)}` : "/api/teams"),
   });
+  const teamsById = useMemo(() => new Map(sectionTeams.map((team) => [Number(team.id), team])), [sectionTeams]);
   const sectionTeamIds = useMemo(() => new Set(sectionTeams.map((team) => Number(team.id))), [sectionTeams]);
   const sessions = useMemo(() => {
     if (!section) return rawSessions;
     return rawSessions.filter((session) => session.teamId != null && sectionTeamIds.has(Number(session.teamId)));
   }, [rawSessions, section, sectionTeamIds]);
+  const sessionsByAnnata = useMemo(() => {
+    if (directSessionMode || !annataScope) return sessions;
+    return sessions.filter((session) => teamAnnataKey(teamsById.get(Number(session.teamId))) === annataScope);
+  }, [annataScope, directSessionMode, sessions, teamsById]);
   const { data: players = [] } = useQuery<Player[]>({
     queryKey: ["/api/players", section || "all", "attendance"],
     queryFn: () => apiFetch(section ? `/api/players?section=${encodeURIComponent(section)}` : "/api/players"),
@@ -166,6 +190,27 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
     queryFn: () => apiFetch(`/api/attendance?sessionId=${sessionId}`),
     enabled: !!sessionId,
   });
+  const annataOptions = useMemo<AnnataOption[]>(() => {
+    const map = new Map<string, AnnataOption>();
+    for (const team of sectionTeams) {
+      const id = teamAnnataKey(team);
+      if (!id) continue;
+      if (!map.has(id)) map.set(id, { id, label: teamAnnataLabel(team) });
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "it", { numeric: true }));
+  }, [sectionTeams]);
+
+  useEffect(() => {
+    if (directSessionMode || annataScope || annataOptions.length !== 1) return;
+    setAnnataScope(annataOptions[0].id);
+  }, [annataOptions, annataScope, directSessionMode]);
+
+  useEffect(() => {
+    if (!initialTeamId || annataScope || sectionTeams.length === 0) return;
+    const initialTeam = teamsById.get(Number(initialTeamId));
+    const initialAnnata = teamAnnataKey(initialTeam);
+    if (initialAnnata) setAnnataScope(initialAnnata);
+  }, [annataScope, initialTeamId, sectionTeams.length, teamsById]);
 
   useEffect(() => {
     if (sessionId || !sessions.length) return;
@@ -233,7 +278,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
 
   const teamOptions = useMemo<TeamOption[]>(() => {
     const map = new Map<string, TeamOption>();
-    for (const s of sessions) {
+    for (const s of sessionsByAnnata) {
       const key = s.teamId != null ? String(s.teamId) : "__none__";
       if (!map.has(key)) {
         map.set(key, {
@@ -244,18 +289,29 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
       }
     }
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "it"));
-  }, [sessions]);
+  }, [sessionsByAnnata]);
 
   useEffect(() => {
     if (teamOptions.length === 1 && !teamScope) setTeamScope(teamOptions[0].id);
   }, [teamOptions, teamScope]);
 
+  useEffect(() => {
+    if (directSessionMode || !annataScope || !teamScope) return;
+    if (!teamOptions.some((option) => option.id === teamScope)) {
+      setTeamScope("");
+      setSessionId(null);
+      setSessionDateFilter("all");
+      setSessionKindFilter("all");
+      setSessionObjectiveFilter("all");
+    }
+  }, [annataScope, directSessionMode, teamOptions, teamScope]);
+
   const sessionsByScope = useMemo(() => {
     if (!teamScope) return [];
-    if (teamScope === "__none__") return sessions.filter((s) => s.teamId == null);
+    if (teamScope === "__none__") return sessionsByAnnata.filter((s) => s.teamId == null);
     const id = Number(teamScope);
-    return sessions.filter((s) => s.teamId === id);
-  }, [sessions, teamScope]);
+    return sessionsByAnnata.filter((s) => s.teamId === id);
+  }, [sessionsByAnnata, teamScope]);
 
   const visibleSessionKinds = useMemo(() => {
     const kinds = new Set<string>();
@@ -371,12 +427,51 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
         <Card>
           <CardContent className="pt-6">
             <div className="space-y-3">
-            {teamOptions.length > 1 ? (
+            {annataOptions.length > 1 ? (
               <div className="space-y-2">
-                <Label>Annata / squadra di riferimento</Label>
+                <Label>Annata da consultare</Label>
+                <Select
+                  value={annataScope}
+                  onValueChange={(value) => {
+                    setAnnataScope(value);
+                    setTeamScope("");
+                    setSessionId(null);
+                    setSessionDateFilter("all");
+                    setSessionKindFilter("all");
+                    setSessionObjectiveFilter("all");
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleziona l'annata" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {annataOptions.map((opt) => (
+                      <SelectItem key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : annataOptions.length === 1 ? (
+              <div className="flex items-center gap-2">
+                <Label className="mb-0">Annata:</Label>
+                <Badge variant="secondary">{annataOptions[0].label}</Badge>
+              </div>
+            ) : null}
+
+            {!annataScope && annataOptions.length > 1 && (
+              <div className="rounded-md border border-dashed bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+                Seleziona un'annata per vedere squadre, sedute e presenze.
+              </div>
+            )}
+
+            {(annataScope || annataOptions.length <= 1) && teamOptions.length > 1 ? (
+              <div className="space-y-2">
+                <Label>Squadra di riferimento</Label>
                 <Select value={teamScope} onValueChange={setTeamScope}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleziona annata / squadra" />
+                    <SelectValue placeholder="Seleziona squadra" />
                   </SelectTrigger>
                   <SelectContent>
                     {teamOptions.map((opt) => (
@@ -387,9 +482,9 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                   </SelectContent>
                 </Select>
               </div>
-            ) : teamOptions.length === 1 ? (
+            ) : (annataScope || annataOptions.length <= 1) && teamOptions.length === 1 ? (
               <div className="flex items-center gap-2">
-                <Label className="mb-0">Annata / squadra:</Label>
+                <Label className="mb-0">Squadra:</Label>
                 <Badge variant="secondary">{teamOptions[0].label}</Badge>
               </div>
             ) : null}
