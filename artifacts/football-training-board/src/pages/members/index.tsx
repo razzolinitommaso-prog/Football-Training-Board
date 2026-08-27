@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Mail, Pencil, FileDown, Search } from "lucide-react";
+import { Plus, Trash2, Mail, Pencil, FileDown, Search, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -110,6 +110,7 @@ export default function MembersList() {
   const canExport = role === "admin" || role === "secretary" || role === "sporting_director" || role === "director";
   const currentRoleRank = MEMBER_ROLE_ORDER[role ?? ""] ?? 99;
   const canInviteMembers = ["admin", "presidente", "director", "sporting_director", "technical_director", "secretary"].includes(role ?? "");
+  const canManageAnyMembers = ["admin", "presidente", "director", "sporting_director", "technical_director", "secretary"].includes(role ?? "");
   const roleOptions = [
     { value: "director", label: t.director },
     { value: "admin", label: t.admin },
@@ -576,6 +577,18 @@ export default function MembersList() {
           )}
         </div>
       </div>
+
+      {!canManageAnyMembers && (
+        <div className="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200">
+          <Eye className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p className="font-semibold">Consultazione staff</p>
+            <p className="mt-0.5 text-sky-800/80 dark:text-sky-200/80">
+              Puoi vedere membri, ruoli, squadre assegnate e contatti disponibili. Le modifiche restano riservate ai profili autorizzati.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Edit Member Dialog */}
       <Dialog open={!!editingMember} onOpenChange={(open) => { if (!open) setEditingMember(null); }}>

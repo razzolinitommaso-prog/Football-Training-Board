@@ -96,7 +96,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={["admin", "presidente"]}><ClubSettings /></ProtectedRoute>
         </Route>
         <Route path="/members">
-          <ProtectedRoute allowedRoles={["admin", "presidente", "secretary", "sporting_director", "director", "technical_director"]}><MembersList /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={["admin", "presidente", "secretary", "sporting_director", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}><MembersList /></ProtectedRoute>
         </Route>
         <Route path="/tactical-board">
           <ProtectedRoute allowedRoles={["admin", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}>

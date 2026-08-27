@@ -123,7 +123,7 @@ export function AppSidebar() {
     { label: "Calendario operativo", url: "/training/calendario-operativo", icon: CalendarRange, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
     { label: "Esercitazioni",      url: "/exercises",    icon: BookOpen,        roles: ["coach", "fitness_coach", "athletic_director", "director", "technical_director"], group: "main" },
     { titleKey: "clubSettings",    url: "/club",         icon: Building2,       roles: ["admin", "presidente"], group: "main" },
-    { titleKey: "members",         url: "/members",      icon: ShieldCheck,     roles: ["admin", "presidente", "secretary", "sporting_director"], group: "main" },
+    { titleKey: "members",         url: "/members",      icon: ShieldCheck,     roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
     { label: "Notifiche Piattaforma", url: "/club/platform-notifications", icon: Bell, roles: ["admin", "presidente", "secretary", "sporting_director"], group: "main" },
     // Segreteria
     { titleKey: "registrations",   url: "/secretary/registrations", icon: ClipboardList, roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
