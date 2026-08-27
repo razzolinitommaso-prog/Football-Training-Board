@@ -370,10 +370,11 @@ function defaultKitRows(): KitRow[] {
 function parseKitRows(raw: string | null | undefined): KitRow[] {
   if (!raw) return defaultKitRows();
   try {
-    const parsed = JSON.parse(raw) as Partial<KitRow>[];
-    if (!Array.isArray(parsed)) return defaultKitRows();
+    const parsed = JSON.parse(raw) as Partial<KitRow>[] | { kitRows?: Partial<KitRow>[] };
+    const source = Array.isArray(parsed) ? parsed : parsed.kitRows;
+    if (!Array.isArray(source)) return defaultKitRows();
     return defaultKitRows().map((base) => {
-      const saved = parsed.find((row) => row.key === base.key);
+      const saved = source.find((row) => row.key === base.key);
       return {
         ...base,
         price: saved?.price != null ? String(saved.price) : "",
@@ -388,8 +389,35 @@ function parseKitRows(raw: string | null | undefined): KitRow[] {
   }
 }
 
-function serializeKitRows(rows: KitRow[]): string {
-  return JSON.stringify(rows.map((row) => ({
+function parseExtraTimeRows(raw: string | null | undefined): ExtraTimeRow[] {
+  if (!raw) return defaultExtraTimeRows();
+  try {
+    const parsed = JSON.parse(raw) as { extraTimeRows?: Partial<ExtraTimeRow>[] };
+    if (!Array.isArray(parsed.extraTimeRows)) return defaultExtraTimeRows();
+    return normalizeExtraTimeRows(parsed.extraTimeRows.map((row) => ({
+      key: String(row.key ?? ""),
+      group: row.group === "group" ? "group" : "individual",
+      label: String(row.label ?? ""),
+      activity: String(row.activity ?? ""),
+      packageType: String(row.packageType ?? ""),
+      packagePrice: String(row.packagePrice ?? ""),
+      playersCount: String(row.playersCount ?? ""),
+      lessonsCount: String(row.lessonsCount ?? ""),
+      durationMinutes: String(row.durationMinutes ?? ""),
+      hourlyCost: String(row.hourlyCost ?? ""),
+      packageDates: String(row.packageDates ?? ""),
+      lessonTime: String(row.lessonTime ?? ""),
+      coachName: String(row.coachName ?? ""),
+      notes: String(row.notes ?? ""),
+      parentVisible: row.parentVisible !== false,
+    })));
+  } catch {
+    return defaultExtraTimeRows();
+  }
+}
+
+function serializeKitRows(rows: KitRow[], extraRows?: ExtraTimeRow[]): string {
+  const kitRows = rows.map((row) => ({
     key: row.key,
     label: row.label,
     area: row.area,
@@ -398,7 +426,58 @@ function serializeKitRows(rows: KitRow[]): string {
     ordered: row.ordered,
     arrived: row.arrived,
     listItemId: row.listItemId || "",
-  })));
+  }));
+  if (!extraRows) return JSON.stringify(kitRows);
+  return JSON.stringify({
+    kitRows,
+    extraTimeRows: normalizeExtraTimeRows(extraRows),
+  });
+}
+
+function extraTimeRowHasContent(row: ExtraTimeRow): boolean {
+  return Boolean(
+    row.packageType ||
+    row.packagePrice ||
+    row.lessonsCount ||
+    row.packageDates ||
+    row.lessonTime ||
+    row.coachName ||
+    row.notes ||
+    (row.activity && row.activity !== "Tecnica"),
+  );
+}
+
+function ExtraTimeSummary({ rows }: { rows: ExtraTimeRow[] }) {
+  const visibleRows = normalizeExtraTimeRows(rows).filter(extraTimeRowHasContent);
+  if (visibleRows.length === 0) {
+    return <p className="text-sm text-muted-foreground">Nessun Extra Time programmato.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {visibleRows.map((row) => (
+        <div key={row.key} className="rounded-md border bg-background px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold">{row.group === "individual" ? "Allenamento individuale" : "Lezione di gruppo"}</p>
+            <Badge variant="outline">{row.activity || "-"}</Badge>
+          </div>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div><span className="text-muted-foreground">Pacchetto</span><p>{extraTimePackageLabel(row)}</p></div>
+            <div><span className="text-muted-foreground">Lezioni</span><p>{row.lessonsCount || "0"} da {row.durationMinutes || "0"} min</p></div>
+            {row.group === "group" && <div><span className="text-muted-foreground">Giocatori</span><p>{row.playersCount || "-"}</p></div>}
+            <div><span className="text-muted-foreground">Date</span><p>{row.packageDates || "-"}</p></div>
+            <div><span className="text-muted-foreground">Orario</span><p>{row.lessonTime || "-"}</p></div>
+            <div><span className="text-muted-foreground">Mister/Preparatore</span><p>{row.coachName || "-"}</p></div>
+          </div>
+          {row.notes && (
+            <div className="mt-2 rounded border bg-muted/30 px-2 py-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Note</span>
+              <p>{row.notes}</p>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const EXTRA_TIME_ITEMS: Array<Pick<ExtraTimeRow, "key" | "group" | "label" | "activity">> = [
@@ -1205,6 +1284,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const isLimitedEditor = !canManagePlayers && canWritePlayerNotes;
   const canEditFullPlayer = canManagePlayers && playerDialogMode === "edit";
   const canEditFinancials = nr === "secretary" && playerDialogMode === "edit";
+  const canViewExtraTime = Boolean(editingPlayer);
   const canEditAvailability = canManagePlayers && playerDialogMode === "edit";
   const canForceAvailability = ["admin", "presidente", "director", "secretary"].includes(nr) && playerDialogMode === "edit";
   const canEditRoleAndSquad = canManagePlayers && playerDialogMode === "edit";
@@ -1235,6 +1315,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const plannedShuttleMonths = Math.max(0, Math.floor(Number(shuttleMonthsCount) || 0));
   const plannedKitTotal = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
   const normalizedExtraTimeRows = normalizeExtraTimeRows(extraTimeRows);
+  const displayedExtraTimeRows = editingPlayerEquipment ? parseExtraTimeRows(editingPlayerEquipment.trainingKit) : normalizedExtraTimeRows;
   const plannedExtraTimeTotal = normalizedExtraTimeRows.reduce((sum, row) => sum + extraTimeRowTotal(row), 0);
   const editingPlayerTeam = editingPlayer?.teamId ? teams?.find((team) => team.id === editingPlayer.teamId) : undefined;
   const editingPlayerIsYouthSection = (editingPlayerTeam as any)?.clubSection === "settore_giovanile" || section === "settore_giovanile";
@@ -1613,7 +1694,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       body: JSON.stringify({
         playerId: editingPlayer.id,
         kitAssigned: editingPlayer.jerseyNumber ? String(editingPlayer.jerseyNumber) : null,
-        trainingKit: serializeKitRows(kitRows),
+        trainingKit: serializeKitRows(kitRows, extraTimeRows),
         matchKit: serializeKitRows(kitRows.filter((row) => row.area === "match")),
         notes: kitNotes || null,
       }),
@@ -1888,7 +1969,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         body: JSON.stringify({
           playerId: editingPlayer.id,
           kitAssigned: editingPlayer.jerseyNumber ? String(editingPlayer.jerseyNumber) : null,
-          trainingKit: serializeKitRows(kitRows),
+          trainingKit: serializeKitRows(kitRows, extraTimeRows),
           matchKit: serializeKitRows(kitRows.filter((row) => row.area === "match")),
           notes: kitNotes || null,
         }),
@@ -2024,6 +2105,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return;
     }
     setKitRows(parseKitRows(editingPlayerEquipment?.trainingKit));
+    setExtraTimeRows(parseExtraTimeRows(editingPlayerEquipment?.trainingKit));
     setKitNotes(editingPlayerEquipment?.notes ?? "");
     setKitPaymentStatus(editingKitPayment?.status === "paid" ? "paid" : "pending");
     setKitPaymentMethod(editingKitPayment?.paymentMethod ?? "");
@@ -2055,7 +2137,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     setShuttleMonthlyCost(shuttlePayment?.amount != null ? String(shuttlePayment.amount) : "");
     setShuttleMonthsCount("1");
     setShuttlePaymentDueDate(shuttlePayment?.dueDate ?? "");
-    setExtraTimeRows(defaultExtraTimeRows());
+    setExtraTimeRows(parseExtraTimeRows(playerEquipment.find((item) => item.playerId === player.id)?.trainingKit));
     editForm.reset({
       firstName: player.firstName,
       lastName: player.lastName,
@@ -2903,6 +2985,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
               <PlayerActivitySummaryPanel playerId={editingPlayer.id} isYouthSection={editingPlayerIsYouthSection} />
 
+              {canViewExtraTime && (
+                <details className="group rounded-lg border p-3">
+                  <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} />
+                  <div className="mt-3">
+                    <ExtraTimeSummary rows={displayedExtraTimeRows} />
+                  </div>
+                </details>
+              )}
+
               <details className="group rounded-lg border p-3">
                 <CollapsibleSectionSummary title="Dati principali" />
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
@@ -2912,6 +3003,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <div><span className="text-muted-foreground">Peso</span><p>{editingPlayer.weight ? `${editingPlayer.weight} kg` : "-"}</p></div>
                   <div><span className="text-muted-foreground">Tesseramento</span><p>{editingPlayer.registered ? t.registered : "-"}</p></div>
                   <div><span className="text-muted-foreground">Numero matricola</span><p>{editingPlayer.registrationNumber || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Ruolo generico</span><p>{editingPlayer.position || "-"}</p></div>
                   <div><span className="text-muted-foreground">Certificato medico</span><p>{isMedicalCertificateValid(editingPlayer.medicalCertificateExpiry) ? `Valido fino al ${editingPlayer.medicalCertificateExpiry}` : "Assente o scaduto"}</p></div>
                   <div><span className="text-muted-foreground">Pulmino</span><p>{editingPlayer.shuttleService ? "Si" : "No"}</p></div>
                   <div><span className="text-muted-foreground">Stato</span><p>{statusLabel(editingPlayer.status)}</p></div>
@@ -3130,6 +3222,24 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <div className="space-y-2">
                     <Label>{t.registrationNumber}</Label>
                     <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ruolo generico</Label>
+                    <Controller
+                      control={editForm.control}
+                      name="position"
+                      render={({ field }) => (
+                        <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditRoleAndSquad}>
+                          <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="GK">{t.goalkeeper}</SelectItem>
+                            <SelectItem value="DEF">{t.defender}</SelectItem>
+                            <SelectItem value="MID">{t.midfielder}</SelectItem>
+                            <SelectItem value="FWD">{t.forward}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>{t.height} (cm)</Label>
@@ -3697,26 +3807,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-2">
-                      <Label>Ruolo generico</Label>
-                      <Controller
-                        control={editForm.control}
-                        name="position"
-                        render={({ field }) => (
-                          <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditRoleAndSquad}>
-                            <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="GK">{t.goalkeeper}</SelectItem>
-                              <SelectItem value="DEF">{t.defender}</SelectItem>
-                              <SelectItem value="MID">{t.midfielder}</SelectItem>
-                              <SelectItem value="FWD">{t.forward}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
-                      />
-                    </div>
-                    <div className="space-y-2 sm:col-span-2">
                       <Label>{t.status}</Label>
                       <Controller
                         control={editForm.control}
@@ -3919,6 +4011,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       </div>
                     ))}
                   </div>
+                  </div>
+                </details>
+              )}
+
+              {!canEditFinancials && canViewExtraTime && (
+                <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                  <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} />
+                  <div className="mt-3">
+                    <ExtraTimeSummary rows={displayedExtraTimeRows} />
                   </div>
                 </details>
               )}
