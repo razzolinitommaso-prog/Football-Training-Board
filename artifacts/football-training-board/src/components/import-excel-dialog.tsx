@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { FileUp, Download, AlertCircle, CheckCircle2, XCircle, Loader2 } from "lucide-react";
-import { parseExcelFile } from "@/lib/excel-import";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { parseExcelWorkbook, type ParsedExcelSheet } from "@/lib/excel-import";
 
 type ImportResult = { success: number; failed: number; errors: string[] };
 
@@ -32,6 +33,8 @@ export function ImportExcelDialog({
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
+  const [sheets, setSheets] = useState<ParsedExcelSheet[]>([]);
+  const [selectedSheetName, setSelectedSheetName] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -53,11 +56,18 @@ export function ImportExcelDialog({
     setParseError(null);
     setResult(null);
     try {
-      const rows = await parseExcelFile(file);
+      const workbookSheets = await parseExcelWorkbook(file);
+      const firstSheet = workbookSheets.find((sheet) => sheet.rows.length > 0) ?? workbookSheets[0];
+      const rows = firstSheet?.rows ?? [];
       if (!rows.length) {
-        setParseError("Il file è vuoto o non contiene dati nel primo foglio.");
+        setSheets(workbookSheets);
+        setSelectedSheetName(firstSheet?.name ?? workbookSheets[0]?.name ?? "");
+        setOpen(true);
+        setParseError("Il file è vuoto o non contiene dati nella scheda selezionata.");
         return;
       }
+      setSheets(workbookSheets);
+      setSelectedSheetName(firstSheet.name);
       setRawRows(rows);
       setOpen(true);
     } catch (err: any) {
@@ -105,8 +115,19 @@ export function ImportExcelDialog({
   function handleClose() {
     setOpen(false);
     setRawRows([]);
+    setSheets([]);
+    setSelectedSheetName("");
     setResult(null);
     setParseError(null);
+  }
+
+  function handleSheetChange(sheetName: string) {
+    setSelectedSheetName(sheetName);
+    setResult(null);
+    const sheet = sheets.find((item) => item.name === sheetName);
+    const rows = sheet?.rows ?? [];
+    setRawRows(rows);
+    setParseError(rows.length ? null : "La scheda selezionata è vuota o non contiene dati importabili.");
   }
 
   if (!canImport) return null;
@@ -145,6 +166,25 @@ export function ImportExcelDialog({
           </DialogHeader>
 
           <div className="flex-1 overflow-auto min-h-0">
+            {sheets.length > 1 && !result && (
+              <div className="mb-3 rounded-lg border bg-muted/20 p-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+                  <span className="text-sm font-medium">Scheda di lavoro</span>
+                  <Select value={selectedSheetName} onValueChange={handleSheetChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleziona foglio" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sheets.map((sheet) => (
+                        <SelectItem key={sheet.name} value={sheet.name}>
+                          {sheet.name} ({sheet.rows.length} righe)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
             {parseError ? (
               <div className="flex items-start gap-3 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
                 <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />

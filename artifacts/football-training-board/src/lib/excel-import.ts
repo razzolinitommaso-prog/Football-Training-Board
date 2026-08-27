@@ -88,19 +88,29 @@ function readCell(row: Record<string, unknown>, keys: string[]) {
   return "";
 }
 
-export async function parseExcelFile(file: File): Promise<Record<string, unknown>[]> {
+export type ParsedExcelSheet = {
+  name: string;
+  rows: Record<string, unknown>[];
+};
+
+export async function parseExcelWorkbook(file: File): Promise<ParsedExcelSheet[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
-          defval: "",
-          raw: false,
+        const sheets = wb.SheetNames.map((name) => {
+          const ws = wb.Sheets[name];
+          return {
+            name,
+            rows: XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+              defval: "",
+              raw: false,
+            }),
+          };
         });
-        resolve(rows);
+        resolve(sheets);
       } catch {
         reject(new Error("File non valido. Assicurati di caricare un file .xlsx o .xls"));
       }
@@ -108,6 +118,12 @@ export async function parseExcelFile(file: File): Promise<Record<string, unknown
     reader.onerror = () => reject(new Error("Errore nella lettura del file"));
     reader.readAsArrayBuffer(file);
   });
+}
+
+export async function parseExcelFile(file: File, sheetName?: string): Promise<Record<string, unknown>[]> {
+  const sheets = await parseExcelWorkbook(file);
+  if (!sheetName) return sheets[0]?.rows ?? [];
+  return sheets.find((sheet) => sheet.name === sheetName)?.rows ?? [];
 }
 
 // --- Player import ---
