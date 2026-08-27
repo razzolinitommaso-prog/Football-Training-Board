@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight, Copy, KeyRound, Clock, ClipboardCheck, Trophy, Activity, ShieldAlert } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight, Copy, KeyRound, Clock, ClipboardCheck, Trophy, Activity, ShieldAlert, Phone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -742,6 +742,26 @@ function comparePlayersBySurname(a: Pick<Player, "firstName" | "lastName">, b: P
     sensitivity: "base",
     numeric: true,
   });
+}
+
+function phoneHref(value?: string | null): string | null {
+  const cleaned = String(value ?? "").replace(/[^\d+]/g, "");
+  return cleaned.length >= 5 ? `tel:${cleaned}` : null;
+}
+
+function PhoneLink({ value }: { value?: string | null }) {
+  const href = phoneHref(value);
+  if (!href) return <p>-</p>;
+  return (
+    <a
+      href={href}
+      className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <Phone className="h-3.5 w-3.5" />
+      {value}
+    </a>
+  );
 }
 
 function normalizeImportTeamName(value?: string | null): string {
@@ -2895,19 +2915,19 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <div><span className="text-muted-foreground">Certificato medico</span><p>{isMedicalCertificateValid(editingPlayer.medicalCertificateExpiry) ? `Valido fino al ${editingPlayer.medicalCertificateExpiry}` : "Assente o scaduto"}</p></div>
                   <div><span className="text-muted-foreground">Pulmino</span><p>{editingPlayer.shuttleService ? "Si" : "No"}</p></div>
                   <div><span className="text-muted-foreground">Stato</span><p>{statusLabel(editingPlayer.status)}</p></div>
-                  <div><span className="text-muted-foreground">Telefono</span><p>{editingPlayer.phone || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Telefono</span><PhoneLink value={editingPlayer.phone} /></div>
                   <div><span className="text-muted-foreground">Email</span><p>{editingPlayer.email || "-"}</p></div>
                   {(editingPlayer.phoneOwnerType === "parent" || Boolean(editingPlayer.parentFirstName || editingPlayer.parentLastName || editingPlayer.parentPhone || editingPlayer.parentEmail || editingPlayer.parentRelation)) && (
                     <>
                       <div><span className="text-muted-foreground">Genitore/Tutore</span><p>{[editingPlayer.parentFirstName, editingPlayer.parentLastName].filter(Boolean).join(" ") || "-"}</p></div>
                       <div><span className="text-muted-foreground">Relazione</span><p>{editingPlayer.parentRelation || "-"}</p></div>
-                      <div><span className="text-muted-foreground">Telefono genitore</span><p>{editingPlayer.parentPhone || "-"}</p></div>
+                      <div><span className="text-muted-foreground">Telefono genitore</span><PhoneLink value={editingPlayer.parentPhone} /></div>
                       <div><span className="text-muted-foreground">Email genitore</span><p>{editingPlayer.parentEmail || "-"}</p></div>
                     </>
                   )}
                   <div><span className="text-muted-foreground">Secondo referente</span><p>{[editingPlayer.secondaryContactFirstName, editingPlayer.secondaryContactLastName].filter(Boolean).join(" ") || "-"}</p></div>
                   <div><span className="text-muted-foreground">Relazione secondo referente</span><p>{editingPlayer.secondaryContactRelation || "-"}</p></div>
-                  <div><span className="text-muted-foreground">Telefono secondo referente</span><p>{editingPlayer.secondaryContactPhone || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Telefono secondo referente</span><PhoneLink value={editingPlayer.secondaryContactPhone} /></div>
                   <div><span className="text-muted-foreground">Email secondo referente</span><p>{editingPlayer.secondaryContactEmail || "-"}</p></div>
                 </div>
               </details>
