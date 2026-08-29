@@ -43,6 +43,14 @@ import { assignPlayersToElements, isGoalkeeperPlayer } from "./player-mapping";
 
 type FieldElementPanel = "assign" | "text" | "number" | "color" | "rotate" | "line" | "arrow" | "shape" | "format" | "font" | "measure";
 type BoardActionPanel = "load" | "create" | "exercise" | "tactics" | "match" | "none";
+type FieldViewMode = "full" | "half" | "finalThird" | "setPiece";
+
+const FIELD_VIEW_OPTIONS: Array<{ value: FieldViewMode; label: string; lengthScale: number; widthScale: number }> = [
+  { value: "full", label: "Campo intero", lengthScale: 1, widthScale: 1 },
+  { value: "half", label: "Meta campo", lengthScale: 0.52, widthScale: 1 },
+  { value: "finalThird", label: "Ultimo terzo", lengthScale: 0.38, widthScale: 1 },
+  { value: "setPiece", label: "Palla inattiva", lengthScale: 0.42, widthScale: 0.82 },
+];
 
 /**
  * Panchina riserve: fila centrata sul fondo (y alto), lontano dalla formazione,
@@ -1286,6 +1294,7 @@ const QuickPage = () => {
   const [boardClubId, setBoardClubId] = useState<number | null>(parseNumericId((club as any)?.id));
   const [boardCategory, setBoardCategory] = useState<string | null>(null);
   const [boardFormat, setBoardFormat] = useState<TacticalBoardFormat>("11v11");
+  const [fieldViewMode, setFieldViewMode] = useState<FieldViewMode>("full");
   const [boardType, setBoardType] = useState<(typeof BOARD_TYPES)[number]>("Training");
   const [boardNotes, setBoardNotes] = useState("Obiettivo: attirare la prima pressione e uscire sul lato debole con la mezzala dentro.");
   const [activeBoardAction, setActiveBoardAction] = useState<BoardActionPanel>("load");
@@ -1951,15 +1960,22 @@ const QuickPage = () => {
     preset.toLowerCase().includes(librarySearch.toLowerCase())
   );
   const pitchMeasurement = FIELD_MEASUREMENTS[boardFormat] ?? FIELD_MEASUREMENTS["11v11"];
+  const fieldViewOption = FIELD_VIEW_OPTIONS.find((option) => option.value === fieldViewMode) ?? FIELD_VIEW_OPTIONS[0];
   const displayPitchMeasurement = isMobileViewport
     ? {
         ...pitchMeasurement,
-        canvasLength: pitchMeasurement.canvasWidth,
-        canvasWidth: pitchMeasurement.canvasLength,
-        length: pitchMeasurement.width,
-        width: pitchMeasurement.length,
+        canvasLength: pitchMeasurement.canvasWidth * fieldViewOption.widthScale,
+        canvasWidth: pitchMeasurement.canvasLength * fieldViewOption.lengthScale,
+        length: pitchMeasurement.width * fieldViewOption.widthScale,
+        width: pitchMeasurement.length * fieldViewOption.lengthScale,
       }
-    : pitchMeasurement;
+    : {
+        ...pitchMeasurement,
+        canvasLength: pitchMeasurement.canvasLength * fieldViewOption.lengthScale,
+        canvasWidth: pitchMeasurement.canvasWidth * fieldViewOption.widthScale,
+        length: pitchMeasurement.length * fieldViewOption.lengthScale,
+        width: pitchMeasurement.width * fieldViewOption.widthScale,
+      };
   const hasRenderableElements = elements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
   const selectedElement =
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
@@ -3077,6 +3093,60 @@ const QuickPage = () => {
     window.addEventListener("pointercancel", handleUp);
   };
 
+  const buildBoardSnapshot = (): TacticalBoardData => ({
+    teamId: boardMode === "assigned" ? boardTeamId : null,
+    clubId: boardClubId,
+    category: boardCategory,
+    format: boardFormat,
+    boardType,
+    matchId: selectedMatchId,
+    matchPeriodKey: selectedMatchId && (isMatchPreparationUi || isMatchPlanBoard) ? matchPeriodKey : null,
+    preset: selectedPreset,
+    activeTool,
+    focusMode,
+    arrowToolPreset,
+    elements,
+    updatedAt: new Date().toISOString(),
+    notes: boardNotes,
+  });
+
+  const copyBoardSnapshot = async () => {
+    const snapshot = {
+      title: boardTitle,
+      data: buildBoardSnapshot(),
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2));
+      setSaveState("Copied");
+      window.setTimeout(() => setSaveState(currentBoardId ? "Saved" : "Unsaved"), 1300);
+    } catch {
+      setSaveState("Copy error");
+    }
+  };
+
+  const shareBoard = async () => {
+    const shareUrl = currentBoardId
+      ? `${window.location.origin}${window.location.pathname}?boardId=${currentBoardId}`
+      : window.location.href;
+    const shareData = {
+      title: boardTitle || "Lavagna tattica FTB",
+      text: "Lavagna tattica FTB",
+      url: shareUrl,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        return;
+      }
+      await navigator.clipboard.writeText(shareUrl);
+      setSaveState("Link copied");
+      window.setTimeout(() => setSaveState(currentBoardId ? "Saved" : "Unsaved"), 1300);
+    } catch {
+      setSaveState("Share error");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0B1220] text-white flex flex-col">
       {/* HEADER */}
@@ -3125,12 +3195,24 @@ const QuickPage = () => {
             <Maximize2 size={16} />
             Focus mode
           </button>
-          <button className="p-2 rounded-xl hover:bg-white/10 transition">
+          <button
+            type="button"
+            onClick={() => void copyBoardSnapshot()}
+            className="p-2 rounded-xl hover:bg-white/10 transition"
+            title="Copia dati lavagna"
+            aria-label="Copia dati lavagna"
+          >
             <Copy size={18} />
           </button>
-          <button className="p-2 rounded-xl hover:bg-white/10 transition">
-  <Share2 size={18} />
-</button>
+          <button
+            type="button"
+            onClick={() => void shareBoard()}
+            className="p-2 rounded-xl hover:bg-white/10 transition"
+            title="Condividi lavagna"
+            aria-label="Condividi lavagna"
+          >
+            <Share2 size={18} />
+          </button>
 
 <button
   onClick={() => {
@@ -3166,23 +3248,7 @@ const QuickPage = () => {
   onClick={async () => {      
     setSaveState("Saving...");
 
-    const data: TacticalBoardData = {
-      teamId: boardMode === "assigned" ? boardTeamId : null,
-      clubId: boardClubId,
-      category: boardCategory,
-      format: boardFormat,
-      boardType,
-      matchId: selectedMatchId,
-      matchPeriodKey: selectedMatchId && (isMatchPreparationUi || isMatchPlanBoard) ? matchPeriodKey : null,
-      preset: selectedPreset,
-      activeTool,
-      focusMode,
-      arrowToolPreset,
-      elements: elements,
-      // Present already in backend blob usage and safe to keep:
-      updatedAt: new Date().toISOString(),
-      notes: boardNotes,
-    };
+    const data = buildBoardSnapshot();
 
     const boardPayload = {
       title: boardTitle,
@@ -3256,11 +3322,17 @@ const QuickPage = () => {
                   <option className="bg-[#111827] text-white" key={formation} value={formation}>{formation}</option>
                 ))}
               </select>
-              <select className="rounded-xl border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white outline-none">
-                <option className="bg-[#111827] text-white">Campo intero</option>
-                <option className="bg-[#111827] text-white">Meta campo</option>
-                <option className="bg-[#111827] text-white">Ultimo terzo</option>
-                <option className="bg-[#111827] text-white">Palla inattiva</option>
+              <select
+                value={fieldViewMode}
+                onChange={(event) => setFieldViewMode(event.target.value as FieldViewMode)}
+                className="rounded-xl border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white outline-none"
+                title="Vista campo"
+              >
+                {FIELD_VIEW_OPTIONS.map((option) => (
+                  <option className="bg-[#111827] text-white" key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
               <div className="relative">
                 <button
