@@ -95,8 +95,8 @@ const STAFF_MANAGED_ROLES = ["coach", "fitness_coach", "athletic_director"] as c
 export default function MembersList() {
   const { t, language } = useLanguage();
   const { role } = useAuth();
-  const { data: members, isLoading } = useListClubMembers();
-  const { data: teams } = useListTeams();
+  const { data: members = [], isLoading } = useListClubMembers();
+  const { data: teams = [] } = useListTeams();
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<ClubMember | null>(null);
   const [search, setSearch] = useState("");
@@ -287,11 +287,12 @@ export default function MembersList() {
   }
 
   function setExtraTimeSection(formApi: typeof inviteForm | typeof editForm, enabled: boolean) {
-    const current = formApi.getValues("clubSection") ?? [];
+    const sectionForm = formApi as any;
+    const current = (sectionForm.getValues("clubSection") ?? []) as ClubSection[];
     const next = enabled
       ? Array.from(new Set([...current, "extra_time" as ClubSection]))
-      : current.filter(section => section !== "extra_time");
-    formApi.setValue("clubSection", next.length > 0 ? next : ["scuola_calcio"], { shouldDirty: true, shouldValidate: true });
+      : current.filter((section: ClubSection) => section !== "extra_time");
+    sectionForm.setValue("clubSection", next.length > 0 ? next : ["scuola_calcio"], { shouldDirty: true, shouldValidate: true });
   }
 
   const allStaffRoleOptions = [

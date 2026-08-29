@@ -35,6 +35,7 @@ import {
   Square,
 } from "lucide-react";
 import { withApi } from "@/lib/api-base";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { FORMATIONS, isFormationPresetId, type FormationPresetId } from "./formations";
 import type { ArrowToolPreset, TacticalBoardData, TacticalBoardElement, TacticalBoardFormat } from "./board-types";
 import { useTeamPlayers, type TeamPlayer } from "./use-team-players";
@@ -1193,6 +1194,7 @@ function DrawingToolGlyph({ type }: { type: string }) {
 }
 
 const QuickPage = () => {
+  const isMobileViewport = useIsMobile();
   const { club, user } = useAuth();
   const { data: allTeams } = useListTeams();
   const { data: allPlayersData } = useListPlayers();
@@ -1949,6 +1951,15 @@ const QuickPage = () => {
     preset.toLowerCase().includes(librarySearch.toLowerCase())
   );
   const pitchMeasurement = FIELD_MEASUREMENTS[boardFormat] ?? FIELD_MEASUREMENTS["11v11"];
+  const displayPitchMeasurement = isMobileViewport
+    ? {
+        ...pitchMeasurement,
+        canvasLength: pitchMeasurement.canvasWidth,
+        canvasWidth: pitchMeasurement.canvasLength,
+        length: pitchMeasurement.width,
+        width: pitchMeasurement.length,
+      }
+    : pitchMeasurement;
   const hasRenderableElements = elements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
   const selectedElement =
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
@@ -2830,6 +2841,7 @@ const QuickPage = () => {
     if (selectedElementIndex === null || selectedElement?.type !== "text") return;
     event.preventDefault();
     event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     const startX = event.clientX;
     const startY = event.clientY;
     const startWidth = Number(selectedElement.textWidth ?? 260);
@@ -2850,9 +2862,11 @@ const QuickPage = () => {
     const handleUp = () => {
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
     };
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
   };
 
   const moveZoneVertex = (
@@ -2865,6 +2879,7 @@ const QuickPage = () => {
     if (zone?.type !== "zone" || !vertices[pointIndex]) return;
     event.preventDefault();
     event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     selectElementAndOpenMenu(index, event);
 
     const handleMove = (ev: PointerEvent) => {
@@ -2881,9 +2896,11 @@ const QuickPage = () => {
     const handleUp = () => {
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
     };
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
   };
 
   const moveDrawingPoint = (event: React.PointerEvent<HTMLElement>, index: number, pointIndex: number) => {
@@ -2892,6 +2909,7 @@ const QuickPage = () => {
     if (!points[pointIndex]) return;
     event.preventDefault();
     event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     selectElementAndOpenMenu(index, event);
 
     const handleMove = (ev: PointerEvent) => {
@@ -2912,9 +2930,11 @@ const QuickPage = () => {
     const handleUp = () => {
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
     };
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
   };
 
   const setSelectedTextAlign = (textAlign: "left" | "center" | "right") => updateSelectedElements((item) =>
@@ -2993,6 +3013,7 @@ const QuickPage = () => {
   const dragElement = (e: React.PointerEvent<HTMLElement | SVGElement>, indexToDrag: number) => {
     e.preventDefault();
     e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
 
     const pointerId = e.pointerId;
     selectElementAndOpenMenu(indexToDrag, e);
@@ -3048,10 +3069,12 @@ const QuickPage = () => {
       isDraggingRef.current = false;
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
     };
 
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
   };
 
   return (
@@ -3375,11 +3398,11 @@ const QuickPage = () => {
               <div className="flex min-w-0 flex-1 flex-col gap-2">
             <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-2 text-xs text-white/60">
               <div className="font-medium text-white/75">
-                Tavola metrica: {pitchMeasurement.canvasLength}m x {pitchMeasurement.canvasWidth}m
+                Tavola metrica: {displayPitchMeasurement.canvasLength}m x {displayPitchMeasurement.canvasWidth}m
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <span>
-                  Campo: {pitchMeasurement.length}m x {pitchMeasurement.width}m · griglia {pitchMeasurement.gridStep}m
+                  Campo: {displayPitchMeasurement.length}m x {displayPitchMeasurement.width}m · griglia {displayPitchMeasurement.gridStep}m
                 </span>
                 <button
                   type="button"
@@ -3408,8 +3431,11 @@ const QuickPage = () => {
             <div
               className="relative h-auto w-full rounded-[22px] sm:rounded-[26px] lg:rounded-[30px] overflow-hidden border border-white/10 shadow-2xl bg-gradient-to-b from-[#34A853] via-[#2B914A] to-[#23783F]"
               style={{
-                aspectRatio: `${pitchMeasurement.canvasLength} / ${pitchMeasurement.canvasWidth}`,
+                aspectRatio: `${displayPitchMeasurement.canvasLength} / ${displayPitchMeasurement.canvasWidth}`,
                 maxWidth: "100%",
+                touchAction: "none",
+                WebkitUserSelect: "none",
+                userSelect: "none",
               }}
               ref={pitchRef}
               onContextMenu={(e) => e.preventDefault()}
@@ -3420,6 +3446,7 @@ const QuickPage = () => {
                 const pitch = pitchRef.current;
                 if (!pitch) return;
                 e.preventDefault();
+                e.currentTarget.setPointerCapture?.(e.pointerId);
 
                 const start = getPitchPoint(e, pitch);
                 const nextType = activeTool === "movement" ? "arrow" : activeTool === "zones" ? "zone" : activeTool === "measure" ? "line" : "path";
@@ -3485,10 +3512,12 @@ const QuickPage = () => {
                   if (ev.pointerId !== pointerId) return;
                   window.removeEventListener("pointermove", handleMove);
                   window.removeEventListener("pointerup", handleUp);
+                  window.removeEventListener("pointercancel", handleUp);
                 };
 
                 window.addEventListener("pointermove", handleMove);
                 window.addEventListener("pointerup", handleUp);
+                window.addEventListener("pointercancel", handleUp);
               }}
               onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                 // Evita di creare nuovi elementi quando clicchi sopra un marker esistente.
@@ -3568,7 +3597,7 @@ const QuickPage = () => {
 
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_45%)]" />
               <MetricFieldOverlay
-                spec={pitchMeasurement}
+                spec={displayPitchMeasurement}
                 showGrid={showMetricGrid}
                 showFieldMarkings={showFieldMarkings}
               />
@@ -3661,8 +3690,8 @@ const QuickPage = () => {
                     const [a, b] = points;
                     const dxPct = b.x - a.x;
                     const dyPct = b.y - a.y;
-                    const dxM = (dxPct / 100) * pitchMeasurement.canvasLength;
-                    const dyM = (dyPct / 100) * pitchMeasurement.canvasWidth;
+                    const dxM = (dxPct / 100) * displayPitchMeasurement.canvasLength;
+                    const dyM = (dyPct / 100) * displayPitchMeasurement.canvasWidth;
                     const meters = Math.hypot(dxM, dyM);
                     const len = Math.hypot(dxPct, dyPct) || 1;
                     const measureStroke = fineStroke;
@@ -3921,8 +3950,8 @@ const QuickPage = () => {
                     if (goalVariant) {
                       const fieldGoalStyle = {
                         ...commonStyle,
-                        width: `${(goalVariant.depthMeters / pitchMeasurement.canvasLength) * 100}%`,
-                        height: `${(goalVariant.widthMeters / pitchMeasurement.canvasWidth) * 100}%`,
+                        width: `${(goalVariant.depthMeters / displayPitchMeasurement.canvasLength) * 100}%`,
+                        height: `${(goalVariant.widthMeters / displayPitchMeasurement.canvasWidth) * 100}%`,
                         minWidth: goalVariant.id === "goalMini" ? "8px" : "12px",
                         minHeight: goalVariant.id === "goalMini" ? "10px" : "18px",
                       } as const;

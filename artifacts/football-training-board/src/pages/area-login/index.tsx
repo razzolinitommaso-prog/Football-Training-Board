@@ -1,8 +1,10 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useQueryClient } from "@tanstack/react-query";
+import { getCurrentUser, getGetCurrentUserQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
-import { Link, Redirect } from "wouter";
+import { Link, Redirect, useLocation } from "wouter";
 import { Loader2, ArrowLeft, Eye, EyeOff, Shield, Target, FileText, BarChart3, Settings, Heart, Dumbbell, BriefcaseBusiness } from "lucide-react";
 import { useState } from "react";
 import { withApi } from "@/lib/api-base";
@@ -129,6 +131,8 @@ const SECTION_LABELS: Record<string, string> = {
 
 export function AreaLoginPage({ areaKey }: AreaLoginProps) {
   const { user, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const [showPassword, setShowPassword] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -217,8 +221,19 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
         return;
       }
 
-      // Successful login: force a fresh dashboard document in mobile WebView after deploys.
-      window.location.replace(`/dashboard?ftb_boot=${Date.now()}`);
+      const verified = await queryClient.fetchQuery({
+        queryKey: getGetCurrentUserQueryKey(),
+        queryFn: () => getCurrentUser(),
+      });
+
+      if (!verified?.user) {
+        setSubmitError("Sessione non confermata dopo il login. Riprova.");
+        setSubmitting(false);
+        return;
+      }
+
+      queryClient.setQueryData(getGetCurrentUserQueryKey(), verified);
+      setLocation("/dashboard");
     } catch {
       setSubmitError("Errore di connessione. Riprova.");
       setSubmitting(false);
@@ -353,6 +368,8 @@ export function AdminLoginPage() { return <AreaLoginPage areaKey="admin" />; }
 export function FitnessLoginPage() { return <AreaLoginPage areaKey="fitness" />; }
 export function ParentLoginPage() {
   const { user, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const [clubCode, setClubCode] = useState("");
   const [parentCode, setParentCode] = useState("");
   const [delegateCode, setDelegateCode] = useState("");
@@ -387,7 +404,17 @@ export function ParentLoginPage() {
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Credenziali non valide"); setLoading(false); return; }
       setAuthToken((data as any)?.authToken);
-      window.location.href = "/parent-dashboard";
+      const verified = await queryClient.fetchQuery({
+        queryKey: getGetCurrentUserQueryKey(),
+        queryFn: () => getCurrentUser(),
+      });
+      if (!verified?.user) {
+        setError("Sessione non confermata dopo il login. Riprova.");
+        setLoading(false);
+        return;
+      }
+      queryClient.setQueryData(getGetCurrentUserQueryKey(), verified);
+      setLocation("/parent-dashboard");
     } catch {
       setError("Errore di connessione. Riprova.");
       setLoading(false);

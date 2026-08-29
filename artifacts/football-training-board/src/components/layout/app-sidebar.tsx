@@ -79,7 +79,13 @@ const SEZIONI = [
   { key: "prima-squadra",     label: "Prima Squadra",     icon: Star },
 ] as const;
 
-const WORKSPACE_SECTION_KEYS = new Set(SEZIONI.map((section) => section.key));
+type WorkspaceSectionKey = typeof SEZIONI[number]["key"];
+
+const WORKSPACE_SECTION_KEYS = new Set<WorkspaceSectionKey>(SEZIONI.map((section) => section.key));
+
+function isWorkspaceSectionKey(value: string): value is WorkspaceSectionKey {
+  return WORKSPACE_SECTION_KEYS.has(value as WorkspaceSectionKey);
+}
 
 // Ruoli che hanno accesso ad almeno una sezione (il direttore tecnico usa il menu “area tecnica” unificato, senza albero a 3 sezioni)
 const SEZIONE_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director"];
@@ -170,25 +176,25 @@ export function AppSidebar() {
       ]
         .filter(Boolean)
         .map((value) => String(value).replace(/_/g, "-"))
-        .filter((value) => WORKSPACE_SECTION_KEYS.has(value))
+        .filter(isWorkspaceSectionKey)
     )
   );
   const isSectionManagementRole = SECTION_MANAGEMENT_ROLES.includes(role || "");
   const hasExplicitSectionAssignments = userSectionKeys.length > 0;
 
-  function shouldShowSection(sectionKey: string): boolean {
+  function shouldShowSection(sectionKey: WorkspaceSectionKey): boolean {
     if (!SEZIONE_ROLES.includes(role || "")) return false;
     if (isSectionManagementRole) return true;
     return userSectionKeys.includes(sectionKey);
   }
 
-  function canOpenSection(sectionKey: string): boolean {
+  function canOpenSection(sectionKey: WorkspaceSectionKey): boolean {
     if (!SEZIONE_ROLES.includes(role || "")) return false;
     if (isSectionManagementRole && !hasExplicitSectionAssignments) return true;
     return userSectionKeys.includes(sectionKey);
   }
 
-  function CollapsibleSection({ sectionKey, label, Icon }: { sectionKey: string; label: string; Icon: any }) {
+  function CollapsibleSection({ sectionKey, label, Icon }: { sectionKey: WorkspaceSectionKey; label: string; Icon: any }) {
     if (!shouldShowSection(sectionKey)) return null;
 
     const basePath = `/${sectionKey}`;

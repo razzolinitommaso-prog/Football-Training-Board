@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam, useListClubMembers, type ClubMember } from "@workspace/api-client-react";
+import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam, useListClubMembers, type ClubMember, type Team } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -905,9 +905,7 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
   return reason || "—";
 }
 
-type TeamWithSeason = {
-  id: number;
-  name: string;
+type TeamWithSeason = Team & {
   seasonId?: number | null;
   seasonName?: string | null;
   [key: string]: unknown;
@@ -1152,7 +1150,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [teamFilter, setTeamFilter] = useState<string>(initialTeamFilter);
   const listSectionParams = section ? ({ section } as any) : undefined;
   const { data: players, isLoading } = useListPlayers(listSectionParams);
-  const { data: teams } = useQuery<NonNullable<ReturnType<typeof useListTeams>["data"]>>({
+  const { data: teams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", section || "all"],
     queryFn: async () => {
       const url = section
@@ -1160,7 +1158,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         : "/api/teams";
       const res = await fetch(withApi(url), { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
-      return res.json();
+      return res.json() as Promise<Team[]>;
     },
   });
   const { data: clubMembers = [] } = useListClubMembers();
@@ -1432,8 +1430,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   }, [location]);
 
   const typedTeams = section
-    ? ((teams as TeamWithSeason[] | undefined) ?? []).filter((team) => team.clubSection === section)
-    : ((teams as TeamWithSeason[] | undefined) ?? []);
+    ? (teams as TeamWithSeason[]).filter((team) => team.clubSection === section)
+    : (teams as TeamWithSeason[]);
 
   const uniqueSeasons = Array.from(
     new Map(

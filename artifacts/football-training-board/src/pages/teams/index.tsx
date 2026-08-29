@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useListTeams, useCreateTeam, useDeleteTeam, useUpdateTeam, useCreatePlayer } from "@workspace/api-client-react";
-import type { TrainingSlot } from "@workspace/api-client-react";
+import type { Team, TrainingSlot } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -211,7 +211,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const { role, section: loginSection } = useAuth();
   const nr = normalizeSessionRole(role);
   const effectiveSection = (section ?? loginSection ?? "") as ClubSection | "";
-  const { data: allTeams, isLoading } = useQuery<NonNullable<ReturnType<typeof useListTeams>["data"]>>({
+  const { data: allTeams = [], isLoading } = useQuery<Team[]>({
     queryKey: ["/api/teams", effectiveSection || "all"],
     queryFn: async () => {
       const url = effectiveSection
@@ -219,7 +219,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
         : "/api/teams";
       const res = await fetch(withApi(url), { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
-      return res.json();
+      return res.json() as Promise<Team[]>;
     },
   });
   const { data: seasons = [] } = useQuery<Array<{ id: number; name: string; startDate: string; endDate: string; isActive: boolean }>>({
@@ -248,7 +248,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const canEditSchedule = nr === "admin" || nr === "coach" || nr === "director" || nr === "secretary";
   const canEditTeam = nr === "admin" || nr === "director" || nr === "secretary";
   const canChooseTeamSection = !effectiveSection && (nr === "admin" || nr === "director" || nr === "presidente");
-  const teams = effectiveSection ? allTeams?.filter(t => t.clubSection === effectiveSection) : allTeams;
+  const teams = effectiveSection ? allTeams.filter((t) => t.clubSection === effectiveSection) : allTeams;
 
   const handleExportTeams = () => {
     if (!teams?.length) return;
