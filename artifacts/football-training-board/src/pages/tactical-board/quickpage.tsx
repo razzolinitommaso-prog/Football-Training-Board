@@ -793,10 +793,12 @@ function ColorSwatches({
 
 function MetricFieldOverlay({
   spec,
+  portrait = false,
   showGrid,
   showFieldMarkings,
 }: {
   spec: (typeof FIELD_MEASUREMENTS)[TacticalBoardFormat];
+  portrait?: boolean;
   showGrid: boolean;
   showFieldMarkings: boolean;
 }) {
@@ -829,10 +831,11 @@ function MetricFieldOverlay({
   return (
     <svg
       className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
-      viewBox={`0 0 ${spec.canvasLength} ${spec.canvasWidth}`}
+      viewBox={portrait ? `0 0 ${spec.canvasWidth} ${spec.canvasLength}` : `0 0 ${spec.canvasLength} ${spec.canvasWidth}`}
       preserveAspectRatio="none"
       aria-hidden="true"
     >
+      <g transform={portrait ? `translate(${spec.canvasWidth} 0) rotate(90)` : undefined}>
       {showGrid && (
         <>
           <g opacity="0.22">
@@ -901,6 +904,7 @@ function MetricFieldOverlay({
             </g>
           </>
         )}
+      </g>
       </g>
     </svg>
   );
@@ -1961,21 +1965,22 @@ const QuickPage = () => {
   );
   const pitchMeasurement = FIELD_MEASUREMENTS[boardFormat] ?? FIELD_MEASUREMENTS["11v11"];
   const fieldViewOption = FIELD_VIEW_OPTIONS.find((option) => option.value === fieldViewMode) ?? FIELD_VIEW_OPTIONS[0];
+  const renderPitchMeasurement = {
+    ...pitchMeasurement,
+    canvasLength: pitchMeasurement.canvasLength * fieldViewOption.lengthScale,
+    canvasWidth: pitchMeasurement.canvasWidth * fieldViewOption.widthScale,
+    length: pitchMeasurement.length * fieldViewOption.lengthScale,
+    width: pitchMeasurement.width * fieldViewOption.widthScale,
+  };
   const displayPitchMeasurement = isMobileViewport
     ? {
-        ...pitchMeasurement,
-        canvasLength: pitchMeasurement.canvasWidth * fieldViewOption.widthScale,
-        canvasWidth: pitchMeasurement.canvasLength * fieldViewOption.lengthScale,
-        length: pitchMeasurement.width * fieldViewOption.widthScale,
-        width: pitchMeasurement.length * fieldViewOption.lengthScale,
+        ...renderPitchMeasurement,
+        canvasLength: renderPitchMeasurement.canvasWidth,
+        canvasWidth: renderPitchMeasurement.canvasLength,
+        length: renderPitchMeasurement.width,
+        width: renderPitchMeasurement.length,
       }
-    : {
-        ...pitchMeasurement,
-        canvasLength: pitchMeasurement.canvasLength * fieldViewOption.lengthScale,
-        canvasWidth: pitchMeasurement.canvasWidth * fieldViewOption.widthScale,
-        length: pitchMeasurement.length * fieldViewOption.lengthScale,
-        width: pitchMeasurement.width * fieldViewOption.widthScale,
-      };
+    : renderPitchMeasurement;
   const hasRenderableElements = elements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
   const selectedElement =
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
@@ -3669,7 +3674,8 @@ const QuickPage = () => {
 
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_45%)]" />
               <MetricFieldOverlay
-                spec={displayPitchMeasurement}
+                spec={renderPitchMeasurement}
+                portrait={isMobileViewport}
                 showGrid={showMetricGrid}
                 showFieldMarkings={showFieldMarkings}
               />
@@ -3762,8 +3768,8 @@ const QuickPage = () => {
                     const [a, b] = points;
                     const dxPct = b.x - a.x;
                     const dyPct = b.y - a.y;
-                    const dxM = (dxPct / 100) * displayPitchMeasurement.canvasLength;
-                    const dyM = (dyPct / 100) * displayPitchMeasurement.canvasWidth;
+                    const dxM = (dxPct / 100) * renderPitchMeasurement.canvasLength;
+                    const dyM = (dyPct / 100) * renderPitchMeasurement.canvasWidth;
                     const meters = Math.hypot(dxM, dyM);
                     const len = Math.hypot(dxPct, dyPct) || 1;
                     const measureStroke = fineStroke;
@@ -4022,8 +4028,8 @@ const QuickPage = () => {
                     if (goalVariant) {
                       const fieldGoalStyle = {
                         ...commonStyle,
-                        width: `${(goalVariant.depthMeters / displayPitchMeasurement.canvasLength) * 100}%`,
-                        height: `${(goalVariant.widthMeters / displayPitchMeasurement.canvasWidth) * 100}%`,
+                        width: `${(goalVariant.depthMeters / renderPitchMeasurement.canvasLength) * 100}%`,
+                        height: `${(goalVariant.widthMeters / renderPitchMeasurement.canvasWidth) * 100}%`,
                         minWidth: goalVariant.id === "goalMini" ? "8px" : "12px",
                         minHeight: goalVariant.id === "goalMini" ? "10px" : "18px",
                       } as const;
