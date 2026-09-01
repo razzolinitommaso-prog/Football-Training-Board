@@ -46,17 +46,94 @@ interface PlayerOption { id: number; firstName: string; lastName: string; teamId
 type PlayersRequiredMode = "all" | "manual" | "selected";
 
 const MATERIAL_OPTIONS = [
-  { id: "cinesini", label: "Cinesini" },
-  { id: "ostacoli_20", label: "Ostacoli 20cm" },
-  { id: "ostacoli_40", label: "Ostacoli 40cm" },
-  { id: "ostacoli_60", label: "Ostacoli 60cm" },
-  { id: "ostacoli_80", label: "Ostacoli 80cm" },
-  { id: "porticine", label: "Porticine" },
-  { id: "coni", label: "Coni" },
-  { id: "scalette", label: "Scalette" },
+  { id: "cinesini", label: "Cinesini", category: "Campo e delimitazione", availability: "base" },
+  { id: "coni", label: "Coni", category: "Campo e delimitazione", availability: "base" },
+  { id: "piattelli", label: "Piattelli / delimitatori", category: "Campo e delimitazione", availability: "base" },
+  { id: "marker_numerati", label: "Marker numerati / colorati", category: "Campo e delimitazione", availability: "base" },
+  { id: "bandierine", label: "Bandierine", category: "Campo e delimitazione", availability: "base" },
+  { id: "nastro_segnaletico", label: "Nastro segnaletico", category: "Campo e delimitazione", availability: "base" },
+  { id: "spray_segnaletico", label: "Spray segnaletico", category: "Campo e delimitazione", availability: "youth" },
+  { id: "rotella_metrica", label: "Rotella metrica / misuratore distanze", category: "Campo e delimitazione", availability: "base" },
+
+  { id: "palloni", label: "Palloni", category: "Palla e tecnica", availability: "base" },
+  { id: "carrello_palloni", label: "Carrello / porta palloni", category: "Palla e tecnica", availability: "base" },
+  { id: "pompa_palloni", label: "Pompa palloni", category: "Palla e tecnica", availability: "base" },
+  { id: "rebounder", label: "Rebounder", category: "Palla e tecnica", availability: "base" },
+  { id: "rete_elastica", label: "Rete elastica", category: "Palla e tecnica", availability: "base" },
+  { id: "telo_precisione", label: "Telo porta di precisione", category: "Palla e tecnica", availability: "base" },
+  { id: "porte_ridotte", label: "Porte ridotte", category: "Palla e tecnica", availability: "base" },
+  { id: "porticine", label: "Porticine", category: "Palla e tecnica", availability: "base" },
+  { id: "mini_porte", label: "Mini porte", category: "Palla e tecnica", availability: "base" },
+  { id: "porte_regolamentari", label: "Porte regolamentari", category: "Palla e tecnica", availability: "base" },
+  { id: "reti_porte", label: "Reti per porte", category: "Palla e tecnica", availability: "base" },
+
+  { id: "paletti", label: "Paletti", category: "Tattica e situazioni", availability: "base" },
+  { id: "sagome", label: "Sagome", category: "Tattica e situazioni", availability: "base" },
+  { id: "manichini_barriere", label: "Manichini / barriere", category: "Tattica e situazioni", availability: "youth" },
+  { id: "barriere_punizioni", label: "Barriere punizioni", category: "Tattica e situazioni", availability: "youth" },
+  { id: "dummy_gonfiabili", label: "Dummy gonfiabili", category: "Tattica e situazioni", availability: "youth" },
+  { id: "lavagna_tattica", label: "Lavagna tattica", category: "Tattica e situazioni", availability: "base" },
+
+  { id: "scalette", label: "Scaletta coordinativa", category: "Coordinazione e agility", availability: "base" },
+  { id: "speed_ladder", label: "Speed ladder", category: "Coordinazione e agility", availability: "youth" },
+  { id: "cerchi", label: "Cerchi", category: "Coordinazione e agility", availability: "base" },
+  { id: "ostacoli_20", label: "Ostacoli bassi / 20cm", category: "Coordinazione e agility", availability: "base" },
+  { id: "ostacoli_40", label: "Ostacoli medi / 40cm", category: "Coordinazione e agility", availability: "youth" },
+  { id: "ostacoli_60", label: "Ostacoli alti / 60cm", category: "Coordinazione e agility", availability: "youth" },
+  { id: "ostacoli_80", label: "Ostacoli alti / 80cm", category: "Coordinazione e agility", availability: "youth" },
+  { id: "hurdles_regolabili", label: "Hurdles regolabili", category: "Coordinazione e agility", availability: "youth" },
+  { id: "over", label: "Over bassi", category: "Coordinazione e agility", availability: "base" },
+  { id: "bastoni_coordinativi", label: "Bastoni coordinativi", category: "Coordinazione e agility", availability: "base" },
+  { id: "stazioni_agility", label: "Stazioni agility", category: "Coordinazione e agility", availability: "base" },
+  { id: "reaction_lights", label: "Luci / reaction lights", category: "Coordinazione e agility", availability: "youth" },
+
+  { id: "elastici", label: "Elastici", category: "Preparazione atletica", availability: "performance" },
+  { id: "corde", label: "Corde", category: "Preparazione atletica", availability: "performance" },
+  { id: "speed_rope", label: "Speed rope", category: "Preparazione atletica", availability: "performance" },
+  { id: "paracadute_velocita", label: "Paracadute velocita", category: "Preparazione atletica", availability: "performance" },
+  { id: "slitte_resistance", label: "Slitte / resistance sled", category: "Preparazione atletica", availability: "performance" },
+  { id: "giubbotti_zavorrati", label: "Giubbotti zavorrati", category: "Preparazione atletica", availability: "performance" },
+  { id: "med_ball", label: "Med Ball / palle mediche", category: "Preparazione atletica", availability: "performance" },
+  { id: "fitball", label: "Fitball", category: "Preparazione atletica", availability: "performance" },
+  { id: "bosu", label: "Bosu", category: "Preparazione atletica", availability: "performance" },
+  { id: "tappetini", label: "Tappetini", category: "Preparazione atletica", availability: "performance" },
+  { id: "box_pliometrico", label: "Box pliometrico", category: "Preparazione atletica", availability: "performance" },
+  { id: "foam_roller", label: "Foam roller", category: "Preparazione atletica", availability: "performance" },
+
+  { id: "manubri", label: "Manubri", category: "Forza avanzata", availability: "advanced" },
+  { id: "kettlebell", label: "Kettlebell", category: "Forza avanzata", availability: "advanced" },
+  { id: "bilancieri", label: "Bilancieri", category: "Forza avanzata", availability: "advanced" },
+  { id: "pesi_dischi", label: "Pesi / dischi", category: "Forza avanzata", availability: "advanced" },
+
+  { id: "cronometro", label: "Cronometro", category: "Monitoraggio e analisi", availability: "base" },
+  { id: "gps_tracker", label: "GPS / tracker", category: "Monitoraggio e analisi", availability: "performance" },
+  { id: "cardiofrequenzimetri", label: "Cardiofrequenzimetri", category: "Monitoraggio e analisi", availability: "performance" },
+  { id: "tablet_video", label: "Tablet / videocamera per analisi", category: "Monitoraggio e analisi", availability: "youth" },
+
+  { id: "kit_primo_soccorso", label: "Kit primo soccorso", category: "Sicurezza e recupero", availability: "base" },
+  { id: "ghiaccio", label: "Ghiaccio", category: "Sicurezza e recupero", availability: "base" },
+  { id: "defibrillatore", label: "Defibrillatore", category: "Sicurezza e recupero", availability: "base" },
+
+  { id: "casacche", label: "Casacche", category: "Organizzazione allenamento", availability: "base" },
+  { id: "pettorine_numerate", label: "Pettorine numerate", category: "Organizzazione allenamento", availability: "base" },
+  { id: "fischietto", label: "Fischietto", category: "Organizzazione allenamento", availability: "base" },
 ] as const;
 
 type MaterialId = (typeof MATERIAL_OPTIONS)[number]["id"];
+type MaterialAvailability = (typeof MATERIAL_OPTIONS)[number]["availability"];
+type MaterialOption = (typeof MATERIAL_OPTIONS)[number];
+
+const DEFAULT_FREQUENT_MATERIAL_IDS: MaterialId[] = [
+  "palloni",
+  "cinesini",
+  "coni",
+  "casacche",
+  "porticine",
+  "paletti",
+  "scalette",
+  "ostacoli_20",
+];
+const RECENT_MATERIALS_STORAGE_KEY = "ftb.recentExerciseMaterials";
 
 interface Guideline {
   id: number; title: string; content: string; category: string;
@@ -250,6 +327,27 @@ function formatTrainingDay(value: string | null | undefined): string | null {
   return value;
 }
 
+function normalizeClubSection(value: string | null | undefined): "scuola_calcio" | "settore_giovanile" | "prima_squadra" | null {
+  const normalized = String(value ?? "").replace(/-/g, "_");
+  if (normalized === "scuola_calcio" || normalized === "settore_giovanile" || normalized === "prima_squadra") return normalized;
+  return null;
+}
+
+function canUseMaterial(
+  availability: MaterialAvailability,
+  section: ReturnType<typeof normalizeClubSection>,
+  role: string | null | undefined,
+): boolean {
+  if (availability === "base") return true;
+  if (section === "scuola_calcio") return false;
+  if (availability === "youth") return section === "settore_giovanile" || section === "prima_squadra" || section == null;
+  if (availability === "performance") return section === "settore_giovanile" || section === "prima_squadra";
+  if (availability === "advanced") {
+    return section === "prima_squadra" || ["fitness_coach", "athletic_director", "director", "admin", "presidente"].includes(role ?? "");
+  }
+  return false;
+}
+
 export default function ExercisesPage() {
   const { t } = useLanguage();
   const { role, user } = useAuth();
@@ -260,6 +358,18 @@ export default function ExercisesPage() {
 
   const [filter, setFilter] = useState("all");
   const [exerciseSearch, setExerciseSearch] = useState("");
+  const [materialSearch, setMaterialSearch] = useState("");
+  const [recentMaterialIds, setRecentMaterialIds] = useState<MaterialId[]>(() => {
+    if (typeof window === "undefined") return DEFAULT_FREQUENT_MATERIAL_IDS;
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(RECENT_MATERIALS_STORAGE_KEY) ?? "[]") as string[];
+      const validIds = new Set(MATERIAL_OPTIONS.map((option) => option.id));
+      const stored = parsed.filter((id): id is MaterialId => validIds.has(id as MaterialId));
+      return stored.length > 0 ? stored : DEFAULT_FREQUENT_MATERIAL_IDS;
+    } catch {
+      return DEFAULT_FREQUENT_MATERIAL_IDS;
+    }
+  });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEx, setEditingEx] = useState<Exercise | null>(null);
   const [viewingEx, setViewingEx] = useState<Exercise | null>(null);
@@ -359,6 +469,21 @@ export default function ExercisesPage() {
   const selectedPlayersCount = selectedPlayerIds.length;
   const allPlayersCount = selectablePlayers.length;
   const materialSelection = parseEquipmentSelection(form.equipment);
+  const selectedTeam = form.teamId ? myTeams.find((team) => team.id === form.teamId) : null;
+  const selectedMaterialSection = normalizeClubSection(selectedTeam?.clubSection);
+  const normalizedMaterialSearch = materialSearch.trim().toLowerCase();
+  const availableMaterialOptions = MATERIAL_OPTIONS.filter((option) =>
+    canUseMaterial(option.availability, selectedMaterialSection, role)
+  );
+  const recentMaterialOptions = recentMaterialIds
+    .map((id) => availableMaterialOptions.find((option) => option.id === id))
+    .filter((option): option is MaterialOption => Boolean(option))
+    .filter((option, index, list) => list.findIndex((item) => item.id === option.id) === index);
+  const searchedMaterialOptions = availableMaterialOptions.filter((option) => {
+    if (!normalizedMaterialSearch) return true;
+    return `${option.label} ${option.category}`.toLowerCase().includes(normalizedMaterialSearch);
+  });
+  const materialCategories = Array.from(new Set(searchedMaterialOptions.map((option) => option.category)));
 
   const computedPlayersRequired =
     form.playersRequiredMode === "all"
@@ -382,6 +507,15 @@ export default function ExercisesPage() {
     if (checked) next[materialId] = next[materialId] ?? 1;
     else delete next[materialId];
     setForm((prev) => ({ ...prev, equipment: serializeEquipmentSelection(next) }));
+    if (checked) {
+      setRecentMaterialIds((current) => {
+        const nextRecent = [materialId, ...current.filter((id) => id !== materialId)].slice(0, 12);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(RECENT_MATERIALS_STORAGE_KEY, JSON.stringify(nextRecent));
+        }
+        return nextRecent;
+      });
+    }
   }
 
   function setMaterialQty(materialId: MaterialId, qtyRaw: string) {
@@ -1024,26 +1158,81 @@ export default function ExercisesPage() {
                   </div>
 
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                    <div className="text-sm font-medium">Materiale</div>
-                    <div className="grid grid-cols-1 gap-2">
-                      {MATERIAL_OPTIONS.map((option) => {
-                        const checked = (materialSelection[option.id] ?? 0) > 0;
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="text-sm font-medium">Materiale</div>
+                        <p className="text-xs text-muted-foreground">
+                          {selectedTeam ? `Lista filtrata per ${selectedTeam.name}` : "Seleziona una squadra per filtrare i materiali per sezione."}
+                        </p>
+                      </div>
+                      <Input
+                        value={materialSearch}
+                        onChange={(event) => setMaterialSearch(event.target.value)}
+                        placeholder="Cerca attrezzatura..."
+                        className="sm:max-w-xs"
+                      />
+                    </div>
+
+                    {recentMaterialOptions.length > 0 && !normalizedMaterialSearch && (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Usati di recente / frequenti</div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {recentMaterialOptions.map((option) => {
+                            const checked = (materialSelection[option.id] ?? 0) > 0;
+                            return (
+                              <div key={`recent-${option.id}`} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                                <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(option.id, !!value)} />
+                                <span className="min-w-0 flex-1 text-sm">{option.label}</span>
+                                {checked ? (
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    className="w-20"
+                                    value={materialSelection[option.id] ?? 1}
+                                    onChange={(event) => setMaterialQty(option.id, event.target.value)}
+                                  />
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      {materialCategories.map((category) => {
+                        const options = searchedMaterialOptions.filter((option) => option.category === category);
                         return (
-                          <div key={option.id} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
-                            <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(option.id, !!value)} />
-                            <span className="flex-1 text-sm">{option.label}</span>
-                            {checked ? (
-                              <Input
-                                type="number"
-                                min={1}
-                                className="w-24"
-                                value={materialSelection[option.id] ?? 1}
-                                onChange={(event) => setMaterialQty(option.id, event.target.value)}
-                              />
-                            ) : null}
+                          <div key={category} className="space-y-2">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{category}</div>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              {options.map((option) => {
+                                const checked = (materialSelection[option.id] ?? 0) > 0;
+                                return (
+                                  <div key={option.id} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                                    <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(option.id, !!value)} />
+                                    <span className="min-w-0 flex-1 text-sm">{option.label}</span>
+                                    {checked ? (
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        className="w-20"
+                                        value={materialSelection[option.id] ?? 1}
+                                        onChange={(event) => setMaterialQty(option.id, event.target.value)}
+                                      />
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         );
                       })}
+                      {searchedMaterialOptions.length === 0 && (
+                        <div className="rounded-md border border-dashed bg-background px-3 py-6 text-center text-sm text-muted-foreground">
+                          Nessuna attrezzatura trovata per questa ricerca o sezione.
+                        </div>
+                      )}
                     </div>
                   </div>
 
