@@ -2195,18 +2195,14 @@ function MatchCard({
               <a href={canOpenBoard ? tacticalUrl : "#"} className={cn("ml-1 underline underline-offset-2", !canOpenBoard && "pointer-events-none opacity-50")}>
                 Lavagna preparazione partita
               </a>
-              {selectedPlayerIds.size > 0 && (
-                <>
-                  {" · "}
-                  <button
-                    type="button"
-                    className="text-primary underline underline-offset-2"
-                    onClick={exportCallupPdf}
-                  >
-                    PDF convocazione
-                  </button>
-                </>
-              )}
+              {" · "}
+              <button
+                type="button"
+                className="text-primary underline underline-offset-2"
+                onClick={exportCallupPdf}
+              >
+                PDF convocazione
+              </button>
             </div>
             {planOpen && canManageMatchPlan && (
               <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
