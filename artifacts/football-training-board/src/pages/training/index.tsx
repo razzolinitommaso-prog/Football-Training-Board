@@ -219,7 +219,7 @@ type MaterialOption = (typeof MATERIAL_OPTIONS)[number];
 const DEFAULT_FREQUENT_MATERIAL_IDS: MaterialId[] = ["palloni", "cinesini", "coni", "casacche", "porticine", "paletti", "scalette", "ostacoli_20"];
 const RECENT_MATERIALS_STORAGE_KEY = "ftb.recentExerciseMaterials";
 const EXERCISE_STATIONS_MARKER = "\n\n[FTB_EXERCISE_STATIONS]";
-type ExerciseStation = { id: string; title: string; durationMinutes: string; notes: string };
+type ExerciseStation = { id: string; title: string; exercise: string; equipment: string; durationMinutes: string; notes: string };
 const EXERCISE_CATEGORIES = ["technique", "physical", "tactical", "warmup", "shooting", "passing", "defending"] as const;
 const TRAINING_SESSIONS = [
   { value: "giorno_1" },
@@ -419,10 +419,12 @@ function parseExerciseStations(raw: string): ExerciseStation[] {
       .map((item, index) => ({
         id: String(item?.id || `${Date.now()}-${index}`),
         title: String(item?.title ?? ""),
+        exercise: String(item?.exercise ?? ""),
+        equipment: String(item?.equipment ?? ""),
         durationMinutes: String(item?.durationMinutes ?? ""),
         notes: String(item?.notes ?? ""),
       }))
-      .filter((station) => station.title.trim() || station.durationMinutes.trim() || station.notes.trim());
+      .filter((station) => station.title.trim() || station.exercise.trim() || station.equipment.trim() || station.durationMinutes.trim() || station.notes.trim());
   } catch {
     return [];
   }
@@ -438,7 +440,7 @@ function splitExerciseDescriptionAndStations(raw: string): { description: string
 
 function composeExerciseDescription(description: string, stations: ExerciseStation[]): string | null {
   const cleanDescription = description.trim();
-  const cleanStations = stations.filter((station) => station.title.trim() || Number(station.durationMinutes) > 0 || station.notes.trim());
+  const cleanStations = stations.filter((station) => station.title.trim() || station.exercise.trim() || station.equipment.trim() || Number(station.durationMinutes) > 0 || station.notes.trim());
   if (cleanStations.length === 0) return cleanDescription || null;
   return `${cleanDescription}${EXERCISE_STATIONS_MARKER}${JSON.stringify(cleanStations)}`;
 }
@@ -784,8 +786,16 @@ function SessionCard({
   const plannedExerciseMinutes = linkedExercises.reduce((sum, link) => sum + (link.exercise?.durationMinutes ?? 0), 0);
   const residualMinutes = (session.durationMinutes ?? 0) - plannedExerciseMinutes;
   const estimatedRemainingExercises = estimateRemainingExercises(residualMinutes);
+  const cardTone =
+    session.status === "cancelled"
+      ? "border-red-200 bg-red-50/60"
+      : session.status === "completed"
+        ? "border-emerald-200 bg-emerald-50/60"
+        : session.sessionKind === "tipo"
+          ? "border-amber-200 bg-amber-50/60"
+          : "border-sky-200 bg-sky-50/50";
   return (
-    <Card className={`overflow-hidden group hover:shadow-md transition-all ${session.sessionKind === "tipo" ? "border-amber-300/60 bg-amber-50/30" : ""}`}>
+    <Card className={`overflow-hidden group hover:shadow-md transition-all ${cardTone}`}>
       <div className={`h-1 w-full ${
         session.status === "scheduled" ? "bg-primary" :
         session.status === "completed" ? "bg-green-500" : "bg-destructive"
@@ -1728,6 +1738,7 @@ function SessionDetailsDialog({
   const recoveryPerExercise = computeRecoveryPerExercise(session.durationMinutes, linkedExercises);
   const plannedExerciseMinutes = linkedExercises.reduce((sum, link) => sum + (link.exercise?.durationMinutes ?? 0), 0);
   const residualMinutes = (session.durationMinutes ?? 0) - plannedExerciseMinutes;
+  const estimatedRemainingExercises = estimateRemainingExercises(residualMinutes);
 
   const createAndLinkExerciseMutation = useMutation({
     mutationFn: async ({ form, sourceExerciseId }: { form: ExerciseFormState; sourceExerciseId?: number | null }) => {
@@ -2171,8 +2182,16 @@ function SessionDetailsDialog({
                             )}
                             {parsed.stations.length > 0 && (
                               <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
-                                <span className="font-semibold text-foreground">Stazionamenti:</span>{" "}
-                                {parsed.stations.map((station) => `${station.title || "Stazione"} (${station.durationMinutes || 0} min)`).join(" · ")}
+                                <p className="font-semibold text-foreground">Stazioni</p>
+                                <div className="mt-1 space-y-1">
+                                  {parsed.stations.map((station, stationIndex) => (
+                                    <p key={station.id}>
+                                      {stationIndex + 1}. {station.title || "Stazione"} ({station.durationMinutes || 0} min)
+                                      {station.exercise ? ` - ${station.exercise}` : ""}
+                                      {station.equipment ? ` - Materiali: ${station.equipment}` : ""}
+                                    </p>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </>
@@ -2231,10 +2250,24 @@ function SessionDetailsDialog({
                     {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").stations.map((station, index) => (
                       <div key={station.id} className="rounded-md border bg-muted/30 p-3 text-sm">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="font-semibold">{index + 1}. {station.title || "Stazionamento"}</p>
+                          <p className="font-semibold">{index + 1}. {station.title || "Stazione"}</p>
                           <Badge variant="outline">{station.durationMinutes || 0} min</Badge>
                         </div>
-                        {station.notes && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{station.notes}</p>}
+                        {station.exercise && (
+                          <p className="mt-2 whitespace-pre-wrap">
+                            <span className="font-medium">Esercitazione: </span>{station.exercise}
+                          </p>
+                        )}
+                        {station.equipment && (
+                          <p className="mt-1 whitespace-pre-wrap text-muted-foreground">
+                            <span className="font-medium text-foreground">Materiali: </span>{station.equipment}
+                          </p>
+                        )}
+                        {station.notes && (
+                          <p className="mt-1 whitespace-pre-wrap text-muted-foreground">
+                            <span className="font-medium text-foreground">Indicazioni: </span>{station.notes}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2339,7 +2372,7 @@ function SessionDetailsDialog({
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setStations([...exerciseStations, { id: `${Date.now()}`, title: "", durationMinutes: "8", notes: "" }])}
+                        onClick={() => setStations([...exerciseStations, { id: `${Date.now()}`, title: "", exercise: "", equipment: "", durationMinutes: "8", notes: "" }])}
                       >
                         <Plus className="mr-1.5 h-3.5 w-3.5" />
                         Aggiungi stazionamento
@@ -2357,7 +2390,7 @@ function SessionDetailsDialog({
                               <Input
                                 value={station.title}
                                 onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, title: e.target.value } : item))}
-                                placeholder={`Stazionamento ${index + 1}, es. conduzione e tiro`}
+                                placeholder={`Stazione ${index + 1}, es. conduzione e tiro`}
                               />
                               <Input
                                 type="number"
@@ -2379,9 +2412,22 @@ function SessionDetailsDialog({
                             <Textarea
                               className="mt-2"
                               rows={2}
+                              value={station.exercise}
+                              onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, exercise: e.target.value } : item))}
+                              placeholder="Esercitazione specifica della stazione"
+                            />
+                            <Input
+                              className="mt-2"
+                              value={station.equipment}
+                              onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, equipment: e.target.value } : item))}
+                              placeholder="Materiali della stazione"
+                            />
+                            <Textarea
+                              className="mt-2"
+                              rows={2}
                               value={station.notes}
                               onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, notes: e.target.value } : item))}
-                              placeholder="Note tecniche dello stazionamento"
+                              placeholder="Indicazioni della stazione"
                             />
                           </div>
                         ))}
@@ -2701,6 +2747,12 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     queryFn: () => apiFetch("/api/training-sessions"),
     enabled: !!role,
   });
+  const initialSessionQuery = useQuery<TrainingSession>({
+    queryKey: ["/api/training-sessions", initialSessionId, "initial-open"],
+    queryFn: () => apiFetch(`/api/training-sessions/${initialSessionId}`),
+    enabled: !!role && !!initialSessionId,
+    retry: false,
+  });
 
   const directivesQuery = useQuery<TrainingDirective[]>({
     queryKey: ["/api/training-directives"],
@@ -2741,10 +2793,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   const userId = (user as any)?.id as number | undefined;
 
   useEffect(() => {
-    if (initialSessionHandledRef.current || !initialSessionId || sessionsQuery.isLoading) return;
-    const target = sessions.find((session) => session.id === initialSessionId);
+    if (initialSessionHandledRef.current || !initialSessionId || sessionsQuery.isLoading || initialSessionQuery.isLoading) return;
+    const target = sessions.find((session) => session.id === initialSessionId) ?? initialSessionQuery.data;
     if (!target) {
-      if (sessionsQuery.isSuccess) {
+      if (sessionsQuery.isSuccess && (initialSessionQuery.isError || initialSessionQuery.isSuccess)) {
         initialSessionHandledRef.current = true;
         toast({
           title: "Sessione non trovata",
@@ -2756,7 +2808,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     }
     initialSessionHandledRef.current = true;
     setDetailsSession(target);
-  }, [initialSessionId, sessions, sessionsQuery.isLoading, sessionsQuery.isSuccess, toast]);
+  }, [initialSessionId, initialSessionQuery.data, initialSessionQuery.isError, initialSessionQuery.isLoading, initialSessionQuery.isSuccess, sessions, sessionsQuery.isLoading, sessionsQuery.isSuccess, toast]);
 
   const activeDirectives = directives.filter(d => !dismissedDirectives.includes(d.id));
 

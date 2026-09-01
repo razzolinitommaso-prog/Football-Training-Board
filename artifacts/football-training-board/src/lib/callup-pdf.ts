@@ -87,6 +87,24 @@ function buildContentStream(lines: Array<{ text: string; size?: number; bold?: b
   return out.join("\n");
 }
 
+function paginateLines(lines: Array<{ text: string; size?: number; bold?: boolean; gap?: number }>) {
+  const pages: typeof lines[] = [];
+  let page: typeof lines = [];
+  let y = 790;
+  for (const line of lines) {
+    const nextY = y - (line.gap ?? 18);
+    if (page.length > 0 && nextY < 48) {
+      pages.push(page);
+      page = [];
+      y = 790;
+    }
+    page.push(line);
+    y -= line.gap ?? 18;
+  }
+  if (page.length > 0) pages.push(page);
+  return pages;
+}
+
 export function buildCallupPdfBlob(input: {
   match: CallupPdfMatch;
   players: CallupPdfPlayer[];
@@ -121,14 +139,26 @@ export function buildCallupPdfBlob(input: {
 
   lines.push({ text: "Documento generato da Football Training Board", size: 9, gap: 28 });
 
-  const content = buildContentStream(lines);
+  const pages = paginateLines(lines);
+  const pageObjectNumbers = pages.map((_, index) => 3 + index);
+  const font1Object = 3 + pages.length;
+  const font2Object = 4 + pages.length;
+  const contentStartObject = 5 + pages.length;
+  const pageObjects = pages.map((page, index) => {
+    const contentObject = contentStartObject + index;
+    return `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${font1Object} 0 R /F2 ${font2Object} 0 R >> >> /Contents ${contentObject} 0 R >>`;
+  });
+  const contentObjects = pages.map((page) => {
+    const content = buildContentStream(page);
+    return `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
+  });
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>",
+    `<< /Type /Pages /Kids [${pageObjectNumbers.map((n) => `${n} 0 R`).join(" ")}] /Count ${pages.length} >>`,
+    ...pageObjects,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
-    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+    ...contentObjects,
   ];
   let pdf = "%PDF-1.4\n";
   const offsets = [0];

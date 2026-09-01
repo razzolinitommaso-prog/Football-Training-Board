@@ -238,12 +238,11 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
                       <p><span className="font-semibold">Luogo convocazione:</span> {match.matchPlan?.convocationPlace || "-"}</p>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {callups.slice(0, 12).map((callup) => (
-                        <Badge key={callup.id} variant="secondary" className="max-w-full truncate">
+                      {callups.map((callup) => (
+                        <Badge key={callup.id} variant="secondary" className="max-w-full whitespace-normal text-left leading-snug">
                           {callup.playerName || `Giocatore ${callup.playerId}`}
                         </Badge>
                       ))}
-                      {callups.length > 12 && <Badge variant="outline">+{callups.length - 12}</Badge>}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
