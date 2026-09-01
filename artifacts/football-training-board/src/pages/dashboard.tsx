@@ -103,6 +103,19 @@ type DashboardTrainingOverride = {
   notes?: string | null;
 };
 
+type DashboardTrainingSession = {
+  id: number;
+  title?: string | null;
+  scheduledAt?: string | null;
+  status?: string | null;
+  teamId?: number | null;
+  teamName?: string | null;
+  location?: string | null;
+  sessionKind?: string | null;
+  createdByUserId?: number | null;
+  objectives?: string | null;
+};
+
 type DashboardMatchPhase = "autunnale" | "primaverile" | "tornei" | "amichevoli";
 
 type TrainingCalendarOverridePayload = {
@@ -150,9 +163,10 @@ type DashboardCalendarItem =
       originalDate?: string;
       originalStartTime?: string;
       originalEndTime?: string;
-      trainingStatus?: "regular" | "moved" | "cancelled" | "moved-original" | "note" | "joined" | "joined-original";
+      trainingStatus?: "regular" | "moved" | "cancelled" | "moved-original" | "note" | "joined" | "joined-original" | "prepared";
       trainingOverride?: DashboardTrainingOverride;
       trainingNotes?: string | null;
+      trainingSession?: DashboardTrainingSession;
       extraEvent?: DashboardExtraEvent;
     }
   | {
@@ -704,11 +718,11 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
 
   const isClubWideTechnicalRole = nr === "technical_director" || nr === "director";
 
-  const { data: trainingSessionsForDash = [] } = useQuery({
+  const { data: trainingSessionsForDash = [] } = useQuery<DashboardTrainingSession[]>({
     queryKey: ["/api/training-sessions", clubIdNum, nr, "dashboard-tiles"],
     queryFn: () =>
-      fetchJsonOrThrow<Array<{ status?: string; scheduledAt?: string }>>("/api/training-sessions"),
-    enabled: Boolean(isClubWideTechnicalRole && user),
+      fetchJsonOrThrow<DashboardTrainingSession[]>("/api/training-sessions"),
+    enabled: Boolean(user),
   });
 
   const { data: dashboardMatches = [] } = useQuery<DashboardMatch[]>({
@@ -1209,6 +1223,42 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       });
     });
 
+    const generatedTrainingKeys = new Set(
+      items
+        .filter((item) => item.kind === "training" && item.teamId && item.originalDate && item.originalStartTime)
+        .map((item) => `${item.teamId}|${item.originalDate}|${item.originalStartTime}`),
+    );
+
+    trainingSessionsForDash.forEach((session) => {
+      if (session.sessionKind && session.sessionKind !== "regular") return;
+      if (!session.scheduledAt || !session.teamId) return;
+      if (session.status === "cancelled") return;
+      const sessionDate = parseLocalDateTime(session.scheduledAt);
+      if (!sessionDate || sessionDate < monthStart || sessionDate > monthEnd) return;
+      if (!allowedTeamIds.has(Number(session.teamId))) return;
+      const originalDate = format(sessionDate, "yyyy-MM-dd");
+      const originalStartTime = format(sessionDate, "HH:mm");
+      const duplicateKey = `${session.teamId}|${originalDate}|${originalStartTime}`;
+      if (generatedTrainingKeys.has(duplicateKey)) return;
+      const team = teamById.get(Number(session.teamId));
+      items.push({
+        kind: "training",
+        key: `training-session-${session.id}`,
+        date: sessionDate,
+        time: matchTimeLabel(sessionDate),
+        title: session.title?.trim() || `Sessione preparata ${team?.name ?? session.teamName ?? "Squadra"}`,
+        subtitle: [team?.name ?? session.teamName ?? "Squadra", "Sessione preparata"].filter(Boolean).join(" - "),
+        teamId: Number(session.teamId),
+        teamName: team?.name ?? session.teamName ?? undefined,
+        originalDate,
+        originalStartTime,
+        originalEndTime: "",
+        trainingStatus: "prepared",
+        trainingNotes: session.objectives ?? null,
+        trainingSession: session,
+      });
+    });
+
     dashboardTrainingOverrides.forEach((override) => {
       if (override.status !== "joined" || !override.targetTeamId || !override.targetDate || !override.targetStartTime) return;
       const targetTeamId = Number(override.targetTeamId);
@@ -1366,7 +1416,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
     return items
       .sort((a, b) => a.date.getTime() - b.date.getTime())
       .slice(0, 200);
-  }, [dashboardTeams, dashboardMatches, dashboardExtraEvents, dashboardCalendarMonth, dashboardSelectedTeamIds, dashboardTrainingOverrides]);
+  }, [dashboardTeams, dashboardMatches, dashboardExtraEvents, dashboardCalendarMonth, dashboardSelectedTeamIds, dashboardTrainingOverrides, trainingSessionsForDash]);
 
   const dashboardCalendarDays = useMemo(
     () =>
@@ -3431,7 +3481,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                         className="mt-3"
                         disabled={updateDashboardTrainingMutation.isPending}
                         onClick={() => {
-                          if (!selectedCalendarItem.teamId || !selectedCalendarItem.originalDate || !selectedCalendarItem.originalStartTime || !selectedCalendarItem.originalEndTime) return;
+                          if (!selectedCalendarItem.teamId || !selectedCalendarItem.originalDate || !selectedCalendarItem.originalStartTime) return;
                           const needsTarget = trainingEditMode === "moved" || trainingEditMode === "joined";
                           const start = needsTarget ? normalizeDashboardTime24(trainingEditStartTime) : null;
                           const end = needsTarget ? normalizeDashboardTime24(trainingEditEndTime) : null;
@@ -3466,7 +3516,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                               teamId: selectedCalendarItem.teamId!,
                               originalDate: occurrenceDate,
                               originalStartTime: occurrence.originalStartTime ?? selectedCalendarItem.originalStartTime!,
-                              originalEndTime: occurrence.originalEndTime ?? selectedCalendarItem.originalEndTime!,
+                              originalEndTime: occurrence.originalEndTime ?? selectedCalendarItem.originalEndTime ?? "",
                               status: effectiveStatus,
                               newDate: effectiveStatus === "moved" || effectiveStatus === "joined" ? shiftedDate : null,
                               newStartTime: effectiveStatus === "moved" || effectiveStatus === "joined" ? start : null,

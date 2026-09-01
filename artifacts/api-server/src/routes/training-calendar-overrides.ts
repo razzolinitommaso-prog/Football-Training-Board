@@ -142,6 +142,7 @@ async function syncPreparedSession(params: {
     await db
       .update(trainingSessionsTable)
       .set({
+        status: "cancelled",
         notes: appendCalendarNote(
           session.notes,
           `Allenamento eliminato dal calendario dalla segreteria: sessione da riassegnare.${params.notes ? ` Note: ${params.notes}` : ""}`,

@@ -415,6 +415,11 @@ function computeRecoveryPerExercise(sessionDuration: number | null, links: Sessi
   return difference / links.length;
 }
 
+function estimateRemainingExercises(residualMinutes: number, averageMinutes = 12.5): number {
+  if (!Number.isFinite(residualMinutes) || residualMinutes <= 0) return 0;
+  return Math.floor(residualMinutes / averageMinutes);
+}
+
 function statusBadge(status: string) {
   if (status === "scheduled") return <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px]">Pianificata</Badge>;
   if (status === "completed") return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px]">Completata</Badge>;
@@ -655,6 +660,7 @@ function SessionCard({
   const recoveryPerExercise = computeRecoveryPerExercise(session.durationMinutes, linkedExercises);
   const plannedExerciseMinutes = linkedExercises.reduce((sum, link) => sum + (link.exercise?.durationMinutes ?? 0), 0);
   const residualMinutes = (session.durationMinutes ?? 0) - plannedExerciseMinutes;
+  const estimatedRemainingExercises = estimateRemainingExercises(residualMinutes);
   return (
     <Card className={`overflow-hidden group hover:shadow-md transition-all ${session.sessionKind === "tipo" ? "border-amber-300/60 bg-amber-50/30" : ""}`}>
       <div className={`h-1 w-full ${
@@ -750,10 +756,18 @@ function SessionCard({
             {linkedExercisesQuery.isLoading ? (
               <p className="text-xs text-muted-foreground">Caricamento esercitazioni...</p>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                Esercitazioni: <span className="font-semibold text-foreground">{linkedExercises.length}</span>
-                {" • "}Minutaggio previsto: <span className="font-semibold text-foreground">{plannedExerciseMinutes} min</span>
-              </p>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  Esercitazioni: <span className="font-semibold text-foreground">{linkedExercises.length}</span>
+                  {" • "}Minutaggio previsto: <span className="font-semibold text-foreground">{plannedExerciseMinutes} min</span>
+                </p>
+                {session.durationMinutes ? (
+                  <p className="text-xs text-muted-foreground">
+                    Residuo: <span className="font-semibold text-foreground">{Math.max(residualMinutes, 0)} min</span>
+                    {" "}circa <span className="font-semibold text-foreground">{estimatedRemainingExercises}</span> esercitazioni da 12,5 min.
+                  </p>
+                ) : null}
+              </div>
             )}
           </div>
         )}
@@ -789,7 +803,12 @@ function SessionCard({
             {linkedExercisesQuery.isLoading ? (
               <p className="text-xs text-muted-foreground mt-0.5">Calcolo in corso...</p>
             ) : linkedExercises.length === 0 ? (
-              <p className="text-xs text-muted-foreground mt-0.5">Aggiungi almeno un'esercitazione per calcolare il recupero.</p>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground mt-0.5">Aggiungi almeno un'esercitazione per calcolare il recupero.</p>
+                <p className="text-xs">
+                  Stima iniziale: circa <span className="font-semibold text-foreground">{estimateRemainingExercises(session.durationMinutes)}</span> esercitazioni da 12,5 min.
+                </p>
+              </div>
             ) : (
               <>
                 <p className="text-[11px] font-medium text-muted-foreground">
@@ -798,6 +817,10 @@ function SessionCard({
                 </p>
                 <p className="text-xs mt-0.5">
                   ({session.durationMinutes} - {plannedExerciseMinutes} = {residualMinutes}, ripartiti su {linkedExercises.length} esercitazioni)
+                </p>
+                <p className="text-xs mt-0.5">
+                  Residuo: <span className="font-semibold text-foreground">{Math.max(residualMinutes, 0)} min</span>
+                  {" "}circa <span className="font-semibold text-foreground">{estimatedRemainingExercises}</span> esercitazioni da 12,5 min.
                 </p>
               </>
             )}
@@ -1829,7 +1852,12 @@ function SessionDetailsDialog({
                   {linkedExercisesQuery.isLoading ? (
                     <p className="text-xs text-muted-foreground mt-0.5">Calcolo in corso...</p>
                   ) : linkedExercises.length === 0 ? (
-                    <p className="text-xs text-muted-foreground mt-0.5">Aggiungi esercitazioni per calcolare il recupero medio.</p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground mt-0.5">Aggiungi esercitazioni per calcolare il recupero medio.</p>
+                      <p className="text-xs">
+                        Stima iniziale: puoi inserire circa <span className="font-semibold text-foreground">{estimateRemainingExercises(session.durationMinutes)} esercitazioni</span> da 12,5 min.
+                      </p>
+                    </div>
                   ) : (
                     <>
                       <p className="text-[11px] font-medium text-muted-foreground">
@@ -1838,6 +1866,10 @@ function SessionDetailsDialog({
                       </p>
                       <p className="text-xs mt-0.5">
                         ({session.durationMinutes} - {plannedExerciseMinutes} = {residualMinutes}, ripartiti su {linkedExercises.length} esercitazioni)
+                      </p>
+                      <p className="text-xs mt-0.5">
+                        Spazio residuo: <span className="font-semibold text-foreground">{Math.max(residualMinutes, 0)} min</span>
+                        {" "}circa <span className="font-semibold text-foreground">{estimatedRemainingExercises}</span> esercitazioni medie da 12,5 min.
                       </p>
                     </>
                   )}
