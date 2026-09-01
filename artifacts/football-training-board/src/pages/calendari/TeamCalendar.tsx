@@ -36,6 +36,7 @@ import {
   isGenericPdfCategoryHint,
   type MatchPdfImportResult,
 } from "@/lib/match-calendar-pdf";
+import { downloadOrShareCallupPdf } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
@@ -1904,6 +1905,34 @@ function MatchCard({
     }
   }
 
+  async function exportCallupPdf() {
+    const players = selectableTeamPlayers.filter((p) => selectedPlayerIds.has(p.id));
+    if (players.length === 0) {
+      toast({ title: "Nessun convocato", description: "Seleziona e salva almeno un convocato prima di creare il PDF." });
+      return;
+    }
+    try {
+      await downloadOrShareCallupPdf({
+        match: {
+          clubName: clubLabel,
+          teamName,
+          opponent: match.opponent,
+          homeAway: match.homeAway,
+          date: match.date,
+          competition: match.competition,
+          location: match.location,
+          notes: match.notes,
+          preMatchNotes: match.preMatchNotes,
+          convocationAt: planDraft.convocationAt,
+          convocationPlace: planDraft.convocationPlace,
+        },
+        players,
+      });
+    } catch (err: any) {
+      toast({ title: err?.message ?? "Impossibile generare il PDF convocazione", variant: "destructive" });
+    }
+  }
+
   const lineupPeriod = lineupDialog ? planDraft.periods[lineupDialog.periodIndex] : null;
   const lineupFormat = lineupPeriod ? lineupPeriod.format ?? matchFormat : matchFormat;
   const lineupLimit = lineupPeriod ? startersLimitForPeriod({ ...lineupPeriod, module: lineupDialog?.module ?? lineupPeriod.module }, matchFormat) : 0;
@@ -2166,6 +2195,18 @@ function MatchCard({
               <a href={canOpenBoard ? tacticalUrl : "#"} className={cn("ml-1 underline underline-offset-2", !canOpenBoard && "pointer-events-none opacity-50")}>
                 Lavagna preparazione partita
               </a>
+              {selectedPlayerIds.size > 0 && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="text-primary underline underline-offset-2"
+                    onClick={exportCallupPdf}
+                  >
+                    PDF convocazione
+                  </button>
+                </>
+              )}
             </div>
             {planOpen && canManageMatchPlan && (
               <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
