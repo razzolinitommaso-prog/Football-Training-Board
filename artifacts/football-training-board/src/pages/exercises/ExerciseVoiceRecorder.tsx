@@ -43,13 +43,22 @@ export function ExerciseVoiceRecorder({ value, onChange, readOnly = false }: Pro
   async function startRecording() {
     setError(null);
     try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        setError("Registrazione non supportata da questo dispositivo o browser.");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+      ].find((type) => MediaRecorder.isTypeSupported(type));
+      const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: mimeType || "audio/webm" });
         const reader = new FileReader();
         reader.onloadend = () => {
           onChange(reader.result as string);
@@ -67,8 +76,9 @@ export function ExerciseVoiceRecorder({ value, onChange, readOnly = false }: Pro
         if (s >= 179) { mr.stop(); return s; } // max 3 min
         return s + 1;
       }), 1000);
-    } catch {
-      setError("Microfono non disponibile. Controlla i permessi del browser.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(message ? `Microfono non disponibile: ${message}` : "Microfono non disponibile. Controlla i permessi dell'app.");
     }
   }
 

@@ -47,6 +47,10 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
     setError(null);
     setProcessing(false);
     try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        setError("Registrazione video non supportata da questo dispositivo o browser.");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: true,
@@ -60,10 +64,13 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
         await previewRef.current.play().catch(() => {});
       }
 
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-        ? "video/webm;codecs=vp9,opus"
-        : "video/webm;codecs=vp8,opus";
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const mimeType = [
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm",
+        "video/mp4",
+      ].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];
 
       recorder.ondataavailable = (event) => {
@@ -74,7 +81,7 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
         setProcessing(true);
         cleanupLiveStream();
 
-        const blob = new Blob(chunksRef.current, { type: "video/webm" });
+        const blob = new Blob(chunksRef.current, { type: mimeType || "video/webm" });
         const reader = new FileReader();
         reader.onloadend = () => {
           onChange(reader.result as string);
@@ -100,9 +107,10 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
           return prev + 1;
         });
       }, 1000);
-    } catch {
+    } catch (err) {
       cleanupLiveStream();
-      setError("Camera o microfono non disponibili. Controlla i permessi del browser.");
+      const message = err instanceof Error ? err.message : "";
+      setError(message ? `Camera o microfono non disponibili: ${message}` : "Camera o microfono non disponibili. Controlla i permessi dell'app.");
     }
   }
 
