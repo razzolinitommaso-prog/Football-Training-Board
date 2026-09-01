@@ -109,6 +109,7 @@ type ExerciseFormState = {
   videoNoteData: string;
   isDraft: boolean;
   notes: string;
+  stationsJson: string;
 };
 
 interface PlayerOption {
@@ -148,16 +149,77 @@ interface Member {
 
 const STAFF_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
 const MATERIAL_OPTIONS = [
-  { id: "cinesini", label: "Cinesini" },
-  { id: "ostacoli_20", label: "Ostacoli 20cm" },
-  { id: "ostacoli_40", label: "Ostacoli 40cm" },
-  { id: "ostacoli_60", label: "Ostacoli 60cm" },
-  { id: "ostacoli_80", label: "Ostacoli 80cm" },
-  { id: "porticine", label: "Porticine" },
-  { id: "coni", label: "Coni" },
-  { id: "scalette", label: "Scalette" },
+  { id: "cinesini", label: "Cinesini", category: "Campo e delimitazione", availability: "base" },
+  { id: "coni", label: "Coni", category: "Campo e delimitazione", availability: "base" },
+  { id: "piattelli", label: "Piattelli / delimitatori", category: "Campo e delimitazione", availability: "base" },
+  { id: "marker_numerati", label: "Marker numerati / colorati", category: "Campo e delimitazione", availability: "base" },
+  { id: "bandierine", label: "Bandierine", category: "Campo e delimitazione", availability: "base" },
+  { id: "nastro_segnaletico", label: "Nastro segnaletico", category: "Campo e delimitazione", availability: "base" },
+  { id: "spray_segnaletico", label: "Spray segnaletico", category: "Campo e delimitazione", availability: "youth" },
+  { id: "rotella_metrica", label: "Rotella metrica / misuratore distanze", category: "Campo e delimitazione", availability: "base" },
+  { id: "palloni", label: "Palloni", category: "Palla e tecnica", availability: "base" },
+  { id: "carrello_palloni", label: "Carrello / porta palloni", category: "Palla e tecnica", availability: "base" },
+  { id: "pompa_palloni", label: "Pompa palloni", category: "Palla e tecnica", availability: "base" },
+  { id: "rebounder", label: "Rebounder", category: "Palla e tecnica", availability: "base" },
+  { id: "rete_elastica", label: "Rete elastica", category: "Palla e tecnica", availability: "base" },
+  { id: "telo_precisione", label: "Telo porta di precisione", category: "Palla e tecnica", availability: "base" },
+  { id: "porte_ridotte", label: "Porte ridotte", category: "Palla e tecnica", availability: "base" },
+  { id: "porticine", label: "Porticine", category: "Palla e tecnica", availability: "base" },
+  { id: "mini_porte", label: "Mini porte", category: "Palla e tecnica", availability: "base" },
+  { id: "porte_regolamentari", label: "Porte regolamentari", category: "Palla e tecnica", availability: "base" },
+  { id: "reti_porte", label: "Reti per porte", category: "Palla e tecnica", availability: "base" },
+  { id: "paletti", label: "Paletti", category: "Tattica e situazioni", availability: "base" },
+  { id: "sagome", label: "Sagome", category: "Tattica e situazioni", availability: "base" },
+  { id: "manichini_barriere", label: "Manichini / barriere", category: "Tattica e situazioni", availability: "youth" },
+  { id: "barriere_punizioni", label: "Barriere punizioni", category: "Tattica e situazioni", availability: "youth" },
+  { id: "dummy_gonfiabili", label: "Dummy gonfiabili", category: "Tattica e situazioni", availability: "youth" },
+  { id: "lavagna_tattica", label: "Lavagna tattica", category: "Tattica e situazioni", availability: "base" },
+  { id: "scalette", label: "Scaletta coordinativa", category: "Coordinazione e agility", availability: "base" },
+  { id: "speed_ladder", label: "Speed ladder", category: "Coordinazione e agility", availability: "youth" },
+  { id: "cerchi", label: "Cerchi", category: "Coordinazione e agility", availability: "base" },
+  { id: "ostacoli_20", label: "Ostacoli bassi / 20cm", category: "Coordinazione e agility", availability: "base" },
+  { id: "ostacoli_40", label: "Ostacoli medi / 40cm", category: "Coordinazione e agility", availability: "youth" },
+  { id: "ostacoli_60", label: "Ostacoli alti / 60cm", category: "Coordinazione e agility", availability: "youth" },
+  { id: "ostacoli_80", label: "Ostacoli alti / 80cm", category: "Coordinazione e agility", availability: "youth" },
+  { id: "hurdles_regolabili", label: "Hurdles regolabili", category: "Coordinazione e agility", availability: "youth" },
+  { id: "over", label: "Over bassi", category: "Coordinazione e agility", availability: "base" },
+  { id: "bastoni_coordinativi", label: "Bastoni coordinativi", category: "Coordinazione e agility", availability: "base" },
+  { id: "stazioni_agility", label: "Stazioni agility", category: "Coordinazione e agility", availability: "base" },
+  { id: "reaction_lights", label: "Luci / reaction lights", category: "Coordinazione e agility", availability: "youth" },
+  { id: "elastici", label: "Elastici", category: "Preparazione atletica", availability: "performance" },
+  { id: "corde", label: "Corde", category: "Preparazione atletica", availability: "performance" },
+  { id: "speed_rope", label: "Speed rope", category: "Preparazione atletica", availability: "performance" },
+  { id: "paracadute_velocita", label: "Paracadute velocita", category: "Preparazione atletica", availability: "performance" },
+  { id: "slitte_resistance", label: "Slitte / resistance sled", category: "Preparazione atletica", availability: "performance" },
+  { id: "giubbotti_zavorrati", label: "Giubbotti zavorrati", category: "Preparazione atletica", availability: "performance" },
+  { id: "med_ball", label: "Med Ball / palle mediche", category: "Preparazione atletica", availability: "performance" },
+  { id: "fitball", label: "Fitball", category: "Preparazione atletica", availability: "performance" },
+  { id: "bosu", label: "Bosu", category: "Preparazione atletica", availability: "performance" },
+  { id: "tappetini", label: "Tappetini", category: "Preparazione atletica", availability: "performance" },
+  { id: "box_pliometrico", label: "Box pliometrico", category: "Preparazione atletica", availability: "performance" },
+  { id: "foam_roller", label: "Foam roller", category: "Preparazione atletica", availability: "performance" },
+  { id: "manubri", label: "Manubri", category: "Forza avanzata", availability: "advanced" },
+  { id: "kettlebell", label: "Kettlebell", category: "Forza avanzata", availability: "advanced" },
+  { id: "bilancieri", label: "Bilancieri", category: "Forza avanzata", availability: "advanced" },
+  { id: "pesi_dischi", label: "Pesi / dischi", category: "Forza avanzata", availability: "advanced" },
+  { id: "cronometro", label: "Cronometro", category: "Monitoraggio e analisi", availability: "base" },
+  { id: "gps_tracker", label: "GPS / tracker", category: "Monitoraggio e analisi", availability: "performance" },
+  { id: "cardiofrequenzimetri", label: "Cardiofrequenzimetri", category: "Monitoraggio e analisi", availability: "performance" },
+  { id: "tablet_video", label: "Tablet / videocamera per analisi", category: "Monitoraggio e analisi", availability: "youth" },
+  { id: "kit_primo_soccorso", label: "Kit primo soccorso", category: "Sicurezza e recupero", availability: "base" },
+  { id: "ghiaccio", label: "Ghiaccio", category: "Sicurezza e recupero", availability: "base" },
+  { id: "defibrillatore", label: "Defibrillatore", category: "Sicurezza e recupero", availability: "base" },
+  { id: "casacche", label: "Casacche", category: "Organizzazione allenamento", availability: "base" },
+  { id: "pettorine_numerate", label: "Pettorine numerate", category: "Organizzazione allenamento", availability: "base" },
+  { id: "fischietto", label: "Fischietto", category: "Organizzazione allenamento", availability: "base" },
 ] as const;
 type MaterialId = (typeof MATERIAL_OPTIONS)[number]["id"];
+type MaterialAvailability = (typeof MATERIAL_OPTIONS)[number]["availability"];
+type MaterialOption = (typeof MATERIAL_OPTIONS)[number];
+const DEFAULT_FREQUENT_MATERIAL_IDS: MaterialId[] = ["palloni", "cinesini", "coni", "casacche", "porticine", "paletti", "scalette", "ostacoli_20"];
+const RECENT_MATERIALS_STORAGE_KEY = "ftb.recentExerciseMaterials";
+const EXERCISE_STATIONS_MARKER = "\n\n[FTB_EXERCISE_STATIONS]";
+type ExerciseStation = { id: string; title: string; durationMinutes: string; notes: string };
 const EXERCISE_CATEGORIES = ["technique", "physical", "tactical", "warmup", "shooting", "passing", "defending"] as const;
 const TRAINING_SESSIONS = [
   { value: "giorno_1" },
@@ -315,6 +377,7 @@ function emptyExerciseFormFromSession(session: TrainingSession, existingCount: n
     videoNoteData: "",
     isDraft: false,
     notes: "",
+    stationsJson: JSON.stringify([]),
   };
 }
 
@@ -323,10 +386,11 @@ function formFromLinkedExercise(link: SessionExerciseLink): ExerciseFormState {
   const normalizedTrainingDay = /^\d{4}-\d{2}-\d{2}$/.test(rawTrainingDay) ? rawTrainingDay : "";
   const inferredMode: "all" | "manual" | "selected" =
     link.exercise?.scegliGiocatori ? "selected" : link.exercise?.caricaRosaIntera ? "all" : "manual";
+  const parsedDescription = splitExerciseDescriptionAndStations(link.exercise?.description ?? "");
   return {
     title: link.exercise?.title ?? "",
     category: link.exercise?.category ?? "",
-    description: link.exercise?.description ?? "",
+    description: parsedDescription.description,
     durationMinutes: link.exercise?.durationMinutes ? String(link.exercise.durationMinutes) : "",
     playersRequired: link.exercise?.playersRequired ? String(link.exercise.playersRequired) : "",
     equipment: link.exercise?.equipment ?? "",
@@ -343,7 +407,66 @@ function formFromLinkedExercise(link: SessionExerciseLink): ExerciseFormState {
     videoNoteData: link.exercise?.videoNoteData ?? "",
     isDraft: !!link.exercise?.isDraft,
     notes: link.notes ?? "",
+    stationsJson: JSON.stringify(parsedDescription.stations),
   };
+}
+
+function parseExerciseStations(raw: string): ExerciseStation[] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item, index) => ({
+        id: String(item?.id || `${Date.now()}-${index}`),
+        title: String(item?.title ?? ""),
+        durationMinutes: String(item?.durationMinutes ?? ""),
+        notes: String(item?.notes ?? ""),
+      }))
+      .filter((station) => station.title.trim() || station.durationMinutes.trim() || station.notes.trim());
+  } catch {
+    return [];
+  }
+}
+
+function splitExerciseDescriptionAndStations(raw: string): { description: string; stations: ExerciseStation[] } {
+  const idx = raw.indexOf(EXERCISE_STATIONS_MARKER);
+  if (idx < 0) return { description: raw, stations: [] };
+  const description = raw.slice(0, idx).trim();
+  const json = raw.slice(idx + EXERCISE_STATIONS_MARKER.length).trim();
+  return { description, stations: parseExerciseStations(json) };
+}
+
+function composeExerciseDescription(description: string, stations: ExerciseStation[]): string | null {
+  const cleanDescription = description.trim();
+  const cleanStations = stations.filter((station) => station.title.trim() || Number(station.durationMinutes) > 0 || station.notes.trim());
+  if (cleanStations.length === 0) return cleanDescription || null;
+  return `${cleanDescription}${EXERCISE_STATIONS_MARKER}${JSON.stringify(cleanStations)}`;
+}
+
+function totalStationMinutes(stations: ExerciseStation[]): number {
+  return stations.reduce((sum, station) => {
+    const value = Number(station.durationMinutes);
+    return Number.isFinite(value) && value > 0 ? sum + value : sum;
+  }, 0);
+}
+
+function normalizeClubSection(value: string | null | undefined): "scuola_calcio" | "settore_giovanile" | "prima_squadra" | null {
+  const normalized = String(value ?? "").replace(/-/g, "_");
+  if (normalized === "scuola_calcio" || normalized === "settore_giovanile" || normalized === "prima_squadra") return normalized;
+  return null;
+}
+
+function canUseMaterial(
+  availability: MaterialAvailability,
+  section: ReturnType<typeof normalizeClubSection>,
+  role: string | null | undefined,
+): boolean {
+  if (availability === "base") return true;
+  if (section === "scuola_calcio") return false;
+  if (availability === "youth") return section === "settore_giovanile" || section === "prima_squadra" || section == null;
+  if (availability === "performance") return section === "settore_giovanile" || section === "prima_squadra";
+  if (availability === "advanced") return section === "prima_squadra" || ["fitness_coach", "athletic_director", "director", "admin", "presidente"].includes(role ?? "");
+  return false;
 }
 
 function parseSelectedPlayerIds(raw: string): number[] {
@@ -1564,9 +1687,10 @@ function SessionDetailsDialog({
 }: {
   session: TrainingSession;
   onClose: () => void;
-  teams: { id: number; name: string }[];
+  teams: { id: number; name: string; clubSection?: string | null }[];
   readOnly?: boolean;
 }) {
+  const { role } = useAuth();
   const { toast } = useToast();
   const { t } = useLanguage();
   const qc = useQueryClient();
@@ -1575,6 +1699,18 @@ function SessionDetailsDialog({
   const [editingLink, setEditingLink] = useState<SessionExerciseLink | null>(null);
   const [duplicateSourceExerciseId, setDuplicateSourceExerciseId] = useState<number | null>(null);
   const [exerciseForm, setExerciseForm] = useState<ExerciseFormState>(() => emptyExerciseFormFromSession(session, 0));
+  const [materialSearch, setMaterialSearch] = useState("");
+  const [recentMaterialIds, setRecentMaterialIds] = useState<MaterialId[]>(() => {
+    if (typeof window === "undefined") return DEFAULT_FREQUENT_MATERIAL_IDS;
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(RECENT_MATERIALS_STORAGE_KEY) ?? "[]") as string[];
+      const validIds = new Set(MATERIAL_OPTIONS.map((option) => option.id));
+      const stored = parsed.filter((id): id is MaterialId => validIds.has(id as MaterialId));
+      return stored.length > 0 ? stored : DEFAULT_FREQUENT_MATERIAL_IDS;
+    } catch {
+      return DEFAULT_FREQUENT_MATERIAL_IDS;
+    }
+  });
 
   const linkedExercisesQuery = useQuery<SessionExerciseLink[]>({
     queryKey: ["/api/training-sessions", session.id, "exercises"],
@@ -1600,8 +1736,8 @@ function SessionDetailsDialog({
         body: JSON.stringify({
           title: form.title,
           category: form.category || null,
-          description: form.description || null,
-          durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : null,
+          description: composeExerciseDescription(form.description, parseExerciseStations(form.stationsJson)),
+          durationMinutes: totalStationMinutes(parseExerciseStations(form.stationsJson)) || (form.durationMinutes ? Number(form.durationMinutes) : null),
           playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
           equipment: form.equipment || null,
           teamId: form.teamId ? Number(form.teamId) : null,
@@ -1650,8 +1786,8 @@ function SessionDetailsDialog({
         body: JSON.stringify({
           title: form.title,
           category: form.category || null,
-          description: form.description || null,
-          durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : null,
+          description: composeExerciseDescription(form.description, parseExerciseStations(form.stationsJson)),
+          durationMinutes: totalStationMinutes(parseExerciseStations(form.stationsJson)) || (form.durationMinutes ? Number(form.durationMinutes) : null),
           playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
           equipment: form.equipment || null,
           teamId: form.teamId ? Number(form.teamId) : null,
@@ -1764,6 +1900,21 @@ function SessionDetailsDialog({
 
   const exerciseSaving = createAndLinkExerciseMutation.isPending || updateExerciseMutation.isPending;
   const materialSelection = parseEquipmentSelection(exerciseForm.equipment);
+  const selectedTeam = exerciseForm.teamId ? teams.find((team) => team.id === Number(exerciseForm.teamId)) : null;
+  const selectedMaterialSection = normalizeClubSection(selectedTeam?.clubSection);
+  const normalizedMaterialSearch = materialSearch.trim().toLowerCase();
+  const availableMaterialOptions = MATERIAL_OPTIONS.filter((option) => canUseMaterial(option.availability, selectedMaterialSection, role));
+  const recentMaterialOptions = recentMaterialIds
+    .map((id) => availableMaterialOptions.find((option) => option.id === id))
+    .filter((option): option is MaterialOption => Boolean(option))
+    .filter((option, index, list) => list.findIndex((item) => item.id === option.id) === index);
+  const searchedMaterialOptions = availableMaterialOptions.filter((option) => {
+    if (!normalizedMaterialSearch) return true;
+    return `${option.label} ${option.category}`.toLowerCase().includes(normalizedMaterialSearch);
+  });
+  const materialCategories = Array.from(new Set(searchedMaterialOptions.map((option) => option.category)));
+  const exerciseStations = parseExerciseStations(exerciseForm.stationsJson);
+  const stationMinutes = totalStationMinutes(exerciseStations);
   const selectedPlayerIds = parseSelectedPlayerIds(exerciseForm.selectedPlayerIdsJson);
   const selectablePlayers = (selectablePlayersQuery.data ?? []).filter((p) => p.available !== false);
   const selectedPlayersCount = selectedPlayerIds.length;
@@ -1783,6 +1934,13 @@ function SessionDetailsDialog({
       delete next[id];
     }
     setExerciseForm((prev) => ({ ...prev, equipment: serializeEquipmentSelection(next) }));
+    if (checked) {
+      setRecentMaterialIds((current) => {
+        const nextRecent = [id, ...current.filter((item) => item !== id)].slice(0, 12);
+        if (typeof window !== "undefined") window.localStorage.setItem(RECENT_MATERIALS_STORAGE_KEY, JSON.stringify(nextRecent));
+        return nextRecent;
+      });
+    }
   }
 
   function setMaterialQty(id: MaterialId, rawValue: string) {
@@ -1803,6 +1961,15 @@ function SessionDetailsDialog({
     setExerciseForm((prev) => ({
       ...prev,
       selectedPlayerIdsJson: nextSet.size > 0 ? JSON.stringify(Array.from(nextSet)) : "",
+    }));
+  }
+
+  function setStations(next: ExerciseStation[]) {
+    const minutes = totalStationMinutes(next);
+    setExerciseForm((prev) => ({
+      ...prev,
+      stationsJson: JSON.stringify(next),
+      durationMinutes: minutes > 0 ? String(minutes) : prev.durationMinutes,
     }));
   }
 
@@ -1995,9 +2162,22 @@ function SessionDetailsDialog({
                         )}
                       </div>
 
-                      {link.exercise?.description && (
-                        <p className="text-xs text-foreground/80 line-clamp-3">{link.exercise.description}</p>
-                      )}
+                      {(() => {
+                        const parsed = splitExerciseDescriptionAndStations(link.exercise?.description ?? "");
+                        return (
+                          <>
+                            {parsed.description && (
+                              <p className="text-xs text-foreground/80 line-clamp-3">{parsed.description}</p>
+                            )}
+                            {parsed.stations.length > 0 && (
+                              <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
+                                <span className="font-semibold text-foreground">Stazionamenti:</span>{" "}
+                                {parsed.stations.map((station) => `${station.title || "Stazione"} (${station.durationMinutes || 0} min)`).join(" · ")}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
 
                       {link.exercise?.playersRequired && (
                         <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
@@ -2036,10 +2216,28 @@ function SessionDetailsDialog({
                 {viewingLink.exercise.category && <Badge variant="outline">{categoryLabel(viewingLink.exercise.category)}</Badge>}
                 {viewingLink.exercise.durationMinutes && <Badge variant="outline">{viewingLink.exercise.durationMinutes} min</Badge>}
               </div>
-              {viewingLink.exercise.description && (
+              {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").description && (
                 <div className="space-y-1">
                   <Label>Descrizione</Label>
-                  <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">{viewingLink.exercise.description}</p>
+                  <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">
+                    {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").description}
+                  </p>
+                </div>
+              )}
+              {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").stations.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Stazionamenti</Label>
+                  <div className="space-y-2">
+                    {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").stations.map((station, index) => (
+                      <div key={station.id} className="rounded-md border bg-muted/30 p-3 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold">{index + 1}. {station.title || "Stazionamento"}</p>
+                          <Badge variant="outline">{station.durationMinutes || 0} min</Badge>
+                        </div>
+                        {station.notes && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{station.notes}</p>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
@@ -2123,8 +2321,75 @@ function SessionDetailsDialog({
                         min={0}
                         value={exerciseForm.durationMinutes}
                         onChange={(e) => setExerciseForm((prev) => ({ ...prev, durationMinutes: e.target.value }))}
+                        readOnly={stationMinutes > 0}
                       />
+                      {stationMinutes > 0 && (
+                        <p className="text-[11px] text-muted-foreground">Calcolata dagli stazionamenti: {stationMinutes} min</p>
+                      )}
                     </div>
+                  </div>
+
+                  <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium">Stazionamenti</p>
+                        <p className="text-xs text-muted-foreground">Somma automatica della durata dell'esercitazione.</p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setStations([...exerciseStations, { id: `${Date.now()}`, title: "", durationMinutes: "8", notes: "" }])}
+                      >
+                        <Plus className="mr-1.5 h-3.5 w-3.5" />
+                        Aggiungi stazionamento
+                      </Button>
+                    </div>
+                    {exerciseStations.length === 0 ? (
+                      <div className="rounded-md border border-dashed bg-background px-3 py-3 text-sm text-muted-foreground">
+                        Nessuno stazionamento inserito. Se lasci vuoto, la durata resta manuale.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {exerciseStations.map((station, index) => (
+                          <div key={station.id} className="rounded-md border bg-background p-3">
+                            <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_110px_auto]">
+                              <Input
+                                value={station.title}
+                                onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, title: e.target.value } : item))}
+                                placeholder={`Stazionamento ${index + 1}, es. conduzione e tiro`}
+                              />
+                              <Input
+                                type="number"
+                                min={1}
+                                value={station.durationMinutes}
+                                onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, durationMinutes: e.target.value } : item))}
+                                placeholder="Min"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive"
+                                onClick={() => setStations(exerciseStations.filter((item) => item.id !== station.id))}
+                              >
+                                Rimuovi
+                              </Button>
+                            </div>
+                            <Textarea
+                              className="mt-2"
+                              rows={2}
+                              value={station.notes}
+                              onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, notes: e.target.value } : item))}
+                              placeholder="Note tecniche dello stazionamento"
+                            />
+                          </div>
+                        ))}
+                        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+                          Totale stazionamenti: {stationMinutes} min
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -2285,27 +2550,63 @@ function SessionDetailsDialog({
                   </div>
 
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                    <div className="text-sm font-medium">Materiale</div>
-                    <div className="grid grid-cols-1 gap-2">
-                      {MATERIAL_OPTIONS.map((option) => {
-                        const checked = (materialSelection[option.id] ?? 0) > 0;
-                        return (
-                          <div key={option.id} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
-                            <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(option.id, !!value)} />
-                            <span className="flex-1 text-sm">{option.label}</span>
-                            {checked ? (
-                              <Input
-                                type="number"
-                                min={1}
-                                className="w-24"
-                                value={materialSelection[option.id] ?? 1}
-                                onChange={(event) => setMaterialQty(option.id, event.target.value)}
-                              />
-                            ) : null}
-                          </div>
-                        );
-                      })}
+                    <div>
+                      <div className="text-sm font-medium">Materiale</div>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedTeam ? `Lista filtrata per ${selectedTeam.name}` : "Seleziona una squadra per filtrare i materiali per sezione."}
+                      </p>
                     </div>
+                    <Input
+                      value={materialSearch}
+                      onChange={(event) => setMaterialSearch(event.target.value)}
+                      placeholder="Cerca materiale o categoria..."
+                    />
+                    {recentMaterialOptions.length > 0 && !normalizedMaterialSearch && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase text-muted-foreground">Usati di recente / frequenti</p>
+                        <div className="grid grid-cols-1 gap-2">
+                          {recentMaterialOptions.map((option) => {
+                            const checked = (materialSelection[option.id] ?? 0) > 0;
+                            return (
+                              <div key={option.id} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                                <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(option.id, !!value)} />
+                                <span className="min-w-0 flex-1 text-sm">{option.label}</span>
+                                {checked ? (
+                                  <Input type="number" min={1} className="w-24" value={materialSelection[option.id] ?? 1} onChange={(event) => setMaterialQty(option.id, event.target.value)} />
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {materialCategories.map((category) => {
+                      const options = searchedMaterialOptions.filter((option) => option.category === category);
+                      return (
+                        <div key={category} className="space-y-2">
+                          <p className="text-xs font-semibold uppercase text-muted-foreground">{category}</p>
+                          <div className="grid grid-cols-1 gap-2">
+                            {options.map((option) => {
+                              const checked = (materialSelection[option.id] ?? 0) > 0;
+                              return (
+                                <div key={option.id} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                                  <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(option.id, !!value)} />
+                                  <span className="min-w-0 flex-1 text-sm">{option.label}</span>
+                                  {checked ? (
+                                    <Input type="number" min={1} className="w-24" value={materialSelection[option.id] ?? 1} onChange={(event) => setMaterialQty(option.id, event.target.value)} />
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {searchedMaterialOptions.length === 0 && (
+                      <div className="rounded-md border border-dashed bg-background px-3 py-3 text-sm text-muted-foreground">
+                        Nessun materiale disponibile con questo filtro.
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between p-3 rounded-lg border bg-amber-50/50">
@@ -2413,7 +2714,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     enabled: role === "technical_director",
   });
 
-  const teamsQuery = useQuery<{ id: number; name: string }[]>({
+  const teamsQuery = useQuery<{ id: number; name: string; clubSection?: string | null }[]>({
     queryKey: ["/api/teams"],
     queryFn: () => apiFetch("/api/teams"),
     enabled: !!role,
