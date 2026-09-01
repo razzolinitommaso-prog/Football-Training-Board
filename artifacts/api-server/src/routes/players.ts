@@ -285,6 +285,18 @@ function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?
   }
 }
 
+function normalizeNullablePlayerDates(data: Record<string, unknown>) {
+  for (const key of [
+    "dateOfBirth",
+    "medicalCertificateExpiry",
+    "expectedReturn",
+    "availabilityOverrideFrom",
+    "availabilityOverrideUntil",
+  ]) {
+    if (data[key] === "") data[key] = null;
+  }
+}
+
 async function notifyParentAvailabilityOverride(clubId: number, player: typeof playersTable.$inferSelect, until?: unknown) {
   const relations = await db
     .select({ parentUserId: parentPlayerRelationsTable.parentUserId })
@@ -452,6 +464,7 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
     clubId: req.session.clubId!,
     clubSection,
   };
+  normalizeNullablePlayerDates(values);
   enforcePlayerAvailabilityRules(values);
 
   const [player] = await db
@@ -624,6 +637,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   const role = normalizeSessionRole(req.session.role);
   const { parentDelegates: incomingParentDelegates, ...parsedUpdateData } = parsed.data as typeof parsed.data & { parentDelegates?: ParentDelegateInput[] };
   const updateData = { ...parsedUpdateData } as Record<string, unknown>;
+  normalizeNullablePlayerDates(updateData);
   const [existingPlayer] = await db
     .select()
     .from(playersTable)
