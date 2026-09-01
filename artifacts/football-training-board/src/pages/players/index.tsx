@@ -714,7 +714,7 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
   });
 
   return (
-    <details className="group rounded-lg border p-3">
+    <details className="group rounded-lg border p-3" open>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
         <span className="text-sm font-semibold">Andamento automatico</span>
         <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />

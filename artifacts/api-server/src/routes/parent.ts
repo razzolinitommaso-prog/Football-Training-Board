@@ -6,8 +6,9 @@ import {
   playerPaymentsTable, playerDocumentsTable,
   platformAnnouncementsTable, parentNotificationsTable,
   calendarExtraEventsTable,
+  playerFitnessDataTable,
 } from "@workspace/db";
-import { eq, and, gte, asc, desc, or } from "drizzle-orm";
+import { eq, and, gte, asc, desc, or, inArray } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -30,6 +31,44 @@ function requireAdminSession(req: any, res: any, next: any) {
 function getParentPlayerId(req: any): number | null {
   const id = Number(req.session.parentPlayerId ?? 0);
   return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
+const ATTENDANCE_META_PREFIX = "[FTB_ATTENDANCE_META]";
+
+function stripMetaFromNotes(raw?: string | null): string {
+  const full = String(raw ?? "").trim();
+  if (!full.startsWith(PLAYER_META_MARKER)) return full;
+  const nextNewLineIdx = full.indexOf("\n");
+  return nextNewLineIdx >= 0 ? full.slice(nextNewLineIdx + 1).trim() : "";
+}
+
+function parseAttendanceConduct(raw?: string | null): "ottima" | "buona" | "insufficiente" | null {
+  const line = String(raw ?? "").split(/\r?\n/).find((item) => item.startsWith(ATTENDANCE_META_PREFIX));
+  if (!line) return null;
+  try {
+    const parsed = JSON.parse(line.slice(ATTENDANCE_META_PREFIX.length).trim()) as { conduct?: unknown };
+    const conduct = parsed?.conduct;
+    return conduct === "ottima" || conduct === "buona" || conduct === "insufficiente" ? conduct : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDisciplineCards(matchPlan: unknown): Array<{ playerId: number; cardType: string; reason: string; notes?: string | null }> {
+  const source = matchPlan && typeof matchPlan === "object" ? (matchPlan as { disciplineCards?: unknown }) : null;
+  if (!Array.isArray(source?.disciplineCards)) return [];
+  return source.disciplineCards
+    .map((item) => {
+      const card = item as { playerId?: unknown; cardType?: unknown; reason?: unknown; notes?: unknown };
+      return {
+        playerId: Number(card.playerId),
+        cardType: String(card.cardType ?? "giallo"),
+        reason: String(card.reason ?? "altro"),
+        notes: card.notes == null ? null : String(card.notes),
+      };
+    })
+    .filter((card) => Number.isFinite(card.playerId) && card.playerId > 0);
 }
 
 router.get("/parent/children", requireParentSession, async (req, res): Promise<void> => {
@@ -348,9 +387,74 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
   }
 
   const [team] = player.teamId
-    ? await db.select({ name: teamsTable.name, category: teamsTable.category, ageGroup: teamsTable.ageGroup }).from(teamsTable)
+    ? await db.select({ name: teamsTable.name, category: teamsTable.category, ageGroup: teamsTable.ageGroup, clubSection: teamsTable.clubSection }).from(teamsTable)
         .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.id, player.teamId)))
     : [null];
+
+  const now = new Date();
+  const trainingSessions = player.teamId
+    ? (await db
+        .select()
+        .from(trainingSessionsTable)
+        .where(and(eq(trainingSessionsTable.clubId, clubId), eq(trainingSessionsTable.teamId, player.teamId)))
+        .orderBy(desc(trainingSessionsTable.scheduledAt)))
+        .filter((session) => new Date(session.scheduledAt).getTime() <= now.getTime() && session.status !== "cancelled")
+    : [];
+  const trainingSessionIds = trainingSessions.map((session) => session.id);
+  const trainingAttendanceRows = trainingSessionIds.length > 0
+    ? await db
+        .select()
+        .from(trainingAttendancesTable)
+        .where(and(
+          eq(trainingAttendancesTable.clubId, clubId),
+          eq(trainingAttendancesTable.playerId, player.id),
+          inArray(trainingAttendancesTable.trainingSessionId, trainingSessionIds),
+        ))
+    : [];
+  const presentTraining = trainingAttendanceRows.filter((row) => row.status === "present").length;
+  const absentTraining = trainingAttendanceRows.filter((row) => row.status === "absent").length;
+  const conductCounts = trainingAttendanceRows.reduce<Record<string, number>>((acc, row) => {
+    const conduct = parseAttendanceConduct(row.notes);
+    if (conduct) acc[conduct] = (acc[conduct] ?? 0) + 1;
+    return acc;
+  }, {});
+  const trainingTotal = trainingSessions.length;
+  const trainingRecorded = trainingAttendanceRows.length;
+
+  const matches = player.teamId
+    ? (await db
+        .select()
+        .from(matchesTable)
+        .where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, player.teamId)))
+        .orderBy(desc(matchesTable.date)))
+        .filter((match) => new Date(match.date).getTime() <= now.getTime())
+    : [];
+  const matchIds = matches.map((match) => match.id);
+  const callups = matchIds.length > 0
+    ? await db
+        .select()
+        .from(callUpsTable)
+        .where(and(eq(callUpsTable.playerId, player.id), inArray(callUpsTable.matchId, matchIds)))
+    : [];
+  const matchAppearances = callups.filter((callup) => !["absent", "unavailable", "not_called"].includes(String(callup.status ?? "").toLowerCase())).length;
+  const disciplineCards = matches.flatMap((match) =>
+    normalizeDisciplineCards(match.matchPlan)
+      .filter((card) => card.playerId === player.id)
+      .map((card) => ({
+        matchId: match.id,
+        date: match.date,
+        opponent: match.opponent,
+        type: card.cardType,
+        reason: card.reason,
+        notes: card.notes ?? null,
+      })),
+  );
+
+  const fitnessData = await db
+    .select()
+    .from(playerFitnessDataTable)
+    .where(and(eq(playerFitnessDataTable.clubId, clubId), eq(playerFitnessDataTable.playerId, player.id)))
+    .orderBy(desc(playerFitnessDataTable.date));
 
   res.json({
     id: player.id,
@@ -369,6 +473,41 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
     medicalCertificateExpiry: player.medicalCertificateExpiry,
     shuttleService: player.shuttleService,
     team,
+    activitySummary: {
+      conduct: {
+        status: conductCounts.insufficiente > 0 ? "Da monitorare" : player.available === false ? "Da monitorare" : "Regolare",
+        reason: player.available === false ? player.unavailabilityReason ?? "non_disponibile" : null,
+        training: conductCounts,
+        notes: stripMetaFromNotes(player.notes),
+      },
+      trainingAttendance: {
+        totalPastSessions: trainingTotal,
+        recorded: trainingRecorded,
+        present: presentTraining,
+        absent: absentTraining,
+        unrecorded: Math.max(trainingTotal - trainingRecorded, 0),
+        percentage: trainingTotal > 0 ? Math.round((presentTraining / trainingTotal) * 100) : null,
+      },
+      matchAttendance: {
+        totalPastMatches: matches.length,
+        callups: callups.length,
+        appearances: matchAppearances,
+        percentage: matches.length > 0 ? Math.round((matchAppearances / matches.length) * 100) : null,
+      },
+      fitnessTests: fitnessData.slice(0, 5).map((entry) => ({
+        id: entry.id,
+        date: entry.date,
+        endurance: entry.endurance ?? null,
+        strength: entry.strength ?? null,
+        speed: entry.speed ?? null,
+        notes: entry.notes ?? null,
+      })),
+      discipline: {
+        cards: disciplineCards,
+        supportedReasons: ["proteste", "fallo_di_gioco", "altro"],
+        source: "Scheda partita",
+      },
+    },
   });
 });
 

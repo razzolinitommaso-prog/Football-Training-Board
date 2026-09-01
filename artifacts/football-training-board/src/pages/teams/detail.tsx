@@ -195,7 +195,7 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
   });
 
   return (
-    <details className="rounded-lg border p-3">
+    <details className="rounded-lg border p-3" open>
       <summary className="cursor-pointer text-sm font-semibold">Andamento automatico</summary>
       {isLoading ? (
         <div className="mt-3 space-y-2">
