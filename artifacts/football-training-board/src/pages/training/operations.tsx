@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { withApi } from "@/lib/api-base";
+import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
 
 type TrainingOperationKind = "callups" | "attendance" | "calendar";
@@ -68,6 +69,13 @@ function canEditOperation(role: string) {
   return ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"].includes(role);
 }
 
+function sessionTime(value?: string | null): number | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getTime();
+}
+
 export default function TrainingOperationsPage({ kind, section }: { kind: TrainingOperationKind; section?: ClubSection }) {
   const { role } = useAuth();
   const [, setLocation] = useLocation();
@@ -83,10 +91,28 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
   });
 
   const visibleSessions = useMemo(() => {
-    return [...sessions]
-      .sort((a, b) => String(a.scheduledAt ?? "").localeCompare(String(b.scheduledAt ?? "")))
-      .slice(0, 12);
+    return [...sessions].sort((a, b) => {
+      const aTime = sessionTime(a.scheduledAt) ?? Number.MAX_SAFE_INTEGER;
+      const bTime = sessionTime(b.scheduledAt) ?? Number.MAX_SAFE_INTEGER;
+      return aTime - bTime;
+    });
   }, [sessions]);
+
+  const nextSessionId = useMemo(() => {
+    const now = Date.now();
+    return visibleSessions.find((session) => {
+      const time = sessionTime(session.scheduledAt);
+      return time != null && time >= now;
+    })?.id ?? null;
+  }, [visibleSessions]);
+
+  const sessionVisualState = (session: TrainingSession): "past" | "next" | "future" | "unscheduled" => {
+    const time = sessionTime(session.scheduledAt);
+    if (time == null) return "unscheduled";
+    if (session.id === nextSessionId) return "next";
+    if (time < Date.now()) return "past";
+    return "future";
+  };
 
   const openSession = (session: TrainingSession) => {
     if (kind === "attendance") {
@@ -141,7 +167,7 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <CalendarCheck className="h-4 w-4 text-primary" />
-            Prossime sedute operative
+            Sedute operative in ordine calendario
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -150,8 +176,19 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
           ) : visibleSessions.length === 0 ? (
             <div className="rounded-md border bg-muted/20 px-3 py-6 text-sm text-muted-foreground">{config.empty}</div>
           ) : (
-            visibleSessions.map((session) => (
-              <div key={session.id} className="flex flex-col gap-3 rounded-md border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            visibleSessions.map((session) => {
+              const visualState = sessionVisualState(session);
+              return (
+              <div
+                key={session.id}
+                className={cn(
+                  "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
+                  visualState === "past" && "border-orange-200 bg-orange-50/80",
+                  visualState === "next" && "border-emerald-300 bg-emerald-50/90 ring-1 ring-emerald-200",
+                  visualState === "future" && "bg-background",
+                  visualState === "unscheduled" && "border-dashed bg-muted/20",
+                )}
+              >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">{session.title || session.teamName || "Sessione allenamento"}</p>
                   <p className="text-xs text-muted-foreground">
@@ -160,6 +197,15 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      visualState === "past" && "border-orange-300 bg-orange-100 text-orange-800",
+                      visualState === "next" && "border-emerald-300 bg-emerald-100 text-emerald-800",
+                    )}
+                  >
+                    {visualState === "past" ? "Passata" : visualState === "next" ? "Prossima" : visualState === "future" ? "Programmata" : "Da programmare"}
+                  </Badge>
                   {session.status && <Badge variant="outline">{session.status}</Badge>}
                   <Button type="button" size="sm" variant={canEdit ? "default" : "outline"} className="gap-2" onClick={() => openSession(session)}>
                     {canEdit ? <Pencil className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -167,7 +213,8 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
                   </Button>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </CardContent>
       </Card>
