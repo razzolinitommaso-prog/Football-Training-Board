@@ -2182,31 +2182,31 @@ function MatchCard({
               <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                 <ListChecks className="w-3 h-3" /> Rosa usata e moduli per tempi
               </span>
-              {canManageMatchPlan ? (
-                <Button size="sm" variant="ghost" className="h-6 text-xs gap-1" onClick={() => setPlanOpen((v) => !v)}>
-                  <Pencil className="w-3 h-3" /> {planOpen ? "Chiudi" : "Gestisci"}
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1.5 px-2 text-xs"
+                  onClick={exportCallupPdf}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Export convocazione
                 </Button>
-              ) : (
-                <Badge variant="outline" className="text-[10px]">solo lettura</Badge>
-              )}
+                {canManageMatchPlan ? (
+                  <Button size="sm" variant="ghost" className="h-6 text-xs gap-1" onClick={() => setPlanOpen((v) => !v)}>
+                    <Pencil className="w-3 h-3" /> {planOpen ? "Chiudi" : "Gestisci"}
+                  </Button>
+                ) : (
+                  <Badge variant="outline" className="text-[10px]">solo lettura</Badge>
+                )}
+              </div>
             </div>
             <div className="text-[11px] text-muted-foreground">
               Convocati: {selectedPlayerIds.size} ·
               <a href={canOpenBoard ? tacticalUrl : "#"} className={cn("ml-1 underline underline-offset-2", !canOpenBoard && "pointer-events-none opacity-50")}>
                 Lavagna preparazione partita
               </a>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 text-xs"
-                onClick={exportCallupPdf}
-              >
-                <FileText className="h-3.5 w-3.5" />
-                PDF convocazione
-              </Button>
             </div>
             {planOpen && canManageMatchPlan && (
               <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
