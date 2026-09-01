@@ -136,6 +136,106 @@ const POSITION_MAP: Record<string, string> = {
   "GK": "GK", "DEF": "DEF", "MID": "MID", "FWD": "FWD",
 };
 
+const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
+const PLAYER_POSITION_KEYS = ["Posizione", "Ruolo", "Ruolo generico", "Posizione generica"];
+const PLAYER_SPECIFIC_ROLE_KEYS = ["Ruolo specifico", "Posizione specifica", "Ruolo dettagliato"];
+
+type ImportedRole = {
+  position?: string;
+  specificRole?: string;
+};
+
+function normalizeRoleToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[+/\\_-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function roleFromToken(token: string): ImportedRole {
+  const normalized = normalizeRoleToken(token);
+  const compact = normalized.replace(/\s+/g, "");
+  if (!normalized) return {};
+
+  if (["gk", "por", "portiere", "portieri", "goalkeeper"].includes(compact)) {
+    return { position: "GK" };
+  }
+  if (["dc", "cb", "centrale", "centraledifesa", "centraledidifesa", "difensorecentrale"].includes(compact)) {
+    return { position: "DEF", specificRole: "CB" };
+  }
+  if (["lib", "libero"].includes(compact)) {
+    return { position: "DEF", specificRole: "LIB" };
+  }
+  if (["terzino", "terzini", "fb", "esternobasso", "bassodifesa"].includes(compact)) {
+    return { position: "DEF", specificRole: "FB" };
+  }
+  if (["br", "braccetto"].includes(compact)) {
+    return { position: "DEF", specificRole: "BR" };
+  }
+  if (["difensore", "difensori", "def", "defender"].includes(compact)) {
+    return { position: "DEF" };
+  }
+  if (["centrocampista", "centrocampisti", "centrocampo", "mid", "midfielder", "cm", "cc", "centralemid"].includes(compact)) {
+    return { position: "MID", specificRole: "CM" };
+  }
+  if (["reg", "play", "playmaker", "mediano"].includes(compact)) {
+    return { position: "MID", specificRole: "REG" };
+  }
+  if (["trequartista", "am"].includes(compact)) {
+    return { position: "MID", specificRole: "AM" };
+  }
+  if (["attaccante", "attaccanti", "att", "punta", "centravanti", "fwd", "forward", "st"].includes(compact)) {
+    return { position: "FWD", specificRole: "ST" };
+  }
+  if (["esterno", "esterni", "ala", "wing", "winger", "wf", "attaccanteesterno", "esternoalto"].includes(compact)) {
+    return { position: "FWD", specificRole: "WF" };
+  }
+  if (["wm", "centrocampistaesterno"].includes(compact)) {
+    return { position: "MID", specificRole: "WM" };
+  }
+  if (["wa"].includes(compact)) {
+    return { position: "FWD", specificRole: "WA" };
+  }
+
+  return {};
+}
+
+function parseImportedRole(rawPosition: string, rawSpecificRole: string): ImportedRole {
+  const explicitSpecific = roleFromToken(rawSpecificRole);
+  const direct = roleFromToken(rawPosition);
+  if (direct.position || direct.specificRole || explicitSpecific.specificRole) {
+    return {
+      position: direct.position ?? explicitSpecific.position,
+      specificRole: explicitSpecific.specificRole ?? direct.specificRole,
+    };
+  }
+
+  const parts = rawPosition.split(/[+/\\,;-]+/).map(part => part.trim()).filter(Boolean);
+  const parsedParts = parts.map(roleFromToken).filter(part => part.position || part.specificRole);
+  if (parsedParts.length === 0) return { position: POSITION_MAP[rawPosition] ?? POSITION_MAP[rawPosition.toLowerCase()] ?? undefined };
+
+  const firstDefensive = parsedParts.find(part => part.position === "DEF");
+  const firstForward = parsedParts.find(part => part.position === "FWD");
+  const firstMidfield = parsedParts.find(part => part.position === "MID");
+  const selected = firstDefensive ?? firstForward ?? firstMidfield ?? parsedParts[0];
+  return {
+    position: selected.position,
+    specificRole: explicitSpecific.specificRole ?? selected.specificRole,
+  };
+}
+
+function composeImportedPlayerNotes(notesRaw: string, specificRole?: string): string | undefined {
+  const cleanNotes = notesRaw.trim();
+  if (!specificRole) return cleanNotes || undefined;
+  const encoded = `${PLAYER_META_MARKER}${JSON.stringify({
+    primarySpecificRole: specificRole,
+  })}`;
+  return cleanNotes ? `${encoded}\n${cleanNotes}` : encoded;
+}
+
 const JERSEY_KEYS = ["N° Maglia", "NÂ° Maglia", "NÃ‚Â° Maglia", "NÃƒâ€šÃ‚Â° Maglia"];
 const NATIONALITY_KEYS = ["Nazionalità", "NazionalitÃ ", "NazionalitÃƒÂ ", "NazionalitÃƒÆ’Ã‚Â "];
 const REGISTRATION_NUMBER_KEYS = ["N° Tessera", "NÂ° Tessera", "NÃ‚Â° Tessera", "NÃƒâ€šÃ‚Â° Tessera"];
@@ -216,8 +316,10 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
   const teamName = normalizeImportedTeamDisplayName(row["Squadra"]);
   const team = teams.find(t => t.name.trim().toLowerCase() === teamName);
 
-  const rawPos = cellToTrimmedString(row["Posizione"]);
-  const position = POSITION_MAP[rawPos] ?? POSITION_MAP[rawPos.toLowerCase()] ?? (rawPos || undefined);
+  const rawPos = cellToTrimmedString(readCell(row, PLAYER_POSITION_KEYS));
+  const rawSpecificRole = cellToTrimmedString(readCell(row, PLAYER_SPECIFIC_ROLE_KEYS));
+  const importedRole = parseImportedRole(rawPos, rawSpecificRole);
+  const position = importedRole.position;
 
   const jerseyRaw = readCell(row, JERSEY_KEYS);
   const jerseyNum =
@@ -263,7 +365,7 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
     secondaryContactEmail: cellToTrimmedString(readCell(row, SECONDARY_EMAIL_KEYS)) || undefined,
     secondaryContactRelation: cellToTrimmedString(readCell(row, SECONDARY_RELATION_KEYS)) || undefined,
     shuttleService: cellToBoolean(readCell(row, SHUTTLE_KEYS)),
-    notes: cellToTrimmedString(row["Note"]) || undefined,
+    notes: composeImportedPlayerNotes(cellToTrimmedString(row["Note"]), importedRole.specificRole),
     status: "active",
   };
 }
