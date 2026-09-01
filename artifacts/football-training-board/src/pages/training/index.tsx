@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -2388,6 +2388,12 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   const [detailsSession, setDetailsSession] = useState<TrainingSession | null>(null);
   const [directiveOpen, setDirectiveOpen] = useState(false);
   const [dismissedDirectives, setDismissedDirectives] = useState<number[]>([]);
+  const initialSessionHandledRef = useRef(false);
+  const initialSessionId = useMemo(() => {
+    const raw = new URLSearchParams(window.location.search).get("sessionId");
+    const parsed = raw ? Number(raw) : null;
+    return parsed && Number.isFinite(parsed) ? parsed : null;
+  }, []);
 
   const sessionsQuery = useQuery<TrainingSession[]>({
     queryKey: ["/api/training-sessions"],
@@ -2432,6 +2438,24 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   const members = membersQuery.data ?? [];
   const teams = teamsQuery.data ?? [];
   const userId = (user as any)?.id as number | undefined;
+
+  useEffect(() => {
+    if (initialSessionHandledRef.current || !initialSessionId || sessionsQuery.isLoading) return;
+    const target = sessions.find((session) => session.id === initialSessionId);
+    if (!target) {
+      if (sessionsQuery.isSuccess) {
+        initialSessionHandledRef.current = true;
+        toast({
+          title: "Sessione non trovata",
+          description: "La sessione richiesta non è disponibile per il tuo accesso o non esiste più.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+    initialSessionHandledRef.current = true;
+    setDetailsSession(target);
+  }, [initialSessionId, sessions, sessionsQuery.isLoading, sessionsQuery.isSuccess, toast]);
 
   const activeDirectives = directives.filter(d => !dismissedDirectives.includes(d.id));
 
