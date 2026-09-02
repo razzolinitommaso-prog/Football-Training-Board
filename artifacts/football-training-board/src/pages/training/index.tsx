@@ -545,7 +545,9 @@ function estimateRemainingExercises(residualMinutes: number, averageMinutes = 12
   return Math.floor(residualMinutes / averageMinutes);
 }
 
-function statusBadge(status: string) {
+function statusBadge(status: string, timelineState?: SessionTimelineState) {
+  if (timelineState === "next" || timelineState === "future") return <Badge variant="outline" className="bg-white text-slate-700 border-slate-200 text-[10px]">Da venire</Badge>;
+  if (timelineState === "past") return <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-[10px]">Passata</Badge>;
   if (status === "scheduled") return <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px]">Pianificata</Badge>;
   if (status === "completed") return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px]">Completata</Badge>;
   return <Badge variant="destructive" className="text-[10px]">Annullata</Badge>;
@@ -729,6 +731,24 @@ function getSessionDateKey(session: TrainingSession): string {
   ].join("-");
 }
 
+type SessionTimelineState = "next" | "future" | "past";
+
+function getSessionTime(session: TrainingSession): number {
+  const time = new Date(session.scheduledAt).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function sortSessionsByTimeline(items: TrainingSession[], nowMs = Date.now()): TrainingSession[] {
+  return [...items].sort((a, b) => {
+    const aTime = getSessionTime(a);
+    const bTime = getSessionTime(b);
+    const aPast = aTime < nowMs;
+    const bPast = bTime < nowMs;
+    if (aPast !== bPast) return aPast ? 1 : -1;
+    return aPast ? bTime - aTime : aTime - bTime;
+  });
+}
+
 const DIRECTIVE_ATTACHMENTS_MARKER = "\n\n[[FTB_ATTACHMENTS]]";
 
 function composeDirectiveMessage(message: string, attachments: DirectiveAttachment[]): string {
@@ -760,7 +780,7 @@ function parseDirectiveMessage(raw: string): { text: string; attachments: Direct
 // ── Session Card ───────────────────────────────────────────────────────────
 
 function SessionCard({
-  session, canDelete, canEdit, onDelete, onEdit, onComment, onOpenDetails, showRecovery, isReadOnly,
+  session, canDelete, canEdit, onDelete, onEdit, onComment, onOpenDetails, showRecovery, isReadOnly, timelineState,
 }: {
   session: TrainingSession;
   canDelete?: boolean;
@@ -771,6 +791,7 @@ function SessionCard({
   onOpenDetails?: () => void;
   showRecovery?: boolean;
   isReadOnly?: boolean;
+  timelineState?: SessionTimelineState;
 }) {
   const [open, setOpen] = useState(false);
   const calendarNote = getTrainingCalendarNote(session);
@@ -787,24 +808,28 @@ function SessionCard({
   const residualMinutes = (session.durationMinutes ?? 0) - plannedExerciseMinutes;
   const estimatedRemainingExercises = estimateRemainingExercises(residualMinutes);
   const cardTone =
-    session.status === "cancelled"
+    timelineState === "next"
+      ? "border-emerald-300 bg-emerald-50 shadow-sm"
+      : timelineState === "past"
+        ? "border-orange-200 bg-orange-50/70"
+        : session.status === "cancelled"
       ? "border-red-200 bg-red-50/60"
-      : session.status === "completed"
-        ? "border-emerald-200 bg-emerald-50/60"
         : session.sessionKind === "tipo"
           ? "border-amber-200 bg-amber-50/60"
-          : "border-sky-200 bg-sky-50/50";
+          : "border-border bg-card";
   return (
     <Card className={`overflow-hidden group hover:shadow-md transition-all ${cardTone}`}>
       <div className={`h-1 w-full ${
-        session.status === "scheduled" ? "bg-primary" :
-        session.status === "completed" ? "bg-green-500" : "bg-destructive"
+        timelineState === "next" ? "bg-emerald-500" :
+        timelineState === "past" ? "bg-orange-500" :
+        session.status === "cancelled" ? "bg-destructive" : "bg-border"
       }`} />
       <CardContent className="p-4 space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-wrap gap-1.5">
-            {statusBadge(session.status)}
+            {statusBadge(session.status, timelineState)}
             {typeBadge(session.sessionKind)}
+            {timelineState === "next" && <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">Prossima</Badge>}
             {needsReschedule && <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]">Da riassegnare</Badge>}
             {movedBySecretary && <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">Spostata da segreteria</Badge>}
           </div>
@@ -2937,9 +2962,14 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         </div>
       );
     }
+    const orderedItems = sortSessionsByTimeline(items);
+    const nextUpcomingId = orderedItems.find((session) => getSessionTime(session) >= Date.now())?.id ?? null;
+
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map(s => (
+        {orderedItems.map(s => {
+          const timelineState: SessionTimelineState = getSessionTime(s) < Date.now() ? "past" : s.id === nextUpcomingId ? "next" : "future";
+          return (
           <SessionCard
             key={s.id}
             session={s}
@@ -2951,8 +2981,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             onOpenDetails={onOpenDetails ? () => onOpenDetails(s) : undefined}
             showRecovery={showRecovery}
             isReadOnly={gridReadOnly}
+            timelineState={timelineState}
           />
-        ))}
+          );
+        })}
       </div>
     );
   }
@@ -2968,7 +3000,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         .map(([key, group]) => ({
           key,
           label: getSessionSeasonLabel(key),
-          items: group.sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()),
+          items: sortSessionsByTimeline(group),
         }))
         .sort((a, b) => b.key.localeCompare(a.key));
     }, [items]);
@@ -3402,9 +3434,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             <Star className="w-3.5 h-3.5 text-amber-500" />
             Sessioni Tipo da Seguire ({tipoReceived.length})
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {tipoReceived.map(s => <SessionCard key={s.id} session={s} />)}
-          </div>
+          <SessionGrid
+            items={tipoReceived}
+            emptyMsg="Nessuna sessione tipo da seguire"
+          />
         </div>
       )}
 

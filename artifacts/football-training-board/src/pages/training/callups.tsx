@@ -237,11 +237,11 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
                       <p><span className="font-semibold">Convocazione:</span> {formatDateTime(match.matchPlan?.convocationAt)}</p>
                       <p><span className="font-semibold">Luogo convocazione:</span> {match.matchPlan?.convocationPlace || "-"}</p>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                       {callups.map((callup) => (
-                        <Badge key={callup.id} variant="secondary" className="max-w-full whitespace-normal text-left leading-snug">
+                        <div key={callup.id} className="rounded-md border bg-secondary px-2 py-1.5 text-sm font-medium leading-snug text-secondary-foreground">
                           {callup.playerName || `Giocatore ${callup.playerId}`}
-                        </Badge>
+                        </div>
                       ))}
                     </div>
                   </div>

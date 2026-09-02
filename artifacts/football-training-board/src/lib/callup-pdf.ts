@@ -74,20 +74,23 @@ function wrapText(text: string, maxChars: number): string[] {
   return lines.length > 0 ? lines : [""];
 }
 
-function buildContentStream(lines: Array<{ text: string; size?: number; bold?: boolean; gap?: number }>): string {
+type PdfLine = { text: string; size?: number; bold?: boolean; gap?: number; x?: number; y?: number };
+
+function buildContentStream(lines: PdfLine[]): string {
   let y = 790;
   const out = ["BT"];
   for (const line of lines) {
-    y -= line.gap ?? 18;
+    if (line.y == null) y -= line.gap ?? 18;
+    const drawY = line.y ?? y;
+    const drawX = line.x ?? 50;
     out.push(`/${line.bold ? "F2" : "F1"} ${line.size ?? 11} Tf`);
-    out.push(`50 ${y} Td (${pdfEscape(line.text)}) Tj`);
-    out.push(`-50 ${-y} Td`);
+    out.push(`1 0 0 1 ${drawX} ${drawY} Tm (${pdfEscape(line.text)}) Tj`);
   }
   out.push("ET");
   return out.join("\n");
 }
 
-function paginateLines(lines: Array<{ text: string; size?: number; bold?: boolean; gap?: number }>) {
+function paginateLines(lines: PdfLine[]) {
   const pages: typeof lines[] = [];
   let page: typeof lines = [];
   let y = 790;
@@ -105,6 +108,44 @@ function paginateLines(lines: Array<{ text: string; size?: number; bold?: boolea
   return pages;
 }
 
+function buildPlayerTableLines(players: CallupPdfPlayer[]): PdfLine[][] {
+  const pages: PdfLine[][] = [];
+  const columns = [
+    { x: 50, width: 38 },
+    { x: 315, width: 38 },
+  ];
+  const rowHeight = 17;
+  const firstY = 686;
+  const minY = 58;
+  let page: PdfLine[] = [];
+  let columnIndex = 0;
+  let y = firstY;
+
+  players.forEach((player, index) => {
+    const column = columns[columnIndex];
+    const wrapped = wrapText(`${index + 1}. ${playerLabel(player)}`, column.width);
+    const neededHeight = Math.max(rowHeight, wrapped.length * 12 + 4);
+    if (y - neededHeight < minY) {
+      if (columnIndex === 0) {
+        columnIndex = 1;
+        y = firstY;
+      } else {
+        pages.push(page);
+        page = [];
+        columnIndex = 0;
+        y = firstY;
+      }
+    }
+    wrapped.forEach((text, lineIndex) => {
+      page.push({ text, x: column.x, y: y - (lineIndex * 12), size: 10 });
+    });
+    y -= neededHeight;
+  });
+
+  if (page.length > 0) pages.push(page);
+  return pages.length > 0 ? pages : [[{ text: "Nessun convocato", x: 50, y: firstY, size: 10 }]];
+}
+
 export function buildCallupPdfBlob(input: {
   match: CallupPdfMatch;
   players: CallupPdfPlayer[];
@@ -114,7 +155,7 @@ export function buildCallupPdfBlob(input: {
   const homeLabel = match.homeAway === "away" ? match.opponent || "Avversario" : match.clubName;
   const awayLabel = match.homeAway === "away" ? match.clubName : match.opponent || "Avversario";
 
-  const lines: Array<{ text: string; size?: number; bold?: boolean; gap?: number }> = [
+  const lines: PdfLine[] = [
     { text: "CONVOCAZIONE", size: 20, bold: true, gap: 8 },
     { text: match.clubName, size: 14, bold: true, gap: 24 },
     { text: `Squadra: ${match.teamName || "-"}`, bold: true, gap: 26 },
@@ -133,13 +174,16 @@ export function buildCallupPdfBlob(input: {
   }
 
   lines.push({ text: `Convocati (${players.length})`, size: 13, bold: true, gap: 28 });
-  players.forEach((player, index) => {
-    wrapText(`${index + 1}. ${playerLabel(player)}`, 82).forEach((text) => lines.push({ text }));
-  });
 
-  lines.push({ text: "Documento generato da Football Training Board", size: 9, gap: 28 });
-
-  const pages = paginateLines(lines);
+  const playerPages = buildPlayerTableLines(players);
+  const headerPages = paginateLines(lines);
+  const pages = headerPages;
+  pages[pages.length - 1] = [...pages[pages.length - 1], ...playerPages[0]];
+  pages.push(...playerPages.slice(1).map((page) => [
+    { text: `Convocati (${players.length})`, size: 13, bold: true, x: 50, y: 800 },
+    ...page,
+  ]));
+  pages[pages.length - 1].push({ text: "Documento generato da Football Training Board", size: 9, x: 50, y: 34 });
   const pageObjectNumbers = pages.map((_, index) => 3 + index);
   const font1Object = 3 + pages.length;
   const font2Object = 4 + pages.length;
@@ -187,12 +231,16 @@ export async function downloadOrShareCallupPdf(input: {
   const shareApi = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
 
   if (navigator.share && (!shareApi.canShare || shareApi.canShare({ files: [file] }))) {
-    await navigator.share({
-      title: "Convocazione",
-      text: "Convocazione partita",
-      files: [file],
-    });
-    return;
+    try {
+      await navigator.share({
+        title: "Convocazione",
+        text: "Convocazione partita",
+        files: [file],
+      });
+      return;
+    } catch (error) {
+      if ((error as DOMException | undefined)?.name === "AbortError") return;
+    }
   }
 
   const url = URL.createObjectURL(blob);
