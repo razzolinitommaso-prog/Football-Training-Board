@@ -53,6 +53,7 @@ import {
 } from "@/pages/calendari/tournament-grouped-cards";
 import { FORMATIONS, isFormationPresetId, type FormationSlot } from "@/pages/tactical-board/formations";
 import { isGoalkeeperPlayer } from "@/pages/tactical-board/player-mapping";
+import { useTeamPlayers } from "@/pages/tactical-board/use-team-players";
 import {
   fileToDataUrl,
   getTournamentProgram,
@@ -181,7 +182,7 @@ interface Player {
   lastName: string;
   jerseyNumber?: number | null;
   position?: string | null;
-  available?: boolean;
+  available?: boolean | null;
   unavailabilityReason?: string | null;
 }
 interface MatchCallUp { id: number; playerId: number; status: string; playerName?: string | null; }
@@ -3591,11 +3592,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
   const team = teams.find(t => t.id === teamId);
 
-  const { data: teamPlayers = [] } = useQuery<Player[]>({
-    queryKey: ["/api/players", teamId],
-    queryFn: () => apiFetch(`/api/players?teamId=${teamId}`),
-    enabled: !!teamId,
-  });
+  const { players: teamPlayers = [] } = useTeamPlayers(teamId);
   const isAssignedStaffForTeam = !!team && !!user?.id && Array.isArray(team.assignedStaff)
     && team.assignedStaff.some((s) => s.userId === user.id);
   const canEditTournamentScores =
