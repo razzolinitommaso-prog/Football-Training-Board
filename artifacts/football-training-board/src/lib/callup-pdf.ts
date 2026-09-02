@@ -222,33 +222,52 @@ export function buildCallupPdfBlob(input: {
 export async function downloadOrShareCallupPdf(input: {
   match: CallupPdfMatch;
   players: CallupPdfPlayer[];
-}) {
+  preferShare?: boolean;
+}): Promise<{ filename: string }> {
   const blob = buildCallupPdfBlob(input);
   const date = input.match.date ? new Date(input.match.date) : null;
   const datePart = date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "data";
   const filename = `${fileSafe(input.match.teamName || "squadra")}-${datePart}-convocazione.pdf`;
-  const file = new File([blob], filename, { type: "application/pdf" });
-  const shareApi = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+  const url = URL.createObjectURL(blob);
+  const revoke = () => window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 
-  if (navigator.share && (!shareApi.canShare || shareApi.canShare({ files: [file] }))) {
+  if (input.preferShare && typeof File !== "undefined" && navigator.share) {
     try {
+      const file = new File([blob], filename, { type: "application/pdf" });
+      const shareApi = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+      if (shareApi.canShare && !shareApi.canShare({ files: [file] })) throw new Error("File sharing not supported");
       await navigator.share({
         title: "Convocazione",
         text: "Convocazione partita",
         files: [file],
       });
-      return;
+      revoke();
+      return { filename };
     } catch (error) {
-      if ((error as DOMException | undefined)?.name === "AbortError") return;
+      if ((error as DOMException | undefined)?.name === "AbortError") {
+        revoke();
+        return { filename };
+      }
     }
   }
 
-  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.style.display = "none";
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  window.setTimeout(() => {
+    try {
+      const opened = window.open(url, "_blank", "noopener");
+      if (!opened) window.location.href = url;
+    } catch {
+      window.location.href = url;
+    }
+    revoke();
+  }, 250);
+  return { filename };
 }

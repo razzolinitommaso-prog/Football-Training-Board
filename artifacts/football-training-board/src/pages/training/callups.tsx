@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { CalendarDays, Download, ExternalLink, MapPin, Trophy, UsersRound } from "lucide-react";
+import { CalendarDays, Download, ExternalLink, Loader2, MapPin, Trophy, UsersRound } from "lucide-react";
 import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { withApi } from "@/lib/api-base";
 import { downloadOrShareCallupPdf } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
+import { useToast } from "@/hooks/use-toast";
 
 type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 
@@ -79,6 +80,8 @@ function matchPhase(match: Match): "autunnale" | "primaverile" | "tornei" | "ami
 
 export default function TrainingCallupsPage({ section }: { section?: ClubSection }) {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const [exportingMatchId, setExportingMatchId] = useState<number | null>(null);
   const { data: myClub } = useGetMyClub();
   const clubName = myClub?.name?.trim() || "Football Training Board";
   const scopeLabel = section ? SECTION_LABELS[section] : "Tutte le sezioni abilitate";
@@ -129,22 +132,37 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
   const totalCallups = rows.reduce((sum, row) => sum + row.callups.length, 0);
 
   async function exportPdf(match: Match, callups: MatchCallup[]) {
-    await downloadOrShareCallupPdf({
-      match: {
-        clubName,
-        teamName: match.teamName,
-        opponent: match.opponent,
-        homeAway: match.homeAway,
-        date: match.date,
-        competition: match.competition,
-        location: match.location,
-        notes: match.notes,
-        preMatchNotes: match.preMatchNotes,
-        convocationAt: match.matchPlan?.convocationAt,
-        convocationPlace: match.matchPlan?.convocationPlace,
-      },
-      players: callups.map((callup) => ({ playerName: callup.playerName })),
-    });
+    setExportingMatchId(match.id);
+    try {
+      const result = await downloadOrShareCallupPdf({
+        match: {
+          clubName,
+          teamName: match.teamName,
+          opponent: match.opponent,
+          homeAway: match.homeAway,
+          date: match.date,
+          competition: match.competition,
+          location: match.location,
+          notes: match.notes,
+          preMatchNotes: match.preMatchNotes,
+          convocationAt: match.matchPlan?.convocationAt,
+          convocationPlace: match.matchPlan?.convocationPlace,
+        },
+        players: callups.map((callup) => ({ playerName: callup.playerName })),
+      });
+      toast({
+        title: "PDF convocazione generato",
+        description: `Apertura/download avviato: ${result.filename}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Export PDF non riuscito",
+        description: error instanceof Error ? error.message : "Riprova dal browser o aggiorna la pagina.",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingMatchId(null);
+    }
   }
 
   function openMatch(match: Match) {
@@ -246,9 +264,16 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
-                    <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => exportPdf(match, callups)}>
-                      <Download className="h-4 w-4" />
-                      Export PDF
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-2"
+                      disabled={exportingMatchId === match.id}
+                      onClick={() => exportPdf(match, callups)}
+                    >
+                      {exportingMatchId === match.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      {exportingMatchId === match.id ? "Esporto..." : "Export PDF"}
                     </Button>
                     <Button type="button" size="sm" className="gap-2" disabled={!match.teamId} onClick={() => openMatch(match)}>
                       <ExternalLink className="h-4 w-4" />
