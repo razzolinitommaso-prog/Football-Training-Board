@@ -152,10 +152,7 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
         players: callups.map((callup) => ({ playerName: callup.playerName })),
       });
       if (result.url) {
-        setGeneratedPdf((current) => {
-          if (current?.url) URL.revokeObjectURL(current.url);
-          return { matchId: match.id, filename: result.filename, url: result.url! };
-        });
+        setGeneratedPdf({ matchId: match.id, filename: result.filename, url: result.url });
       }
       toast({
         title: "PDF convocazione generato",

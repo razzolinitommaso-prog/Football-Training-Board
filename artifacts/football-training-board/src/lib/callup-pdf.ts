@@ -90,6 +90,15 @@ function buildContentStream(lines: PdfLine[]): string {
   return out.join("\n");
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("Impossibile preparare il PDF"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 function paginateLines(lines: PdfLine[]) {
   const pages: typeof lines[] = [];
   let page: typeof lines = [];
@@ -228,7 +237,7 @@ export async function downloadOrShareCallupPdf(input: {
   const date = input.match.date ? new Date(input.match.date) : null;
   const datePart = date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "data";
   const filename = `${fileSafe(input.match.teamName || "squadra")}-${datePart}-convocazione.pdf`;
-  const url = URL.createObjectURL(blob);
+  const blobUrl = URL.createObjectURL(blob);
 
   if (input.preferShare && typeof File !== "undefined" && navigator.share) {
     try {
@@ -240,18 +249,19 @@ export async function downloadOrShareCallupPdf(input: {
         text: "Convocazione partita",
         files: [file],
       });
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(blobUrl);
       return { filename };
     } catch (error) {
       if ((error as DOMException | undefined)?.name === "AbortError") {
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(blobUrl);
         return { filename };
       }
     }
   }
 
+  const dataUrl = await blobToDataUrl(blob);
   const link = document.createElement("a");
-  link.href = url;
+  link.href = dataUrl;
   link.download = filename;
   link.target = "_blank";
   link.rel = "noopener";
@@ -260,9 +270,10 @@ export async function downloadOrShareCallupPdf(input: {
   link.click();
   link.remove();
   try {
-    window.open(url, "_blank", "noopener");
+    window.open(dataUrl, "_blank", "noopener");
   } catch {
     // The visible link returned to the UI remains available if automatic opening is blocked.
   }
-  return { filename, url };
+  URL.revokeObjectURL(blobUrl);
+  return { filename, url: dataUrl };
 }
