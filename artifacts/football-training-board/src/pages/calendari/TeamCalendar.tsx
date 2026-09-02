@@ -1012,6 +1012,18 @@ function lineupDrawingPath(points: LineupPoint[], straight: boolean): string {
   return d;
 }
 
+function lineupPointToPortrait(point: LineupPoint): LineupPoint {
+  return { x: point.y, y: 100 - point.x };
+}
+
+function lineupPointFromPortrait(point: LineupPoint): LineupPoint {
+  return { x: 100 - point.y, y: point.x };
+}
+
+function lineupPointsToPortrait(points: LineupPoint[]): LineupPoint[] {
+  return points.map(lineupPointToPortrait);
+}
+
 function isLineupStraightGeometry(geometry: LineupDrawing["geometry"]): boolean {
   return geometry === "straight" || geometry === "conduzione-straight";
 }
@@ -1951,10 +1963,11 @@ function MatchCard({
   const lineupPitchPoint = (event: { currentTarget: EventTarget & Element; clientX: number; clientY: number }) => {
     const target = event.currentTarget;
     const rect = (target.closest("[data-lineup-pitch]") as HTMLElement | null)?.getBoundingClientRect() ?? target.getBoundingClientRect();
-    return {
+    const portraitPoint = {
       x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
       y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)),
     };
+    return lineupPointFromPortrait(portraitPoint);
   };
 
   return (
@@ -3064,7 +3077,7 @@ function MatchCard({
 
               <div
                 data-lineup-pitch
-                className="relative aspect-[16/10] min-h-[360px] overflow-hidden rounded-lg border-4 border-green-300 bg-green-700"
+                className="relative mx-auto aspect-[10/16] min-h-[560px] w-full max-w-[560px] overflow-hidden rounded-lg border-4 border-green-300 bg-green-700"
                 onPointerDown={(event) => {
                   if (lineupDialog.tool === "select") {
                     setLineupDialog((prev) => prev ? { ...prev, selectedPlayerId: null, selectedDrawingId: null } : prev);
@@ -3112,10 +3125,10 @@ function MatchCard({
                 }}
               >
                 <div className="absolute inset-[4%] rounded-lg border-2 border-white/70" />
-                <div className="absolute left-1/2 top-[4%] h-[92%] w-0.5 bg-white/60" />
-                <div className="absolute left-1/2 top-1/2 h-[22%] w-[13%] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/60" />
-                <div className="absolute left-[4%] top-[30%] h-[40%] w-[17%] border-2 border-l-0 border-white/60" />
-                <div className="absolute right-[4%] top-[30%] h-[40%] w-[17%] border-2 border-r-0 border-white/60" />
+                <div className="absolute left-[4%] top-1/2 h-0.5 w-[92%] bg-white/60" />
+                <div className="absolute left-1/2 top-1/2 h-[13%] w-[22%] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/60" />
+                <div className="absolute bottom-[4%] left-[30%] h-[17%] w-[40%] border-2 border-b-0 border-white/60" />
+                <div className="absolute left-[30%] top-[4%] h-[17%] w-[40%] border-2 border-t-0 border-white/60" />
                 <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
                   <defs>
                     <marker id="lineup-arrow-head" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
@@ -3124,13 +3137,14 @@ function MatchCard({
                   </defs>
                   {[...lineupDialog.drawings, ...(lineupDialog.activeDrawing ? [lineupDialog.activeDrawing] : [])].map((drawing) => {
                     if (drawing.points.length < 2) return null;
+                    const displayPoints = lineupPointsToPortrait(drawing.points);
                     const straightDrawing = drawing.tool === "arrow" && isLineupStraightGeometry(drawing.geometry);
                     const d = isLineupConduzioneGeometry(drawing.geometry)
-                      ? lineupConduzionePath(drawing.points, straightDrawing, Math.max(1.2, (drawing.width ?? 3) * 0.45))
-                      : lineupDrawingPath(drawing.points, straightDrawing);
+                      ? lineupConduzionePath(displayPoints, straightDrawing, Math.max(1.2, (drawing.width ?? 3) * 0.45))
+                      : lineupDrawingPath(displayPoints, straightDrawing);
                     const selected = lineupDialog.selectedDrawingId === drawing.id;
-                    const arrowFrom = drawing.points.length > 1 ? drawing.points[drawing.points.length - 2] : drawing.points[0];
-                    const arrowTip = drawing.points[drawing.points.length - 1];
+                    const arrowFrom = displayPoints.length > 1 ? displayPoints[displayPoints.length - 2] : displayPoints[0];
+                    const arrowTip = displayPoints[displayPoints.length - 1];
                     return (
                       <g key={drawing.id}>
                         <path d={d} fill="none" stroke="rgba(15,23,42,0.24)" strokeWidth={(drawing.width ?? 3) * 1.15} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" strokeDasharray={drawing.lineStyle === "dashed" ? "8 6" : undefined} />
@@ -3187,7 +3201,7 @@ function MatchCard({
                           <path d={lineupArrowHeadPath(arrowTip, arrowFrom, Math.max(2.5, (drawing.width ?? 3) * 0.95))} fill="none" stroke={drawing.color} strokeWidth={(drawing.width ?? 3) * 0.42} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                         )}
                         {drawing.tool === "arrow" && (drawing.arrowHeads === "start" || drawing.arrowHeads === "both") && (
-                          <path d={lineupArrowHeadPath(drawing.points[0], drawing.points[1] ?? arrowTip, Math.max(2.5, (drawing.width ?? 3) * 0.95))} fill="none" stroke={drawing.color} strokeWidth={(drawing.width ?? 3) * 0.42} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                          <path d={lineupArrowHeadPath(displayPoints[0], displayPoints[1] ?? arrowTip, Math.max(2.5, (drawing.width ?? 3) * 0.95))} fill="none" stroke={drawing.color} strokeWidth={(drawing.width ?? 3) * 0.42} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                         )}
                       </g>
                     );
@@ -3197,6 +3211,7 @@ function MatchCard({
                   const playerId = lineupStarters[idx];
                   const player = playerId ? convokedById.get(playerId) : null;
                   const position = playerId ? lineupDialog.positions[String(playerId)] ?? slot : slot;
+                  const displayPosition = lineupPointToPortrait(position);
                   return (
                     <div
                       key={`lineup-slot-${idx}`}
@@ -3204,7 +3219,7 @@ function MatchCard({
                         "absolute flex w-28 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1",
                         !lineupReadOnly && lineupDialog.tool === "select" && playerId && "cursor-grab active:cursor-grabbing",
                       )}
-                      style={{ left: `${position.x}%`, top: `${position.y}%` }}
+                      style={{ left: `${displayPosition.x}%`, top: `${displayPosition.y}%` }}
                       draggable={!lineupReadOnly && lineupDialog.tool === "select" && !!playerId}
                       onDragStart={(event) => {
                         if (!playerId) return;
@@ -3216,9 +3231,10 @@ function MatchCard({
                         if (!rect) return;
                         const x = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
                         const y = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+                        const position = lineupPointFromPortrait({ x, y });
                         setLineupDialog((prev) => prev ? {
                           ...prev,
-                          positions: { ...prev.positions, [String(playerId)]: { x, y } },
+                          positions: { ...prev.positions, [String(playerId)]: position },
                         } : prev);
                       }}
                       onClick={(event) => {

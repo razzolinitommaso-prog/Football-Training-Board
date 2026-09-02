@@ -63,6 +63,10 @@ function benchSpotForReserve(benchIndex: number): { x: number; y: number } {
   const y = 97 + row * 3.5;
   return { x: Math.min(88, x), y: Math.min(99.5, y) };
 }
+
+function formationPointToPortrait(point: { x: number; y: number }): { x: number; y: number } {
+  return { x: point.y, y: 100 - point.x };
+}
 type MatchPlanPeriodLite = {
   key: string;
   module?: string;
@@ -1867,11 +1871,14 @@ const QuickPage = () => {
       return;
     }
 
-    const presetElements = formation.slots.map((slot) => ({
-      type: slot.role,
-      x: slot.x,
-      y: slot.y,
-    }));
+    const presetElements = formation.slots.map((slot) => {
+      const point = isMobileViewport ? formationPointToPortrait(slot) : slot;
+      return {
+        type: slot.role,
+        x: point.x,
+        y: point.y,
+      };
+    });
     setElements(
       boardMode === "assigned" && teamPlayers.length
         ? assignPlayersToElements(presetElements, teamPlayers)
@@ -2237,13 +2244,16 @@ const QuickPage = () => {
       const officialStarters = orderedAll.slice(0, startersCap);
       const officialReserves = orderedAll.slice(startersCap);
 
-      const presetElements = formation.slots.map((slot) => ({
-        type: slot.role,
-        x: slot.x,
-        y: slot.y,
+      const presetElements = formation.slots.map((slot) => {
+        const point = isMobileViewport ? formationPointToPortrait(slot) : slot;
+        return {
+          type: slot.role,
+          x: point.x,
+          y: point.y,
         label: slot.role === "goalkeeper" ? "GK" : "P",
         markerColor: slot.role === "goalkeeper" ? "#FACC15" : "#2f9cf4",
-      }));
+        };
+      });
 
       const maxOnFormation = Math.min(formation.slots.length, officialStarters.length);
       const startersForAssign = officialStarters.slice(0, maxOnFormation);
@@ -2275,6 +2285,7 @@ const QuickPage = () => {
       activeMatchPlanPeriod,
       boardFormat,
       isMatchPreparationUi,
+      isMobileViewport,
       matchPlanStartersLimit,
       selectedPreset,
       teamPlayers,
