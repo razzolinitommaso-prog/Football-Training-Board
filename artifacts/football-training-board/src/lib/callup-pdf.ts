@@ -223,13 +223,12 @@ export async function downloadOrShareCallupPdf(input: {
   match: CallupPdfMatch;
   players: CallupPdfPlayer[];
   preferShare?: boolean;
-}): Promise<{ filename: string }> {
+}): Promise<{ filename: string; url?: string }> {
   const blob = buildCallupPdfBlob(input);
   const date = input.match.date ? new Date(input.match.date) : null;
   const datePart = date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "data";
   const filename = `${fileSafe(input.match.teamName || "squadra")}-${datePart}-convocazione.pdf`;
   const url = URL.createObjectURL(blob);
-  const revoke = () => window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 
   if (input.preferShare && typeof File !== "undefined" && navigator.share) {
     try {
@@ -241,11 +240,11 @@ export async function downloadOrShareCallupPdf(input: {
         text: "Convocazione partita",
         files: [file],
       });
-      revoke();
+      URL.revokeObjectURL(url);
       return { filename };
     } catch (error) {
       if ((error as DOMException | undefined)?.name === "AbortError") {
-        revoke();
+        URL.revokeObjectURL(url);
         return { filename };
       }
     }
@@ -260,14 +259,10 @@ export async function downloadOrShareCallupPdf(input: {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.setTimeout(() => {
-    try {
-      const opened = window.open(url, "_blank", "noopener");
-      if (!opened) window.location.href = url;
-    } catch {
-      window.location.href = url;
-    }
-    revoke();
-  }, 250);
-  return { filename };
+  try {
+    window.open(url, "_blank", "noopener");
+  } catch {
+    // The visible link returned to the UI remains available if automatic opening is blocked.
+  }
+  return { filename, url };
 }

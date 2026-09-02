@@ -82,6 +82,7 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [exportingMatchId, setExportingMatchId] = useState<number | null>(null);
+  const [generatedPdf, setGeneratedPdf] = useState<{ matchId: number; filename: string; url: string } | null>(null);
   const { data: myClub } = useGetMyClub();
   const clubName = myClub?.name?.trim() || "Football Training Board";
   const scopeLabel = section ? SECTION_LABELS[section] : "Tutte le sezioni abilitate";
@@ -150,9 +151,15 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
         },
         players: callups.map((callup) => ({ playerName: callup.playerName })),
       });
+      if (result.url) {
+        setGeneratedPdf((current) => {
+          if (current?.url) URL.revokeObjectURL(current.url);
+          return { matchId: match.id, filename: result.filename, url: result.url! };
+        });
+      }
       toast({
         title: "PDF convocazione generato",
-        description: `Apertura/download avviato: ${result.filename}`,
+        description: result.url ? "Usa Apri PDF se il download non parte automaticamente." : result.filename,
       });
     } catch (error) {
       toast({
@@ -275,6 +282,14 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
                       {exportingMatchId === match.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       {exportingMatchId === match.id ? "Esporto..." : "Export PDF"}
                     </Button>
+                    {generatedPdf?.matchId === match.id && (
+                      <Button type="button" size="sm" variant="secondary" className="gap-2" asChild>
+                        <a href={generatedPdf.url} target="_blank" rel="noopener" download={generatedPdf.filename}>
+                          <ExternalLink className="h-4 w-4" />
+                          Apri PDF
+                        </a>
+                      </Button>
+                    )}
                     <Button type="button" size="sm" className="gap-2" disabled={!match.teamId} onClick={() => openMatch(match)}>
                       <ExternalLink className="h-4 w-4" />
                       Apri preparazione
