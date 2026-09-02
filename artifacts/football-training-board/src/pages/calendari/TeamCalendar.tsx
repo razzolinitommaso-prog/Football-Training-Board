@@ -385,6 +385,19 @@ function normalizeTime24(value: string): string | null {
   return null;
 }
 
+function splitMatchResult(value?: string | null): { home: string; away: string } {
+  const match = String(value ?? "").match(/(\d+)\s*[-:]\s*(\d+)/);
+  return match ? { home: match[1], away: match[2] } : { home: "", away: "" };
+}
+
+function composeMatchResult(homeGoals: string, awayGoals: string): string | null {
+  const home = homeGoals.trim();
+  const away = awayGoals.trim();
+  if (!home && !away) return null;
+  if (!/^\d+$/.test(home) || !/^\d+$/.test(away)) return null;
+  return `${Number(home)}-${Number(away)}`;
+}
+
 function combineDateAndTimeToIso(dateValue: string, timeValue: string): string | null {
   if (!dateValue) return null;
   const normalized = normalizeTime24(timeValue);
@@ -1361,7 +1374,14 @@ function MatchCard({
 
   const [postMenuOpen, setPostMenuOpen] = useState(false);
   const [postNoteValue, setPostNoteValue] = useState(() => splitPostNotesAndAttachments(match.postMatchNotes).note);
-  const [postResultValue, setPostResultValue] = useState(match.result ?? "");
+  const [postOwnGoalsValue, setPostOwnGoalsValue] = useState(() => {
+    const parsed = splitMatchResult(match.result);
+    return match.homeAway === "home" ? parsed.home : parsed.away;
+  });
+  const [postOpponentGoalsValue, setPostOpponentGoalsValue] = useState(() => {
+    const parsed = splitMatchResult(match.result);
+    return match.homeAway === "home" ? parsed.away : parsed.home;
+  });
   const [postAttachments, setPostAttachments] = useState<string[]>(() => splitPostNotesAndAttachments(match.postMatchNotes).attachments);
   const shouldOpenPlanFromQuery = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1574,9 +1594,11 @@ function MatchCard({
 
   function startPostNoteEditor() {
     const parsed = splitPostNotesAndAttachments(match.postMatchNotes);
+    const parsedResult = splitMatchResult(match.result);
     setPostNoteValue(parsed.note);
     setPostAttachments(parsed.attachments);
-    setPostResultValue(match.result ?? "");
+    setPostOwnGoalsValue(match.homeAway === "home" ? parsedResult.home : parsedResult.away);
+    setPostOpponentGoalsValue(match.homeAway === "home" ? parsedResult.away : parsedResult.home);
     setPostMenuOpen(true);
   }
 
@@ -1592,9 +1614,20 @@ function MatchCard({
   }
 
   function savePostNotes() {
+    const result = match.homeAway === "home"
+      ? composeMatchResult(postOwnGoalsValue, postOpponentGoalsValue)
+      : composeMatchResult(postOpponentGoalsValue, postOwnGoalsValue);
+    if ((postOwnGoalsValue.trim() || postOpponentGoalsValue.trim()) && !result) {
+      toast({
+        title: "Risultato incompleto",
+        description: "Inserisci entrambi i valori numerici.",
+        variant: "destructive",
+      });
+      return;
+    }
     patch.mutate({
       postMatchNotes: composePostNotes(postNoteValue, postAttachments),
-      result: postResultValue.trim() || null,
+      result,
     });
     setPostMenuOpen(false);
   }
@@ -2884,14 +2917,35 @@ function MatchCard({
                         </div>
                       </div>
                     )}
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       <Label className="text-xs text-muted-foreground">Risultato</Label>
-                      <Input
-                        value={postResultValue}
-                        onChange={(e) => setPostResultValue(e.target.value)}
-                        placeholder="Es. 2-1"
-                        className="h-8 text-xs"
-                      />
+                      <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+                        <div className="space-y-1">
+                          <span className="block truncate text-[11px] font-medium text-foreground">{clubLabel}</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            inputMode="numeric"
+                            value={postOwnGoalsValue}
+                            onChange={(e) => setPostOwnGoalsValue(e.target.value)}
+                            placeholder="0"
+                            className="h-9 text-center text-base font-bold"
+                          />
+                        </div>
+                        <span className="pb-2 text-sm font-bold text-muted-foreground">-</span>
+                        <div className="space-y-1">
+                          <span className="block truncate text-[11px] font-medium text-foreground">{match.opponent}</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            inputMode="numeric"
+                            value={postOpponentGoalsValue}
+                            onChange={(e) => setPostOpponentGoalsValue(e.target.value)}
+                            placeholder="0"
+                            className="h-9 text-center text-base font-bold"
+                          />
+                        </div>
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">Spazio note</Label>

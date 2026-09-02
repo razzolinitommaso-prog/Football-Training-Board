@@ -1225,7 +1225,10 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
 
     const generatedTrainingKeys = new Set(
       items
-        .filter((item) => item.kind === "training" && item.teamId && item.originalDate && item.originalStartTime)
+        .filter((item): item is Extract<DashboardCalendarItem, { kind: "training" | "extra" }> =>
+          (item.kind === "training" || item.kind === "extra") &&
+          Boolean(item.teamId && item.originalDate && item.originalStartTime),
+        )
         .map((item) => `${item.teamId}|${item.originalDate}|${item.originalStartTime}`),
     );
 
