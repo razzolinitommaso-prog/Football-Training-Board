@@ -75,6 +75,7 @@ function wrapText(text: string, maxChars: number): string[] {
 }
 
 type PdfLine = { text: string; size?: number; bold?: boolean; gap?: number; x?: number; y?: number };
+type PdfPage = PdfLine[];
 
 function buildContentStream(lines: PdfLine[]): string {
   let y = 790;
@@ -90,60 +91,59 @@ function buildContentStream(lines: PdfLine[]): string {
   return out.join("\n");
 }
 
-function paginateLines(lines: PdfLine[]) {
-  const pages: typeof lines[] = [];
-  let page: typeof lines = [];
-  let y = 790;
-  for (const line of lines) {
-    const nextY = y - (line.gap ?? 18);
-    if (page.length > 0 && nextY < 48) {
-      pages.push(page);
-      page = [];
-      y = 790;
-    }
-    page.push(line);
-    y -= line.gap ?? 18;
+function addFlowLine(state: { pages: PdfPage[]; page: PdfPage; y: number }, line: PdfLine) {
+  const gap = line.gap ?? 16;
+  const nextY = state.y - gap;
+  if (state.page.length > 0 && nextY < 58) {
+    state.pages.push(state.page);
+    state.page = [];
+    state.y = 790;
   }
-  if (page.length > 0) pages.push(page);
-  return pages;
+  state.y -= gap;
+  state.page.push({ ...line, x: line.x ?? 50, y: state.y });
 }
 
-function buildPlayerTableLines(players: CallupPdfPlayer[]): PdfLine[][] {
-  const pages: PdfLine[][] = [];
-  const columns = [
-    { x: 50, width: 38 },
-    { x: 315, width: 38 },
-  ];
-  const rowHeight = 17;
-  const firstY = 686;
-  const minY = 58;
-  let page: PdfLine[] = [];
-  let columnIndex = 0;
-  let y = firstY;
+function buildCallupPages(match: CallupPdfMatch, players: CallupPdfPlayer[]): PdfPage[] {
+  const state = { pages: [] as PdfPage[], page: [] as PdfPage, y: 790 };
+  const homeLabel = match.homeAway === "away" ? match.opponent || "Avversario" : match.clubName;
+  const awayLabel = match.homeAway === "away" ? match.clubName : match.opponent || "Avversario";
 
-  players.forEach((player, index) => {
-    const column = columns[columnIndex];
-    const wrapped = wrapText(`${index + 1}. ${playerLabel(player)}`, column.width);
-    const neededHeight = Math.max(rowHeight, wrapped.length * 12 + 4);
-    if (y - neededHeight < minY) {
-      if (columnIndex === 0) {
-        columnIndex = 1;
-        y = firstY;
-      } else {
-        pages.push(page);
-        page = [];
-        columnIndex = 0;
-        y = firstY;
-      }
-    }
-    wrapped.forEach((text, lineIndex) => {
-      page.push({ text, x: column.x, y: y - (lineIndex * 12), size: 10 });
+  addFlowLine(state, { text: "CONVOCAZIONE", size: 20, bold: true, gap: 0 });
+  addFlowLine(state, { text: match.clubName, size: 14, bold: true, gap: 24 });
+  addFlowLine(state, { text: `Squadra: ${match.teamName || "-"}`, bold: true, gap: 28 });
+  addFlowLine(state, { text: `Partita: ${homeLabel} vs ${awayLabel}` });
+  addFlowLine(state, { text: `Competizione: ${match.competition || "-"}` });
+  addFlowLine(state, { text: `Data e ora gara: ${formatDateTime(match.date) || "-"}` });
+  addFlowLine(state, { text: `Luogo gara: ${match.location || "-"}` });
+  addFlowLine(state, { text: `Orario convocazione: ${formatDateTime(match.convocationAt) || "-"}` });
+  addFlowLine(state, { text: `Luogo convocazione: ${match.convocationPlace || "-"}` });
+
+  const notes = [match.preMatchNotes, match.notes].map((v) => v?.trim()).filter(Boolean).join(" - ");
+  if (notes) {
+    addFlowLine(state, { text: "Note", bold: true, gap: 26 });
+    wrapText(notes, 86).slice(0, 5).forEach((text) => addFlowLine(state, { text, size: 10, gap: 14 }));
+  }
+
+  addFlowLine(state, { text: `Convocati (${players.length})`, size: 13, bold: true, gap: 30 });
+  if (players.length === 0) {
+    addFlowLine(state, { text: "Nessun convocato", size: 10, gap: 18 });
+  } else {
+    players.forEach((player, index) => {
+      wrapText(`${index + 1}. ${playerLabel(player)}`, 88).forEach((text, lineIndex) => {
+        addFlowLine(state, { text, size: 10, gap: lineIndex === 0 ? 18 : 12 });
+      });
     });
-    y -= neededHeight;
-  });
+  }
 
-  if (page.length > 0) pages.push(page);
-  return pages.length > 0 ? pages : [[{ text: "Nessun convocato", x: 50, y: firstY, size: 10 }]];
+  state.page.push({ text: "Documento generato da Football Training Board", size: 9, x: 50, y: 34 });
+  state.pages.push(state.page);
+  return state.pages;
+}
+
+function isLikelyMobileBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
 }
 
 export function buildCallupPdfBlob(input: {
@@ -152,38 +152,7 @@ export function buildCallupPdfBlob(input: {
 }): Blob {
   const { match } = input;
   const players = [...input.players].sort((a, b) => playerLabel(a).localeCompare(playerLabel(b), "it"));
-  const homeLabel = match.homeAway === "away" ? match.opponent || "Avversario" : match.clubName;
-  const awayLabel = match.homeAway === "away" ? match.clubName : match.opponent || "Avversario";
-
-  const lines: PdfLine[] = [
-    { text: "CONVOCAZIONE", size: 20, bold: true, gap: 8 },
-    { text: match.clubName, size: 14, bold: true, gap: 24 },
-    { text: `Squadra: ${match.teamName || "-"}`, bold: true, gap: 26 },
-    { text: `Partita: ${homeLabel} vs ${awayLabel}` },
-    { text: `Competizione: ${match.competition || "-"}` },
-    { text: `Data e ora gara: ${formatDateTime(match.date) || "-"}` },
-    { text: `Luogo gara: ${match.location || "-"}` },
-    { text: `Orario convocazione: ${formatDateTime(match.convocationAt) || "-"}` },
-    { text: `Luogo convocazione: ${match.convocationPlace || "-"}` },
-  ];
-
-  const notes = [match.preMatchNotes, match.notes].map((v) => v?.trim()).filter(Boolean).join(" - ");
-  if (notes) {
-    lines.push({ text: "Note", bold: true, gap: 26 });
-    wrapText(notes, 82).slice(0, 5).forEach((text) => lines.push({ text }));
-  }
-
-  lines.push({ text: `Convocati (${players.length})`, size: 13, bold: true, gap: 28 });
-
-  const playerPages = buildPlayerTableLines(players);
-  const headerPages = paginateLines(lines);
-  const pages = headerPages;
-  pages[pages.length - 1] = [...pages[pages.length - 1], ...playerPages[0]];
-  pages.push(...playerPages.slice(1).map((page) => [
-    { text: `Convocati (${players.length})`, size: 13, bold: true, x: 50, y: 800 },
-    ...page,
-  ]));
-  pages[pages.length - 1].push({ text: "Documento generato da Football Training Board", size: 9, x: 50, y: 34 });
+  const pages = buildCallupPages(match, players);
   const pageObjectNumbers = pages.map((_, index) => 3 + index);
   const font1Object = 3 + pages.length;
   const font2Object = 4 + pages.length;
@@ -230,7 +199,7 @@ export async function downloadOrShareCallupPdf(input: {
   const filename = `${fileSafe(input.match.teamName || "squadra")}-${datePart}-convocazione.pdf`;
   const blobUrl = URL.createObjectURL(blob);
 
-  if (input.preferShare && typeof File !== "undefined" && navigator.share) {
+  if ((input.preferShare || isLikelyMobileBrowser()) && typeof File !== "undefined" && navigator.share) {
     try {
       const file = new File([blob], filename, { type: "application/pdf" });
       const shareApi = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
