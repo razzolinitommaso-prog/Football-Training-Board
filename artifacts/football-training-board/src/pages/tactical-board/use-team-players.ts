@@ -10,6 +10,7 @@ export type TeamPlayer = {
   teamId?: number | null;
   teamName?: string | null;
   available?: boolean | null;
+  isSupplemental?: boolean | null;
 };
 
 type TeamMembersApiPlayer = {
@@ -18,6 +19,7 @@ type TeamMembersApiPlayer = {
   last_name?: string | null;
   role?: string | null;
   jerseyNumber?: number | null;
+  isSupplemental?: boolean | null;
 };
 
 function normalizePlayer(raw: any): TeamPlayer | null {
@@ -33,6 +35,7 @@ function normalizePlayer(raw: any): TeamPlayer | null {
     teamId: typeof raw?.teamId === "number" ? raw.teamId : raw?.teamId == null ? null : Number(raw.teamId),
     teamName: (raw?.teamName ?? raw?.team_name ?? null) as string | null,
     available: typeof raw?.available === "boolean" ? raw.available : null,
+    isSupplemental: typeof raw?.isSupplemental === "boolean" ? raw.isSupplemental : null,
   };
 }
 
@@ -75,9 +78,10 @@ export function useTeamPlayers(teamId: number | null) {
             // Prefer richer data from /players, but never lose team-member roster presence.
             firstName: existing?.firstName || normalized.firstName,
             lastName: existing?.lastName || normalized.lastName,
-            position: existing?.position ?? normalized.position,
+            position: normalized.isSupplemental ? normalized.position ?? existing?.position ?? null : existing?.position ?? normalized.position,
             jerseyNumber: existing?.jerseyNumber ?? normalized.jerseyNumber ?? null,
             available: existing?.available ?? normalized.available ?? null,
+            isSupplemental: normalized.isSupplemental ?? existing?.isSupplemental ?? null,
           });
         });
 

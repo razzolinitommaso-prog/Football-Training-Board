@@ -146,11 +146,13 @@ async function replaceParentDelegates(clubId: number, playerId: number, incoming
 
 function extractSupplementalTeamId(notes?: string | null): number | null {
   const full = String(notes ?? "").trim();
-  if (!full.startsWith(PLAYER_META_MARKER)) return null;
-  const nextNewLineIdx = full.indexOf("\n");
+  const markerIdx = full.indexOf(PLAYER_META_MARKER);
+  if (markerIdx < 0) return null;
+  const metaStart = markerIdx + PLAYER_META_MARKER.length;
+  const nextNewLineIdx = full.indexOf("\n", metaStart);
   const encodedMeta = nextNewLineIdx >= 0
-    ? full.slice(PLAYER_META_MARKER.length, nextNewLineIdx).trim()
-    : full.slice(PLAYER_META_MARKER.length).trim();
+    ? full.slice(metaStart, nextNewLineIdx).trim()
+    : full.slice(metaStart).trim();
   try {
     const parsed = JSON.parse(encodedMeta) as { supplementalTeamId?: unknown };
     const n = Number(parsed?.supplementalTeamId);
@@ -413,7 +415,9 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  const players = await db.select().from(playersTable).where(and(...conditions));
+  const players = await db.select().from(playersTable).where(
+    requestedTeamId ? eq(playersTable.clubId, clubId) : and(...conditions),
+  );
   const filtered = players.filter((player) => {
     const supplementalTeamId = extractSupplementalTeamId(player.notes);
     if (requestedTeamId) {

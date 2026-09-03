@@ -393,15 +393,35 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
 
 function extractSupplementalTeamId(notes?: string | null): number | null {
   const full = String(notes ?? "").trim();
-  if (!full.startsWith("[FTB_PLAYER_META]")) return null;
-  const nextNewLineIdx = full.indexOf("\n");
+  const marker = "[FTB_PLAYER_META]";
+  const markerIdx = full.indexOf(marker);
+  if (markerIdx < 0) return null;
+  const metaStart = markerIdx + marker.length;
+  const nextNewLineIdx = full.indexOf("\n", metaStart);
   const encodedMeta = nextNewLineIdx >= 0
-    ? full.slice("[FTB_PLAYER_META]".length, nextNewLineIdx).trim()
-    : full.slice("[FTB_PLAYER_META]".length).trim();
+    ? full.slice(metaStart, nextNewLineIdx).trim()
+    : full.slice(metaStart).trim();
   try {
     const parsed = JSON.parse(encodedMeta) as { supplementalTeamId?: unknown };
     const n = Number(parsed?.supplementalTeamId);
     return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractSupplementalSpecificRole(notes?: string | null): string | null {
+  const full = String(notes ?? "").trim();
+  const marker = "[FTB_PLAYER_META]";
+  const markerIdx = full.indexOf(marker);
+  if (markerIdx < 0) return null;
+  const metaStart = markerIdx + marker.length;
+  const nextNewLineIdx = full.indexOf("\n", metaStart);
+  const encodedMeta = nextNewLineIdx >= 0 ? full.slice(metaStart, nextNewLineIdx).trim() : full.slice(metaStart).trim();
+  try {
+    const parsed = JSON.parse(encodedMeta) as { supplementalSpecificRole?: unknown };
+    const role = String(parsed?.supplementalSpecificRole ?? "").trim();
+    return role || null;
   } catch {
     return null;
   }
@@ -426,16 +446,19 @@ router.get("/teams/:id/members", requireAuth, async (req, res): Promise<void> =>
     .from(playersTable)
     .where(eq(playersTable.clubId, req.session.clubId!));
 
-  const teamPlayers = players.filter((p) => p.teamId === teamId || extractSupplementalTeamId(p.notes) === teamId);
+  const teamPlayers = players
+    .map((p) => ({ ...p, isSupplemental: p.teamId !== teamId && extractSupplementalTeamId(p.notes) === teamId }))
+    .filter((p) => p.teamId === teamId || p.isSupplemental);
 
   res.json(teamPlayers.map(p => ({
     id: p.id,
     first_name: p.firstName,
     last_name: p.lastName,
-    role: p.position ?? null,
+    role: p.isSupplemental ? extractSupplementalSpecificRole(p.notes) ?? p.position ?? null : p.position ?? null,
     jerseyNumber: p.jerseyNumber ?? null,
     teamId: p.teamId ?? null,
     available: p.available ?? true,
+    isSupplemental: p.isSupplemental,
   })));
 });
 
