@@ -1,13 +1,16 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { AppSidebar } from "./app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, LogOut, Bell } from "lucide-react";
+import { ArrowLeft, LogOut, Bell, BellRing } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLocation } from "wouter";
+import { withApi } from "@/lib/api-base";
+import { cn } from "@/lib/utils";
 
 const ROLE_LABELS: Record<string, string> = {
   admin:              "Amministratore",
@@ -23,6 +26,19 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const MOBILE_BREAKPOINT = 768;
+const NOTIFICATION_POLL_MS = 30000;
+
+type LayoutNotification = {
+  id: number;
+  title: string;
+  message?: string | null;
+  type?: string | null;
+  createdAt?: string | null;
+  sentAt?: string | null;
+  isRead?: boolean;
+  isTrashed?: boolean;
+  source: "internal" | "platform";
+};
 
 function getWorkspaceAreaLabel(path: string): string | null {
   if (path.startsWith("/scuola-calcio")) return "Scuola Calcio";
@@ -31,8 +47,24 @@ function getWorkspaceAreaLabel(path: string): string | null {
   return null;
 }
 
+function notificationKey(notification: Pick<LayoutNotification, "id" | "source">) {
+  return `${notification.source}:${notification.id}`;
+}
+
+function notificationTimestamp(notification: LayoutNotification) {
+  const raw = notification.createdAt ?? notification.sentAt ?? "";
+  const time = new Date(raw).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function shortNotificationText(value?: string | null) {
+  const clean = String(value ?? "").replace(/\s+/g, " ").trim();
+  return clean.length > 120 ? `${clean.slice(0, 117)}...` : clean;
+}
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, club, role, logout } = useAuth();
+  const { toast } = useToast();
   const { data: liveClub } = useGetMyClub();
   const activeClub = liveClub ?? club;
   const [location, setLocation] = useLocation();
@@ -44,10 +76,94 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const backgroundLogoEnabled = Number((activeClub as { backgroundLogoEnabled?: number | null } | null)?.backgroundLogoEnabled ?? 1) !== 0;
   const backgroundLogoMode = String((activeClub as { backgroundLogoMode?: string | null } | null)?.backgroundLogoMode ?? "large");
   const backgroundLogoOpacity = Math.max(0, Math.min(30, Number((activeClub as { backgroundLogoOpacity?: number | null } | null)?.backgroundLogoOpacity ?? 8))) / 100;
+  const [unreadNotifications, setUnreadNotifications] = useState<LayoutNotification[]>([]);
+  const seenNotificationKeysRef = useRef<Set<string> | null>(null);
+  const canWatchClubNotifications = !!user?.id && !!activeClub?.id && role !== "parent" && role !== "superadmin";
 
   const defaultSidebarOpen = typeof window !== "undefined"
     ? window.innerWidth >= MOBILE_BREAKPOINT
     : true;
+
+  const unreadNotificationCount = unreadNotifications.length;
+  const newestUnreadNotification = useMemo(
+    () => [...unreadNotifications].sort((a, b) => notificationTimestamp(b) - notificationTimestamp(a))[0] ?? null,
+    [unreadNotifications],
+  );
+
+  const fetchLayoutNotifications = useCallback(async () => {
+    if (!canWatchClubNotifications) {
+      setUnreadNotifications([]);
+      seenNotificationKeysRef.current = null;
+      return;
+    }
+
+    try {
+      const [internalRes, platformRes] = await Promise.all([
+        fetch(withApi("/api/club/notifications"), { credentials: "include" }),
+        fetch(withApi("/api/club/platform-announcements"), { credentials: "include" }),
+      ]);
+
+      const internal: LayoutNotification[] = internalRes.ok
+        ? (await internalRes.json()).map((n: any) => ({
+            id: Number(n.id),
+            title: String(n.title ?? "Nuova comunicazione"),
+            message: n.message ?? null,
+            type: n.type ?? null,
+            createdAt: n.createdAt ?? null,
+            isRead: Boolean(n.isRead),
+            isTrashed: Boolean(n.isTrashed),
+            source: "internal" as const,
+          }))
+        : [];
+
+      const platform: LayoutNotification[] = platformRes.ok
+        ? (await platformRes.json()).map((n: any) => ({
+            id: Number(n.id),
+            title: String(n.title ?? "Nuova comunicazione"),
+            message: n.message ?? null,
+            type: n.type ?? null,
+            createdAt: n.sentAt ?? n.createdAt ?? null,
+            sentAt: n.sentAt ?? null,
+            isRead: Boolean(n.isRead),
+            isTrashed: false,
+            source: "platform" as const,
+          }))
+        : [];
+
+      const current = [...platform, ...internal]
+        .filter((n) => Number.isFinite(n.id) && !n.isRead && !n.isTrashed)
+        .sort((a, b) => notificationTimestamp(b) - notificationTimestamp(a));
+      const currentKeys = new Set(current.map(notificationKey));
+      const seenKeys = seenNotificationKeysRef.current;
+      setUnreadNotifications(current);
+
+      if (!seenKeys) {
+        seenNotificationKeysRef.current = currentKeys;
+        return;
+      }
+
+      const fresh = current.filter((notification) => !seenKeys.has(notificationKey(notification)));
+      seenNotificationKeysRef.current = currentKeys;
+      if (fresh.length === 0) return;
+
+      const latest = fresh[0];
+      toast({
+        title: fresh.length === 1 ? "Nuova comunicazione" : `${fresh.length} nuove comunicazioni`,
+        description: `${latest.title}${latest.message ? ` - ${shortNotificationText(latest.message)}` : ""}`,
+      });
+    } catch (error) {
+      if (import.meta.env.DEV) console.error("[layout] notifications watch failed", error);
+    }
+  }, [canWatchClubNotifications, toast]);
+
+  useEffect(() => {
+    void fetchLayoutNotifications();
+    if (!canWatchClubNotifications) return;
+    const interval = window.setInterval(() => {
+      void fetchLayoutNotifications();
+    }, NOTIFICATION_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [canWatchClubNotifications, fetchLayoutNotifications]);
 
   const style = {
     "--sidebar-width": "18rem",
@@ -120,8 +236,26 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4">
-              <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-foreground shrink-0">
-                <Bell className="w-5 h-5" />
+              <Button
+                size="icon"
+                variant="ghost"
+                className={cn(
+                  "relative shrink-0",
+                  unreadNotificationCount > 0 ? "text-amber-600 hover:text-amber-700" : "text-muted-foreground hover:text-foreground",
+                )}
+                title={
+                  newestUnreadNotification
+                    ? `Nuova comunicazione: ${newestUnreadNotification.title}`
+                    : "Comunicazioni"
+                }
+                onClick={() => setLocation("/dashboard")}
+              >
+                {unreadNotificationCount > 0 ? <BellRing className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
+                {unreadNotificationCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-background">
+                    {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                  </span>
+                )}
               </Button>
 
               <div className="flex items-center gap-2 sm:gap-3 pl-3 sm:pl-4 border-l">
