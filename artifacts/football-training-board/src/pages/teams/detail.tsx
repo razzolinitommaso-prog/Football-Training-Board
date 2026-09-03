@@ -317,9 +317,10 @@ export default function TeamDetail() {
   const canDeletePlayer = canManagePlayers;
   const canEditFullPlayer = canManagePlayers && playerDialogMode === "edit";
   const canWritePlayerNotes = ["admin", "presidente", "director", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(role ?? "");
-  const isLimitedEditor = !canManagePlayers && canWritePlayerNotes;
+  const canEditSportAvailability = ["technical_director", "coach", "fitness_coach", "athletic_director"].includes(role ?? "") && playerDialogMode === "edit";
+  const isLimitedEditor = !canManagePlayers && canWritePlayerNotes && !canEditSportAvailability;
   const canEdit = canManagePlayers || canWritePlayerNotes;
-  const canEditAvailability = canManagePlayers && playerDialogMode === "edit";
+  const canEditAvailability = (canManagePlayers || canEditSportAvailability) && playerDialogMode === "edit";
 
   const editForm = useForm<EditForm>({ resolver: zodResolver(editSchema) });
   const watchAvailable = editForm.watch("available");
@@ -415,6 +416,17 @@ export default function TeamDetail() {
     if (payload.available) {
       payload.unavailabilityReason = null;
       payload.expectedReturn = null;
+    }
+    if (canEditSportAvailability && !canManagePlayers) {
+      const sportAvailabilityPayload: Record<string, unknown> = {
+        notes: payload.notes,
+        status: payload.status,
+        available: payload.available,
+        unavailabilityReason: payload.unavailabilityReason ?? null,
+        expectedReturn: payload.expectedReturn ?? null,
+      };
+      updateMutation.mutate({ id: editingPlayer.id, data: sportAvailabilityPayload as any });
+      return;
     }
     if (playerDialogMode === "view" || isLimitedEditor) {
       const limitedPayload: Record<string, unknown> = {

@@ -34,6 +34,7 @@ import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 /** Il direttore tecnico elenca tutti i giocatori del club; coach/preparatori solo le proprie squadre. */
 const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
 const PLAYER_MANAGE_ROLES = ["secretary", "sporting_director"];
+const PLAYER_SPORT_AVAILABILITY_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
 const PLAYER_AVAILABILITY_OVERRIDE_ROLES = ["admin", "presidente", "director", "secretary"];
 const PLAYER_NOTE_ONLY_ROLES = [
   "admin",
@@ -660,14 +661,33 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
       "availabilityOverrideUntil",
       "availabilityOverrideReason",
     ].includes(key));
+  const isSportAvailabilityUpdate =
+    PLAYER_SPORT_AVAILABILITY_ROLES.includes(role) &&
+    Object.keys(updateData).every((key) => [
+      "notes",
+      "status",
+      "available",
+      "unavailabilityReason",
+      "expectedReturn",
+    ].includes(key));
 
-  if (!PLAYER_MANAGE_ROLES.includes(role) && !isAvailabilityOverrideOnlyUpdate) {
+  if (!PLAYER_MANAGE_ROLES.includes(role) && !isAvailabilityOverrideOnlyUpdate && !isSportAvailabilityUpdate) {
     if (!PLAYER_NOTE_ONLY_ROLES.includes(role)) {
       res.status(403).json({ error: "Non autorizzato a modificare questo giocatore" });
       return;
     }
 
     const allowed = new Set(["notes"]);
+    for (const k of Object.keys(updateData)) {
+      if (!allowed.has(k)) delete updateData[k];
+    }
+    if (typeof updateData.notes === "string") {
+      updateData.notes = preserveExistingMetaInNotes(existingPlayer.notes, String(updateData.notes));
+    }
+  }
+
+  if (isSportAvailabilityUpdate) {
+    const allowed = new Set(["notes", "status", "available", "unavailabilityReason", "expectedReturn"]);
     for (const k of Object.keys(updateData)) {
       if (!allowed.has(k)) delete updateData[k];
     }

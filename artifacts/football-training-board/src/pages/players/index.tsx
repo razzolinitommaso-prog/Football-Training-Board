@@ -1279,11 +1279,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const canManagePlayers = nr === "secretary" || nr === "sporting_director";
   const canDeletePlayer = canManagePlayers;
   const canWritePlayerNotes = ["admin", "presidente", "director", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(nr);
-  const isLimitedEditor = !canManagePlayers && canWritePlayerNotes;
+  const canEditSportAvailability = ["technical_director", "coach", "fitness_coach", "athletic_director"].includes(nr) && playerDialogMode === "edit";
+  const isLimitedEditor = !canManagePlayers && canWritePlayerNotes && !canEditSportAvailability;
   const canEditFullPlayer = canManagePlayers && playerDialogMode === "edit";
   const canEditFinancials = nr === "secretary" && playerDialogMode === "edit";
   const canViewExtraTime = Boolean(editingPlayer);
-  const canEditAvailability = canManagePlayers && playerDialogMode === "edit";
+  const canEditAvailability = (canManagePlayers || canEditSportAvailability) && playerDialogMode === "edit";
   const canForceAvailability = ["admin", "presidente", "director", "secretary"].includes(nr) && playerDialogMode === "edit";
   const canEditRoleAndSquad = canManagePlayers && playerDialogMode === "edit";
   const canUploadPlayerImage = canManagePlayers && playerDialogMode === "edit";
@@ -2471,6 +2472,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
     if (canSubmitAvailabilityOverrideOnly) {
       updateMutation.mutate({ id: editingPlayer.id, data: overridePayload as any });
+    } else if (canEditSportAvailability && !canManagePlayers) {
+      const sportAvailabilityPayload: Record<string, unknown> = {
+        notes: payload.notes,
+        status: payload.status,
+        available: payload.available,
+        unavailabilityReason: payload.unavailabilityReason ?? null,
+        expectedReturn: payload.expectedReturn ?? null,
+      };
+      updateMutation.mutate({ id: editingPlayer.id, data: sportAvailabilityPayload as any });
     } else if (playerDialogMode === "view" || isLimitedEditor) {
       const limitedPayload: Record<string, unknown> = {
         notes: payload.notes,
