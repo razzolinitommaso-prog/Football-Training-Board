@@ -391,7 +391,23 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
   }));
 });
 
-// GET /teams/:id/members — returns players for a team (for tactical board roster loading)
+function extractSupplementalTeamId(notes?: string | null): number | null {
+  const full = String(notes ?? "").trim();
+  if (!full.startsWith("[FTB_PLAYER_META]")) return null;
+  const nextNewLineIdx = full.indexOf("\n");
+  const encodedMeta = nextNewLineIdx >= 0
+    ? full.slice("[FTB_PLAYER_META]".length, nextNewLineIdx).trim()
+    : full.slice("[FTB_PLAYER_META]".length).trim();
+  try {
+    const parsed = JSON.parse(encodedMeta) as { supplementalTeamId?: unknown };
+    const n = Number(parsed?.supplementalTeamId);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+// GET /teams/:id/members — returns primary and supplemental players for a team.
 router.get("/teams/:id/members", requireAuth, async (req, res): Promise<void> => {
   const teamId = parseInt(String(req.params.id), 10);
   if (isNaN(teamId)) { res.status(400).json({ error: "Invalid team id" }); return; }
@@ -403,16 +419,23 @@ router.get("/teams/:id/members", requireAuth, async (req, res): Promise<void> =>
       lastName: playersTable.lastName,
       position: playersTable.position,
       jerseyNumber: playersTable.jerseyNumber,
+      teamId: playersTable.teamId,
+      notes: playersTable.notes,
+      available: playersTable.available,
     })
     .from(playersTable)
-    .where(and(eq(playersTable.teamId, teamId), eq(playersTable.clubId, req.session.clubId!)));
+    .where(eq(playersTable.clubId, req.session.clubId!));
 
-  res.json(players.map(p => ({
+  const teamPlayers = players.filter((p) => p.teamId === teamId || extractSupplementalTeamId(p.notes) === teamId);
+
+  res.json(teamPlayers.map(p => ({
     id: p.id,
     first_name: p.firstName,
     last_name: p.lastName,
     role: p.position ?? null,
     jerseyNumber: p.jerseyNumber ?? null,
+    teamId: p.teamId ?? null,
+    available: p.available ?? true,
   })));
 });
 

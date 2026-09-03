@@ -2291,8 +2291,9 @@ function MatchCard({
                   </div>
                   <div className="max-h-72 overflow-auto rounded border bg-background p-2 grid grid-cols-1 xl:grid-cols-2 gap-1.5">
                     {filteredTeamPlayers.map((p) => (
-                      <label key={p.id} className={cn("flex items-center gap-2 rounded px-1 py-1 text-xs", p.available === false && "opacity-50")}>
+                      <label key={p.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)] gap-2 rounded px-1 py-1.5 text-xs", p.available === false && "opacity-50")}>
                         <Checkbox
+                          className="mt-0.5"
                           checked={selectedPlayerIds.has(p.id)}
                           disabled={p.available === false}
                           onCheckedChange={(v) =>
@@ -2304,47 +2305,51 @@ function MatchCard({
                             })
                           }
                         />
-                        <span className="min-w-0 flex-1 truncate">
-                          {p.jerseyNumber ? `${p.jerseyNumber} · ` : ""}{p.firstName} {p.lastName}
-                          {p.available === false ? " (non disponibile)" : ""}
-                        </span>
-                        {matchWeekTrainingDays.length > 0 && (
-                          <span className="ml-auto flex shrink-0 items-center gap-1" aria-label="Presenze allenamenti settimana partita">
-                            {matchWeekTrainingDays.map((day) => {
-                              const status = day.sessionId ? matchWeekAttendanceByPlayer.get(`${p.id}:${day.sessionId}`) : null;
-                              const tone = trainingAttendanceTone(status);
-                              return (
-                                <span
-                                  key={day.key}
-                                  title={`${format(day.date, "EEE dd/MM", { locale: itLocale })}: ${
-                                    tone === "present"
-                                      ? "presente"
-                                      : tone === "absent"
-                                      ? "assente"
-                                      : tone === "requested"
-                                      ? "giustificato"
-                                      : tone === "injured"
-                                      ? "infortunato"
-                                      : day.sessionId
-                                      ? "non segnato"
-                                      : "allenamento previsto, presenze non registrate"
-                                  }`}
-                                  className={cn(
-                                    "inline-flex h-5 min-w-9 items-center justify-center rounded-full border px-1 text-[10px] leading-none",
-                                    tone === "present" && "border-emerald-300 bg-emerald-50 text-emerald-700",
-                                    tone === "absent" && "border-red-300 bg-red-50 text-red-700",
-                                    tone === "requested" && "border-sky-300 bg-sky-50 text-sky-700",
-                                    tone === "injured" && "border-amber-300 bg-amber-50 text-amber-700",
-                                    tone === "unknown" && "border-muted bg-muted/40 text-muted-foreground",
-                                  )}
-                                >
-                                  {format(day.date, "EEE d", { locale: itLocale })}
-                                  <span className="ml-0.5 font-semibold">{tone === "present" ? "✓" : tone === "unknown" ? "·" : "–"}</span>
-                                </span>
-                              );
-                            })}
+                        <span className="min-w-0 space-y-1">
+                          <span className="block truncate font-medium text-foreground">
+                            {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
                           </span>
-                        )}
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            {p.position || "Ruolo non indicato"}{p.available === false ? " - non disponibile" : ""}
+                          </span>
+                          {matchWeekTrainingDays.length > 0 && (
+                            <span className="flex min-w-0 flex-wrap items-center gap-1" aria-label="Presenze allenamenti settimana partita">
+                              {matchWeekTrainingDays.map((day) => {
+                                const status = day.sessionId ? matchWeekAttendanceByPlayer.get(`${p.id}:${day.sessionId}`) : null;
+                                const tone = trainingAttendanceTone(status);
+                                return (
+                                  <span
+                                    key={day.key}
+                                    title={`${format(day.date, "EEE dd/MM", { locale: itLocale })}: ${
+                                      tone === "present"
+                                        ? "presente"
+                                        : tone === "absent"
+                                        ? "assente"
+                                        : tone === "requested"
+                                        ? "giustificato"
+                                        : tone === "injured"
+                                        ? "infortunato"
+                                        : day.sessionId
+                                        ? "non segnato"
+                                        : "allenamento previsto, presenze non registrate"
+                                    }`}
+                                    className={cn(
+                                      "inline-flex h-5 min-w-9 items-center justify-center rounded-full border px-1 text-[10px] leading-none",
+                                      tone === "present" && "border-emerald-300 bg-emerald-50 text-emerald-700",
+                                      tone === "absent" && "border-red-300 bg-red-50 text-red-700",
+                                      tone === "requested" && "border-sky-300 bg-sky-50 text-sky-700",
+                                      tone === "injured" && "border-amber-300 bg-amber-50 text-amber-700",
+                                      tone === "unknown" && "border-muted bg-muted/40 text-muted-foreground",
+                                    )}
+                                  >
+                                    {format(day.date, "EEE d", { locale: itLocale })}
+                                    <span className="ml-0.5 font-semibold">{tone === "present" ? "✓" : tone === "unknown" ? "·" : "-"}</span>
+                                  </span>
+                                );
+                              })}
+                            </span>
+                          )}
+                        </span>
                       </label>
                     ))}
                     {filteredTeamPlayers.length === 0 && (
