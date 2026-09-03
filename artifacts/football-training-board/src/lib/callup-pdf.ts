@@ -90,15 +90,6 @@ function buildContentStream(lines: PdfLine[]): string {
   return out.join("\n");
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error("Impossibile preparare il PDF"));
-    reader.readAsDataURL(blob);
-  });
-}
-
 function paginateLines(lines: PdfLine[]) {
   const pages: typeof lines[] = [];
   let page: typeof lines = [];
@@ -259,9 +250,8 @@ export async function downloadOrShareCallupPdf(input: {
     }
   }
 
-  const dataUrl = await blobToDataUrl(blob);
   const link = document.createElement("a");
-  link.href = dataUrl;
+  link.href = blobUrl;
   link.download = filename;
   link.target = "_blank";
   link.rel = "noopener";
@@ -270,10 +260,9 @@ export async function downloadOrShareCallupPdf(input: {
   link.click();
   link.remove();
   try {
-    window.open(dataUrl, "_blank", "noopener");
+    window.open(blobUrl, "_blank", "noopener");
   } catch {
     // The visible link returned to the UI remains available if automatic opening is blocked.
   }
-  URL.revokeObjectURL(blobUrl);
-  return { filename, url: dataUrl };
+  return { filename, url: blobUrl };
 }

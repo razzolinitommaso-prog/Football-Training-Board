@@ -15,7 +15,7 @@ import {
   ArrowLeft, Calendar, MapPin, Trophy, FileText,
   CheckCircle, Clock, Pencil, AlertTriangle, RotateCcw,
   ClipboardList, Upload, Download, FileSpreadsheet, Trash2, ChevronDown, Camera,
-  Leaf, Flower2, ListChecks, Search, Files, Filter, Handshake, Plus,
+  Leaf, Flower2, ListChecks, Search, Files, Filter, Handshake, Plus, ExternalLink, Loader2,
 } from "lucide-react";
 import {
   downloadMatchCalendarTemplate,
@@ -1394,6 +1394,8 @@ function MatchCard({
   const [lineupDialog, setLineupDialog] = useState<LineupDialogState | null>(null);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set());
   const [callupSearch, setCallupSearch] = useState("");
+  const [exportingCallupPdf, setExportingCallupPdf] = useState(false);
+  const [generatedCallupPdf, setGeneratedCallupPdf] = useState<{ filename: string; url: string } | null>(null);
   const [planDraft, setPlanDraft] = useState<MatchPlanData>(() =>
     normalizePlanPeriodsForSection(
       ensurePlanPeriods(match.matchPlan ?? null, defaultPeriodsForTeam(matchSection, teamName, teamCategory)),
@@ -1957,8 +1959,9 @@ function MatchCard({
       toast({ title: "Nessun convocato", description: "Seleziona e salva almeno un convocato prima di creare il PDF." });
       return;
     }
+    setExportingCallupPdf(true);
     try {
-      await downloadOrShareCallupPdf({
+      const result = await downloadOrShareCallupPdf({
         match: {
           clubName: clubLabel,
           teamName,
@@ -1974,8 +1977,17 @@ function MatchCard({
         },
         players,
       });
+      if (result.url) {
+        setGeneratedCallupPdf({ filename: result.filename, url: result.url });
+      }
+      toast({
+        title: "PDF convocazione generato",
+        description: result.url ? "Se il download non parte, usa Apri PDF." : result.filename,
+      });
     } catch (err: any) {
       toast({ title: err?.message ?? "Impossibile generare il PDF convocazione", variant: "destructive" });
+    } finally {
+      setExportingCallupPdf(false);
     }
   }
 
@@ -2235,11 +2247,20 @@ function MatchCard({
                   size="sm"
                   variant="outline"
                   className="h-7 gap-1.5 px-2 text-xs"
+                  disabled={exportingCallupPdf}
                   onClick={exportCallupPdf}
                 >
-                  <Download className="h-3.5 w-3.5" />
-                  Export convocazione
+                  {exportingCallupPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                  {exportingCallupPdf ? "Esporto..." : "Export convocazione"}
                 </Button>
+                {generatedCallupPdf && (
+                  <Button type="button" size="sm" variant="secondary" className="h-7 gap-1.5 px-2 text-xs" asChild>
+                    <a href={generatedCallupPdf.url} target="_blank" rel="noopener" download={generatedCallupPdf.filename}>
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Apri PDF
+                    </a>
+                  </Button>
+                )}
                 {canManageMatchPlan ? (
                   <Button size="sm" variant="ghost" className="h-6 text-xs gap-1" onClick={() => setPlanOpen((v) => !v)}>
                     <Pencil className="w-3 h-3" /> {planOpen ? "Chiudi" : "Gestisci"}
