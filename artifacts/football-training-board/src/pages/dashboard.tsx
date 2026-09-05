@@ -3554,7 +3554,16 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                       >
                         Presenze
                       </Button>
-                      <Button type="button" variant="outline" onClick={() => setLocation("/training")}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          const query = selectedCalendarItem.teamId && selectedCalendarItem.originalDate
+                            ? `?newSession=1&teamId=${selectedCalendarItem.teamId}&date=${selectedCalendarItem.originalDate}${selectedCalendarItem.originalStartTime ? `&start=${encodeURIComponent(selectedCalendarItem.originalStartTime)}` : ""}`
+                            : "?newSession=1";
+                          setLocation(`/training${query}`);
+                        }}
+                      >
                         Apri sessioni
                       </Button>
                       <Button type="button" variant="outline" onClick={() => setLocation("/exercises")}>

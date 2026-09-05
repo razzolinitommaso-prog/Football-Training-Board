@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   BookOpen, Plus, Trash2, Clock, Users, Package2, Pencil,
   ClipboardList, BookMarked, Link2, Info, Mic, PenLine, Video,
-  CalendarDays, Layers, Dumbbell, Shield, Copy, Eye,
+  CalendarDays, Layers, Dumbbell, Shield, Copy, Eye, UserCheck,
 } from "lucide-react";
 import { ExerciseDrawingBoard } from "./ExerciseDrawingBoard";
 import { ExerciseVoiceRecorder } from "./ExerciseVoiceRecorder";
@@ -27,6 +27,7 @@ import { withApi } from "@/lib/api-base";
 
 interface Exercise {
   id: number; title: string; category?: string | null; description?: string | null;
+  createdAt?: string | null;
   durationMinutes?: number | null; playersRequired?: number | null; equipment?: string | null;
   drawingData?: string | null; drawingElementsJson?: string | null; voiceNoteData?: string | null; videoNoteData?: string | null;
   caricaRosaIntera?: boolean;
@@ -232,6 +233,13 @@ function stripExerciseNumberPrefix(title: string): string {
 function getDisplayExerciseTitle(ex: Exercise, orderNumber: number): string {
   const cleanTitle = stripExerciseNumberPrefix(ex.title);
   return cleanTitle ? `Esercitazione ${orderNumber} - ${cleanTitle}` : `Esercitazione ${orderNumber}`;
+}
+
+function formatCreatedAt(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" });
 }
 
 function emptyForm(): Omit<Exercise, "id"> {
@@ -802,6 +810,18 @@ export default function ExercisesPage() {
                             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                               <Shield className="w-3 h-3" />
                               {myTeams.find(tm => tm.id === ex.teamId)?.name ?? `Team #${ex.teamId}`}
+                            </span>
+                          )}
+                          {ex.creatorName && (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <UserCheck className="w-3 h-3" />
+                              Creata da {ex.creatorName}
+                            </span>
+                          )}
+                          {formatCreatedAt(ex.createdAt) && (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <CalendarDays className="w-3 h-3" />
+                              Creata il {formatCreatedAt(ex.createdAt)}
                             </span>
                           )}
                           {formatTrainingDay(ex.trainingDay) && (

@@ -112,6 +112,12 @@ type ExerciseFormState = {
   stationsJson: string;
 };
 
+type InitialSessionDraft = {
+  teamId?: number | null;
+  date?: string | null;
+  start?: string | null;
+};
+
 interface PlayerOption {
   id: number;
   firstName: string;
@@ -1037,7 +1043,7 @@ function RecipientSelector({
 // ── Create Session Dialog ──────────────────────────────────────────────────
 
 function CreateSessionDialog({
-  open, onClose, onCreated, onCreatedSession, members, isTD, teams,
+  open, onClose, onCreated, onCreatedSession, members, isTD, teams, initialDraft,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1046,6 +1052,7 @@ function CreateSessionDialog({
   members: Member[];
   isTD: boolean;
   teams: { id: number; name: string }[];
+  initialDraft?: InitialSessionDraft;
 }) {
   const { toast } = useToast();
   const { t } = useLanguage();
@@ -1065,6 +1072,15 @@ function CreateSessionDialog({
     setScheduledDate(""); setScheduledTime(""); setDuration(90);
     setLocation(""); setTeamId(null); setSessionPrincipio(""); setSessionTrainingSession(""); setSessionKind("regular"); setRecipientMode("selected"); setRecipients([]);
   }
+
+  useEffect(() => {
+    if (!open || !initialDraft) return;
+    if (initialDraft.date) setScheduledDate(toDisplayDateValue(`${initialDraft.date}T00:00:00`));
+    if (initialDraft.start) setScheduledTime(formatTimeInput(initialDraft.start));
+    if (initialDraft.teamId && teams.some((team) => team.id === initialDraft.teamId)) {
+      setTeamId(initialDraft.teamId);
+    }
+  }, [initialDraft, open, teams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -2777,6 +2793,16 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     const parsed = raw ? Number(raw) : null;
     return parsed && Number.isFinite(parsed) ? parsed : null;
   }, []);
+  const initialSessionDraft = useMemo<InitialSessionDraft | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("newSession") !== "1") return null;
+    const teamId = Number(params.get("teamId"));
+    return {
+      teamId: Number.isFinite(teamId) && teamId > 0 ? teamId : null,
+      date: params.get("date"),
+      start: params.get("start"),
+    };
+  }, []);
 
   const sessionsQuery = useQuery<TrainingSession[]>({
     queryKey: ["/api/training-sessions"],
@@ -2845,6 +2871,11 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     initialSessionHandledRef.current = true;
     setDetailsSession(target);
   }, [initialSessionId, initialSessionQuery.data, initialSessionQuery.isError, initialSessionQuery.isLoading, initialSessionQuery.isSuccess, sessions, sessionsQuery.isLoading, sessionsQuery.isSuccess, toast]);
+
+  useEffect(() => {
+    if (!initialSessionDraft) return;
+    setCreateOpen(true);
+  }, [initialSessionDraft]);
 
   const activeDirectives = directives.filter(d => !dismissedDirectives.includes(d.id));
 
@@ -3272,6 +3303,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         <CreateSessionDialog
           open={createOpen} onClose={() => setCreateOpen(false)}
           onCreated={invalidateSessions} members={members} isTD teams={teams}
+          initialDraft={initialSessionDraft ?? undefined}
         />
         <DirectiveDialog
           open={directiveOpen} onClose={() => setDirectiveOpen(false)}
@@ -3349,6 +3381,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           members={[]}
           isTD={false}
           teams={teams}
+          initialDraft={initialSessionDraft ?? undefined}
         />
         {detailsSession && (
           <SessionDetailsDialog
@@ -3538,6 +3571,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         members={[]}
         isTD={false}
         teams={teams}
+        initialDraft={initialSessionDraft ?? undefined}
       />
       {detailsSession && (
         <SessionDetailsDialog
