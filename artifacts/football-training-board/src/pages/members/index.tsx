@@ -369,9 +369,9 @@ export default function MembersList() {
           <p className="text-muted-foreground mt-1">{t.membersDesc}</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           {canExport && (
-            <Button variant="outline" onClick={handleExportMembers} disabled={!members?.length} className="gap-2">
+            <Button variant="outline" onClick={handleExportMembers} disabled={!members?.length} className="w-full gap-2 sm:w-auto">
               <FileDown className="w-4 h-4" />
               Esporta Excel
             </Button>
@@ -379,12 +379,12 @@ export default function MembersList() {
           {canInviteMembers && (
           <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
           <DialogTrigger asChild>
-            <Button className="shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all">
+            <Button className="w-full shadow-lg shadow-primary/20 transition-all hover:-translate-y-0.5 hover:shadow-xl sm:w-auto">
               <Plus className="w-5 h-5 mr-2" />
               {t.inviteMember}
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="max-h-[calc(100svh-2rem)] w-[calc(100vw-1rem)] overflow-y-auto p-4 sm:max-w-[500px] sm:p-6">
             <DialogHeader>
               <DialogTitle>{t.inviteStaffMember}</DialogTitle>
             </DialogHeader>
@@ -394,8 +394,8 @@ export default function MembersList() {
                 return;
               }
               inviteMutation.mutate({ data });
-            })} className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-4">
+            })} className="space-y-4 pt-2 sm:pt-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t.firstName}</Label>
                   <Input {...inviteForm.register("firstName")} />
@@ -414,7 +414,7 @@ export default function MembersList() {
                 <Input type="password" {...inviteForm.register("password")} />
                 <p className="text-xs text-muted-foreground">{t.canChangePassword}</p>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t.role}</Label>
                   <Controller control={inviteForm.control} name="role" render={({ field }) => (
@@ -428,12 +428,12 @@ export default function MembersList() {
                     </Select>
                   )} />
                 </div>
-                <div className="space-y-2 col-span-2">
+                <div className="space-y-2 sm:col-span-2">
                   <Label>Sezioni di appartenenza</Label>
                   <Controller control={inviteForm.control} name="clubSection" render={({ field }) => (
-                    <div className="flex flex-wrap gap-3">
+                    <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
                       {WORKSPACE_SECTIONS.map(sec => (
-                        <label key={sec} className="flex items-center gap-2 cursor-pointer select-none">
+                        <label key={sec} className="flex min-w-0 items-center gap-2 rounded-lg border bg-background px-3 py-2 cursor-pointer select-none">
                           <Checkbox
                             checked={field.value?.includes(sec) ?? false}
                             onCheckedChange={(checked) => {
@@ -441,7 +441,7 @@ export default function MembersList() {
                               field.onChange(checked ? [...current, sec] : current.filter(s => s !== sec));
                             }}
                           />
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${SECTION_CONFIG[sec].badge}`}>
+                          <span className={`min-w-0 truncate px-2 py-0.5 rounded text-[11px] font-semibold ${SECTION_CONFIG[sec].badge}`}>
                             {SECTION_CONFIG[sec].label}
                           </span>
                         </label>
@@ -453,7 +453,7 @@ export default function MembersList() {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t.registrationNumber}</Label>
                   <Input {...inviteForm.register("registrationNumber")} />
@@ -502,17 +502,17 @@ export default function MembersList() {
               {showInviteTeams && (
                 <div className="space-y-2">
                   <Label>{t.assignedTeams}</Label>
-                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border bg-muted/30 p-3">
+                  <div className="max-h-56 space-y-2 overflow-y-auto rounded-lg border bg-muted/30 p-3 sm:max-h-44">
                     <Controller control={inviteForm.control} name="teamIds" render={({ field }) => (
                       <>
                         {[...(teams ?? [])].sort((a, b) => a.name.localeCompare(b.name, "it")).map(team => (
-                          <div key={team.id} className="flex items-center gap-2">
+                          <div key={team.id} className="flex min-w-0 items-center gap-2">
                             <Checkbox
                               id={`invite-team-${team.id}`}
                               checked={(field.value ?? []).includes(team.id)}
                               onCheckedChange={() => toggleInviteTeam(team.id)}
                             />
-                            <Label htmlFor={`invite-team-${team.id}`} className="cursor-pointer font-normal text-sm">
+                            <Label htmlFor={`invite-team-${team.id}`} className="min-w-0 cursor-pointer font-normal text-sm">
                               {team.name}
                               {team.ageGroup && <span className="text-muted-foreground ml-1">({team.ageGroup})</span>}
                             </Label>
@@ -566,7 +566,7 @@ export default function MembersList() {
                   </div>
                 )}
               </div>
-              <DialogFooter className="pt-4">
+              <DialogFooter className="sticky bottom-0 -mx-4 -mb-4 border-t bg-background/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:mb-0 sm:border-t-0 sm:bg-transparent sm:px-0 sm:py-0 sm:pt-4">
                 <Button type="submit" disabled={inviteMutation.isPending} className="w-full">
                   <Mail className="w-4 h-4 mr-2" />
                   {inviteMutation.isPending ? t.sendingInvite : t.sendInvite}
