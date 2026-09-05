@@ -7,6 +7,7 @@ import {
   teamsTable,
   teamStaffAssignmentsTable,
   usersTable,
+  clubMembershipsTable,
 } from "@workspace/db";
 import { eq, and, desc, asc, inArray, isNull, or } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
@@ -14,6 +15,20 @@ import { requireAuth } from "../lib/auth";
 const router: IRouter = Router();
 const STAFF_RESTRICTED_ROLES = ["coach", "fitness_coach", "athletic_director"];
 const EXERCISE_ELEVATED_ROLES = ["admin", "presidente", "director", "technical_director"];
+
+function staffRoleForSection(raw: string | null | undefined, section: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { bySection?: Record<string, string> };
+    if (parsed?.bySection && typeof parsed.bySection === "object") {
+      if (section && parsed.bySection[section]) return parsed.bySection[section];
+      return Object.values(parsed.bySection)[0] ?? null;
+    }
+  } catch {
+    return raw;
+  }
+  return raw;
+}
 
 /**
  * Risolve lo stato della lavagna applicando la priorità:
@@ -51,7 +66,51 @@ async function canAccessTeamForRestrictedRole(clubId: number, userId: number, te
   return ids.includes(teamId);
 }
 
-async function enrichExercise(ex: typeof exercisesTable.$inferSelect) {
+async function getPrimaryCoachTeamIds(clubId: number, userId: number): Promise<number[]> {
+  const coached = await db
+    .select({ id: teamsTable.id })
+    .from(teamsTable)
+    .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.coachId, userId)));
+
+  const [membership] = await db
+    .select({ role: clubMembershipsTable.role, staffRole: clubMembershipsTable.staffRole })
+    .from(clubMembershipsTable)
+    .where(and(eq(clubMembershipsTable.clubId, clubId), eq(clubMembershipsTable.userId, userId)));
+
+  if (membership?.role !== "coach") return coached.map((team) => team.id);
+
+  const assignedIds = await getAssignedTeamIds(clubId, userId);
+  if (assignedIds.length === 0) return coached.map((team) => team.id);
+
+  const assignedTeams = await db
+    .select({ id: teamsTable.id, clubSection: teamsTable.clubSection })
+    .from(teamsTable)
+    .where(and(eq(teamsTable.clubId, clubId), inArray(teamsTable.id, assignedIds)));
+
+  const primaryByRole = assignedTeams
+    .filter((team) => staffRoleForSection(membership.staffRole, team.clubSection) === "primo_allenatore")
+    .map((team) => team.id);
+
+  return [...new Set([...coached.map((team) => team.id), ...primaryByRole])];
+}
+
+async function canManageExercise(
+  ex: typeof exercisesTable.$inferSelect,
+  clubId: number,
+  userId: number,
+  role: string,
+): Promise<boolean> {
+  if (EXERCISE_ELEVATED_ROLES.includes(role)) return true;
+  if (ex.createdByUserId === null || ex.createdByUserId === userId) return true;
+  if (!STAFF_RESTRICTED_ROLES.includes(role) || !ex.teamId) return false;
+  const primaryCoachTeamIds = await getPrimaryCoachTeamIds(clubId, userId);
+  return primaryCoachTeamIds.includes(ex.teamId);
+}
+
+async function enrichExercise(
+  ex: typeof exercisesTable.$inferSelect,
+  viewer?: { clubId: number; userId: number; role: string },
+) {
   let creatorName: string | null = null;
   if (ex.createdByUserId) {
     const [creator] = await db.select().from(usersTable).where(eq(usersTable.id, ex.createdByUserId));
@@ -65,7 +124,8 @@ async function enrichExercise(ex: typeof exercisesTable.$inferSelect) {
       if (sourceCreator) originalCreatedByName = `${sourceCreator.firstName} ${sourceCreator.lastName}`;
     }
   }
-  return { ...withResolvedBoard(ex), creatorName, originalCreatedByName };
+  const canEdit = viewer ? await canManageExercise(ex, viewer.clubId, viewer.userId, viewer.role) : undefined;
+  return { ...withResolvedBoard(ex), creatorName, originalCreatedByName, canEdit };
 }
 
 router.get("/exercises", requireAuth, async (req, res): Promise<void> => {
@@ -77,15 +137,22 @@ router.get("/exercises", requireAuth, async (req, res): Promise<void> => {
       assignedTeamIds.length > 0
         ? or(inArray(exercisesTable.teamId, assignedTeamIds), isNull(exercisesTable.teamId))
         : isNull(exercisesTable.teamId);
-    conditions.push(or(eq(exercisesTable.createdByUserId, userId), isNull(exercisesTable.createdByUserId)) as any);
     conditions.push(teamScope as any);
   }
-  const exercises = await db
+  let exercises = await db
     .select()
     .from(exercisesTable)
     .where(and(...conditions))
     .orderBy(desc(exercisesTable.createdAt));
-  const enriched = await Promise.all(exercises.map((ex) => enrichExercise(ex)));
+  if (STAFF_RESTRICTED_ROLES.includes(role)) {
+    const primaryCoachTeamIds = await getPrimaryCoachTeamIds(clubId, userId);
+    exercises = exercises.filter((ex) => (
+      ex.createdByUserId === null ||
+      ex.createdByUserId === userId ||
+      (!!ex.teamId && primaryCoachTeamIds.includes(ex.teamId))
+    ));
+  }
+  const enriched = await Promise.all(exercises.map((ex) => enrichExercise(ex, { clubId, userId, role })));
   res.json(enriched);
 });
 
@@ -153,7 +220,8 @@ router.get("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
     .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId)));
   if (!exercise) { res.status(404).json({ error: "Exercise not found" }); return; }
   if (STAFF_RESTRICTED_ROLES.includes(role)) {
-    if (exercise.createdByUserId !== null && exercise.createdByUserId !== userId) {
+    const canManage = await canManageExercise(exercise, clubId, userId, role);
+    if (!canManage) {
       res.status(403).json({ error: "Puoi accedere solo alle tue esercitazioni" });
       return;
     }
@@ -163,7 +231,7 @@ router.get("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
       return;
     }
   }
-  res.json(await enrichExercise(exercise));
+  res.json(await enrichExercise(exercise, { clubId, userId, role }));
 });
 
 router.post("/exercises", requireAuth, async (req, res): Promise<void> => {
@@ -227,7 +295,7 @@ router.post("/exercises", requireAuth, async (req, res): Promise<void> => {
     createdByUserId: userId,
     sourceExerciseId: normalizedSourceExerciseId,
   }).returning();
-  res.status(201).json(await enrichExercise(exercise));
+  res.status(201).json(await enrichExercise(exercise, { clubId, userId, role }));
 });
 
 router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
@@ -248,7 +316,8 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
     .from(exercisesTable)
     .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId)));
   if (!existing) { res.status(404).json({ error: "Exercise not found" }); return; }
-  if (!EXERCISE_ELEVATED_ROLES.includes(role) && existing.createdByUserId !== null && existing.createdByUserId !== userId) {
+  const canManage = await canManageExercise(existing, clubId, userId, role);
+  if (!canManage) {
     res.status(403).json({ error: "Puoi modificare solo le tue esercitazioni" });
     return;
   }
@@ -288,7 +357,7 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
   const [exercise] = await db.update(exercisesTable).set(updates)
     .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).returning();
   if (!exercise) { res.status(404).json({ error: "Exercise not found" }); return; }
-  res.json(await enrichExercise(exercise));
+  res.json(await enrichExercise(exercise, { clubId, userId, role }));
 });
 
 router.delete("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
@@ -300,7 +369,8 @@ router.delete("/exercises/:id", requireAuth, async (req, res): Promise<void> => 
     .from(exercisesTable)
     .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId)));
   if (!existing) { res.status(404).json({ error: "Exercise not found" }); return; }
-  if (!EXERCISE_ELEVATED_ROLES.includes(role) && existing.createdByUserId !== null && existing.createdByUserId !== userId) {
+  const canManage = await canManageExercise(existing, clubId, userId, role);
+  if (!canManage) {
     res.status(403).json({ error: "Puoi eliminare solo le tue esercitazioni" });
     return;
   }

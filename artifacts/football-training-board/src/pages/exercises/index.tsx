@@ -38,6 +38,7 @@ interface Exercise {
   principio?: string | null; trainingPhase?: string | null;
   createdByUserId?: number | null;
   creatorName?: string | null;
+  canEdit?: boolean;
   sourceExerciseId?: number | null;
   originalCreatedByName?: string | null;
 }
@@ -649,13 +650,13 @@ export default function ExercisesPage() {
   const canEditExercise = (ex: Exercise) => {
     if (isExerciseReadOnly) return false;
     if (!isRestrictedStaff) return true;
-    return ex.createdByUserId == null || ex.createdByUserId === userId;
+    return ex.canEdit === true || ex.createdByUserId == null || ex.createdByUserId === userId;
   };
   const visibleExercises = exercises.filter((ex) => {
     if (!isRestrictedStaff) return true;
     const isOwnerOrLegacy = ex.createdByUserId == null || ex.createdByUserId === userId;
     const inAssignedTeam = ex.teamId == null || assignedTeamIds.has(ex.teamId);
-    return isOwnerOrLegacy && inAssignedTeam;
+    return (isOwnerOrLegacy || ex.canEdit === true) && inAssignedTeam;
   });
   const filtered = (filter === "all" ? visibleExercises : visibleExercises.filter(ex => ex.category === filter))
     .filter((ex) => {

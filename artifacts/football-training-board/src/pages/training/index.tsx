@@ -43,6 +43,7 @@ interface TrainingSession {
   teamName: string | null;
   createdByUserId: number | null;
   creatorName: string | null;
+  canEdit?: boolean;
   sessionKind: string;
   sentToUserIds: number[] | null;
   tdComment: string | null;
@@ -2925,7 +2926,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     });
   const filteredTipoSessionsForTD = filteredSessionsForTD.filter((s) => s.sessionKind === "tipo");
   const mySessionsForCoach = sessions.filter(s =>
-    s.sessionKind === "regular" && s.createdByUserId === userId
+    s.sessionKind === "regular"
   );
   const coachTeamOptions = useMemo(() => {
     const map = new Map<string, { id: string; label: string }>();
@@ -3570,8 +3571,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
               ? "Seleziona prima un'annata/squadra"
               : "Nessuna sessione trovata con i filtri selezionati"
           }
-          canDeleteFn={s => s.createdByUserId === userId}
-          canEditFn={s => s.createdByUserId === userId}
+          canDeleteFn={s => s.canEdit === true || s.createdByUserId === userId}
+          canEditFn={s => s.canEdit === true || s.createdByUserId === userId}
           onOpenDetails={setDetailsSession}
           showRecovery
         />

@@ -20,9 +20,86 @@ import { requireClubAndUserIds } from "../lib/session-context";
 /** Per le statistiche dashboard: solo chi è vincolato alle squadre assegnate (non il direttore tecnico). */
 const DASHBOARD_ASSIGNMENT_SCOPED_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
 const CAN_CREATE_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director", "secretary"];
+const STAFF_RESTRICTED_ROLES = ["coach", "fitness_coach", "athletic_director"];
 const router: IRouter = Router();
 
-async function enrichSession(session: typeof trainingSessionsTable.$inferSelect) {
+function staffRoleForSection(raw: string | null | undefined, section: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { bySection?: Record<string, string> };
+    if (parsed?.bySection && typeof parsed.bySection === "object") {
+      if (section && parsed.bySection[section]) return parsed.bySection[section];
+      return Object.values(parsed.bySection)[0] ?? null;
+    }
+  } catch {
+    return raw;
+  }
+  return raw;
+}
+
+async function getAssignedTeamIds(clubId: number, userId: number): Promise<number[]> {
+  const assignedRows = await db
+    .select({ teamId: teamStaffAssignmentsTable.teamId })
+    .from(teamStaffAssignmentsTable)
+    .where(and(eq(teamStaffAssignmentsTable.userId, userId), eq(teamStaffAssignmentsTable.clubId, clubId)));
+  const coachedRows = await db
+    .select({ id: teamsTable.id })
+    .from(teamsTable)
+    .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.coachId, userId)));
+  return [...new Set([...assignedRows.map((r) => r.teamId), ...coachedRows.map((r) => r.id)])];
+}
+
+async function getPrimaryCoachTeamIds(clubId: number, userId: number): Promise<number[]> {
+  const coachedRows = await db
+    .select({ id: teamsTable.id })
+    .from(teamsTable)
+    .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.coachId, userId)));
+
+  const [membership] = await db
+    .select({ role: clubMembershipsTable.role, staffRole: clubMembershipsTable.staffRole })
+    .from(clubMembershipsTable)
+    .where(and(eq(clubMembershipsTable.clubId, clubId), eq(clubMembershipsTable.userId, userId)));
+
+  if (membership?.role !== "coach") return coachedRows.map((team) => team.id);
+
+  const assignedTeamIds = await getAssignedTeamIds(clubId, userId);
+  if (assignedTeamIds.length === 0) return coachedRows.map((team) => team.id);
+
+  const assignedTeams = await db
+    .select({ id: teamsTable.id, clubSection: teamsTable.clubSection })
+    .from(teamsTable)
+    .where(and(eq(teamsTable.clubId, clubId), inArray(teamsTable.id, assignedTeamIds)));
+
+  const primaryByRole = assignedTeams
+    .filter((team) => staffRoleForSection(membership.staffRole, team.clubSection) === "primo_allenatore")
+    .map((team) => team.id);
+
+  return [...new Set([...coachedRows.map((team) => team.id), ...primaryByRole])];
+}
+
+async function canAccessTeamForRestrictedRole(clubId: number, userId: number, teamId: number | null): Promise<boolean> {
+  if (!teamId) return true;
+  const assignedTeamIds = await getAssignedTeamIds(clubId, userId);
+  return assignedTeamIds.includes(teamId);
+}
+
+async function canManageSession(
+  session: typeof trainingSessionsTable.$inferSelect,
+  clubId: number,
+  userId: number,
+  role: string,
+): Promise<boolean> {
+  if (["secretary", "technical_director"].includes(role)) return true;
+  if (session.createdByUserId === userId) return true;
+  if (!STAFF_RESTRICTED_ROLES.includes(role) || !session.teamId) return false;
+  const primaryCoachTeamIds = await getPrimaryCoachTeamIds(clubId, userId);
+  return primaryCoachTeamIds.includes(session.teamId);
+}
+
+async function enrichSession(
+  session: typeof trainingSessionsTable.$inferSelect,
+  viewer?: { clubId: number; userId: number; role: string },
+) {
   let teamName: string | null = null;
   if (session.teamId) {
     const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, session.teamId), eq(teamsTable.clubId, session.clubId)));
@@ -33,6 +110,7 @@ async function enrichSession(session: typeof trainingSessionsTable.$inferSelect)
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, session.createdByUserId));
     if (user) creatorName = `${user.firstName} ${user.lastName}`;
   }
+  const canEdit = viewer ? await canManageSession(session, viewer.clubId, viewer.userId, viewer.role) : undefined;
   return {
     ...session,
     teamId: session.teamId ?? null,
@@ -46,6 +124,7 @@ async function enrichSession(session: typeof trainingSessionsTable.$inferSelect)
     sentToUserIds: (session.sentToUserIds as number[] | null) ?? null,
     tdComment: session.tdComment ?? null,
     tdGuidelines: session.tdGuidelines ?? null,
+    canEdit,
   };
 }
 
@@ -81,19 +160,16 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
   } else {
     // coach, fitness_coach, athletic_director: own sessions + tipo sessions addressed to them
     // and only for assigned teams/annate (plus sessions without explicit team)
-    const assignedRows = await db
-      .select({ teamId: teamStaffAssignmentsTable.teamId })
-      .from(teamStaffAssignmentsTable)
-      .where(and(eq(teamStaffAssignmentsTable.userId, userId), eq(teamStaffAssignmentsTable.clubId, clubId)));
-    const coachedRows = await db
-      .select({ id: teamsTable.id })
-      .from(teamsTable)
-      .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.coachId, userId)));
-    const assignedTeamIds = [...new Set([...assignedRows.map((r) => r.teamId), ...coachedRows.map((r) => r.id)])];
+    const assignedTeamIds = await getAssignedTeamIds(clubId, userId);
     const teamScope =
       assignedTeamIds.length > 0
         ? or(inArray(trainingSessionsTable.teamId, assignedTeamIds), sql`${trainingSessionsTable.teamId} is null`)
         : sql`${trainingSessionsTable.teamId} is null`;
+    const primaryCoachTeamIds = await getPrimaryCoachTeamIds(clubId, userId);
+    const collaboratorScope =
+      primaryCoachTeamIds.length > 0
+        ? inArray(trainingSessionsTable.teamId, primaryCoachTeamIds)
+        : sql`false`;
     sessions = await db
       .select()
       .from(trainingSessionsTable)
@@ -103,6 +179,7 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
           teamScope as any,
           or(
             eq(trainingSessionsTable.createdByUserId, userId),
+            collaboratorScope as any,
             and(
               eq(trainingSessionsTable.sessionKind, "tipo"),
               sql`${trainingSessionsTable.sentToUserIds}::jsonb @> ${JSON.stringify([userId])}::jsonb`
@@ -113,7 +190,7 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
       .orderBy(desc(trainingSessionsTable.scheduledAt));
   }
 
-  const enriched = await Promise.all(sessions.map(enrichSession));
+  const enriched = await Promise.all(sessions.map((session) => enrichSession(session, { clubId, userId, role })));
   res.json(enriched);
 });
 
@@ -136,8 +213,17 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
   const body = req.body as {
     sessionKind?: string;
     sentToUserIds?: number[];
+    teamId?: number | null;
     [key: string]: unknown;
   };
+
+  if (STAFF_RESTRICTED_ROLES.includes(role)) {
+    const hasTeamAccess = await canAccessTeamForRestrictedRole(req.session.clubId!, userId, body.teamId ?? null);
+    if (!hasTeamAccess) {
+      res.status(403).json({ error: "Puoi creare sessioni solo sulle annate assegnate" });
+      return;
+    }
+  }
 
   const [session] = await db
     .insert(trainingSessionsTable)
@@ -150,7 +236,7 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
     })
     .returning();
 
-  const enriched = await enrichSession(session);
+  const enriched = await enrichSession(session, { clubId: req.session.clubId!, userId, role });
   res.status(201).json(enriched);
 });
 
@@ -167,7 +253,21 @@ router.get("/training-sessions/:id", requireAuth, async (req, res): Promise<void
 
   if (!session) { res.status(404).json({ error: "Training session not found" }); return; }
 
-  const enriched = await enrichSession(session);
+  if (!canViewAllClubTrainingSessions(role)) {
+    const hasTeamAccess = await canAccessTeamForRestrictedRole(req.session.clubId!, req.session.userId!, session.teamId ?? null);
+    const sentToCurrentUser = Array.isArray(session.sentToUserIds) && session.sentToUserIds.includes(req.session.userId!);
+    const canSeeSession =
+      hasTeamAccess &&
+      (session.createdByUserId === req.session.userId! ||
+        await canManageSession(session, req.session.clubId!, req.session.userId!, role) ||
+        (session.sessionKind === "tipo" && sentToCurrentUser));
+    if (!canSeeSession) {
+      res.status(403).json({ error: "La sessione non è assegnata al tuo profilo" });
+      return;
+    }
+  }
+
+  const enriched = await enrichSession(session, { clubId: req.session.clubId!, userId: req.session.userId!, role });
   res.json(enriched);
 });
 
@@ -214,8 +314,8 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
     if ("tdComment" in body) updateData.tdComment = body.tdComment;
     if ("tdGuidelines" in body) updateData.tdGuidelines = body.tdGuidelines;
   } else {
-    // Others can only edit their own sessions
-    if (existing.createdByUserId !== userId) {
+    const canManage = await canManageSession(existing, clubId, userId, role);
+    if (!canManage) {
       res.status(403).json({ error: "Puoi modificare solo le tue sessioni" });
       return;
     }
@@ -225,7 +325,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
   }
 
   if (Object.keys(updateData).length === 0) {
-    const enriched = await enrichSession(existing);
+    const enriched = await enrichSession(existing, { clubId, userId, role });
     res.json(enriched);
     return;
   }
@@ -236,7 +336,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
     .where(and(eq(trainingSessionsTable.id, params.data.id), eq(trainingSessionsTable.clubId, clubId)))
     .returning();
 
-  const enriched = await enrichSession(session);
+  const enriched = await enrichSession(session, { clubId, userId, role });
   res.json(enriched);
 });
 
@@ -257,7 +357,8 @@ router.delete("/training-sessions/:id", requireAuth, async (req, res): Promise<v
   if (!existing) { res.status(404).json({ error: "Training session not found" }); return; }
 
   // Only creator or admin/presidente/secretary can delete
-  if (!["admin", "presidente", "secretary"].includes(role ?? "") && existing.createdByUserId !== userId) {
+  const canManage = ["admin", "presidente"].includes(role ?? "") || await canManageSession(existing, clubId, userId, role);
+  if (!canManage) {
     res.status(403).json({ error: "Puoi eliminare solo le tue sessioni" });
     return;
   }
@@ -442,7 +543,7 @@ router.get("/dashboard/stats", requireAuth, async (req, res): Promise<void> => {
     .orderBy(desc(trainingSessionsTable.scheduledAt))
     .limit(5);
 
-  const enrichedSessions = await Promise.all(recentSessions.map(enrichSession));
+  const enrichedSessions = await Promise.all(recentSessions.map((session) => enrichSession(session, { clubId, userId, role })));
 
   res.json(GetDashboardStatsResponse.parse({
     totalTeams: teamsCount?.count ?? 0,
