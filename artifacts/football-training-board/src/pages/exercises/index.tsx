@@ -1194,8 +1194,12 @@ export default function ExercisesPage() {
                     </div>
 
                     {recentMaterialOptions.length > 0 && !normalizedMaterialSearch && (
-                      <div className="space-y-2">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Usati di recente / frequenti</div>
+                      <details className="group rounded-md border bg-background" open>
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          <span>Usati di recente / frequenti</span>
+                          <span className="text-[11px] font-medium normal-case">{recentMaterialOptions.length}</span>
+                        </summary>
+                        <div className="border-t p-3">
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {recentMaterialOptions.map((option) => {
                             const checked = (materialSelection[option.id] ?? 0) > 0;
@@ -1216,15 +1220,23 @@ export default function ExercisesPage() {
                             );
                           })}
                         </div>
-                      </div>
+                        </div>
+                      </details>
                     )}
 
                     <div className="space-y-3">
                       {materialCategories.map((category) => {
                         const options = searchedMaterialOptions.filter((option) => option.category === category);
+                        const selectedInCategory = options.filter((option) => (materialSelection[option.id] ?? 0) > 0).length;
                         return (
-                          <div key={category} className="space-y-2">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{category}</div>
+                          <details key={category} className="group rounded-md border bg-background" open={Boolean(normalizedMaterialSearch || selectedInCategory)}>
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              <span>{category}</span>
+                              <span className="text-[11px] font-medium normal-case">
+                                {selectedInCategory > 0 ? `${selectedInCategory} selezionati` : `${options.length}`}
+                              </span>
+                            </summary>
+                            <div className="border-t p-3">
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                               {options.map((option) => {
                                 const checked = (materialSelection[option.id] ?? 0) > 0;
@@ -1245,7 +1257,8 @@ export default function ExercisesPage() {
                                 );
                               })}
                             </div>
-                          </div>
+                            </div>
+                          </details>
                         );
                       })}
                       {searchedMaterialOptions.length === 0 && (
