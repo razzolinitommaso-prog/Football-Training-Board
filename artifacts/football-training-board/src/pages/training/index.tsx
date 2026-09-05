@@ -905,7 +905,12 @@ function SessionCard({
         {(session.teamName || session.creatorName) && (
           <div className="flex flex-wrap gap-1.5 pt-1 border-t border-border/40">
             {session.teamName && <span className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded font-medium">{session.teamName}</span>}
-            {session.creatorName && <span className="text-[10px] text-muted-foreground">da {session.creatorName}</span>}
+            {session.creatorName && (
+              <span className="inline-flex max-w-full items-center gap-1 rounded border border-border/70 bg-background/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <UserCheck className="h-3 w-3 shrink-0" />
+                <span className="truncate">Creata da {session.creatorName}</span>
+              </span>
+            )}
           </div>
         )}
 
@@ -2047,6 +2052,12 @@ function SessionDetailsDialog({
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <ClipboardList className="w-4 h-4" />
                     <span>{session.teamName}</span>
+                  </div>
+                )}
+                {session.creatorName && (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <UserCheck className="w-4 h-4" />
+                    <span>Creata da {session.creatorName}</span>
                   </div>
                 )}
               </div>
