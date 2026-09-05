@@ -6,7 +6,15 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, LogOut, Bell, BellRing } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ArrowLeft, LogOut, Bell, BellRing, CheckCheck, ExternalLink } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLocation } from "wouter";
 import { withApi } from "@/lib/api-base";
@@ -156,6 +164,61 @@ export function AppLayout({ children }: { children: ReactNode }) {
     }
   }, [canWatchClubNotifications, toast]);
 
+  const markLayoutNotificationRead = useCallback(async (notification: LayoutNotification) => {
+    const key = notificationKey(notification);
+    setUnreadNotifications((current) => current.filter((item) => notificationKey(item) !== key));
+
+    const endpoint = notification.source === "platform"
+      ? `/api/club/platform-announcements/${notification.id}/read`
+      : `/api/club/notifications/${notification.id}/read`;
+
+    try {
+      const response = await fetch(withApi(endpoint), {
+        method: "PATCH",
+        credentials: "include",
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      if (import.meta.env.DEV) console.error("[layout] mark notification read failed", error);
+      toast({
+        title: "Comunicazione non aggiornata",
+        description: "Riapro l'elenco aggiornato tra un momento.",
+        variant: "destructive",
+      });
+      void fetchLayoutNotifications();
+    }
+  }, [fetchLayoutNotifications, toast]);
+
+  const markAllLayoutNotificationsRead = useCallback(async () => {
+    const current = unreadNotifications;
+    if (current.length === 0) return;
+
+    setUnreadNotifications([]);
+
+    try {
+      const results = await Promise.all(current.map((notification) => {
+        const endpoint = notification.source === "platform"
+          ? `/api/club/platform-announcements/${notification.id}/read`
+          : `/api/club/notifications/${notification.id}/read`;
+        return fetch(withApi(endpoint), {
+          method: "PATCH",
+          credentials: "include",
+        });
+      }));
+
+      if (results.some((response) => !response.ok)) throw new Error("Some notifications were not updated");
+    } catch (error) {
+      if (import.meta.env.DEV) console.error("[layout] mark all notifications read failed", error);
+      toast({
+        title: "Alcune comunicazioni non sono state aggiornate",
+        description: "Ricarico lo stato reale delle notifiche.",
+        variant: "destructive",
+      });
+      void fetchLayoutNotifications();
+    }
+  }, [fetchLayoutNotifications, toast, unreadNotifications]);
+
   useEffect(() => {
     void fetchLayoutNotifications();
     if (!canWatchClubNotifications) return;
@@ -236,27 +299,95 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4">
-              <Button
-                size="icon"
-                variant="ghost"
-                className={cn(
-                  "relative shrink-0",
-                  unreadNotificationCount > 0 ? "text-amber-600 hover:text-amber-700" : "text-muted-foreground hover:text-foreground",
-                )}
-                title={
-                  newestUnreadNotification
-                    ? `Nuova comunicazione: ${newestUnreadNotification.title}`
-                    : "Comunicazioni"
-                }
-                onClick={() => setLocation("/dashboard")}
-              >
-                {unreadNotificationCount > 0 ? <BellRing className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
-                {unreadNotificationCount > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-background">
-                    {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
-                  </span>
-                )}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className={cn(
+                      "relative shrink-0",
+                      unreadNotificationCount > 0 ? "text-amber-600 hover:text-amber-700" : "text-muted-foreground hover:text-foreground",
+                    )}
+                    title={
+                      newestUnreadNotification
+                        ? `Nuova comunicazione: ${newestUnreadNotification.title}`
+                        : "Comunicazioni"
+                    }
+                  >
+                    {unreadNotificationCount > 0 ? <BellRing className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
+                    {unreadNotificationCount > 0 && (
+                      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-background">
+                        {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                      </span>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-[min(92vw,24rem)] p-2">
+                  <div className="flex items-center justify-between gap-3 px-2 py-1.5">
+                    <DropdownMenuLabel className="p-0">Comunicazioni</DropdownMenuLabel>
+                    <Badge variant={unreadNotificationCount > 0 ? "default" : "secondary"} className="shrink-0">
+                      {unreadNotificationCount > 0 ? `${unreadNotificationCount} non lette` : "Tutto letto"}
+                    </Badge>
+                  </div>
+                  <DropdownMenuSeparator />
+
+                  {unreadNotificationCount === 0 ? (
+                    <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                      Nessuna comunicazione non letta.
+                    </div>
+                  ) : (
+                    <div className="max-h-[min(70vh,24rem)] space-y-1 overflow-y-auto pr-1">
+                      {unreadNotifications.slice(0, 8).map((notification) => (
+                        <DropdownMenuItem
+                          key={notificationKey(notification)}
+                          className="block cursor-pointer rounded-md border border-transparent p-3 focus:border-amber-200 focus:bg-amber-50"
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            void markLayoutNotificationRead(notification);
+                            setLocation("/dashboard");
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-foreground">{notification.title}</p>
+                              {notification.message && (
+                                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                                  {shortNotificationText(notification.message)}
+                                </p>
+                              )}
+                            </div>
+                            <Badge variant="outline" className="shrink-0 text-[10px]">
+                              {notification.source === "platform" ? "Piattaforma" : "Societa"}
+                            </Badge>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </div>
+                  )}
+
+                  <DropdownMenuSeparator />
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <DropdownMenuItem
+                      className="cursor-pointer justify-center rounded-md"
+                      onSelect={() => setLocation("/dashboard")}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      Apri schede
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="cursor-pointer justify-center rounded-md"
+                      disabled={unreadNotificationCount === 0}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void markAllLayoutNotificationsRead();
+                      }}
+                    >
+                      <CheckCheck className="h-4 w-4" />
+                      Segna lette
+                    </DropdownMenuItem>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <div className="flex items-center gap-2 sm:gap-3 pl-3 sm:pl-4 border-l">
                 <div className="hidden md:flex flex-col items-end">
