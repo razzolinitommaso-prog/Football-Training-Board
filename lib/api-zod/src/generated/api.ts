@@ -226,6 +226,7 @@ export const InviteClubMemberBody = zod.object({
   password: zod.string(),
   role: zod.string(),
   clubSection: zod.array(zod.enum(["scuola_calcio", "settore_giovanile", "prima_squadra", "extra_time"])).optional(),
+  staffRole: zod.string().optional(),
   registered: zod.boolean().optional(),
   registrationNumber: zod.string().optional(),
   phone: zod.string().optional(),

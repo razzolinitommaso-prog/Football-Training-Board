@@ -243,7 +243,7 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
     return;
   }
 
-  const { email, firstName, lastName, password, role, clubSection, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
+  const { email, firstName, lastName, password, role, clubSection, staffRole, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
 
   if (!canAssignMemberRole(req.session.role, role)) {
     res.status(403).json({ error: "Non puoi creare membri con questo ruolo" });
@@ -281,6 +281,7 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
     clubId: req.session.clubId!,
     role,
     clubSection: sectionsArray,
+    staffRole: staffRole ?? null,
     registered: registered ?? false,
     registrationNumber: registrationNumber ?? null,
     phone: phone ?? null,

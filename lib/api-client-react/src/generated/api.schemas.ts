@@ -125,6 +125,7 @@ export interface InviteMemberRequest {
   password: string;
   role: string;
   clubSection?: ("scuola_calcio" | "settore_giovanile" | "prima_squadra" | "extra_time")[];
+  staffRole?: string;
   registered?: boolean;
   registrationNumber?: string;
   phone?: string;

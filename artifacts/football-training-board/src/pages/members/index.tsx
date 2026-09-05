@@ -50,6 +50,7 @@ const inviteSchema = z.object({
   password: z.string().min(6, "Min 6 chars"),
   role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
+  staffRole: z.string().optional(),
   registered: z.boolean().optional(),
   registrationNumber: z.string().optional(),
   phone: z.string().optional(),
@@ -91,6 +92,28 @@ const MEMBER_ROLE_ORDER: Record<string, number> = {
 };
 
 const STAFF_MANAGED_ROLES = ["coach", "fitness_coach", "athletic_director"] as const;
+
+type StaffRoleBySection = Partial<Record<ClubSection, string>>;
+
+function parseStaffRoleBySection(raw: string | null | undefined, sections: ClubSection[]): StaffRoleBySection {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as { bySection?: StaffRoleBySection };
+    if (parsed && typeof parsed === "object" && parsed.bySection && typeof parsed.bySection === "object") {
+      return parsed.bySection;
+    }
+  } catch {
+    // Legacy value: one staff role applied to every section.
+  }
+  return Object.fromEntries(sections.map((section) => [section, raw])) as StaffRoleBySection;
+}
+
+function serializeStaffRoleBySection(map: StaffRoleBySection) {
+  const cleaned = Object.fromEntries(
+    Object.entries(map).filter(([, value]) => typeof value === "string" && value.trim().length > 0),
+  ) as StaffRoleBySection;
+  return Object.keys(cleaned).length > 0 ? JSON.stringify({ bySection: cleaned }) : undefined;
+}
 
 export default function MembersList() {
   const { t, language } = useLanguage();
@@ -182,7 +205,7 @@ export default function MembersList() {
 
   const inviteForm = useForm<z.infer<typeof inviteSchema>>({
     resolver: zodResolver(inviteSchema),
-    defaultValues: { role: "coach", clubSection: ["scuola_calcio"], registered: false, teamIds: [] }
+    defaultValues: { role: "coach", clubSection: ["scuola_calcio"], staffRole: "", registered: false, teamIds: [] }
   });
 
   const editForm = useForm<z.infer<typeof editSchema>>({
@@ -191,6 +214,10 @@ export default function MembersList() {
 
   const watchedInviteRole = inviteForm.watch("role");
   const watchedEditRole = editForm.watch("role");
+  const watchedInviteSections = inviteForm.watch("clubSection") ?? [];
+  const watchedEditSections = editForm.watch("clubSection") ?? [];
+  const watchedInviteStaffRole = inviteForm.watch("staffRole");
+  const watchedEditStaffRoleValue = editForm.watch("staffRole");
   const watchedEditDegreeScienzeMoto = editForm.watch("degreeScienzeMoto");
   const watchedInviteDegreeScienzeMoto = inviteForm.watch("degreeScienzeMoto");
 
@@ -252,6 +279,7 @@ export default function MembersList() {
       return [
         { value: "preparatore_principale", label: t.mainFitnessCoach },
         { value: "assistente_preparatore", label: t.assistantFitnessCoach },
+        { value: "preparatore_supporto", label: "Preparatore di supporto" },
         { value: "collaboratore", label: t.collaborator },
         { value: "stagista", label: t.intern },
       ];
@@ -295,6 +323,73 @@ export default function MembersList() {
     sectionForm.setValue("clubSection", next.length > 0 ? next : ["scuola_calcio"], { shouldDirty: true, shouldValidate: true });
   }
 
+  function setSectionStaffRole(formApi: typeof inviteForm | typeof editForm, section: ClubSection, value: string) {
+    const sectionForm = formApi as any;
+    const sections = (sectionForm.getValues("clubSection") ?? []) as ClubSection[];
+    const current = parseStaffRoleBySection(sectionForm.getValues("staffRole"), sections);
+    const next = { ...current };
+    if (value) next[section] = value;
+    else delete next[section];
+    sectionForm.setValue("staffRole", serializeStaffRoleBySection(next) ?? "", { shouldDirty: true, shouldValidate: true });
+  }
+
+  function staffRoleLabelsForMember(member: ClubMember, sections: ClubSection[]) {
+    const bySection = parseStaffRoleBySection(member.staffRole, sections);
+    const options = staffRoleOptions(member.role);
+    return sections
+      .map((section) => {
+        const value = bySection[section];
+        if (!value) return null;
+        return {
+          section,
+          label: options.find((option) => option.value === value)?.label ?? value,
+        };
+      })
+      .filter((item): item is { section: ClubSection; label: string } => Boolean(item));
+  }
+
+  function StaffRoleBySectionFields({
+    formApi,
+    roleValue,
+    sections,
+    staffRoleValue,
+  }: {
+    formApi: typeof inviteForm | typeof editForm;
+    roleValue: string;
+    sections: ClubSection[];
+    staffRoleValue?: string;
+  }) {
+    const options = staffRoleOptions(roleValue);
+    if (options.length === 0 || sections.length === 0) return null;
+    const selected = parseStaffRoleBySection(staffRoleValue, sections);
+
+    return (
+      <div className="space-y-2">
+        <Label>{t.staffRoleLabel} per sezione</Label>
+        <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+          {sections.map((section) => (
+            <div key={section} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(180px,220px)] sm:items-center">
+              <span className={`w-fit max-w-full truncate rounded px-2 py-0.5 text-[11px] font-semibold ${SECTION_CONFIG[section]?.badge ?? ""}`}>
+                {SECTION_CONFIG[section]?.label ?? section}
+              </span>
+              <Select value={selected[section] ?? "_none"} onValueChange={(value) => setSectionStaffRole(formApi, section, value === "_none" ? "" : value)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Seleziona incarico" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">Nessun incarico</SelectItem>
+                  {options.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const allStaffRoleOptions = [
     { value: "primo_allenatore", label: t.firstCoach },
     { value: "secondo_allenatore", label: t.secondCoach },
@@ -302,6 +397,7 @@ export default function MembersList() {
     { value: "stagista", label: t.intern },
     { value: "preparatore_principale", label: t.mainFitnessCoach },
     { value: "assistente_preparatore", label: t.assistantFitnessCoach },
+    { value: "preparatore_supporto", label: "Preparatore di supporto" },
   ];
 
   const memberActiveFilterCount = [
@@ -345,7 +441,13 @@ export default function MembersList() {
     }
     if (roleFilter !== "all" && m.role !== roleFilter) return false;
     if (licenseFilter !== "all" && m.licenseType !== licenseFilter) return false;
-    if (staffRoleFilter !== "all" && m.staffRole !== staffRoleFilter) return false;
+    if (staffRoleFilter !== "all") {
+      const sections = (Array.isArray(m.clubSection) && m.clubSection.length > 0
+        ? m.clubSection
+        : [m.clubSection ?? "scuola_calcio"]) as ClubSection[];
+      const bySection = parseStaffRoleBySection(m.staffRole, sections);
+      if (!Object.values(bySection).includes(staffRoleFilter)) return false;
+    }
     if (degreeFilter === "yes" && !m.degreeScienzeMoto) return false;
     if (degreeFilter === "no" && m.degreeScienzeMoto) return false;
     if (registeredFilter === "yes" && !m.registered) return false;
@@ -393,7 +495,9 @@ export default function MembersList() {
                 toast({ title: "Ruolo non consentito", variant: "destructive" });
                 return;
               }
-              inviteMutation.mutate({ data });
+              const sections = (data.clubSection ?? []) as ClubSection[];
+              const staffRole = serializeStaffRoleBySection(parseStaffRoleBySection(data.staffRole, sections));
+              inviteMutation.mutate({ data: { ...data, staffRole } as any });
             })} className="space-y-4 pt-2 sm:pt-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -453,6 +557,12 @@ export default function MembersList() {
                   )}
                 </div>
               </div>
+              <StaffRoleBySectionFields
+                formApi={inviteForm}
+                roleValue={watchedInviteRole}
+                sections={watchedInviteSections as ClubSection[]}
+                staffRoleValue={watchedInviteStaffRole}
+              />
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t.registrationNumber}</Label>
@@ -605,6 +715,8 @@ export default function MembersList() {
             }
             const payload: any = { ...data };
             if (!payload.newPassword) delete payload.newPassword;
+            const sections = (data.clubSection ?? []) as ClubSection[];
+            payload.staffRole = serializeStaffRoleBySection(parseStaffRoleBySection(data.staffRole, sections)) ?? undefined;
             updateMutation.mutate({ userId: editingMember.id, data: payload });
           })} className="space-y-4 pt-2">
 
@@ -678,19 +790,12 @@ export default function MembersList() {
                 </div>
               </div>
               {showEditStaffRole && (
-                <div className="space-y-2">
-                  <Label>{t.staffRoleLabel}</Label>
-                  <Controller control={editForm.control} name="staffRole" render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                      <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                      <SelectContent>
-                        {staffRoleOptions(watchedEditRole).map(opt => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )} />
-                </div>
+                <StaffRoleBySectionFields
+                  formApi={editForm}
+                  roleValue={watchedEditRole}
+                  sections={watchedEditSections as ClubSection[]}
+                  staffRoleValue={watchedEditStaffRoleValue}
+                />
               )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -986,6 +1091,7 @@ export default function MembersList() {
           const memberSecs: ClubSection[] = Array.isArray(member.clubSection) && member.clubSection.length > 0
             ? (member.clubSection as ClubSection[])
             : ["scuola_calcio" as ClubSection];
+          const memberStaffRoles = staffRoleLabelsForMember(member, memberSecs);
           return (
           <div key={member.id} className="relative overflow-hidden rounded-xl border border-border/50 bg-card shadow-md transition-shadow hover:shadow-lg">
             <div className="flex w-full min-w-0 items-start gap-4 p-5">
@@ -1012,11 +1118,11 @@ export default function MembersList() {
                   <span className="inline-flex max-w-full items-center rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                     {roleLabel(member.role)}
                   </span>
-                  {member.staffRole && (
-                    <span className="inline-flex max-w-full items-center rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                      {staffRoleOptions(member.role).find(o => o.value === member.staffRole)?.label ?? member.staffRole}
+                  {memberStaffRoles.map(({ section, label }) => (
+                    <span key={`${section}-${label}`} className="inline-flex max-w-full items-center rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                      {SECTION_CONFIG[section]?.label ?? section}: {label}
                     </span>
-                  )}
+                  ))}
                   {member.licenseType && (
                     <span className="inline-flex max-w-full items-center gap-1 rounded border border-border/70 bg-muted/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                       🪪 {{"UEFA_A":"UEFA A","UEFA_B":"UEFA B","UEFA_C":"UEFA C","UEFA_Pro":"UEFA Pro","Grassroots":"Grassroots"}[member.licenseType] ?? member.licenseType}

@@ -44,6 +44,17 @@ function staffRoleLabel(role: string, t: ReturnType<typeof useLanguage>["t"]) {
   return labels[role] || role;
 }
 
+function staffSectionRoleLabel(raw: string | null | undefined, section: string | null | undefined, labels: Record<string, string>) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { bySection?: Record<string, string> };
+    const value = section ? parsed?.bySection?.[section] : Object.values(parsed?.bySection ?? {})[0];
+    return value ? labels[value] ?? value : null;
+  } catch {
+    return labels[raw] ?? raw;
+  }
+}
+
 function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof useLanguage>["t"]) {
   if (reason === "illness") return t.illness;
   if (reason === "injury") return t.injuryReason;
@@ -528,7 +539,9 @@ export default function TeamDetail() {
                 stagista: t.intern,
                 preparatore_principale: t.mainFitnessCoach,
                 assistente_preparatore: t.assistantFitnessCoach,
+                preparatore_supporto: "Preparatore di supporto",
               };
+              const specificStaffRole = staffSectionRoleLabel(s.staffRole, team?.clubSection, staffRoleLabelMap);
               return (
                 <div key={s.userId} className="flex items-start gap-3 p-4 rounded-xl bg-muted/30 border border-border/60 hover:bg-muted/50 transition-colors">
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-xl shrink-0 mt-0.5">
@@ -540,9 +553,9 @@ export default function TeamDetail() {
 
                     <div className="flex flex-wrap gap-1.5">
                       {/* Incarico specifico */}
-                      {s.staffRole && (
+                      {specificStaffRole && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground border">
-                          {staffRoleLabelMap[s.staffRole] ?? s.staffRole}
+                          {specificStaffRole}
                         </span>
                       )}
 
