@@ -92,6 +92,12 @@ const SEZIONE_ROLES = ["admin", "presidente", "director", "secretary", "sporting
 
 // Ruoli gestionali: le tre sezioni restano visibili, ma quelle non assegnate sono grigie/disabilitate.
 const SECTION_MANAGEMENT_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director"];
+const SECTION_OPERATION_URLS = new Set([
+  "/training",
+  "/training/convocazioni",
+  "/training/presenze",
+  "/training/calendario-operativo",
+]);
 
 /** Voci aggiuntive per il direttore tecnico: metodologia, coordinamento staff, lettura attività (non segreteria, non gestione fitness). */
 const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof UsersRound }[] = [
@@ -285,8 +291,11 @@ export function AppSidebar() {
     );
   }
 
+  const userHasSectionMenu = role !== "technical_director" && SEZIONI.some(({ key }) => shouldShowSection(key));
   const topMainUrls = ["/dashboard", "/tactical-board", "/training", "/training/convocazioni", "/training/presenze", "/training/calendario-operativo", "/exercises"];
-  const topMainItems    = mainNav.filter(i => topMainUrls.includes(i.url));
+  const topMainItems = mainNav.filter((i) =>
+    topMainUrls.includes(i.url) && !(userHasSectionMenu && SECTION_OPERATION_URLS.has(i.url)),
+  );
   const bottomMainItems = mainNav.filter(i => !topMainUrls.includes(i.url));
 
   return (
