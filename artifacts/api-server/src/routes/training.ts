@@ -158,8 +158,8 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
       .where(and(...conditions))
       .orderBy(desc(trainingSessionsTable.scheduledAt));
   } else {
-    // coach, fitness_coach, athletic_director: own sessions + tipo sessions addressed to them
-    // and only for assigned teams/annate (plus sessions without explicit team)
+    // coach, fitness_coach, athletic_director: sessions for assigned teams/annate
+    // (plus own sessions and tipo sessions addressed to them)
     const assignedTeamIds = await getAssignedTeamIds(clubId, userId);
     const teamScope =
       assignedTeamIds.length > 0
@@ -170,6 +170,10 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
       primaryCoachTeamIds.length > 0
         ? inArray(trainingSessionsTable.teamId, primaryCoachTeamIds)
         : sql`false`;
+    const assignedSessionsScope =
+      assignedTeamIds.length > 0
+        ? inArray(trainingSessionsTable.teamId, assignedTeamIds)
+        : sql`false`;
     sessions = await db
       .select()
       .from(trainingSessionsTable)
@@ -178,6 +182,7 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
           eq(trainingSessionsTable.clubId, clubId),
           teamScope as any,
           or(
+            assignedSessionsScope as any,
             eq(trainingSessionsTable.createdByUserId, userId),
             collaboratorScope as any,
             and(

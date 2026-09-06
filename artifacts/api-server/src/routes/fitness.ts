@@ -19,6 +19,9 @@ let fitnessSchemaReady: Promise<void> | null = null;
 function ensureFitnessSchema() {
   if (!fitnessSchemaReady) {
     fitnessSchemaReady = Promise.all([
+      db.execute(sql`ALTER TABLE fitness_programs ADD COLUMN IF NOT EXISTS plan_json TEXT`),
+      db.execute(sql`ALTER TABLE fitness_programs ADD COLUMN IF NOT EXISTS materials TEXT`),
+      db.execute(sql`ALTER TABLE fitness_programs ADD COLUMN IF NOT EXISTS board_notes TEXT`),
       db.execute(sql`ALTER TABLE player_fitness_data ADD COLUMN IF NOT EXISTS activity_type TEXT NOT NULL DEFAULT 'test_atletico'`),
       db.execute(sql`ALTER TABLE player_fitness_data ADD COLUMN IF NOT EXISTS training_session_id INTEGER`),
       db.execute(sql`ALTER TABLE player_fitness_data ADD COLUMN IF NOT EXISTS parent_note TEXT`),
@@ -56,6 +59,11 @@ async function playersBelongToClub(playerIds: unknown, clubId: number): Promise<
 }
 
 async function enrichProgram(program: typeof fitnessProgramsTable.$inferSelect) {
+  const row = program as typeof fitnessProgramsTable.$inferSelect & {
+    planJson?: string | null;
+    materials?: string | null;
+    boardNotes?: string | null;
+  };
   let teamName: string | null = null;
   if (program.teamId) {
     const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, program.teamId), eq(teamsTable.clubId, program.clubId)));
@@ -67,6 +75,9 @@ async function enrichProgram(program: typeof fitnessProgramsTable.$inferSelect) 
     teamName,
     description: program.description ?? null,
     durationWeeks: program.durationWeeks ?? null,
+    planJson: row.planJson ?? null,
+    materials: row.materials ?? null,
+    boardNotes: row.boardNotes ?? null,
     createdBy: program.createdBy ?? null,
   };
 }
@@ -98,6 +109,7 @@ async function enrichFitnessData(data: typeof playerFitnessDataTable.$inferSelec
 }
 
 router.get("/fitness-programs", requireAuth, async (req, res): Promise<void> => {
+  await ensureFitnessSchema();
   if (!canViewFitness(req.session.role)) {
     res.status(403).json({ error: "Non autorizzato a visualizzare programmi atletici" });
     return;
@@ -113,11 +125,12 @@ router.get("/fitness-programs", requireAuth, async (req, res): Promise<void> => 
 });
 
 router.post("/fitness-programs", requireAuth, async (req, res): Promise<void> => {
+  await ensureFitnessSchema();
   if (!canManageFitness(req.session.role)) {
     res.status(403).json({ error: "Non autorizzato a gestire programmi atletici" });
     return;
   }
-  const { title, teamId, description, durationWeeks, intensityLevel } = req.body;
+  const { title, teamId, description, durationWeeks, intensityLevel, planJson, materials, boardNotes } = req.body;
   if (!title || typeof title !== "string") {
     res.status(400).json({ error: "title is required" });
     return;
@@ -137,6 +150,9 @@ router.post("/fitness-programs", requireAuth, async (req, res): Promise<void> =>
       description: description ?? null,
       durationWeeks: durationWeeks ?? null,
       intensityLevel: intensityLevel ?? "medium",
+      planJson: planJson ?? null,
+      materials: materials ?? null,
+      boardNotes: boardNotes ?? null,
     })
     .returning();
 
@@ -145,6 +161,7 @@ router.post("/fitness-programs", requireAuth, async (req, res): Promise<void> =>
 });
 
 router.get("/fitness-programs/:id", requireAuth, async (req, res): Promise<void> => {
+  await ensureFitnessSchema();
   if (!canViewFitness(req.session.role)) {
     res.status(403).json({ error: "Non autorizzato a visualizzare programmi atletici" });
     return;
@@ -164,6 +181,7 @@ router.get("/fitness-programs/:id", requireAuth, async (req, res): Promise<void>
 });
 
 router.patch("/fitness-programs/:id", requireAuth, async (req, res): Promise<void> => {
+  await ensureFitnessSchema();
   if (!canManageFitness(req.session.role)) {
     res.status(403).json({ error: "Non autorizzato a gestire programmi atletici" });
     return;
@@ -171,7 +189,7 @@ router.patch("/fitness-programs/:id", requireAuth, async (req, res): Promise<voi
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-  const { title, teamId, description, durationWeeks, intensityLevel } = req.body;
+  const { title, teamId, description, durationWeeks, intensityLevel, planJson, materials, boardNotes } = req.body;
   if (teamId !== undefined && !(await teamBelongsToClub(teamId, req.session.clubId!))) {
     res.status(400).json({ error: "Squadra non valida" });
     return;
@@ -182,6 +200,9 @@ router.patch("/fitness-programs/:id", requireAuth, async (req, res): Promise<voi
   if (description !== undefined) updates.description = description;
   if (durationWeeks !== undefined) updates.durationWeeks = durationWeeks;
   if (intensityLevel !== undefined) updates.intensityLevel = intensityLevel;
+  if (planJson !== undefined) updates.planJson = planJson;
+  if (materials !== undefined) updates.materials = materials;
+  if (boardNotes !== undefined) updates.boardNotes = boardNotes;
 
   const [program] = await db
     .update(fitnessProgramsTable)
@@ -196,6 +217,7 @@ router.patch("/fitness-programs/:id", requireAuth, async (req, res): Promise<voi
 });
 
 router.delete("/fitness-programs/:id", requireAuth, async (req, res): Promise<void> => {
+  await ensureFitnessSchema();
   if (!canManageFitness(req.session.role)) {
     res.status(403).json({ error: "Non autorizzato a gestire programmi atletici" });
     return;

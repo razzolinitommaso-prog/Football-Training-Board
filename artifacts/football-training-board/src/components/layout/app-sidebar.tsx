@@ -66,6 +66,7 @@ const SEZIONE_SUB_ITEMS: SubItem[] = [
   { label: "Convocazioni",          url: "training/convocazioni", icon: UsersRound, roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Presenze allenamenti",  url: "training/presenze", icon: ClipboardCheck, roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Calendario operativo",  url: "training/calendario-operativo", icon: CalendarRange, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
+  { label: "Esercitazioni",          url: "exercises",  icon: BookOpen,      roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Partite",              url: "matches",    icon: Trophy,        roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Stagioni",             url: "seasons",    icon: Layers,        roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"] },
   { label: "Presenze",             url: "attendance", icon: CalendarCheck, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
@@ -97,6 +98,7 @@ const SECTION_OPERATION_URLS = new Set([
   "/training/convocazioni",
   "/training/presenze",
   "/training/calendario-operativo",
+  "/exercises",
 ]);
 
 /** Voci aggiuntive per il direttore tecnico: metodologia, coordinamento staff, lettura attività (non segreteria, non gestione fitness). */

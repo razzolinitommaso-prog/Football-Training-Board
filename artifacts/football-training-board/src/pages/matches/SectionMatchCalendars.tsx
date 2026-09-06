@@ -48,6 +48,7 @@ type MatchRow = {
   competition?: string | null;
   location?: string | null;
   notes?: string | null;
+  result?: string | null;
 };
 
 function MatchCalendarTeamCard({
@@ -85,6 +86,23 @@ function MatchCalendarTeamCard({
     queryKey: ["/api/matches", team.id],
     queryFn: () => apiFetch(`/api/matches?teamId=${team.id}`),
   });
+  const now = Date.now();
+  const { previousMatch, nextMatch } = useMemo(() => {
+    const sorted = [...teamMatches]
+      .filter((match) => match.date && !Number.isNaN(new Date(match.date).getTime()))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const previous = [...sorted].reverse().find((match) => new Date(match.date).getTime() < now) ?? null;
+    const next = sorted.find((match) => new Date(match.date).getTime() >= now) ?? null;
+    return { previousMatch: previous, nextMatch: next };
+  }, [teamMatches, now]);
+
+  function previewMatchLine(match: MatchRow | null) {
+    if (!match) return "Nessuna partita";
+    const date = new Date(match.date);
+    const formatted = Number.isNaN(date.getTime()) ? "" : format(date, "dd/MM HH:mm");
+    const place = match.homeAway === "home" ? "Casa" : "Trasferta";
+    return `${formatted} vs ${match.opponent} · ${place}${match.result ? ` · ${match.result}` : ""}`;
+  }
 
   const importMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -231,6 +249,16 @@ function MatchCalendarTeamCard({
               <Badge variant="outline" className="text-xs">
                 🏆 Tornei
               </Badge>
+            </div>
+            <div className="mt-3 space-y-2 rounded-md border bg-muted/20 p-2 text-xs">
+              <div>
+                <p className="font-semibold text-muted-foreground">Ultima</p>
+                <p className="truncate">{previewMatchLine(previousMatch)}</p>
+              </div>
+              <div>
+                <p className="font-semibold text-muted-foreground">Prossima</p>
+                <p className="truncate">{previewMatchLine(nextMatch)}</p>
+              </div>
             </div>
             <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-border/60">
               <Button

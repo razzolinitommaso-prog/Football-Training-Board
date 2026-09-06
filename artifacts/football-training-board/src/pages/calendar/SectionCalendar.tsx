@@ -684,15 +684,14 @@ export default function SectionCalendar({ section }: { section: Section }) {
                   {format(day, "d")}
                 </span>
                 {events.map((evt, i) => {
-                  const color = teamColorMap.get(evt.teamId);
                   if (evt.type === "training") {
                     return (
                       <div
                         key={`t-${i}`}
                         title={`${evt.teamName} — Allenamento ${evt.time}`}
-                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border leading-tight cursor-default ${color?.soft}`}
+                        className="flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-emerald-800 cursor-default"
                       >
-                        <Dumbbell className="w-2.5 h-2.5 flex-shrink-0 opacity-70" />
+                        <Dumbbell className="w-2.5 h-2.5 flex-shrink-0 opacity-80" />
                         <span className="truncate">{evt.teamName}</span>
                         {evt.time && <span className="flex-shrink-0 opacity-70 hidden sm:inline">{evt.time}</span>}
                       </div>
@@ -714,9 +713,9 @@ export default function SectionCalendar({ section }: { section: Section }) {
                     <div
                       key={`m-${i}`}
                       title={`${evt.teamName} vs ${evt.opponent} (${evt.homeAway === "home" ? "Casa" : "Trasferta"})`}
-                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border leading-tight cursor-default ${color?.soft}`}
+                      className="flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold leading-tight text-blue-800 cursor-default"
                     >
-                      <Trophy className="w-2.5 h-2.5 flex-shrink-0 opacity-70" />
+                      <Trophy className="w-2.5 h-2.5 flex-shrink-0 opacity-80" />
                       <span className="truncate">vs {evt.opponent}</span>
                       {evt.result && <span className="flex-shrink-0 font-bold">{evt.result}</span>}
                     </div>

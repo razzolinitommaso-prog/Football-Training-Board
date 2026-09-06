@@ -57,7 +57,7 @@ import SeasonTransitionPage from "@/pages/season-transition/index";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import SectionMatchCalendars from "@/pages/matches/SectionMatchCalendars";
 
-const coachingRoles = ["admin", "coach", "technical_director", "director"];
+const coachingRoles = ["admin", "coach", "technical_director", "director", "fitness_coach", "athletic_director"];
 const secretaryRoles = ["admin", "secretary", "sporting_director"];
 const fitnessRoles = ["admin", "director", "technical_director", "fitness_coach", "athletic_director"];
 const playerPerformanceRoles = ["admin", "presidente", "director", "technical_director", "fitness_coach", "athletic_director"];
@@ -219,7 +219,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute><PlayersList section="scuola_calcio" /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/training">
-          <ProtectedRoute><TrainingList /></ProtectedRoute>
+          <ProtectedRoute><TrainingList section="scuola_calcio" /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/training/convocazioni">
           <ProtectedRoute allowedRoles={trainingEditRoles}><TrainingCallupsPage section="scuola_calcio" /></ProtectedRoute>
@@ -229,6 +229,9 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/scuola-calcio/training/calendario-operativo">
           <ProtectedRoute allowedRoles={trainingCalendarRoles}><TrainingOperationsPage kind="calendar" section="scuola_calcio" /></ProtectedRoute>
+        </Route>
+        <Route path="/scuola-calcio/exercises">
+          <ProtectedRoute allowedRoles={coachingRoles}><ExercisesPage /></ProtectedRoute>
         </Route>
         <Route path="/scuola-calcio/matches">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
@@ -263,6 +266,9 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/settore-giovanile/training/calendario-operativo">
           <ProtectedRoute allowedRoles={trainingCalendarRoles}><TrainingOperationsPage kind="calendar" section="settore_giovanile" /></ProtectedRoute>
+        </Route>
+        <Route path="/settore-giovanile/exercises">
+          <ProtectedRoute allowedRoles={coachingRoles}><ExercisesPage /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/matches">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
@@ -300,6 +306,9 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/prima-squadra/training/calendario-operativo">
           <ProtectedRoute allowedRoles={trainingCalendarRoles}><TrainingOperationsPage kind="calendar" section="prima_squadra" /></ProtectedRoute>
+        </Route>
+        <Route path="/prima-squadra/exercises">
+          <ProtectedRoute allowedRoles={coachingRoles}><ExercisesPage /></ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/matches">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
