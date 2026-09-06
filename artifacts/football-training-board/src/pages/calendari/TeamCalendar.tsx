@@ -2048,6 +2048,10 @@ function MatchCard({
   const lineupStarters = lineupDialog ? lineupDialog.lineupPlayerIds.slice(0, lineupLimit) : [];
   const lineupReserves = lineupDialog ? lineupDialog.lineupPlayerIds.slice(lineupLimit) : [];
   const lineupSelected = new Set(lineupDialog?.lineupPlayerIds ?? []);
+  const lineupHasStarterGoalkeeper = lineupStarters.some((id) => {
+    const player = convokedById.get(id);
+    return player ? isGoalkeeperPlayer(player) : false;
+  });
   const lineupStarterPlayers = lineupStarters.map((id) => convokedById.get(id)).filter((p): p is Player => Boolean(p));
   const lineupAvailablePlayers = convokedPlayers.filter((player) => selectedPlayerIds.has(player.id));
   const lineupModuleOptions = moduleOptionsForFormat(lineupFormat);
@@ -3385,7 +3389,13 @@ function MatchCard({
                   })}
                 </svg>
                 {lineupSlots.map((slot, idx) => {
-                  const playerId = lineupStarters[idx];
+                  const dataIndex = slot.role === "goalkeeper" || lineupHasStarterGoalkeeper ? idx : idx - 1;
+                  const candidatePlayerId = dataIndex >= 0 ? lineupStarters[dataIndex] : null;
+                  const candidatePlayer = candidatePlayerId ? convokedById.get(candidatePlayerId) : null;
+                  const playerId =
+                    slot.role === "goalkeeper" && candidatePlayer && !isGoalkeeperPlayer(candidatePlayer)
+                      ? null
+                      : candidatePlayerId;
                   const player = playerId ? convokedById.get(playerId) : null;
                   const position = playerId ? lineupDialog.positions[String(playerId)] ?? slot : slot;
                   const displayPosition = lineupPointToPortrait(position);
@@ -3454,7 +3464,7 @@ function MatchCard({
                                 return {
                                   ...prev,
                                   selectedPlayerId: nextId,
-                                  lineupPlayerIds: replaceLineupPlayerAtSlot(prev.lineupPlayerIds, idx, playerId, nextId),
+                                  lineupPlayerIds: replaceLineupPlayerAtSlot(prev.lineupPlayerIds, Math.max(0, dataIndex), playerId, nextId),
                                 };
                               });
                             }}
@@ -3473,7 +3483,7 @@ function MatchCard({
                             onClick={() => setLineupDialog((prev) => prev ? {
                               ...prev,
                               selectedPlayerId: null,
-                              lineupPlayerIds: replaceLineupPlayerAtSlot(prev.lineupPlayerIds, idx, playerId, null),
+                              lineupPlayerIds: replaceLineupPlayerAtSlot(prev.lineupPlayerIds, Math.max(0, dataIndex), playerId, null),
                             } : prev)}
                           >
                             Rimuovi dallo slot
