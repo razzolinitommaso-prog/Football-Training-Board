@@ -2495,8 +2495,9 @@ const QuickPage = () => {
   const replaceMatchPlanPlayer = async (elementIndex: number, playerIdRaw: string) => {
     const player = matchPlanAvailablePlayers.find((item) => String(item.id) === playerIdRaw);
     if (!player) return;
-    const previousPlayerIdRaw = elements[elementIndex]?.playerId ?? null;
-    const isGoalkeeper = isGoalkeeperPlayer(player);
+    const currentElement = elements[elementIndex];
+    const previousPlayerIdRaw = currentElement?.playerId ?? null;
+    const isGoalkeeper = currentElement?.type === "goalkeeper" || isGoalkeeperPlayer(player);
     setElements((prev) =>
       rebuildMatchPlanLayout(
         prev.map((item, index) =>
@@ -2703,7 +2704,7 @@ const QuickPage = () => {
     const matchingRole = available.find((player) =>
       isGoalkeeperSlot ? isGoalkeeperPlayer(player) : !isGoalkeeperPlayer(player)
     );
-    return matchingRole ?? available[0] ?? null;
+    return matchingRole ?? (isGoalkeeperSlot ? null : available[0] ?? null);
   };
 
   const assignPlayerToSelectedElement = (playerIdRaw: string) => {

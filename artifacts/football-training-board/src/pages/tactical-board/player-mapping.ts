@@ -156,10 +156,8 @@ export function assignPlayersToElements(
     if (String(el.type) !== "goalkeeper" || el.playerId) return;
     const available = getAvailablePlayers();
     const availableGoalkeepers = available.filter((candidate) => isGoalkeeper(candidate));
-    const availableOutfield = available.filter((candidate) => !isGoalkeeper(candidate));
     const goalkeeperByNumberOne = availableGoalkeepers.find((candidate) => candidate.jerseyNumber === 1);
-    const outfieldByNumberOne = availableOutfield.find((candidate) => candidate.jerseyNumber === 1);
-    const player = goalkeeperByNumberOne ?? availableGoalkeepers[0] ?? outfieldByNumberOne ?? available[0];
+    const player = goalkeeperByNumberOne ?? availableGoalkeepers[0];
     if (player) fillElement(index, player);
   });
 

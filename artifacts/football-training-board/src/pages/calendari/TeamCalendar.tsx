@@ -3364,7 +3364,7 @@ function MatchCard({
                             }}
                           >
                             {lineupAvailablePlayers
-                              .filter((p) => slot.role === "goalkeeper" ? isGoalkeeperPlayer(p) : (!isGoalkeeperPlayer(p) || p.id === playerId))
+                              .filter((p) => slot.role === "goalkeeper" ? true : (!isGoalkeeperPlayer(p) || p.id === playerId))
                               .map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}

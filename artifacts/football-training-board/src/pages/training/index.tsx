@@ -2731,7 +2731,19 @@ function SessionDetailsDialog({
                 </TabsContent>
 
                 <TabsContent value="board" className="pt-4 space-y-3">
-                  <p className="text-sm text-muted-foreground">Disegna rapidamente lo schema tattico dell'esercizio.</p>
+                  <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Lavagna esercitazione</p>
+                      <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" asChild>
+                      <a
+                        href={`/tactical-board?source=exercise${session.teamId ? `&teamId=${session.teamId}` : ""}&exerciseTitle=${encodeURIComponent(exerciseForm.title || "Esercitazione")}`}
+                      >
+                        Apri lavagna tattica
+                      </a>
+                    </Button>
+                  </div>
                   <ExerciseDrawingBoard
                     value={exerciseForm.drawingData || null}
                     onChange={(data) => setExerciseForm((prev) => ({ ...prev, drawingData: data ?? "" }))}

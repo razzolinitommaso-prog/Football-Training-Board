@@ -1282,7 +1282,21 @@ export default function ExercisesPage() {
 
                 {/* Drawing board tab */}
                 <TabsContent value="board" className="pt-4 space-y-3">
-                  <p className="text-sm text-muted-foreground">Disegna rapidamente lo schema tattico dell'esercizio. Puoi approfondire poi sulla lavagna tattica principale.</p>
+                  <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Lavagna esercitazione</p>
+                      <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" asChild>
+                        <a
+                          href={`/tactical-board?source=exercise${form.teamId ? `&teamId=${form.teamId}` : ""}&exerciseTitle=${encodeURIComponent(form.title || "Esercitazione")}`}
+                        >
+                          Apri lavagna tattica
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
                   <ExerciseDrawingBoard
                     value={form.drawingData}
                     onChange={data => setForm(f => ({ ...f, drawingData: data }))}
