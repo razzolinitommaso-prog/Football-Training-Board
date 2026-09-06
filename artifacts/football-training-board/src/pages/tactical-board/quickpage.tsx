@@ -2389,12 +2389,19 @@ const QuickPage = () => {
       (el) =>
         isPlayerType(el?.type) &&
         el.type !== "opponent" &&
+        (!isMatchPreparationUi || Boolean(el.playerId)) &&
         !(el.playerId && reserveIds.has(String(el.playerId))),
     );
     const goalkeepers = ownPlayers.filter((el) => el.type === "goalkeeper").length;
     const movementPlayers = ownPlayers
       .filter((el) => el.type !== "goalkeeper" && typeof el.x === "number")
-      .sort((a, b) => Number(a.x ?? 0) - Number(b.x ?? 0));
+      .map((el) => {
+        const point = isMobileViewport
+          ? portraitPointToLandscape({ x: Number(el.x ?? 50), y: Number(el.y ?? 50) })
+          : { x: Number(el.x ?? 50), y: Number(el.y ?? 50) };
+        return { ...el, normalizedX: point.x };
+      })
+      .sort((a, b) => a.normalizedX - b.normalizedX);
 
     if (!ownPlayers.length) return "";
 
@@ -2402,7 +2409,7 @@ const QuickPage = () => {
     let currentLineX: number | null = null;
 
     movementPlayers.forEach((player) => {
-      const x = Number(player.x ?? 0);
+      const x = Number(player.normalizedX ?? 0);
       if (currentLineX === null || Math.abs(x - currentLineX) > 8) {
         lineCounts.push(1);
         currentLineX = x;
@@ -2414,7 +2421,7 @@ const QuickPage = () => {
 
     const goalkeeperPart = `(${goalkeepers || 0})`;
     return [goalkeeperPart, ...lineCounts.map(String)].join("-");
-  }, [boardMode, elements, isMatchPreparationUi, matchPlanPitchPlacement]);
+  }, [boardMode, elements, isMatchPreparationUi, isMobileViewport, matchPlanPitchPlacement]);
 
   const moduleLabelFull =
     selectedPreset && isFormationPresetId(selectedPreset)
@@ -2425,15 +2432,74 @@ const QuickPage = () => {
 
   const moduleLabel = detectedModule || "—";
 
-  const getLineupPlayerIdsForMatchPlan = React.useCallback(() => {
-    if (isMatchPreparationUi && matchPlanPitchPlacement.ordered.length > 0) {
-      return matchPlanPitchPlacement.ordered.map((row) => Number(row.player.id)).filter((id) => Number.isFinite(id));
-    }
-    return elements
+  const getMatchPlanLineupSnapshot = React.useCallback(() => {
+    const reserveIds =
+      isMatchPreparationUi && boardMode === "assigned" ? matchPlanPitchPlacement.reserveIds : new Set<string>();
+    const toDesktopPoint = (el: TacticalBoardElement) => {
+      const point = { x: Number(el.x ?? 50), y: Number(el.y ?? 50) };
+      return isMobileViewport ? portraitPointToLandscape(point) : point;
+    };
+    const playerElements = elements
       .filter((item) => isPlayerType(item.type) && item.type !== "opponent" && item.playerId)
-      .map((item) => Number(item.playerId))
+      .map((item) => {
+        const player = teamPlayers.find((p) => String(p.id) === String(item.playerId));
+        return player ? { item, player, point: toDesktopPoint(item) } : null;
+      })
+      .filter((entry): entry is { item: TacticalBoardElement; player: TeamPlayer; point: { x: number; y: number } } => Boolean(entry));
+    const byId = new Map(playerElements.map((entry) => [String(entry.player.id), entry]));
+    const presetId =
+      selectedPreset && isFormationPresetId(selectedPreset) && FORMATIONS[selectedPreset].formats.includes(boardFormat)
+        ? selectedPreset
+        : null;
+    const formationSlots = presetId ? FORMATIONS[presetId].slots : [];
+    const used = new Set<string>();
+    const lineupPlayerIds: number[] = [];
+
+    for (const slot of formationSlots) {
+      const candidates = playerElements.filter((entry) => {
+        const id = String(entry.player.id);
+        if (used.has(id) || reserveIds.has(id)) return false;
+        return slot.role === "goalkeeper"
+          ? entry.item.type === "goalkeeper" || isGoalkeeperPlayer(entry.player)
+          : entry.item.type !== "goalkeeper";
+      });
+      if (!candidates.length) continue;
+      candidates.sort((a, b) => {
+        const da = Math.hypot(a.point.x - slot.x, a.point.y - slot.y);
+        const db = Math.hypot(b.point.x - slot.x, b.point.y - slot.y);
+        return da - db;
+      });
+      const picked = candidates[0];
+      used.add(String(picked.player.id));
+      lineupPlayerIds.push(Number(picked.player.id));
+    }
+
+    const remainingFieldIds = playerElements
+      .filter((entry) => {
+        const id = String(entry.player.id);
+        return !used.has(id) && !reserveIds.has(id);
+      })
+      .sort((a, b) => a.point.x - b.point.x || a.point.y - b.point.y)
+      .map((entry) => Number(entry.player.id));
+    const reserveLineupIds = matchPlanPitchPlacement.ordered
+      .filter((row) => row.isReserve)
+      .map((row) => Number(row.player.id));
+    const orderedIds = [...lineupPlayerIds, ...remainingFieldIds, ...reserveLineupIds]
       .filter((id) => Number.isFinite(id));
-  }, [elements, isMatchPreparationUi, matchPlanPitchPlacement.ordered]);
+    const lineupPositions = Object.fromEntries(
+      orderedIds
+        .map((id) => {
+          const entry = byId.get(String(id));
+          return entry ? [String(id), entry.point] : null;
+        })
+        .filter((entry): entry is [string, { x: number; y: number }] => Boolean(entry)),
+    );
+    return { lineupPlayerIds: orderedIds, lineupPositions };
+  }, [boardFormat, boardMode, elements, isMatchPreparationUi, isMobileViewport, matchPlanPitchPlacement, selectedPreset, teamPlayers]);
+
+  const getLineupPlayerIdsForMatchPlan = React.useCallback(() => {
+    return getMatchPlanLineupSnapshot().lineupPlayerIds;
+  }, [getMatchPlanLineupSnapshot]);
 
   const boardPlayerIdsForCallupSync = React.useMemo(() => {
     if (!isMatchPreparationUi || boardMode !== "assigned") return "";
@@ -2670,7 +2736,7 @@ const QuickPage = () => {
     const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
     const periodLabels: Record<typeof matchPeriodKey, string> = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" };
     const boardUrl = `/tactical-board?boardId=${savedBoardId}&teamId=${boardTeamId}&matchId=${selectedMatchId}&periodKey=${matchPeriodKey}&returnTo=${encodeURIComponent(`/calendari/${boardTeamId}?openMatchId=${selectedMatchId}`)}`;
-    const lineupPlayerIds = getLineupPlayerIdsForMatchPlan();
+    const { lineupPlayerIds, lineupPositions } = getMatchPlanLineupSnapshot();
     const playerIds = Array.from(new Set([
       ...matchCallups.map((callup) => callup.playerId),
       ...lineupPlayerIds,
@@ -2681,6 +2747,7 @@ const QuickPage = () => {
         ? {
             ...period,
             lineupPlayerIds,
+            lineupPositions,
             lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null,
             boardId: savedBoardId,
             boardTitle: savedBoardTitle,
@@ -2714,7 +2781,7 @@ const QuickPage = () => {
       if (!match) throw new Error("match");
       const existingPlan = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
       const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
-      const lineupPlayerIds = getLineupPlayerIdsForMatchPlan();
+      const { lineupPlayerIds, lineupPositions } = getMatchPlanLineupSnapshot();
       const playerIds = Array.from(new Set([
         ...matchCallups.map((callup) => callup.playerId),
         ...lineupPlayerIds,
@@ -2723,7 +2790,7 @@ const QuickPage = () => {
       const hasPeriod = currentPeriods.some((period: any) => period?.key === matchPeriodKey);
       const periods = (hasPeriod ? currentPeriods : [...currentPeriods, { key: matchPeriodKey, label: periodLabels[matchPeriodKey], minutes: "" }]).map((period: any) =>
         period?.key === matchPeriodKey
-          ? { ...period, lineupPlayerIds, lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null, boardConfirmed: false }
+          ? { ...period, lineupPlayerIds, lineupPositions, lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null, boardConfirmed: false }
           : period
       );
       const patchRes = await fetch(withApi(`/api/matches/${selectedMatchId}/plan`), {
