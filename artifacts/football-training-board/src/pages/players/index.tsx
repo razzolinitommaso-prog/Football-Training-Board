@@ -2206,13 +2206,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       availabilityOverrideUntil: player.availabilityOverrideUntil ?? undefined,
       availabilityOverrideReason: player.availabilityOverrideReason ?? undefined,
       squad: player.squad ?? meta.squad ?? null,
-      supplementalSquad: meta.supplementalSquad ?? null,
+      supplementalSquad: player.supplementalSquad ?? meta.supplementalSquad ?? null,
       imageUrl: player.imageUrl ?? meta.imageUrl ?? null,
-      supplementalTeamId: meta.supplementalTeamId ?? null,
-      primarySpecificRole: meta.primarySpecificRole ?? null,
-      primaryLineupStatus: meta.primaryLineupStatus ?? null,
-      supplementalSpecificRole: meta.supplementalSpecificRole ?? null,
-      supplementalLineupStatus: meta.supplementalLineupStatus ?? null,
+      supplementalTeamId: player.supplementalTeamId ?? meta.supplementalTeamId ?? null,
+      primarySpecificRole: player.primarySpecificRole ?? meta.primarySpecificRole ?? null,
+      primaryLineupStatus: player.primaryLineupStatus ?? meta.primaryLineupStatus ?? null,
+      supplementalSpecificRole: player.supplementalSpecificRole ?? meta.supplementalSpecificRole ?? null,
+      supplementalLineupStatus: player.supplementalLineupStatus ?? meta.supplementalLineupStatus ?? null,
     });
   };
 
