@@ -33,7 +33,7 @@ import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 
 /** Il direttore tecnico elenca tutti i giocatori del club; coach/preparatori solo le proprie squadre. */
 const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
-const PLAYER_MANAGE_ROLES = ["secretary", "sporting_director"];
+const PLAYER_MANAGE_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"];
 const PLAYER_SPORT_AVAILABILITY_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
 const PLAYER_AVAILABILITY_OVERRIDE_ROLES = ["admin", "presidente", "director", "secretary"];
 const PLAYER_NOTE_ONLY_ROLES = [

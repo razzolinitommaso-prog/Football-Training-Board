@@ -1294,7 +1294,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [isSavingParentDelegates, setIsSavingParentDelegates] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canManagePlayers = nr === "secretary" || nr === "sporting_director";
+  const canManagePlayers = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"].includes(nr);
   const canDeletePlayer = canManagePlayers;
   const canWritePlayerNotes = ["admin", "presidente", "director", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(nr);
   const canEditSportAvailability = ["technical_director", "coach", "fitness_coach", "athletic_director"].includes(nr) && playerDialogMode === "edit";
