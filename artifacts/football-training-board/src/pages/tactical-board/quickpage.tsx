@@ -67,6 +67,44 @@ function benchSpotForReserve(benchIndex: number): { x: number; y: number } {
 function formationPointToPortrait(point: { x: number; y: number }): { x: number; y: number } {
   return { x: point.y, y: 100 - point.x };
 }
+
+type BoardCoordinateSpace = "desktop-landscape" | "mobile-portrait";
+
+function portraitPointToLandscape(point: { x: number; y: number }): { x: number; y: number } {
+  return { x: 100 - point.y, y: point.x };
+}
+
+function convertBoardPoint(
+  point: { x: number; y: number },
+  from: BoardCoordinateSpace,
+  to: BoardCoordinateSpace,
+): { x: number; y: number } {
+  if (from === to) return point;
+  return to === "mobile-portrait" ? formationPointToPortrait(point) : portraitPointToLandscape(point);
+}
+
+function convertBoardElementCoordinates(
+  element: TacticalBoardElement,
+  from: BoardCoordinateSpace,
+  to: BoardCoordinateSpace,
+): TacticalBoardElement {
+  if (from === to) return element;
+  const next: TacticalBoardElement = { ...element };
+  if (typeof element.x === "number" && typeof element.y === "number") {
+    const point = convertBoardPoint({ x: element.x, y: element.y }, from, to);
+    next.x = point.x;
+    next.y = point.y;
+  }
+  if (Array.isArray(element.points)) {
+    next.points = element.points.map((raw) => {
+      if (!raw || typeof raw !== "object") return raw;
+      const point = raw as { x?: unknown; y?: unknown };
+      if (typeof point.x !== "number" || typeof point.y !== "number") return raw;
+      return { ...raw, ...convertBoardPoint({ x: point.x, y: point.y }, from, to) };
+    });
+  }
+  return next;
+}
 type MatchPlanPeriodLite = {
   key: string;
   module?: string;
@@ -1489,6 +1527,9 @@ const QuickPage = () => {
   const applyBoardState = React.useCallback(
     (board: any) => {
       const data = (board.data || {}) as TacticalBoardData;
+      const sourceCoordinateSpace: BoardCoordinateSpace =
+        data.coordinateSpace === "mobile-portrait" ? "mobile-portrait" : "desktop-landscape";
+      const targetCoordinateSpace: BoardCoordinateSpace = isMobileViewport ? "mobile-portrait" : "desktop-landscape";
       const parsedBoardId = parseNumericId(board?.id);
       setCurrentBoardId(parsedBoardId);
       setBoardTitle(board.title ?? "Nuova lavagna");
@@ -1528,13 +1569,15 @@ const QuickPage = () => {
       } else {
         setArrowToolPreset(DEFAULT_ARROW_PRESET);
       }
-      setElements(data.elements ?? []);
+      setElements((data.elements ?? []).map((element) =>
+        convertBoardElementCoordinates(element, sourceCoordinateSpace, targetCoordinateSpace)
+      ));
       setSelectedElementIndex(null);
       setSelectedElementIndexes([]);
       setSaveState("Saved");
       setBoardIdInUrl(parsedBoardId);
     },
-    [club, initialTeamIdFromQuery, setBoardIdInUrl]
+    [club, initialTeamIdFromQuery, isMobileViewport, setBoardIdInUrl]
   );
 
   const loadBoards = async () => {
@@ -2053,6 +2096,7 @@ const QuickPage = () => {
     activePanelIndex === 5 ? "mt-[10.625rem]" :
     "mt-[12.75rem]";
   const markerPanelWidthClass =
+    isMobileViewport && markerPanel ? "w-[min(16rem,calc(100vw-5rem))]" :
     markerPanel === "assign" ? "w-60" :
     markerPanel === "color" ? "w-[12.5rem]" :
     markerPanel === "rotate" ? "w-56" :
@@ -2076,10 +2120,10 @@ const QuickPage = () => {
   const selectedElementAnchorY = Number(selectedElement?.y ?? selectedDrawingBounds?.cy ?? 50);
   const useCompactElementMenu = Boolean(selectedElement);
   const selectedElementMenuLeft = useCompactElementMenu
-    ? Math.max(5, Math.min(95, selectedElementAnchorX))
+    ? isMobileViewport ? 50 : Math.max(5, Math.min(95, selectedElementAnchorX))
     : Math.max(12, Math.min(88, selectedElementAnchorX));
   const selectedElementMenuTop = useCompactElementMenu
-    ? Math.max(18, Math.min(82, selectedElementAnchorY))
+    ? isMobileViewport ? Math.max(22, Math.min(78, selectedElementAnchorY)) : Math.max(18, Math.min(82, selectedElementAnchorY))
     : Math.max(10, Math.min(90, selectedElementAnchorY));
   const selectedElementMenuStyle = selectedElement
     ? {
@@ -2089,7 +2133,9 @@ const QuickPage = () => {
     : undefined;
   const markerMenuSide = useCompactElementMenu && selectedElementAnchorX > 52 ? "left" : "right";
   const selectedElementMenuClass = useCompactElementMenu
-    ? markerMenuSide === "left"
+    ? isMobileViewport
+      ? "-translate-x-1/2 -translate-y-1/2"
+      : markerMenuSide === "left"
       ? "translate-x-[calc(-100%_-_30px)] -translate-y-1/2"
       : "translate-x-[30px] -translate-y-1/2"
     : "-translate-x-1/2 -translate-y-[calc(100%+14px)]";
@@ -2720,16 +2766,41 @@ const QuickPage = () => {
     const player = playerAssignmentOptions.find((p) => String(p.id) === playerIdRaw);
     if (!player) return;
 
-    setElements((prev) =>
-      prev.map((item, idx) =>
-        idx === selectedElementIndex
+    setElements((prev) => {
+      const selected = prev[selectedElementIndex];
+      const otherIndex = prev.findIndex((item, idx) => idx !== selectedElementIndex && String(item.playerId ?? "") === String(player.id));
+      const nextAssignment = buildPlayerAssignment(player);
+      if (otherIndex < 0) {
+        return prev.map((item, idx) =>
+          idx === selectedElementIndex
+            ? {
+                ...item,
+                ...nextAssignment,
+              }
+            : item
+        );
+      }
+      const previousAssignment =
+        selected?.playerId
           ? {
-              ...item,
-              ...buildPlayerAssignment(player),
+              playerId: selected.playerId,
+              name: selected.name,
+              displayName: selected.displayName,
+              number: selected.number,
             }
-          : item
-      )
-    );
+          : null;
+      return prev.map((item, idx) => {
+        if (idx === selectedElementIndex) return { ...item, ...nextAssignment };
+        if (idx === otherIndex) {
+          if (!previousAssignment) {
+            const { playerId: _playerId, name: _name, displayName: _displayName, number: _number, ...rest } = item;
+            return rest;
+          }
+          return { ...item, ...previousAssignment };
+        }
+        return item;
+      });
+    });
     setPendingRosterPlayerId(null);
     setSaveState("Unsaved");
   };
@@ -3132,6 +3203,7 @@ const QuickPage = () => {
     focusMode,
     arrowToolPreset,
     elements,
+    coordinateSpace: isMobileViewport ? "mobile-portrait" : "desktop-landscape",
     updatedAt: new Date().toISOString(),
     notes: boardNotes,
   });
@@ -4235,7 +4307,7 @@ const QuickPage = () => {
                               <SelectTrigger className="h-8 bg-white/5 border-white/20 text-xs text-white">
                                 <SelectValue placeholder="Scegli squadra" />
                               </SelectTrigger>
-                              <SelectContent>
+                              <SelectContent className="max-w-[calc(100vw-2rem)]">
                                 {freeAssignmentTeams.map((team) => (
                                   <SelectItem key={team.id} value={team.id}>
                                     {`${team.name} (${team.playerCount})`}
@@ -4259,7 +4331,7 @@ const QuickPage = () => {
                         <SelectTrigger className="h-8 bg-white/5 border-white/20 text-xs text-white">
                           <SelectValue placeholder="Seleziona giocatore" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="max-w-[calc(100vw-2rem)]">
                           <SelectItem value="_none">Marker generico (nessun player)</SelectItem>
                           {visiblePlayerAssignmentOptions.map((p) => (
                             <SelectItem key={p.id} value={String(p.id)}>
