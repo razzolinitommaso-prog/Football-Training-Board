@@ -1230,11 +1230,19 @@ const QuickPage = () => {
   }, []);
   const initialBoardTitleFromQuery = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get("matchTitle")?.trim() || null;
+    return params.get("matchTitle")?.trim() || params.get("exerciseTitle")?.trim() || null;
   }, []);
   const initialMatchIdFromQuery = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return parseNumericId(params.get("matchId"));
+  }, []);
+  const initialExerciseIdFromQuery = React.useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return parseNumericId(params.get("exerciseId"));
+  }, []);
+  const isExerciseBoard = React.useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("source") === "exercise";
   }, []);
   const initialPeriodKeyFromQuery = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -3117,6 +3125,7 @@ const QuickPage = () => {
     format: boardFormat,
     boardType,
     matchId: selectedMatchId,
+    exerciseId: isExerciseBoard ? initialExerciseIdFromQuery : null,
     matchPeriodKey: selectedMatchId && (isMatchPreparationUi || isMatchPlanBoard) ? matchPeriodKey : null,
     preset: selectedPreset,
     activeTool,
@@ -3126,6 +3135,28 @@ const QuickPage = () => {
     updatedAt: new Date().toISOString(),
     notes: boardNotes,
   });
+
+  const linkSavedBoardToExercise = async (savedBoardId: number | null, savedBoardTitle: string, boardData: TacticalBoardData) => {
+    if (!savedBoardId || !isExerciseBoard || !initialExerciseIdFromQuery) return;
+    const exerciseBoardPayload = {
+      source: "tactical-board",
+      boardId: savedBoardId,
+      boardTitle: savedBoardTitle,
+      boardUrl: `/tactical-board?boardId=${savedBoardId}&source=exercise&exerciseId=${initialExerciseIdFromQuery}`,
+      snapshotAt: new Date().toISOString(),
+      data: boardData,
+    };
+    const response = await fetch(withApi(`/api/exercises/${initialExerciseIdFromQuery}`), {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        statoLavagnaJson: JSON.stringify(exerciseBoardPayload),
+        drawingElementsJson: JSON.stringify(boardData.elements ?? []),
+      }),
+    });
+    if (!response.ok) throw new Error("Errore collegamento lavagna esercitazione");
+  };
 
   const copyBoardSnapshot = async () => {
     const snapshot = {
@@ -3299,6 +3330,7 @@ const QuickPage = () => {
       setCurrentBoardId(savedBoardId);
       setBoardIdInUrl(savedBoardId);
       await linkSavedBoardToMatchPeriod(savedBoardId, boardTitle);
+      await linkSavedBoardToExercise(savedBoardId, boardTitle, data);
       
       if (import.meta.env.DEV) console.log("Board salvata:", savedBoard);
       

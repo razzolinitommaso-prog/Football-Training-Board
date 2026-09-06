@@ -1290,7 +1290,7 @@ export default function ExercisesPage() {
                     <div className="flex flex-wrap gap-2">
                       <Button type="button" variant="outline" size="sm" asChild>
                         <a
-                          href={`/tactical-board?source=exercise${form.teamId ? `&teamId=${form.teamId}` : ""}&exerciseTitle=${encodeURIComponent(form.title || "Esercitazione")}`}
+                          href={`/tactical-board?source=exercise${editingEx?.id ? `&exerciseId=${editingEx.id}` : ""}${form.teamId ? `&teamId=${form.teamId}` : ""}&exerciseTitle=${encodeURIComponent(form.title || "Esercitazione")}`}
                         >
                           Apri lavagna tattica
                         </a>

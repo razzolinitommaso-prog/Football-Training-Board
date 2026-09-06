@@ -241,6 +241,29 @@ type MatchPlanData = {
   periods: MatchPlanPeriodRuntime[];
 };
 
+function recentLineupModuleStorageKey(teamId: number | null | undefined, format: MatchFormat) {
+  return `ftb:recent-lineup-module:${teamId ?? "global"}:${format}`;
+}
+
+function readRecentLineupModule(teamId: number | null | undefined, format: MatchFormat): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const stored = window.localStorage.getItem(recentLineupModuleStorageKey(teamId, format)) ?? "";
+    return moduleOptionsForFormat(format).includes(stored) ? stored : "";
+  } catch {
+    return "";
+  }
+}
+
+function writeRecentLineupModule(teamId: number | null | undefined, format: MatchFormat, moduleValue: string) {
+  if (typeof window === "undefined" || !moduleValue) return;
+  try {
+    window.localStorage.setItem(recentLineupModuleStorageKey(teamId, format), moduleValue);
+  } catch {
+    // localStorage can be unavailable in private or embedded contexts.
+  }
+}
+
 const CLUB_NAME = "Gavinana Firenze";
 
 function matchFormatForTeam(section: MatchSection, teamName: string, teamCategory?: string): MatchFormat {
@@ -1711,6 +1734,7 @@ function MatchCard({
     const existing = (period.lineupPlayerIds ?? []).filter((id) => selected.has(id));
     const periodFormat = period.format ?? matchFormat;
     const periodModule = period.module ?? "";
+    const recentModule = readRecentLineupModule(match.teamId, periodFormat);
     const periodLimit = startersLimitForPeriod(period, matchFormat);
     const initialLineup = existing.length > 0
       ? normalizeLineupGoalkeepers(existing, convokedById, periodLimit)
@@ -1718,7 +1742,7 @@ function MatchCard({
     setLineupDialog({
       periodIndex,
       mode,
-      module: periodModule || moduleOptionsForFormat(periodFormat)[0] || "",
+      module: periodModule || recentModule || moduleOptionsForFormat(periodFormat)[0] || "",
       lineupPlayerIds: initialLineup,
       positions: { ...(period.lineupPositions ?? {}) },
       drawings: [...(period.lineupDrawings ?? [])],
@@ -1738,6 +1762,8 @@ function MatchCard({
 
   function saveLineupDialog() {
     if (!lineupDialog) return;
+    const lineupPeriod = planDraft.periods[lineupDialog.periodIndex];
+    writeRecentLineupModule(match.teamId, lineupPeriod?.format ?? matchFormat, lineupDialog.module);
     setPlanDraft((prev) => {
       const periods = prev.periods.map((period, idx) =>
         idx === lineupDialog.periodIndex
@@ -1774,6 +1800,30 @@ function MatchCard({
       return { ...prev, periods: adjusted };
     });
     setLineupDialog(null);
+  }
+
+  function setFirstPeriodPlayerReserveStatus(playerId: number, reserve: boolean) {
+    setPlanDraft((prev) => {
+      const first = prev.periods[0];
+      if (!first) return prev;
+      const selected = new Set(selectedPlayerIds);
+      const limit = startersLimitForPeriod(first, matchFormat);
+      const current = (first.lineupPlayerIds ?? selectedPlayersOrdered).filter((id) => selected.has(id));
+      const withoutPlayer = current.filter((id) => id !== playerId);
+      const starters = withoutPlayer.slice(0, limit);
+      const reserves = withoutPlayer.slice(limit);
+      const lineupPlayerIds = reserve
+        ? [...starters, ...reserves, playerId]
+        : [...starters, playerId, ...reserves];
+      const nextPeriods = prev.periods.map((period, index) =>
+        index === 0 ? { ...period, lineupPlayerIds, boardConfirmed: false } : period,
+      );
+      const adjusted =
+        autoReserveRuleEnabled
+          ? applyScuolaCalcioSecondPeriodAuto(nextPeriods, selectedPlayerIds, matchFormat)
+          : nextPeriods;
+      return { ...prev, periods: adjusted };
+    });
   }
 
   useEffect(() => {
@@ -2312,6 +2362,52 @@ function MatchCard({
                           <span className="block truncate text-[11px] text-muted-foreground">
                             {p.position || "Ruolo non indicato"}{p.available === false ? " - non disponibile" : ""}
                           </span>
+                          {selectedPlayerIds.has(p.id) && (
+                            <span className="flex flex-wrap gap-1">
+                              {(() => {
+                                const firstPeriod = planDraft.periods[0];
+                                const limit = firstPeriod ? startersLimitForPeriod(firstPeriod, matchFormat) : 0;
+                                const firstLineup = (firstPeriod?.lineupPlayerIds ?? selectedPlayersOrdered).filter((id) => selectedPlayerIds.has(id));
+                                const isReserve = firstLineup.indexOf(p.id) >= limit;
+                                return (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className={cn(
+                                        "rounded border px-2 py-0.5 text-[10px] font-semibold",
+                                        !isReserve
+                                          ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                          : "border-border bg-background text-muted-foreground",
+                                      )}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        setFirstPeriodPlayerReserveStatus(p.id, false);
+                                      }}
+                                    >
+                                      Titolare
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={cn(
+                                        "rounded border px-2 py-0.5 text-[10px] font-semibold",
+                                        isReserve
+                                          ? "border-amber-300 bg-amber-50 text-amber-700"
+                                          : "border-border bg-background text-muted-foreground",
+                                      )}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        setFirstPeriodPlayerReserveStatus(p.id, true);
+                                      }}
+                                    >
+                                      Riserva
+                                    </button>
+                                  </>
+                                );
+                              })()}
+                            </span>
+                          )}
                           {matchWeekTrainingDays.length > 0 && (
                             <span className="flex min-w-0 flex-wrap items-center gap-1" aria-label="Presenze allenamenti settimana partita">
                               {matchWeekTrainingDays.map((day) => {

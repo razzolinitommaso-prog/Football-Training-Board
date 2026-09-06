@@ -220,11 +220,6 @@ router.get("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
     .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId)));
   if (!exercise) { res.status(404).json({ error: "Exercise not found" }); return; }
   if (STAFF_RESTRICTED_ROLES.includes(role)) {
-    const canManage = await canManageExercise(exercise, clubId, userId, role);
-    if (!canManage) {
-      res.status(403).json({ error: "Puoi accedere solo alle tue esercitazioni" });
-      return;
-    }
     const hasTeamAccess = await canAccessTeamForRestrictedRole(clubId, userId, exercise.teamId ?? null);
     if (!hasTeamAccess) {
       res.status(403).json({ error: "La squadra di questa esercitazione non è assegnata al tuo profilo" });

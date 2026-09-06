@@ -213,8 +213,7 @@ export async function downloadOrShareCallupPdf(input: {
       return { filename };
     } catch (error) {
       if ((error as DOMException | undefined)?.name === "AbortError") {
-        URL.revokeObjectURL(blobUrl);
-        return { filename };
+        return { filename, url: blobUrl };
       }
     }
   }
