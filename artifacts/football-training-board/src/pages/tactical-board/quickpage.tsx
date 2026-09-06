@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   ArrowLeft,
   Save,
+  Plus,
   Copy,
   Share2,
   Calendar,
@@ -104,6 +105,28 @@ function convertBoardElementCoordinates(
     });
   }
   return next;
+}
+
+function inferSavedCoordinateSpace(data: TacticalBoardData): BoardCoordinateSpace {
+  if (data.coordinateSpace === "mobile-portrait") return "mobile-portrait";
+  if (data.coordinateSpace === "desktop-landscape") return "desktop-landscape";
+  const elements = Array.isArray(data.elements) ? data.elements : [];
+  const goalkeeper = elements.find((element) => element?.type === "goalkeeper" && typeof element.x === "number" && typeof element.y === "number");
+  if (goalkeeper) {
+    const x = Number(goalkeeper.x);
+    const y = Number(goalkeeper.y);
+    if (x >= 25 && x <= 75 && y >= 72) return "mobile-portrait";
+    if (x <= 28 || x >= 72) return "desktop-landscape";
+  }
+  const players = elements.filter((element) => isPlayerType(element?.type) && element?.type !== "opponent" && typeof element.x === "number" && typeof element.y === "number");
+  if (players.length >= 6) {
+    const xs = players.map((element) => Number(element.x));
+    const ys = players.map((element) => Number(element.y));
+    const xSpread = Math.max(...xs) - Math.min(...xs);
+    const ySpread = Math.max(...ys) - Math.min(...ys);
+    if (ySpread > xSpread * 1.15) return "mobile-portrait";
+  }
+  return "desktop-landscape";
 }
 type MatchPlanPeriodLite = {
   key: string;
@@ -1360,7 +1383,7 @@ const QuickPage = () => {
   const [matchOptions, setMatchOptions] = useState<MatchOption[]>([]);
   const [matchCallups, setMatchCallups] = useState<MatchCallupItem[]>([]);
   const [librarySearch, setLibrarySearch] = useState("");
-  const [bottomMenu, setBottomMenu] = useState<"players" | "equipment" | "drawing" | "library">("players");
+  const [bottomMenu, setBottomMenu] = useState<"players" | "equipment" | "drawing" | "library" | null>(isMobileViewport ? null : "players");
   const [showMetricGrid, setShowMetricGrid] = useState(true);
   const [showFieldMarkings, setShowFieldMarkings] = useState(true);
   const [pendingRosterPlayerId, setPendingRosterPlayerId] = useState<number | null>(null);
@@ -1527,8 +1550,7 @@ const QuickPage = () => {
   const applyBoardState = React.useCallback(
     (board: any) => {
       const data = (board.data || {}) as TacticalBoardData;
-      const sourceCoordinateSpace: BoardCoordinateSpace =
-        data.coordinateSpace === "mobile-portrait" ? "mobile-portrait" : "desktop-landscape";
+      const sourceCoordinateSpace = inferSavedCoordinateSpace(data);
       const targetCoordinateSpace: BoardCoordinateSpace = isMobileViewport ? "mobile-portrait" : "desktop-landscape";
       const parsedBoardId = parseNumericId(board?.id);
       setCurrentBoardId(parsedBoardId);
@@ -3337,8 +3359,8 @@ const QuickPage = () => {
   return (
     <div className="min-h-screen bg-[#0B1220] text-white flex flex-col">
       {/* HEADER */}
-      <header className="h-16 border-b border-white/10 bg-[#0F172A]/90 backdrop-blur flex items-center justify-between gap-3 px-4 md:px-6">
-        <div className="flex min-w-0 items-center gap-3">
+      <header className="h-14 border-b border-white/10 bg-[#0F172A]/90 backdrop-blur flex items-center justify-between gap-2 px-2 md:h-16 md:px-6">
+        <div className="flex min-w-0 items-center gap-2 md:gap-3">
           <button
             type="button"
             onClick={goBackFromBoard}
@@ -3348,9 +3370,9 @@ const QuickPage = () => {
           >
             <ArrowLeft size={18} />
           </button>
-          <div>
-          <h1 className="text-lg font-semibold tracking-wide">Lavagna Tattica</h1>
-          <p className="text-xs text-white/50">Allenamento / Match Plan</p>
+          <div className="min-w-0">
+          <h1 className="truncate text-sm font-semibold tracking-wide sm:text-lg">Lavagna Tattica</h1>
+          <p className="hidden text-xs text-white/50 sm:block">Allenamento / Match Plan</p>
           </div>
           {returnToMatchUrl && (
             <button
@@ -3374,7 +3396,7 @@ const QuickPage = () => {
           <span className="text-xs text-white/40">Sessione / Allenamento</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <button
             onClick={() => setFocusMode(!focusMode)}
             className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm"
@@ -3426,9 +3448,12 @@ const QuickPage = () => {
 
     if (import.meta.env.DEV) console.log("Nuova board");
   }}
-  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 text-sm hover:bg-white/20 transition"
+  className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-sm hover:bg-white/20 transition sm:w-auto sm:gap-2 sm:px-4 sm:py-2"
+  title="Nuova lavagna"
+  aria-label="Nuova lavagna"
 >
-  Nuova
+  <Plus size={16} />
+  <span className="hidden sm:inline">Nuova</span>
 </button>
 
 <button
@@ -3480,10 +3505,12 @@ const QuickPage = () => {
       setSaveState("Error");
     }
   }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#FACC15] text-black font-medium hover:opacity-90 transition"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FACC15] text-black font-medium hover:opacity-90 transition sm:w-auto sm:gap-2 sm:px-4 sm:py-2"
+            title="Salva lavagna"
+            aria-label="Salva lavagna"
           >
             <Save size={16} />
-            Salva
+            <span className="hidden sm:inline">Salva</span>
           </button>
         </div>
       </header>
@@ -3498,12 +3525,12 @@ const QuickPage = () => {
         {/* CENTER AREA */}
         <main className="flex-1 flex flex-col bg-[#0B1220]">
           {/* CANVAS TOP BAR */}
-          <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-white/10 bg-[#0B1220]">
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-white/10 bg-[#0B1220] md:px-6 md:py-3">
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <select
                 value={selectedPreset ?? ""}
                 onChange={(e) => applyPreset(e.target.value)}
-                className="rounded-xl border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white outline-none"
+                className="h-10 min-w-0 rounded-xl border border-white/10 bg-[#111827] px-2 text-sm text-white outline-none sm:px-3"
               >
                 <option className="bg-[#111827] text-white" value="">Scegli modulo</option>
                 {formationPresetOptions.map((formation) => (
@@ -3513,7 +3540,7 @@ const QuickPage = () => {
               <select
                 value={fieldViewMode}
                 onChange={(event) => setFieldViewMode(event.target.value as FieldViewMode)}
-                className="rounded-xl border border-white/10 bg-[#111827] px-3 py-2 text-sm text-white outline-none"
+                className="h-10 min-w-0 rounded-xl border border-white/10 bg-[#111827] px-2 text-sm text-white outline-none sm:px-3"
                 title="Vista campo"
               >
                 {FIELD_VIEW_OPTIONS.map((option) => (
@@ -3531,7 +3558,7 @@ const QuickPage = () => {
                     closeToolPopovers();
                     setFreeMenuOpen(nextOpen);
                   }}
-                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                  className={`inline-flex h-10 min-w-0 items-center justify-center gap-2 rounded-xl border px-2 text-sm font-semibold transition sm:px-3 ${
                     boardMode === "free" || freeMenuOpen
                       ? "border-[#FACC15] bg-[#FACC15] text-black"
                       : "border-white/10 bg-white/5 text-white/85 hover:bg-white/10"
@@ -3567,7 +3594,7 @@ const QuickPage = () => {
               <select
                 value={boardMode === "assigned" && boardTeamId ? String(boardTeamId) : ""}
                 onChange={(e) => loadTeamById(e.target.value)}
-                className={`rounded-xl border px-3 py-2 text-sm outline-none transition ${
+                className={`h-10 min-w-0 rounded-xl border px-2 text-sm outline-none transition sm:px-3 ${
                   boardMode === "assigned"
                     ? "border-[#FACC15] bg-[#FACC15] text-black font-semibold"
                     : "border-white/10 bg-[#111827] text-white"
@@ -3601,7 +3628,7 @@ const QuickPage = () => {
                 <span className="shrink-0 font-semibold text-white">Modulo</span>
                 <span className="min-w-0 truncate">{moduleLabel}</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="col-span-2 flex items-center gap-1 sm:col-span-1">
                 <button
                   type="button"
                   onClick={undoLastElement}
@@ -3634,7 +3661,7 @@ const QuickPage = () => {
           </div>
 
           {/* MOBILE PRESETS */}
-          <div className="lg:hidden px-4 py-3 border-b border-white/10 overflow-x-auto">
+          <div className="lg:hidden px-2 py-2 border-b border-white/10 overflow-x-auto">
             <div className="flex gap-2 w-max">
               {presets.map((preset) => (
                 <button
@@ -3653,10 +3680,10 @@ const QuickPage = () => {
           </div>
 
           {/* CANVAS */}
-          <div className="relative flex-1 overflow-auto px-3 py-4 sm:px-4 md:py-5">
+          <div className="relative flex-1 overflow-auto px-1 py-2 sm:px-4 md:py-5">
             <div className="grid w-full grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
               <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-2 text-xs text-white/60">
+            <div className="mb-2 flex w-full flex-wrap items-center justify-between gap-2 text-xs text-white/60">
               <div className="font-medium text-white/75">
                 Tavola metrica: {displayPitchMeasurement.canvasLength}m x {displayPitchMeasurement.canvasWidth}m
               </div>
@@ -3689,7 +3716,7 @@ const QuickPage = () => {
               </div>
             </div>
             <div
-              className="relative h-auto w-full rounded-[22px] sm:rounded-[26px] lg:rounded-[30px] overflow-hidden border border-white/10 shadow-2xl bg-gradient-to-b from-[#34A853] via-[#2B914A] to-[#23783F]"
+              className="relative h-auto w-full rounded-[18px] sm:rounded-[26px] lg:rounded-[30px] overflow-hidden border border-white/10 shadow-2xl bg-gradient-to-b from-[#34A853] via-[#2B914A] to-[#23783F]"
               style={{
                 aspectRatio: `${displayPitchMeasurement.canvasLength} / ${displayPitchMeasurement.canvasWidth}`,
                 maxWidth: "100%",
@@ -3791,6 +3818,8 @@ const QuickPage = () => {
                 setSelectedElementIndex(null);
                 setSelectedElementIndexes([]);
                 setFieldElementMenuOpen(false);
+                setMarkerPanel(null);
+                closeToolPopovers();
 
                 const rect = e.currentTarget.getBoundingClientRect();
                 const xPct = ((e.clientX - rect.left) / rect.width) * 100;
@@ -5122,7 +5151,7 @@ const QuickPage = () => {
             ) : null}
 
               </div>
-              <aside className="w-full shrink-0 rounded-2xl border border-white/10 bg-[#08142b]/90 px-3 py-3 shadow-xl backdrop-blur-md sm:px-4 xl:sticky xl:top-4">
+              <aside className="w-full shrink-0 overflow-y-auto rounded-2xl border border-white/10 bg-[#08142b]/90 px-3 py-3 shadow-xl backdrop-blur-md max-xl:max-h-[34dvh] sm:px-4 xl:sticky xl:top-4 xl:max-h-none">
                 <div className="mb-4 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                   {boardActionTools.map((tool) => {
@@ -5460,7 +5489,7 @@ const QuickPage = () => {
                       onClick={() => {
                         closeToolPopovers();
                         setFieldElementMenuOpen(false);
-                        setBottomMenu("players");
+                        setBottomMenu((current) => current === "players" ? null : "players");
                       }}
                       className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "players" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
@@ -5474,7 +5503,7 @@ const QuickPage = () => {
                       onClick={() => {
                         closeToolPopovers();
                         setFieldElementMenuOpen(false);
-                        setBottomMenu("equipment");
+                        setBottomMenu((current) => current === "equipment" ? null : "equipment");
                       }}
                       className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "equipment" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
@@ -5488,7 +5517,7 @@ const QuickPage = () => {
                       onClick={() => {
                         closeToolPopovers();
                         setFieldElementMenuOpen(false);
-                        setBottomMenu("drawing");
+                        setBottomMenu((current) => current === "drawing" ? null : "drawing");
                       }}
                       className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "drawing" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
@@ -5502,7 +5531,7 @@ const QuickPage = () => {
                       onClick={() => {
                         closeToolPopovers();
                         setFieldElementMenuOpen(false);
-                        setBottomMenu("library");
+                        setBottomMenu((current) => current === "library" ? null : "library");
                       }}
                       className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-[10px] font-medium transition ${
                         bottomMenu === "library" ? "bg-[#FACC15] text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
