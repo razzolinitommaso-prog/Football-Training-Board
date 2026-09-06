@@ -145,22 +145,45 @@ async function replaceParentDelegates(clubId: number, playerId: number, incoming
   return db.insert(playerParentDelegatesTable).values(values).returning();
 }
 
-function extractSupplementalTeamId(notes?: string | null): number | null {
+type PlayerMeta = {
+  squad?: string | null;
+  supplementalSquad?: string | null;
+  imageUrl?: string | null;
+  supplementalTeamId?: number | null;
+  primarySpecificRole?: string | null;
+  primaryLineupStatus?: string | null;
+  supplementalSpecificRole?: string | null;
+  supplementalLineupStatus?: string | null;
+};
+
+function extractPlayerMeta(notes?: string | null): PlayerMeta {
   const full = String(notes ?? "").trim();
-  const markerIdx = full.indexOf(PLAYER_META_MARKER);
-  if (markerIdx < 0) return null;
-  const metaStart = markerIdx + PLAYER_META_MARKER.length;
-  const nextNewLineIdx = full.indexOf("\n", metaStart);
+  if (!full.startsWith(PLAYER_META_MARKER)) return {};
+  const metaStart = PLAYER_META_MARKER.length;
+  const nextNewLineIdx = full.indexOf("\n");
   const encodedMeta = nextNewLineIdx >= 0
     ? full.slice(metaStart, nextNewLineIdx).trim()
     : full.slice(metaStart).trim();
   try {
-    const parsed = JSON.parse(encodedMeta) as { supplementalTeamId?: unknown };
+    const parsed = JSON.parse(encodedMeta) as PlayerMeta;
     const n = Number(parsed?.supplementalTeamId);
-    return Number.isFinite(n) ? n : null;
+    return {
+      squad: cleanText(parsed?.squad) || null,
+      supplementalSquad: cleanText(parsed?.supplementalSquad) || null,
+      imageUrl: cleanText(parsed?.imageUrl) || null,
+      supplementalTeamId: Number.isFinite(n) ? n : null,
+      primarySpecificRole: cleanText(parsed?.primarySpecificRole) || null,
+      primaryLineupStatus: cleanText(parsed?.primaryLineupStatus) || null,
+      supplementalSpecificRole: cleanText(parsed?.supplementalSpecificRole) || null,
+      supplementalLineupStatus: cleanText(parsed?.supplementalLineupStatus) || null,
+    };
   } catch {
-    return null;
+    return {};
   }
+}
+
+function extractSupplementalTeamId(notes?: string | null): number | null {
+  return extractPlayerMeta(notes).supplementalTeamId ?? null;
 }
 
 async function getAssignedTeamIds(userId: number, clubId: number): Promise<number[]> {
@@ -336,9 +359,15 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     secondaryContactRelation?: string | null;
   };
   let teamName: string | null = null;
+  let supplementalTeamName: string | null = null;
   if (player.teamId) {
     const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, player.teamId), eq(teamsTable.clubId, player.clubId)));
     if (team) teamName = team.name;
+  }
+  const meta = extractPlayerMeta(player.notes);
+  if (meta.supplementalTeamId) {
+    const [supplementalTeam] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, meta.supplementalTeamId), eq(teamsTable.clubId, player.clubId)));
+    if (supplementalTeam) supplementalTeamName = supplementalTeam.name;
   }
   const parentDelegates = await listParentDelegates(player.clubId, player.id);
   return {
@@ -352,6 +381,15 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     height: player.height ?? null,
     weight: player.weight ?? null,
     notes: player.notes ?? null,
+    squad: meta.squad ?? null,
+    supplementalSquad: meta.supplementalSquad ?? null,
+    imageUrl: meta.imageUrl ?? null,
+    supplementalTeamId: meta.supplementalTeamId ?? null,
+    supplementalTeamName,
+    primarySpecificRole: meta.primarySpecificRole ?? null,
+    primaryLineupStatus: meta.primaryLineupStatus ?? null,
+    supplementalSpecificRole: meta.supplementalSpecificRole ?? null,
+    supplementalLineupStatus: meta.supplementalLineupStatus ?? null,
     phone: playerContact.phone ?? null,
     email: playerContact.email ?? null,
     phoneOwnerType: playerContact.phoneOwnerType ?? "player",

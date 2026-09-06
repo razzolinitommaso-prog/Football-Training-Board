@@ -167,6 +167,13 @@ type Player = {
   availabilityOverrideUntil?: string | null;
   availabilityOverrideReason?: string | null;
   squad?: "A" | "B" | "C" | "D" | null;
+  supplementalSquad?: "A" | "B" | "C" | "D" | null;
+  supplementalTeamId?: number | null;
+  supplementalTeamName?: string | null;
+  primarySpecificRole?: string | null;
+  primaryLineupStatus?: "starter" | "reserve" | null;
+  supplementalSpecificRole?: string | null;
+  supplementalLineupStatus?: "starter" | "reserve" | null;
   imageUrl?: string | null;
 };
 
@@ -689,6 +696,17 @@ function LineupStatusSelect({
       </SelectContent>
     </Select>
   );
+}
+
+function specificRoleLabel(value?: string | null): string {
+  if (!value) return "-";
+  return SPECIFIC_ROLE_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
+
+function lineupStatusLabel(value?: "starter" | "reserve" | string | null): string {
+  if (value === "starter") return "Titolare";
+  if (value === "reserve") return "Riserva";
+  return "-";
 }
 
 function playerName(player: Pick<Player, "firstName" | "lastName">, order: PlayerNameOrder = "surname_first"): string {
@@ -1288,7 +1306,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const canForceAvailability = ["admin", "presidente", "director", "secretary"].includes(nr) && playerDialogMode === "edit";
   const canEditRoleAndSquad = canManagePlayers && playerDialogMode === "edit";
   const canUploadPlayerImage = canManagePlayers && playerDialogMode === "edit";
-  const canEditSupplementalTeam = canUploadPlayerImage;
+  const canEditSupplementalTeam = canManagePlayers && playerDialogMode === "edit";
   const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
   const isStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "technical_director" || nr === "athletic_director";
   const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
@@ -1317,6 +1335,20 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const displayedExtraTimeRows = editingPlayerEquipment ? parseExtraTimeRows(editingPlayerEquipment.trainingKit) : normalizedExtraTimeRows;
   const plannedExtraTimeTotal = normalizedExtraTimeRows.reduce((sum, row) => sum + extraTimeRowTotal(row), 0);
   const editingPlayerTeam = editingPlayer?.teamId ? teams?.find((team) => team.id === editingPlayer.teamId) : undefined;
+  const editingPlayerMeta = splitPlayerMeta(editingPlayer?.notes ?? "").meta;
+  const editingSupplementalTeamId =
+    editingPlayer?.supplementalTeamId ??
+    editingPlayerMeta.supplementalTeamId ??
+    null;
+  const editingSupplementalTeam = editingSupplementalTeamId
+    ? teams?.find((team) => team.id === editingSupplementalTeamId)
+    : undefined;
+  const editingPrimarySpecificRole = editingPlayer?.primarySpecificRole ?? editingPlayerMeta.primarySpecificRole ?? null;
+  const editingPrimaryLineupStatus = editingPlayer?.primaryLineupStatus ?? editingPlayerMeta.primaryLineupStatus ?? null;
+  const editingSupplementalSpecificRole = editingPlayer?.supplementalSpecificRole ?? editingPlayerMeta.supplementalSpecificRole ?? null;
+  const editingSupplementalLineupStatus = editingPlayer?.supplementalLineupStatus ?? editingPlayerMeta.supplementalLineupStatus ?? null;
+  const editingPrimarySquad = editingPlayer?.squad ?? editingPlayerMeta.squad ?? null;
+  const editingSupplementalSquad = editingPlayer?.supplementalSquad ?? editingPlayerMeta.supplementalSquad ?? null;
   const editingPlayerIsYouthSection = (editingPlayerTeam as any)?.clubSection === "settore_giovanile" || section === "settore_giovanile";
   const extraTimeAssignableStaff = (clubMembers as ClubMember[])
     .filter((member) => {
@@ -2897,7 +2929,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <h3 className="text-xl font-semibold leading-tight sm:text-2xl">{playerName(editingPlayer, nameOrder)}</h3>
                   <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
                     <Badge variant="secondary">{editingPlayer.teamName || t.unassigned}</Badge>
+                    {editingSupplementalTeamId ? (
+                      <Badge variant="outline">
+                        Supplementare: {editingPlayer.supplementalTeamName || editingSupplementalTeam?.name || `Squadra #${editingSupplementalTeamId}`}
+                      </Badge>
+                    ) : null}
                     <Badge variant="outline">{editingPlayer.position || "Ruolo N/D"}</Badge>
+                    {editingPrimaryLineupStatus ? (
+                      <Badge variant="outline">{lineupStatusLabel(editingPrimaryLineupStatus)}</Badge>
+                    ) : null}
                     {editingPlayer.jerseyNumber ? <Badge variant="outline">#{editingPlayer.jerseyNumber}</Badge> : null}
                     <Badge variant={watchAvailable === false ? "destructive" : "secondary"}>
                       {watchAvailable === false ? t.notAvailable : t.available}
@@ -3005,6 +3045,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               <details className="group rounded-lg border p-3">
                 <CollapsibleSectionSummary title="Dati principali" />
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div><span className="text-muted-foreground">Squadra principale</span><p>{editingPlayer.teamName || t.unassigned}</p></div>
+                  <div><span className="text-muted-foreground">Gruppo principale</span><p>{editingPrimarySquad || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Ruolo principale</span><p>{specificRoleLabel(editingPrimarySpecificRole)}</p></div>
+                  <div><span className="text-muted-foreground">Stato principale</span><p>{lineupStatusLabel(editingPrimaryLineupStatus)}</p></div>
+                  <div><span className="text-muted-foreground">Squadra supplementare</span><p>{editingPlayer.supplementalTeamName || editingSupplementalTeam?.name || (editingSupplementalTeamId ? `Squadra #${editingSupplementalTeamId}` : "-")}</p></div>
+                  <div><span className="text-muted-foreground">Gruppo supplementare</span><p>{editingSupplementalSquad || "-"}</p></div>
+                  <div><span className="text-muted-foreground">Ruolo supplementare</span><p>{specificRoleLabel(editingSupplementalSpecificRole)}</p></div>
+                  <div><span className="text-muted-foreground">Stato supplementare</span><p>{lineupStatusLabel(editingSupplementalLineupStatus)}</p></div>
                   <div><span className="text-muted-foreground">Nato il</span><p>{editingPlayer.dateOfBirth || "-"}</p></div>
                   <div><span className="text-muted-foreground">Nazionalita</span><p>{editingPlayer.nationality || "-"}</p></div>
                   <div><span className="text-muted-foreground">Altezza</span><p>{editingPlayer.height ? `${editingPlayer.height} cm` : "-"}</p></div>
@@ -4573,6 +4621,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     <span className="text-xs text-muted-foreground ml-auto italic">(permessi insufficienti)</span>
                   )}
                 </div>
+                {canEditSportAvailability && !canManagePlayers && (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Puoi aggiornare indisponibilita sportiva, motivo e rientro previsto. Le verifiche amministrative restano alla segreteria.
+                  </p>
+                )}
 
                 <div className="flex items-center gap-3">
                   <Controller
