@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Play, Square, Trash2, Loader2 } from "lucide-react";
+import { Mic, Play, Square, Trash2, Upload } from "lucide-react";
 
 interface Props {
   value?: string | null;
@@ -9,6 +9,7 @@ interface Props {
 }
 
 export function ExerciseVoiceRecorder({ value, onChange, readOnly = false }: Props) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -106,6 +107,19 @@ export function ExerciseVoiceRecorder({ value, onChange, readOnly = false }: Pro
     onChange(null);
   }
 
+  function uploadAudioFile(file?: File | null) {
+    if (!file) return;
+    setError(null);
+    if (!file.type.startsWith("audio/")) {
+      setError("Seleziona un file audio valido.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => onChange(String(reader.result ?? ""));
+    reader.onerror = () => setError("Caricamento del file audio non riuscito.");
+    reader.readAsDataURL(file);
+  }
+
   if (readOnly) {
     if (!value) return <p className="text-sm text-muted-foreground italic">Nessuna nota vocale</p>;
     return (
@@ -126,7 +140,17 @@ export function ExerciseVoiceRecorder({ value, onChange, readOnly = false }: Pro
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {!value ? (
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/20 border border-dashed">
+        <div className="flex flex-col gap-3 p-3 rounded-lg bg-muted/20 border border-dashed sm:flex-row sm:items-center">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*"
+            className="hidden"
+            onChange={(event) => {
+              uploadAudioFile(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
           {recording ? (
             <>
               <div className="flex items-center gap-2 text-destructive">
@@ -140,10 +164,16 @@ export function ExerciseVoiceRecorder({ value, onChange, readOnly = false }: Pro
               </Button>
             </>
           ) : (
-            <Button type="button" size="sm" variant="outline" onClick={startRecording} className="gap-2">
-              <Mic className="w-4 h-4 text-destructive" />
-              Registra nota vocale
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={startRecording} className="gap-2">
+                <Mic className="w-4 h-4 text-destructive" />
+                Registra nota vocale
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} className="gap-2">
+                <Upload className="w-4 h-4" />
+                Carica file audio
+              </Button>
+            </div>
           )}
         </div>
       ) : (
@@ -156,6 +186,19 @@ export function ExerciseVoiceRecorder({ value, onChange, readOnly = false }: Pro
             <Button type="button" size="sm" variant="ghost" onClick={playAudio} className="gap-1.5 h-8 px-2">
               {playing ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               {playing ? "Stop" : "Play"}
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(event) => {
+                uploadAudioFile(event.target.files?.[0]);
+                event.currentTarget.value = "";
+              }}
+            />
+            <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => fileInputRef.current?.click()} title="Sostituisci con file audio">
+              <Upload className="w-3.5 h-3.5" />
             </Button>
             <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={deleteAudio}>
               <Trash2 className="w-3.5 h-3.5" />

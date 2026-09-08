@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Loader2, Play, Square, Trash2, Video } from "lucide-react";
+import { Camera, Loader2, Play, Square, Trash2, Upload, Video } from "lucide-react";
 
 interface Props {
   value?: string | null;
@@ -9,6 +9,7 @@ interface Props {
 }
 
 export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Props) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const previewRef = useRef<HTMLVideoElement | null>(null);
@@ -122,6 +123,27 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
     onChange(null);
   }
 
+  function uploadVideoFile(file?: File | null) {
+    if (!file) return;
+    setError(null);
+    setProcessing(true);
+    if (!file.type.startsWith("video/")) {
+      setProcessing(false);
+      setError("Seleziona un file video valido.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      onChange(String(reader.result ?? ""));
+      setProcessing(false);
+    };
+    reader.onerror = () => {
+      setProcessing(false);
+      setError("Caricamento del file video non riuscito.");
+    };
+    reader.readAsDataURL(file);
+  }
+
   if (readOnly) {
     if (!value) return <p className="text-sm text-muted-foreground italic">Nessuna nota video</p>;
     return (
@@ -137,6 +159,16 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
 
       {!value ? (
         <div className="space-y-3 rounded-lg border border-dashed bg-muted/20 p-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*"
+            className="hidden"
+            onChange={(event) => {
+              uploadVideoFile(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
           {recording ? (
             <>
               <div className="flex items-center gap-2 text-destructive">
@@ -151,10 +183,16 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
               </Button>
             </>
           ) : (
-            <Button type="button" size="sm" variant="outline" className="gap-2" onClick={startRecording} disabled={processing}>
-              {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4 text-primary" />}
-              Registra nota video
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="outline" className="gap-2" onClick={startRecording} disabled={processing}>
+                {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4 text-primary" />}
+                Registra nota video
+              </Button>
+              <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={processing}>
+                {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Carica file video
+              </Button>
+            </div>
           )}
         </div>
       ) : (
@@ -165,9 +203,23 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
           </div>
           <video src={value} controls playsInline className="w-full rounded-lg border bg-black/40 max-h-64" />
           <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={(event) => {
+                uploadVideoFile(event.target.files?.[0]);
+                event.currentTarget.value = "";
+              }}
+            />
             <Button type="button" size="sm" variant="outline" onClick={startRecording} className="gap-1.5">
               <Play className="h-3.5 w-3.5" />
               Registra di nuovo
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} className="gap-1.5" disabled={processing}>
+              {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              Sostituisci file
             </Button>
             <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={deleteVideo}>
               <Trash2 className="h-3.5 w-3.5" />

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Eraser, Pen, Trash2, Minus, ArrowRight, Circle, Undo2 } from "lucide-react";
+import { Eraser, Pen, Trash2, Minus, ArrowRight, Circle, Undo2, ImagePlus } from "lucide-react";
 
 export interface EDrawingElement {
   id: string;
@@ -115,6 +115,7 @@ function rebuildCanvasFromElements(
 export function ExerciseDrawingBoard({ value, onChange, onChangeElements, readOnly = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [tool, setTool] = useState<string>("pen");
   const [color, setColor] = useState(COLORS[0].value);
   const [brushSize, setBrushSize] = useState(3);
@@ -270,6 +271,33 @@ export function ExerciseDrawingBoard({ value, onChange, onChangeElements, readOn
     onChangeElements?.(null);
   }
 
+  function handleImageFile(file?: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const src = String(reader.result ?? "");
+      const img = new Image();
+      img.onload = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d")!;
+        drawPitch(ctx, W, H);
+        const scale = Math.min(W / img.width, H / img.height);
+        const drawW = img.width * scale;
+        const drawH = img.height * scale;
+        const drawX = (W - drawW) / 2;
+        const drawY = (H - drawH) / 2;
+        ctx.drawImage(img, drawX, drawY, drawW, drawH);
+        setElements([]);
+        onChange(canvas.toDataURL("image/png"));
+        onChangeElements?.(null);
+      };
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <div className="relative rounded-lg overflow-hidden border border-border shadow-inner" style={{ aspectRatio: `${W}/${H}`, width: "100%" }}>
@@ -287,6 +315,16 @@ export function ExerciseDrawingBoard({ value, onChange, onChangeElements, readOn
 
       {!readOnly && (
         <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => {
+              handleImageFile(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
           <div className="flex gap-1 border rounded-md p-0.5 bg-muted/30">
             {TOOLS.map(t => (
               <button
@@ -321,6 +359,9 @@ export function ExerciseDrawingBoard({ value, onChange, onChangeElements, readOn
           </select>
           <Button type="button" size="sm" variant="ghost" className="h-8 px-2" onClick={handleUndo} disabled={elements.length === 0}>
             <Undo2 className="w-4 h-4 mr-1" /> Annulla
+          </Button>
+          <Button type="button" size="sm" variant="outline" className="h-8 px-2" onClick={() => imageInputRef.current?.click()}>
+            <ImagePlus className="w-4 h-4 mr-1" /> Carica immagine
           </Button>
           <Button type="button" size="sm" variant="ghost" className="text-destructive h-8 px-2" onClick={handleClear}>
             <Trash2 className="w-4 h-4 mr-1" /> Pulisci

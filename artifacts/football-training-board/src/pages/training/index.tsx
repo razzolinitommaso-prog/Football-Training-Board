@@ -2752,7 +2752,7 @@ function SessionDetailsDialog({
                 </TabsContent>
 
                 <TabsContent value="voice" className="pt-4 space-y-3">
-                  <p className="text-sm text-muted-foreground">Registra una nota vocale per descrivere l'esercizio.</p>
+                  <p className="text-sm text-muted-foreground">Registra una nota vocale oppure carica un file audio gia presente sul telefono.</p>
                   <ExerciseVoiceRecorder
                     value={exerciseForm.voiceNoteData || null}
                     onChange={(data) => setExerciseForm((prev) => ({ ...prev, voiceNoteData: data ?? "" }))}
@@ -2760,7 +2760,7 @@ function SessionDetailsDialog({
                 </TabsContent>
 
                 <TabsContent value="video" className="pt-4 space-y-3">
-                  <p className="text-sm text-muted-foreground">Registra una nota video per mostrare dettagli tecnici.</p>
+                  <p className="text-sm text-muted-foreground">Registra una nota video oppure carica un file video gia presente sul telefono.</p>
                   <ExerciseVideoRecorder
                     value={exerciseForm.videoNoteData || null}
                     onChange={(data) => setExerciseForm((prev) => ({ ...prev, videoNoteData: data ?? "" }))}
