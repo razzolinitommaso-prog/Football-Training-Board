@@ -35,6 +35,7 @@ import {
   X,
   CalendarRange,
   RefreshCw,
+  Bus,
 } from "lucide-react";
 import {
   Sidebar,
@@ -141,6 +142,7 @@ export function AppSidebar() {
     { label: "Notifiche Piattaforma", url: "/club/platform-notifications", icon: Bell, roles: ["admin", "presidente", "secretary", "sporting_director"], group: "main" },
     // Segreteria
     { titleKey: "registrations",   url: "/secretary/registrations", icon: ClipboardList, roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
+    { label: "Pulmino",            url: "/secretary/shuttle",       icon: Bus,           roles: ["admin", "presidente", "director", "secretary", "sporting_director"], group: "secretary" },
     { titleKey: "payments",        url: "/secretary/payments",      icon: Banknote,      roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { titleKey: "documents",       url: "/secretary/documents",     icon: FileText,      roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { label: "Magazzino",          url: "/secretary/warehouse",     icon: Package,       roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },

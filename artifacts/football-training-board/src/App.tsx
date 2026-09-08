@@ -43,6 +43,7 @@ import AttendancePage from "@/pages/attendance/index";
 import ExercisesPage from "@/pages/exercises/index";
 import RegistrationsPage from "@/pages/secretary/registrations";
 import PaymentsPage from "@/pages/secretary/payments";
+import ShuttlePage from "@/pages/secretary/shuttle";
 import DocumentsPage from "@/pages/secretary/documents";
 import EquipmentPage from "@/pages/secretary/equipment";
 import WarehousePage from "@/pages/secretary/warehouse";
@@ -59,6 +60,7 @@ import SectionMatchCalendars from "@/pages/matches/SectionMatchCalendars";
 
 const coachingRoles = ["admin", "coach", "technical_director", "director", "fitness_coach", "athletic_director"];
 const secretaryRoles = ["admin", "secretary", "sporting_director"];
+const shuttleRoles = ["admin", "presidente", "director", "secretary", "sporting_director"];
 const fitnessRoles = ["admin", "director", "technical_director", "fitness_coach", "athletic_director"];
 const playerPerformanceRoles = ["admin", "presidente", "director", "technical_director", "fitness_coach", "athletic_director"];
 const sectionAttendanceRoles = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"];
@@ -140,6 +142,9 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/secretary/payments">
           <ProtectedRoute allowedRoles={secretaryRoles}><PaymentsPage /></ProtectedRoute>
+        </Route>
+        <Route path="/secretary/shuttle">
+          <ProtectedRoute allowedRoles={shuttleRoles}><ShuttlePage /></ProtectedRoute>
         </Route>
         <Route path="/secretary/documents">
           <ProtectedRoute allowedRoles={secretaryRoles}><DocumentsPage /></ProtectedRoute>

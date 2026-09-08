@@ -407,6 +407,8 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     registrationNumber: player.registrationNumber ?? null,
     medicalCertificateExpiry: player.medicalCertificateExpiry ?? null,
     shuttleService: player.shuttleService ?? false,
+    shuttleRoute: (player as typeof player & { shuttleRoute?: string | null }).shuttleRoute ?? null,
+    shuttleDirection: (player as typeof player & { shuttleDirection?: string | null }).shuttleDirection ?? null,
     available: player.available ?? true,
     unavailabilityReason: player.unavailabilityReason ?? null,
     expectedReturn: player.expectedReturn ?? null,

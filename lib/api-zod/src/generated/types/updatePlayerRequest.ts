@@ -26,4 +26,10 @@ export interface UpdatePlayerRequest {
   weight?: number | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  shuttleService?: boolean | null;
+  /** @nullable */
+  shuttleRoute?: string | null;
+  /** @nullable */
+  shuttleDirection?: string | null;
 }

@@ -39,6 +39,8 @@ export const playersTable = pgTable("players", {
   registered: boolean("registered").default(false),
   registrationNumber: text("registration_number"),
   shuttleService: boolean("shuttle_service").default(false),
+  shuttleRoute: text("shuttle_route"),
+  shuttleDirection: text("shuttle_direction"),
   available: boolean("available").default(true).notNull(),
   unavailabilityReason: text("unavailability_reason"),
   expectedReturn: date("expected_return"),

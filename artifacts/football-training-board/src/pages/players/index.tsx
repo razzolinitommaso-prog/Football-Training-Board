@@ -68,6 +68,8 @@ const playerSchema = z.object({
   registrationNumber: z.string().optional(),
   medicalCertificateExpiry: z.string().optional().nullable(),
   shuttleService: z.boolean().optional(),
+  shuttleRoute: z.string().optional().nullable(),
+  shuttleDirection: z.string().optional().nullable(),
 });
 
 const editSchema = z.object({
@@ -104,6 +106,8 @@ const editSchema = z.object({
   registrationNumber: z.string().optional(),
   medicalCertificateExpiry: z.string().optional().nullable(),
   shuttleService: z.boolean().optional(),
+  shuttleRoute: z.string().optional().nullable(),
+  shuttleDirection: z.string().optional().nullable(),
   nationality: z.string().optional(),
   height: z.coerce.number().optional().nullable(),
   weight: z.coerce.number().optional().nullable(),
@@ -155,6 +159,8 @@ type Player = {
   registrationNumber?: string | null;
   medicalCertificateExpiry?: string | null;
   shuttleService?: boolean | null;
+  shuttleRoute?: string | null;
+  shuttleDirection?: string | null;
   nationality?: string | null;
   height?: number | null;
   weight?: number | null;
@@ -2088,7 +2094,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
   const form = useForm<z.infer<typeof playerSchema>>({
     resolver: zodResolver(playerSchema),
-    defaultValues: { firstName: "", lastName: "", status: "active", registered: false, phoneOwnerType: "player", shuttleService: false }
+    defaultValues: { firstName: "", lastName: "", status: "active", registered: false, phoneOwnerType: "player", shuttleService: false, shuttleRoute: "", shuttleDirection: "round_trip" }
   });
 
   const editForm = useForm<EditForm>({
@@ -2101,6 +2107,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const watchRegisteredCreate = form.watch("registered");
   const watchPhoneOwnerCreate = form.watch("phoneOwnerType");
   const watchPhoneOwnerEdit = editForm.watch("phoneOwnerType");
+  const watchShuttleCreate = form.watch("shuttleService");
+  const watchShuttleEdit = editForm.watch("shuttleService");
   const watchMedicalCertificateEdit = editForm.watch("medicalCertificateExpiry");
   const watchMedicalCertificateCreate = form.watch("medicalCertificateExpiry");
   const editAvailabilityBlocks = getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit);
@@ -2194,6 +2202,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       registrationNumber: player.registrationNumber ?? undefined,
       medicalCertificateExpiry: player.medicalCertificateExpiry ?? undefined,
       shuttleService: player.shuttleService ?? false,
+      shuttleRoute: player.shuttleRoute ?? undefined,
+      shuttleDirection: player.shuttleDirection ?? "round_trip",
       nationality: player.nationality ?? undefined,
       height: player.height ?? undefined,
       weight: player.weight ?? undefined,
@@ -2462,6 +2472,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       ),
       parentDelegates: cleanParentDelegates(parentDelegateRows),
     };
+    if (payload.shuttleService !== true) {
+      payload.shuttleRoute = null;
+      payload.shuttleDirection = null;
+    } else if (!payload.shuttleDirection) {
+      payload.shuttleDirection = "round_trip";
+    }
     delete payload.imageUrl;
     delete payload.supplementalTeamId;
     delete payload.supplementalSquad;
@@ -2655,6 +2671,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               const registered = data.registered === true;
               const availabilityBlocks = getAvailabilityBlocks(registered, data.medicalCertificateExpiry);
               const payload = { ...data, registered } as Record<string, unknown>;
+              if (payload.shuttleService !== true) {
+                payload.shuttleRoute = null;
+                payload.shuttleDirection = null;
+              } else if (!payload.shuttleDirection) {
+                payload.shuttleDirection = "round_trip";
+              }
               payload.parentDelegates = cleanParentDelegates([
                 {
                   firstName: data.parentFirstName,
@@ -2895,6 +2917,31 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   />
                   <Label htmlFor="shuttleService" className="cursor-pointer">Usufruisce pulmino</Label>
                 </div>
+                {watchShuttleCreate && (
+                  <div className="grid grid-cols-1 gap-4 rounded-md border bg-muted/20 p-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Tratta pulmino</Label>
+                      <Input placeholder="Es. Ronta" {...form.register("shuttleRoute")} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Tipo tratta</Label>
+                      <Controller
+                        control={form.control}
+                        name="shuttleDirection"
+                        render={({ field }) => (
+                          <Select value={field.value || "round_trip"} onValueChange={field.onChange}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="outbound">Solo andata</SelectItem>
+                              <SelectItem value="round_trip">Andata e ritorno</SelectItem>
+                              <SelectItem value="return">Solo ritorno</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <DialogFooter className="pt-4">
@@ -3062,6 +3109,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <div><span className="text-muted-foreground">Ruolo generico</span><p>{editingPlayer.position || "-"}</p></div>
                   <div><span className="text-muted-foreground">Certificato medico</span><p>{isMedicalCertificateValid(editingPlayer.medicalCertificateExpiry) ? `Valido fino al ${editingPlayer.medicalCertificateExpiry}` : "Assente o scaduto"}</p></div>
                   <div><span className="text-muted-foreground">Pulmino</span><p>{editingPlayer.shuttleService ? "Si" : "No"}</p></div>
+                  {editingPlayer.shuttleService && (
+                    <>
+                      <div><span className="text-muted-foreground">Tratta pulmino</span><p>{editingPlayer.shuttleRoute || "-"}</p></div>
+                      <div><span className="text-muted-foreground">Tipo tratta</span><p>{editingPlayer.shuttleDirection === "outbound" ? "Solo andata" : editingPlayer.shuttleDirection === "return" ? "Solo ritorno" : "Andata e ritorno"}</p></div>
+                    </>
+                  )}
                   <div><span className="text-muted-foreground">Stato</span><p>{statusLabel(editingPlayer.status)}</p></div>
                   <div><span className="text-muted-foreground">Telefono</span><PhoneLink value={editingPlayer.phone} /></div>
                   <div><span className="text-muted-foreground">Email</span><p>{editingPlayer.email || "-"}</p></div>
@@ -3635,6 +3688,52 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               </details>
 
               <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                <CollapsibleSectionSummary title="Pulmino" />
+                <div className="mt-3 space-y-3">
+                  <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                    <Controller
+                      control={editForm.control}
+                      name="shuttleService"
+                      render={({ field }) => (
+                        <Checkbox
+                          id="editShuttleService"
+                          checked={field.value === true}
+                          onCheckedChange={(c) => field.onChange(c === true)}
+                          disabled={!canEditFullPlayer}
+                        />
+                      )}
+                    />
+                    <Label htmlFor="editShuttleService" className="cursor-pointer">Usufruisce del pulmino</Label>
+                  </div>
+                  {watchShuttleEdit && (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Tratta</Label>
+                        <Input placeholder="Es. Ronta" {...editForm.register("shuttleRoute")} disabled={!canEditFullPlayer} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Tipo tratta</Label>
+                        <Controller
+                          control={editForm.control}
+                          name="shuttleDirection"
+                          render={({ field }) => (
+                            <Select value={field.value || "round_trip"} onValueChange={field.onChange} disabled={!canEditFullPlayer}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="outbound">Solo andata</SelectItem>
+                                <SelectItem value="round_trip">Andata e ritorno</SelectItem>
+                                <SelectItem value="return">Solo ritorno</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </details>
+
+              <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
                 <CollapsibleSectionSummary title="Documenti giocatore" icon={<FileText className="h-4 w-4" />} status={documentSectionStatus} />
                 <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -3936,21 +4035,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         </div>
                         <div className="space-y-2">
                           <Label>Quota pulmino mensile</Label>
-                          <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
-                            <Controller
-                              control={editForm.control}
-                              name="shuttleService"
-                              render={({ field }) => (
-                                <Checkbox
-                                  id="editShuttleServiceQuote"
-                                  checked={field.value === true}
-                                  onCheckedChange={(c) => field.onChange(c === true)}
-                                  disabled={!canEditFullPlayer}
-                                />
-                              )}
-                            />
-                            <Label htmlFor="editShuttleServiceQuote" className="cursor-pointer">Usufruisce pulmino</Label>
-                          </div>
+                          <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                            La quota compare qui solo se il pulmino e attivo nei dati anagrafici.
+                          </p>
                           <Select value={shuttleFeeListItemId || "_manual"} onValueChange={(value) => {
                             setShuttleFeeListItemId(value === "_manual" ? "" : value);
                             if (value !== "_manual") applyListItemPrice(value, setShuttleMonthlyCost);
