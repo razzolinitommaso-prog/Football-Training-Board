@@ -456,9 +456,10 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  const players = await db.select().from(playersTable).where(
-    requestedTeamId ? eq(playersTable.clubId, clubId) : and(...conditions),
-  );
+  const playerWhere = requestedTeamId || needsAssignmentFiltering
+    ? eq(playersTable.clubId, clubId)
+    : and(...conditions);
+  const players = await db.select().from(playersTable).where(playerWhere);
   const filtered = players.filter((player) => {
     const supplementalTeamId = extractSupplementalTeamId(player.notes);
     if (requestedTeamId) {
