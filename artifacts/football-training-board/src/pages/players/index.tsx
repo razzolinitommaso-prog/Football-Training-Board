@@ -1172,8 +1172,18 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     ? new URLSearchParams(window.location.search).get("teamId") || "all"
     : "all";
   const [teamFilter, setTeamFilter] = useState<string>(initialTeamFilter);
-  const listSectionParams = section ? ({ section } as any) : undefined;
-  const { data: players, isLoading } = useListPlayers(listSectionParams);
+  const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
+  const playersUrl = section && !isAssignedStaffRole
+    ? `/api/players?section=${encodeURIComponent(section)}`
+    : "/api/players";
+  const { data: players, isLoading } = useQuery<Player[]>({
+    queryKey: ["/api/players", section || "all", nr, "players-page"],
+    queryFn: async () => {
+      const res = await fetch(withApi(playersUrl), { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<Player[]>;
+    },
+  });
   const { data: teams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", section || "all"],
     queryFn: async () => {
@@ -1315,7 +1325,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const canEditSupplementalTeam = canManagePlayers && playerDialogMode === "edit";
   const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
   const isStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "technical_director" || nr === "athletic_director";
-  const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
   const clubLogoUrl = String((club as { logoUrl?: string | null } | null)?.logoUrl ?? "");
   const editingPlayerDocuments = editingPlayer
     ? playerDocuments.filter((doc) => doc.playerId === editingPlayer.id)
