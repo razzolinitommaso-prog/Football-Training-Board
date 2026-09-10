@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/lib/i18n";
 import { useToast } from "@/hooks/use-toast";
@@ -165,6 +165,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const [sessionDateFilter, setSessionDateFilter] = useState<"all" | string>(initialDate || "all");
   const [sessionKindFilter, setSessionKindFilter] = useState<"all" | string>("all");
   const [sessionObjectiveFilter, setSessionObjectiveFilter] = useState<"all" | string>("all");
+  const attendanceListRef = useRef<HTMLDivElement | null>(null);
 
   const { data: rawSessions = [] } = useQuery<TrainingSession[]>({ queryKey: ["/api/training-sessions"], queryFn: () => apiFetch("/api/training-sessions") });
   const { data: sectionTeams = [] } = useQuery<Team[]>({
@@ -263,6 +264,17 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
     if (!sessionId || isTechnicalDirector) return;
     const existing = getPlayerAttendance(playerId);
     markAttendance.mutate({ trainingSessionId: sessionId, playerId, status, notes: existing?.notes ?? null });
+  }
+
+  function openSessionAttendance(session: TrainingSession) {
+    setSessionId(session.id);
+    if (session.teamId != null) setTeamScope(String(session.teamId));
+    setSessionDateFilter(sessionDateKey(session.scheduledAt) || "all");
+    setSessionKindFilter(session.sessionKind?.trim() || "all");
+    setSessionObjectiveFilter(session.objectives?.trim() || "all");
+    window.setTimeout(() => {
+      attendanceListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
   }
 
   function handleConductChange(playerId: number, conduct: TrainingConduct) {
@@ -547,7 +559,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                       <Card
                         key={s.id}
                         className={`cursor-pointer transition-colors ${sessionId === s.id ? "border-primary bg-primary/5" : "hover:border-primary/50"}`}
-                        onClick={() => setSessionId(s.id)}
+                        onClick={() => openSessionAttendance(s)}
                       >
                         <CardContent className="py-3">
                           <div className="flex items-start justify-between gap-3">
@@ -590,7 +602,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
       )}
 
       {sessionId && (
-        <>
+        <div ref={attendanceListRef} className="scroll-mt-24 space-y-4">
           {visibleAttendance.length > 0 && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -681,7 +693,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
               })}
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
