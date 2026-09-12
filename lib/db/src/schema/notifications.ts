@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { boolean, pgTable, text, serial, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
 import { clubsTable } from "./clubs";
 import { usersTable } from "./users";
 
@@ -8,6 +8,9 @@ export const clubNotificationsTable = pgTable("club_notifications", {
   title: text("title").notNull(),
   message: text("message").notNull(),
   type: text("type").notNull().default("info"),
+  targetAudience: text("target_audience").notNull().default("all"),
+  targetRoles: jsonb("target_roles").$type<string[]>().notNull().default([]),
+  targetUserIds: jsonb("target_user_ids").$type<number[]>().notNull().default([]),
   createdByUserId: integer("created_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

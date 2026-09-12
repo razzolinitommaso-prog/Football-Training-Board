@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { db, parentNotificationsTable, parentPlayerRelationsTable, playersTable, teamStaffAssignmentsTable, teamsTable, clubNotificationsTable } from "@workspace/db";
+import { db, parentNotificationsTable, parentPlayerRelationsTable, playersTable, teamStaffAssignmentsTable, teamsTable, clubNotificationsTable, clubMembershipsTable } from "@workspace/db";
 import { calendarExtraEventsTable } from "@workspace/db/schema";
 import { requireAuth } from "../lib/auth";
 import { normalizeSessionRole } from "../lib/club-scope";
@@ -24,6 +24,10 @@ async function ensureCalendarExtraEventColumns() {
   await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS attachment_name TEXT`);
   await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS attachment_mime_type TEXT`);
   await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS attachment_data TEXT`);
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS member_ids JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await db.execute(sql`ALTER TABLE club_notifications ADD COLUMN IF NOT EXISTS target_audience TEXT NOT NULL DEFAULT 'all'`);
+  await db.execute(sql`ALTER TABLE club_notifications ADD COLUMN IF NOT EXISTS target_roles JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await db.execute(sql`ALTER TABLE club_notifications ADD COLUMN IF NOT EXISTS target_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb`);
   ensuredCalendarExtraEventColumns = true;
 }
 
@@ -31,6 +35,38 @@ function normalizeSection(value: unknown): "scuola_calcio" | "settore_giovanile"
   const v = String(value ?? "").trim().toLowerCase();
   if (v === "scuola_calcio" || v === "settore_giovanile" || v === "prima_squadra") return v;
   return null;
+}
+
+function uniquePositiveIds(values: unknown[]): number[] {
+  return Array.from(new Set(values.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0)));
+}
+
+async function resolveStaffRecipients(clubId: number, section: string, teamIds: number[], memberIds: number[]) {
+  if (memberIds.length > 0) {
+    const rows = await db
+      .select({ userId: clubMembershipsTable.userId })
+      .from(clubMembershipsTable)
+      .where(and(eq(clubMembershipsTable.clubId, clubId), inArray(clubMembershipsTable.userId, memberIds)));
+    return rows.map((row) => row.userId);
+  }
+
+  if (teamIds.length > 0) {
+    const assignmentRows = await db
+      .select({ userId: teamStaffAssignmentsTable.userId })
+      .from(teamStaffAssignmentsTable)
+      .where(and(eq(teamStaffAssignmentsTable.clubId, clubId), inArray(teamStaffAssignmentsTable.teamId, teamIds)));
+    const coachRows = await db
+      .select({ coachId: teamsTable.coachId })
+      .from(teamsTable)
+      .where(and(eq(teamsTable.clubId, clubId), inArray(teamsTable.id, teamIds)));
+    return uniquePositiveIds([...assignmentRows.map((row) => row.userId), ...coachRows.map((row) => row.coachId)]);
+  }
+
+  const staffRows = await db
+    .select({ userId: clubMembershipsTable.userId })
+    .from(clubMembershipsTable)
+    .where(and(eq(clubMembershipsTable.clubId, clubId), sql`${clubMembershipsTable.clubSection} @> ARRAY[${section}]::text[]`));
+  return uniquePositiveIds(staffRows.map((row) => row.userId));
 }
 
 router.get("/calendar-extra-events", requireAuth, async (req, res): Promise<void> => {
@@ -59,6 +95,9 @@ router.get("/calendar-extra-events", requireAuth, async (req, res): Promise<void
     const assignedTeamIds = new Set(assignments.map((a) => a.teamId));
     const filtered = rows.filter((evt) => {
       if (evt.targetAudience === "parents") return false;
+      const row = evt as typeof evt & { memberIds?: unknown };
+      const memberIds = Array.isArray(row.memberIds) ? row.memberIds.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id)) : [];
+      if (memberIds.length > 0) return memberIds.includes(req.session.userId!) || evt.createdByUserId === req.session.userId;
       if (evt.targetMode === "all") return true;
       const teamIds = Array.isArray(evt.teamIds) ? evt.teamIds : [];
       return teamIds.some((id: number) => assignedTeamIds.has(Number(id)));
@@ -67,7 +106,13 @@ router.get("/calendar-extra-events", requireAuth, async (req, res): Promise<void
     return;
   }
 
-  res.json(rows);
+  const filteredRows = rows.filter((evt) => {
+    const row = evt as typeof evt & { memberIds?: unknown };
+    const memberIds = Array.isArray(row.memberIds) ? row.memberIds.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id)) : [];
+    if (memberIds.length === 0) return true;
+    return memberIds.includes(req.session.userId!) || evt.createdByUserId === req.session.userId;
+  });
+  res.json(filteredRows);
 });
 
 router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<void> => {
@@ -100,6 +145,7 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
   const weekdaysRaw = Array.isArray(req.body?.weekdays) ? req.body.weekdays : [];
   const teamIdsRaw = Array.isArray(req.body?.teamIds) ? req.body.teamIds : [];
   const playerIdsRaw = Array.isArray(req.body?.playerIds) ? req.body.playerIds : [];
+  const memberIdsRaw = Array.isArray(req.body?.memberIds) ? req.body.memberIds : [];
 
   if (!section || !category || !title || !dateFrom || !dateTo || !startTime || !endTime) {
     res.status(400).json({ error: "Campi obbligatori mancanti" });
@@ -118,11 +164,23 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
     return;
   }
   const weekdays = weekdaysRaw.map((v: unknown) => Number(v)).filter((n: number) => Number.isInteger(n) && n >= 0 && n <= 6);
-  const teamIds = teamIdsRaw.map((v: unknown) => Number(v)).filter((n: number) => Number.isInteger(n) && n > 0);
-  const playerIds = playerIdsRaw.map((v: unknown) => Number(v)).filter((n: number) => Number.isInteger(n) && n > 0);
+  const teamIds = uniquePositiveIds(teamIdsRaw);
+  const playerIds = uniquePositiveIds(playerIdsRaw);
+  const memberIds = uniquePositiveIds(memberIdsRaw);
   if (frequency === "selected_days" && weekdays.length === 0) {
     res.status(400).json({ error: "Seleziona almeno un giorno della settimana" });
     return;
+  }
+
+  if (memberIds.length > 0) {
+    const members = await db
+      .select({ userId: clubMembershipsTable.userId })
+      .from(clubMembershipsTable)
+      .where(and(eq(clubMembershipsTable.clubId, req.session.clubId!), inArray(clubMembershipsTable.userId, memberIds)));
+    if (members.length !== memberIds.length) {
+      res.status(400).json({ error: "Alcuni membri selezionati non sono validi" });
+      return;
+    }
   }
   if (targetMode === "selected" && teamIds.length === 0) {
     res.status(400).json({ error: "Seleziona almeno un'annata" });
@@ -172,6 +230,7 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
       attachmentName: attachmentData ? attachmentName : null,
       attachmentMimeType: attachmentData ? attachmentMimeType : null,
       attachmentData: attachmentData || null,
+      memberIds,
       teamIds,
       playerIds,
     } as any)
@@ -188,13 +247,18 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
   ].filter(Boolean).join("\n");
 
   if (notifyStaff && targetAudience !== "parents") {
+    const recipientTeamIds = targetMode === "selected" ? teamIds : [];
+    const targetUserIds = await resolveStaffRecipients(req.session.clubId!, section, recipientTeamIds, memberIds);
     await db.insert(clubNotificationsTable).values({
       clubId: req.session.clubId!,
       title: `Calendario: ${title}`,
       message,
       type: targetAudience === "staff" ? "staff_calendar" : "calendar",
+      targetAudience: "staff",
+      targetRoles: targetUserIds.length > 0 ? [] : ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"],
+      targetUserIds,
       createdByUserId: req.session.userId ?? null,
-    });
+    } as any);
   }
 
   if (notifyParents) {

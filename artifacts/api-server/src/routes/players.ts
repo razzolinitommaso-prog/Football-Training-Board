@@ -4,6 +4,7 @@ import {
   playersTable,
   teamsTable,
   teamStaffAssignmentsTable,
+  clubMembershipsTable,
   clubNotificationsTable,
   playerParentDelegatesTable,
   parentPlayerRelationsTable,
@@ -14,7 +15,7 @@ import {
   callUpsTable,
   playerFitnessDataTable,
 } from "@workspace/db";
-import { eq, and, asc, desc, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
 import {
   ListPlayersResponse,
   ListPlayersQueryParams,
@@ -33,6 +34,51 @@ import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 
 /** Il direttore tecnico elenca tutti i giocatori del club; coach/preparatori solo le proprie squadre. */
 const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
+
+let ensuredClubNotificationTargetColumns = false;
+
+async function ensureClubNotificationTargetColumns() {
+  if (ensuredClubNotificationTargetColumns) return;
+  await db.execute(sql`ALTER TABLE club_notifications ADD COLUMN IF NOT EXISTS target_audience TEXT NOT NULL DEFAULT 'all'`);
+  await db.execute(sql`ALTER TABLE club_notifications ADD COLUMN IF NOT EXISTS target_roles JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await db.execute(sql`ALTER TABLE club_notifications ADD COLUMN IF NOT EXISTS target_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  ensuredClubNotificationTargetColumns = true;
+}
+
+function uniquePositiveIds(values: unknown[]): number[] {
+  return Array.from(new Set(values.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0)));
+}
+
+async function resolvePlayerNoteRecipients(clubId: number, player: typeof playersTable.$inferSelect, recipient: string) {
+  if (recipient === "coach_staff") {
+    const teamId = Number(player.teamId ?? 0);
+    if (!teamId) return [];
+    const assignmentRows = await db
+      .select({ userId: teamStaffAssignmentsTable.userId })
+      .from(teamStaffAssignmentsTable)
+      .where(and(eq(teamStaffAssignmentsTable.clubId, clubId), eq(teamStaffAssignmentsTable.teamId, teamId)));
+    const [team] = await db
+      .select({ coachId: teamsTable.coachId })
+      .from(teamsTable)
+      .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.id, teamId)))
+      .limit(1);
+    return uniquePositiveIds([...assignmentRows.map((row) => row.userId), team?.coachId]);
+  }
+
+  const targetRoles =
+    recipient === "technical_director"
+      ? ["technical_director"]
+      : recipient === "secretary"
+        ? ["secretary"]
+        : [];
+  if (targetRoles.length === 0) return [];
+
+  const rows = await db
+    .select({ userId: clubMembershipsTable.userId })
+    .from(clubMembershipsTable)
+    .where(and(eq(clubMembershipsTable.clubId, clubId), inArray(clubMembershipsTable.role, targetRoles)));
+  return uniquePositiveIds(rows.map((row) => row.userId));
+}
 const PLAYER_MANAGE_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"];
 const PLAYER_SPORT_AVAILABILITY_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
 const PLAYER_AVAILABILITY_OVERRIDE_ROLES = ["admin", "presidente", "director", "secretary"];
@@ -772,7 +818,6 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const normalizedRole = normalizeSessionRole(role);
   const previousThread = parsePlayerNotesThread(stripMetaFromNotes(existingPlayer.notes));
   const updatedThread =
     typeof updateData.notes === "string"
@@ -802,14 +847,17 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     isAvailabilityOverrideActive(player);
   if (overrideActivated && req.session.clubId) {
     try {
+      await ensureClubNotificationTargetColumns();
       const fullName = `${player.firstName} ${player.lastName}`.trim();
       await db.insert(clubNotificationsTable).values({
         clubId: req.session.clubId,
         title: `Forza disponibilita: ${fullName}`,
         message: `Disponibilita forzata fino al ${(player as PlayerWithAvailabilityOverride).availabilityOverrideUntil ?? "periodo indicato"}. Motivo: ${(player as PlayerWithAvailabilityOverride).availabilityOverrideReason ?? "non indicato"}.`,
         type: "warning",
+        targetAudience: "staff",
+        targetRoles: ["secretary", "sporting_director", "technical_director", "director"],
         createdByUserId: req.session.userId,
-      });
+      } as any);
       await notifyParentAvailabilityOverride(req.session.clubId, player, (player as PlayerWithAvailabilityOverride).availabilityOverrideUntil);
     } catch (error) {
       console.error("[players] availability override notification failed", error);
@@ -817,15 +865,19 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   }
 
   if (newlyAddedThreadItems.length > 0 && req.session.clubId) {
+    await ensureClubNotificationTargetColumns();
     const fullName = `${player.firstName} ${player.lastName}`.trim();
     for (const note of newlyAddedThreadItems) {
-      const fromSecretary = normalizedRole === "secretary";
-      const toSecretary = note.recipient === "secretary";
-      const secretaryInvolved = fromSecretary || toSecretary;
-      if (!secretaryInvolved) continue;
+      const targetUserIds = await resolvePlayerNoteRecipients(req.session.clubId, player, String(note.recipient ?? ""));
+      if (targetUserIds.length === 0) continue;
       const noteText = String(note.body ?? "").trim();
       const compactNote = noteText.length > 140 ? `${noteText.slice(0, 137)}...` : noteText;
-      const directionLabel = fromSecretary ? "da segreteria" : "alla segreteria";
+      const directionLabel =
+        note.recipient === "secretary"
+          ? "alla segreteria"
+          : note.recipient === "technical_director"
+            ? "al direttore tecnico"
+            : "allo staff";
       await db.insert(clubNotificationsTable).values({
         clubId: req.session.clubId,
         title: `Nota giocatore ${directionLabel}: ${fullName}`,
@@ -833,7 +885,10 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
           ? `${compactNote}${note.requiresResponse ? " (richiesta risposta)" : ""}`
           : `Nuova nota giocatore ${directionLabel}${note.requiresResponse ? " con richiesta risposta" : ""}.`,
         type: note.requiresResponse ? "warning" : "info",
-      });
+        targetAudience: "staff",
+        targetUserIds,
+        createdByUserId: req.session.userId ?? null,
+      } as any);
     }
   }
 

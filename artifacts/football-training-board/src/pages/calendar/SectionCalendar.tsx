@@ -41,6 +41,13 @@ interface Team {
 }
 interface Match { id: number; opponent: string; date: string; homeAway: string; result?: string; teamId?: number; teamName?: string; competition?: string; }
 interface PlayerLite { id: number; firstName?: string; lastName?: string; teamId?: number | null; }
+interface ClubMemberLite {
+  id: number;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  role?: string;
+}
 type ExtraCategory = "evento_generico" | "torneo" | "cena" | "corso" | "riunione" | "evento_societario" | "staff" | "allenamento_preparazione" | "camp_estivo" | "partita_interna" | "provino";
 type ExtraFrequency = "everyday" | "selected_days";
 type ExtraTargetAudience = "all" | "staff" | "parents" | "teams";
@@ -65,6 +72,7 @@ interface ExtraEvent {
   attachmentName?: string | null;
   attachmentMimeType?: string | null;
   attachmentData?: string | null;
+  memberIds?: number[] | null;
   teamIds: number[];
   playerIds: number[];
 }
@@ -229,6 +237,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
   const [extraTargetMode, setExtraTargetMode] = useState<"all" | "selected">("all");
   const [extraTeamIds, setExtraTeamIds] = useState<number[]>([]);
   const [extraPlayerIds, setExtraPlayerIds] = useState<number[]>([]);
+  const [extraMemberIds, setExtraMemberIds] = useState<number[]>([]);
 
   const goToPrev = () => setCurrentMonth(m => subMonths(m, 1));
   const goToNext = () => setCurrentMonth(m => addMonths(m, 1));
@@ -245,6 +254,11 @@ export default function SectionCalendar({ section }: { section: Section }) {
   const { data: allPlayers = [] } = useQuery<PlayerLite[]>({
     queryKey: ["/api/players", section, "calendar-extra"],
     queryFn: () => apiFetch(`/api/players?section=${section}`),
+  });
+  const { data: allMembers = [] } = useQuery<ClubMemberLite[]>({
+    queryKey: ["/api/clubs/me/members", section, "calendar-extra"],
+    queryFn: () => apiFetch(`/api/clubs/me/members?section=${section}`),
+    enabled: canManageExtraEvents,
   });
   const { data: extraEvents = [] } = useQuery<ExtraEvent[]>({
     queryKey: ["/api/calendar-extra-events", section],
@@ -403,6 +417,10 @@ export default function SectionCalendar({ section }: { section: Section }) {
     setExtraPlayerIds((prev) => (prev.includes(playerId) ? prev.filter((id) => id !== playerId) : [...prev, playerId]));
   };
 
+  const toggleExtraMember = (memberId: number) => {
+    setExtraMemberIds((prev) => (prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]));
+  };
+
   const toggleExtraTeam = (teamId: number) => {
     setExtraTeamIds((prev) => (prev.includes(teamId) ? prev.filter((id) => id !== teamId) : [...prev, teamId]));
   };
@@ -455,6 +473,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
         targetMode: extraTargetMode,
         teamIds: extraTargetMode === "selected" ? extraTeamIds : [],
         playerIds: extraPlayerIds,
+        memberIds: extraMemberIds,
       };
       const res = await fetch(withApi("/api/calendar-extra-events"), {
         method: "POST",
@@ -485,6 +504,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
       setExtraTargetMode("all");
       setExtraTeamIds([]);
       setExtraPlayerIds([]);
+      setExtraMemberIds([]);
       toast({ title: "Evento calendario creato" });
     },
     onError: (err) => {
@@ -903,6 +923,37 @@ export default function SectionCalendar({ section }: { section: Section }) {
               </div>
             </div>
           )}
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label>Singoli membri destinatari</Label>
+              {extraMemberIds.length > 0 && (
+                <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setExtraMemberIds([])}>
+                  Pulisci
+                </Button>
+              )}
+            </div>
+            <div className="max-h-36 overflow-auto rounded border p-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {allMembers.map((member) => {
+                const fullName = `${String(member.firstName ?? "").trim()} ${String(member.lastName ?? "").trim()}`.trim() || member.email || `Membro ${member.id}`;
+                return (
+                  <label key={member.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={extraMemberIds.includes(member.id)} onCheckedChange={() => toggleExtraMember(member.id)} />
+                    <span className="min-w-0">
+                      <span className="block truncate">{fullName}</span>
+                      {member.role && <span className="block truncate text-xs text-muted-foreground">{member.role}</span>}
+                    </span>
+                  </label>
+                );
+              })}
+              {allMembers.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nessun membro disponibile per questa sezione.</p>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Se selezioni membri specifici, l'evento e la campanella interna saranno visibili solo a loro e a chi crea l'evento.
+            </p>
+          </div>
 
           {extraFrequency === "selected_days" && (
             <div className="space-y-2">

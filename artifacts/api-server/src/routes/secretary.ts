@@ -31,6 +31,51 @@ type PlayerAvailabilityOverrideFields = {
   availabilityOverrideUntil?: string | null;
 };
 
+let ensuredClubNotificationTargetColumns = false;
+
+async function ensureClubNotificationTargetColumns() {
+  if (ensuredClubNotificationTargetColumns) return;
+  await db.execute(sql`ALTER TABLE club_notifications ADD COLUMN IF NOT EXISTS target_audience TEXT NOT NULL DEFAULT 'all'`);
+  await db.execute(sql`ALTER TABLE club_notifications ADD COLUMN IF NOT EXISTS target_roles JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await db.execute(sql`ALTER TABLE club_notifications ADD COLUMN IF NOT EXISTS target_user_ids JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  ensuredClubNotificationTargetColumns = true;
+}
+
+const STAFF_NOTIFICATION_ROLES = new Set([
+  "admin",
+  "presidente",
+  "director",
+  "secretary",
+  "sporting_director",
+  "technical_director",
+  "coach",
+  "fitness_coach",
+  "athletic_director",
+]);
+
+function notificationVisibleToUser(
+  notification: typeof clubNotificationsTable.$inferSelect,
+  userId: number,
+  role?: string | null,
+) {
+  if (notification.createdByUserId === userId) return true;
+  const normalizedRole = normalizeSessionRole(role);
+  const row = notification as typeof notification & { targetAudience?: string | null; targetRoles?: unknown; targetUserIds?: unknown };
+  const targetUserIds = Array.isArray(row.targetUserIds)
+    ? row.targetUserIds.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id))
+    : [];
+  const targetRoles = Array.isArray(row.targetRoles)
+    ? row.targetRoles.map((item: unknown) => normalizeSessionRole(String(item)))
+    : [];
+
+  if (targetUserIds.length > 0) return targetUserIds.includes(userId);
+  if (targetRoles.length > 0) return targetRoles.includes(normalizedRole);
+  if (row.targetAudience === "staff") return STAFF_NOTIFICATION_ROLES.has(normalizedRole);
+  if (row.targetAudience === "parents") return false;
+
+  return true;
+}
+
 function canViewFinancials(role?: string | null): boolean {
   return PAYMENT_VIEW_ROLES.has(normalizeSessionRole(role));
 }
@@ -790,6 +835,7 @@ router.patch("/club/platform-announcements/:id/read", requireAuth, async (req, r
 
 // GET /club/notifications — list notifications for current club with read status
 router.get("/club/notifications", requireAuth, async (req, res) => {
+  await ensureClubNotificationTargetColumns();
   const clubId = req.session.clubId!;
   const userId = req.session.userId!;
   const notifications = await db
@@ -805,23 +851,31 @@ router.get("/club/notifications", requireAuth, async (req, res) => {
 
   const stateByNotificationId = new Map(reads.map((r) => [r.notificationId, r]));
 
-  const result = notifications.map((n) => ({
-    ...n,
-    isRead: stateByNotificationId.has(n.id),
-    isTrashed: stateByNotificationId.get(n.id)?.isTrashed ?? false,
-    isSent: n.createdByUserId === userId,
-  }));
+  const result = notifications
+    .filter((n) => notificationVisibleToUser(n, userId, req.session.role))
+    .map((n) => ({
+      ...n,
+      isRead: stateByNotificationId.has(n.id),
+      isTrashed: stateByNotificationId.get(n.id)?.isTrashed ?? false,
+      isSent: n.createdByUserId === userId,
+    }));
   res.json(result);
 });
 
 // POST /club/notifications — create a notification (ruoli direzionali)
 router.post("/club/notifications", requireAuth, async (req, res) => {
+  await ensureClubNotificationTargetColumns();
   const role = req.session.role;
   if (!["admin", "presidente", "director", "technical_director"].includes(role ?? "")) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
   const { title, message, type } = req.body;
+  const targetAudience = String(req.body?.targetAudience ?? "all");
+  const targetRoles = Array.isArray(req.body?.targetRoles) ? req.body.targetRoles.map((item: unknown) => String(item)) : [];
+  const targetUserIds = Array.isArray(req.body?.targetUserIds)
+    ? req.body.targetUserIds.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id) && id > 0)
+    : [];
   if (!title || !message) {
     res.status(400).json({ error: "title and message are required" });
     return;
@@ -833,8 +887,11 @@ router.post("/club/notifications", requireAuth, async (req, res) => {
       title: String(title),
       message: String(message),
       type: String(type || "info"),
+      targetAudience,
+      targetRoles,
+      targetUserIds,
       createdByUserId: req.session.userId!,
-    })
+    } as any)
     .returning();
   res.status(201).json(notification);
 });

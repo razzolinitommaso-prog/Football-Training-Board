@@ -25,6 +25,7 @@ export const calendarExtraEventsTable = pgTable("calendar_extra_events", {
   attachmentName: text("attachment_name"),
   attachmentMimeType: text("attachment_mime_type"),
   attachmentData: text("attachment_data"),
+  memberIds: jsonb("member_ids").$type<number[]>().notNull().default([]),
   teamIds: jsonb("team_ids").$type<number[]>().notNull().default([]),
   playerIds: jsonb("player_ids").$type<number[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
