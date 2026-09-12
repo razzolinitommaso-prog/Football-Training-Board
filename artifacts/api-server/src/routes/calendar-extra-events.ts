@@ -18,6 +18,8 @@ async function ensureCalendarExtraEventColumns() {
   await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS target_audience TEXT NOT NULL DEFAULT 'all'`);
   await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS notify_staff INTEGER NOT NULL DEFAULT 1`);
   await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS notify_parents INTEGER NOT NULL DEFAULT 0`);
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS location_name TEXT`);
+  await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS location_url TEXT`);
   await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS notes TEXT`);
   await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS attachment_name TEXT`);
   await db.execute(sql`ALTER TABLE calendar_extra_events ADD COLUMN IF NOT EXISTS attachment_mime_type TEXT`);
@@ -88,6 +90,8 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
   const targetAudience = String(req.body?.targetAudience ?? "all").trim();
   const notifyStaff = req.body?.notifyStaff !== false;
   const notifyParents = req.body?.notifyParents === true || targetAudience === "all" || targetAudience === "parents";
+  const locationName = String(req.body?.locationName ?? "").trim();
+  const locationUrl = String(req.body?.locationUrl ?? "").trim();
   const notes = String(req.body?.notes ?? "").trim();
   const attachment = typeof req.body?.attachment === "object" && req.body.attachment !== null ? req.body.attachment : null;
   const attachmentName = String(attachment?.name ?? "").trim();
@@ -162,6 +166,8 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
       targetAudience,
       notifyStaff: notifyStaff ? 1 : 0,
       notifyParents: notifyParents ? 1 : 0,
+      locationName: locationName || null,
+      locationUrl: locationUrl || null,
       notes: notes || null,
       attachmentName: attachmentData ? attachmentName : null,
       attachmentMimeType: attachmentData ? attachmentMimeType : null,
@@ -172,7 +178,14 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
     .returning();
 
   const when = dateFrom === dateTo ? `${dateFrom} ${startTime}-${endTime}` : `${dateFrom} - ${dateTo} ${startTime}-${endTime}`;
-  const message = [`${title}`, when, notes, attachmentData ? `Allegato: ${attachmentName}` : ""].filter(Boolean).join("\n");
+  const message = [
+    `${title}`,
+    when,
+    locationName ? `Luogo: ${locationName}` : "",
+    locationUrl ? `Mappe: ${locationUrl}` : "",
+    notes,
+    attachmentData ? `Allegato: ${attachmentName}` : "",
+  ].filter(Boolean).join("\n");
 
   if (notifyStaff && targetAudience !== "parents") {
     await db.insert(clubNotificationsTable).values({

@@ -41,7 +41,7 @@ interface Team {
 }
 interface Match { id: number; opponent: string; date: string; homeAway: string; result?: string; teamId?: number; teamName?: string; competition?: string; }
 interface PlayerLite { id: number; firstName?: string; lastName?: string; teamId?: number | null; }
-type ExtraCategory = "torneo" | "cena" | "corso" | "riunione" | "evento_societario" | "staff" | "allenamento_preparazione" | "camp_estivo" | "partita_interna" | "provino";
+type ExtraCategory = "evento_generico" | "torneo" | "cena" | "corso" | "riunione" | "evento_societario" | "staff" | "allenamento_preparazione" | "camp_estivo" | "partita_interna" | "provino";
 type ExtraFrequency = "everyday" | "selected_days";
 type ExtraTargetAudience = "all" | "staff" | "parents" | "teams";
 interface ExtraEvent {
@@ -59,6 +59,8 @@ interface ExtraEvent {
   targetAudience?: ExtraTargetAudience | string | null;
   notifyStaff?: number | boolean | null;
   notifyParents?: number | boolean | null;
+  locationName?: string | null;
+  locationUrl?: string | null;
   notes?: string | null;
   attachmentName?: string | null;
   attachmentMimeType?: string | null;
@@ -100,6 +102,7 @@ const SECTION_LABELS: Record<Section, string> = {
 };
 
 const EXTRA_CATEGORY_LABELS: Record<ExtraCategory, string> = {
+  evento_generico: "Evento generico",
   torneo: "Torneo",
   cena: "Cena",
   corso: "Corso",
@@ -208,11 +211,13 @@ export default function SectionCalendar({ section }: { section: Section }) {
   }));
   const [showScheduleFilters, setShowScheduleFilters] = useState(true);
   const [extraDialogOpen, setExtraDialogOpen] = useState(false);
-  const [extraCategory, setExtraCategory] = useState<ExtraCategory>("evento_societario");
+  const [extraCategory, setExtraCategory] = useState<ExtraCategory>("evento_generico");
   const [extraTargetAudience, setExtraTargetAudience] = useState<ExtraTargetAudience>("all");
   const [extraNotifyStaff, setExtraNotifyStaff] = useState(true);
   const [extraNotifyParents, setExtraNotifyParents] = useState(true);
   const [extraTitle, setExtraTitle] = useState("");
+  const [extraLocationName, setExtraLocationName] = useState("");
+  const [extraLocationUrl, setExtraLocationUrl] = useState("");
   const [extraNotes, setExtraNotes] = useState("");
   const [extraAttachment, setExtraAttachment] = useState<ExtraAttachment | null>(null);
   const [extraDateFrom, setExtraDateFrom] = useState("");
@@ -434,6 +439,8 @@ export default function SectionCalendar({ section }: { section: Section }) {
         section,
         category: extraCategory,
         title,
+        locationName: extraLocationName.trim(),
+        locationUrl: extraLocationUrl.trim(),
         notes: extraNotes.trim(),
         dateFrom: extraDateFrom,
         dateTo: extraDateTo,
@@ -460,11 +467,13 @@ export default function SectionCalendar({ section }: { section: Section }) {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["/api/calendar-extra-events", section] });
       setExtraDialogOpen(false);
-      setExtraCategory("evento_societario");
+      setExtraCategory("evento_generico");
       setExtraTargetAudience("all");
       setExtraNotifyStaff(true);
       setExtraNotifyParents(true);
       setExtraTitle("");
+      setExtraLocationName("");
+      setExtraLocationUrl("");
       setExtraNotes("");
       setExtraAttachment(null);
       setExtraDateFrom("");
@@ -476,7 +485,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
       setExtraTargetMode("all");
       setExtraTeamIds([]);
       setExtraPlayerIds([]);
-      toast({ title: "Evento straordinario creato" });
+      toast({ title: "Evento calendario creato" });
     },
     onError: (err) => {
       toast({ title: "Evento non creato", description: err instanceof Error ? err.message : "Errore", variant: "destructive" });
@@ -505,7 +514,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
         {canManageExtraEvents && (
           <Button type="button" className="gap-2" onClick={() => setExtraDialogOpen(true)}>
             <Plus className="w-4 h-4" />
-            Aggiungi evento straordinario
+            Aggiungi evento
           </Button>
         )}
       </div>
@@ -735,21 +744,23 @@ export default function SectionCalendar({ section }: { section: Section }) {
           <Trophy className="w-3.5 h-3.5" /> Partita
         </span>
         <span className="flex items-center gap-1.5">
-          <ClipboardList className="w-3.5 h-3.5" /> Evento straordinario
+          <ClipboardList className="w-3.5 h-3.5" /> Evento calendario
         </span>
       </div>
 
       <Dialog open={extraDialogOpen} onOpenChange={setExtraDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Nuovo evento straordinario</DialogTitle>
+        <DialogContent className="flex max-h-[92vh] max-w-2xl flex-col overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b px-6 py-4">
+            <DialogTitle>Nuovo evento calendario</DialogTitle>
           </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label>Tipologia</Label>
               <Select value={extraCategory} onValueChange={(v) => setExtraCategory(v as ExtraCategory)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="evento_generico">Evento generico</SelectItem>
                   <SelectItem value="evento_societario">Evento societario</SelectItem>
                   <SelectItem value="torneo">Torneo</SelectItem>
                   <SelectItem value="cena">Cena</SelectItem>
@@ -764,7 +775,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Titolo (opzionale)</Label>
+              <Label>Descrizione evento</Label>
               <Input value={extraTitle} onChange={(e) => setExtraTitle(e.target.value)} placeholder="Es. Riunione staff, cena sociale, torneo..." />
             </div>
             <div className="space-y-1">
@@ -782,6 +793,14 @@ export default function SectionCalendar({ section }: { section: Section }) {
             <div className="space-y-1">
               <Label>Orario fine</Label>
               <Input type="time" value={extraEndTime} onChange={(e) => setExtraEndTime(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Luogo</Label>
+              <Input value={extraLocationName} onChange={(e) => setExtraLocationName(e.target.value)} placeholder="Es. Campo sportivo, sede, palestra..." />
+            </div>
+            <div className="space-y-1">
+              <Label>Link mappe</Label>
+              <Input value={extraLocationUrl} onChange={(e) => setExtraLocationUrl(e.target.value)} placeholder="https://maps.google.com/..." />
             </div>
             <div className="space-y-1">
               <Label>Frequenza</Label>
@@ -837,7 +856,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
           </div>
 
           <div className="space-y-1">
-            <Label>Note comunicazione</Label>
+            <Label>Spazio note</Label>
             <Textarea
               value={extraNotes}
               onChange={(e) => setExtraNotes(e.target.value)}
@@ -924,8 +943,9 @@ export default function SectionCalendar({ section }: { section: Section }) {
               )}
             </div>
           </div>
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
             <Button type="button" variant="outline" onClick={() => setExtraDialogOpen(false)}>Annulla</Button>
             <Button type="button" onClick={handleCreateExtraEvent} disabled={createExtraEventMutation.isPending}>
               {createExtraEventMutation.isPending ? "Inserimento..." : "Inserisci evento"}

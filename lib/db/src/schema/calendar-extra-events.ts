@@ -19,6 +19,8 @@ export const calendarExtraEventsTable = pgTable("calendar_extra_events", {
   targetAudience: text("target_audience").notNull().default("all"),
   notifyStaff: integer("notify_staff").notNull().default(1),
   notifyParents: integer("notify_parents").notNull().default(0),
+  locationName: text("location_name"),
+  locationUrl: text("location_url"),
   notes: text("notes"),
   attachmentName: text("attachment_name"),
   attachmentMimeType: text("attachment_mime_type"),
