@@ -78,6 +78,107 @@ function shuttleRows(players: Player[]) {
   }));
 }
 
+function pdfEscape(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .replace(/[^\x20-\x7E]/g, (char) => {
+      const map: Record<string, string> = {
+        à: "a",
+        è: "e",
+        é: "e",
+        ì: "i",
+        ò: "o",
+        ù: "u",
+        À: "A",
+        È: "E",
+        É: "E",
+        Ì: "I",
+        Ò: "O",
+        Ù: "U",
+      };
+      return map[char] ?? " ";
+    });
+}
+
+function buildShuttlePdfBlob(rows: ReturnType<typeof shuttleRows>) {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const marginX = 42;
+  const startY = 790;
+  const lineHeight = 18;
+  const bottomY = 54;
+  const objects: string[] = [];
+  const pages: number[] = [];
+  let content = "";
+  let y = startY;
+
+  function addLine(text: string, x = marginX, size = 10) {
+    content += `BT /F1 ${size} Tf ${x} ${y} Td (${pdfEscape(text)}) Tj ET\n`;
+    y -= lineHeight;
+  }
+
+  function finishPage() {
+    const contentId = objects.length + 1;
+    objects.push(`<< /Length ${content.length} >>\nstream\n${content}endstream`);
+    const pageId = objects.length + 1;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`);
+    pages.push(pageId);
+    content = "";
+    y = startY;
+  }
+
+  addLine("ELENCO PULMINO", marginX, 18);
+  addLine(`${rows.length} giocatori filtrati`, marginX, 11);
+  y -= 8;
+  addLine("Cognome Nome | Squadra | Tratta | Tipo tratta", marginX, 10);
+  y -= 4;
+
+  rows.forEach((row, index) => {
+    if (y < bottomY) {
+      finishPage();
+      addLine("ELENCO PULMINO", marginX, 18);
+      addLine("Cognome Nome | Squadra | Tratta | Tipo tratta", marginX, 10);
+      y -= 4;
+    }
+    const name = `${row.Cognome} ${row.Nome}`.trim();
+    addLine(`${index + 1}. ${name} | ${row.Squadra || "-"} | ${row.Tratta || "-"} | ${row["Tipo tratta"] || "-"}`);
+  });
+
+  if (!content) addLine("Nessun giocatore filtrato.");
+  finishPage();
+
+  const catalog = "<< /Type /Catalog /Pages 2 0 R >>";
+  const pagesObject = `<< /Type /Pages /Kids [${pages.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
+  const font = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+  const allObjects = [catalog, pagesObject, font, ...objects];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  allObjects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${allObjects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${allObjects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 const templateRows = [
   { Cognome: "Rossi", Nome: "Mario", Squadra: "Allievi A", Pulmino: "Si", Tratta: "Ronta", "Tipo tratta": "Andata e ritorno" },
   { Cognome: "Bianchi", Nome: "Luca", Squadra: "Allievi B", Pulmino: "Si", Tratta: "Ronta", "Tipo tratta": "Solo andata" },
@@ -165,34 +266,7 @@ export default function ShuttlePage() {
 
   function exportPdf() {
     const rows = shuttleRows(filteredPlayers);
-    const htmlRows = rows.map((row) => `
-      <tr>
-        <td>${row.Cognome}</td>
-        <td>${row.Nome}</td>
-        <td>${row.Squadra}</td>
-        <td>${row.Tratta}</td>
-        <td>${row["Tipo tratta"]}</td>
-      </tr>
-    `).join("");
-    const win = window.open("", "_blank");
-    if (!win) {
-      toast({ title: "Popup bloccato", description: "Consenti i popup per esportare/stampare il PDF.", variant: "destructive" });
-      return;
-    }
-    win.document.write(`<!doctype html>
-      <html><head><title>Pulmino</title>
-      <style>
-        body{font-family:Arial,sans-serif;margin:32px;color:#111827}
-        h1{font-size:26px;margin:0 0 8px} p{margin:0 0 18px;color:#4b5563}
-        table{width:100%;border-collapse:collapse;font-size:12px}
-        th,td{border:1px solid #d1d5db;padding:8px;text-align:left}
-        th{background:#f3f4f6}
-      </style></head><body>
-      <h1>Elenco pulmino</h1><p>${filteredPlayers.length} giocatori filtrati</p>
-      <table><thead><tr><th>Cognome</th><th>Nome</th><th>Squadra</th><th>Tratta</th><th>Tipo tratta</th></tr></thead><tbody>${htmlRows}</tbody></table>
-      <script>window.onload=()=>{window.print();}</script>
-      </body></html>`);
-    win.document.close();
+    downloadBlob(buildShuttlePdfBlob(rows), "pulmino.pdf");
   }
 
   return (
