@@ -123,6 +123,8 @@ const EXTRA_CATEGORY_LABELS: Record<ExtraCategory, string> = {
   provino: "Provino",
 };
 
+const EXTRA_CATEGORY_OPTIONS = Object.keys(EXTRA_CATEGORY_LABELS) as ExtraCategory[];
+
 interface CalendarEvent {
   type: "training" | "match" | "extra";
   teamId: number;
@@ -213,6 +215,9 @@ export default function SectionCalendar({ section }: { section: Section }) {
   const [currentMonth, setCurrentMonth] = useState(() => getInitialMonth(today));
   /** Squadre (annate) da mostrare nel calendario; all’avvio tutte incluse. */
   const [selectedTeamIds, setSelectedTeamIds] = useState<Set<number>>(() => new Set());
+  const [selectedExtraCategories, setSelectedExtraCategories] = useState<Set<ExtraCategory>>(
+    () => new Set(EXTRA_CATEGORY_OPTIONS),
+  );
   const previousValidTeamIdsRef = useRef<Set<number>>(new Set());
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilterOpts>(() => ({
     ...EMPTY_SCHEDULE_FILTER,
@@ -363,6 +368,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
 
     extraEvents.forEach((evt) => {
       if (evt.section !== section) return;
+      if (!selectedExtraCategories.has(evt.category)) return;
       const from = new Date(`${evt.dateFrom}T00:00:00`);
       const to = new Date(`${evt.dateTo}T00:00:00`);
       if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || isAfter(from, to)) return;
@@ -388,7 +394,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
     });
 
     return map;
-  }, [calendarDays, allTeams, allMatches, sectionTeamIds, schoolYear, selectedTeamIds, extraEvents, section]);
+  }, [calendarDays, allTeams, allMatches, sectionTeamIds, schoolYear, selectedTeamIds, selectedExtraCategories, extraEvents, section]);
 
   const eventsByDayFiltered = useMemo(() => {
     if (!scheduleTimeFilterActive(scheduleFilter)) return eventsByDay;
@@ -423,6 +429,32 @@ export default function SectionCalendar({ section }: { section: Section }) {
 
   const toggleExtraTeam = (teamId: number) => {
     setExtraTeamIds((prev) => (prev.includes(teamId) ? prev.filter((id) => id !== teamId) : [...prev, teamId]));
+  };
+
+  const toggleExtraCategoryFilter = (category: ExtraCategory) => {
+    setSelectedExtraCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
+
+  const openExtraEventDialogForDate = (day: Date) => {
+    if (!canManageExtraEvents) return;
+    const isoDate = format(day, "yyyy-MM-dd");
+    setExtraDateFrom(isoDate);
+    setExtraDateTo(isoDate);
+    const visibleTeamIds = Array.from(selectedTeamIds);
+    if (visibleTeamIds.length > 0 && visibleTeamIds.length < allTeams.length) {
+      setExtraTargetMode("selected");
+      setExtraTeamIds(visibleTeamIds);
+      setExtraTargetAudience("teams");
+    } else {
+      setExtraTargetMode("all");
+      setExtraTeamIds([]);
+    }
+    setExtraDialogOpen(true);
   };
 
   const handleExtraAttachmentChange = (file?: File | null) => {
@@ -612,6 +644,65 @@ export default function SectionCalendar({ section }: { section: Section }) {
         </div>
       )}
 
+      <div className="space-y-2 rounded-xl border border-border/80 bg-muted/10 p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              Appuntamenti
+              <span className="font-normal text-muted-foreground">
+                {" "}
+                ({selectedExtraCategories.size}/{EXTRA_CATEGORY_OPTIONS.length})
+              </span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Filtra riunioni, corsi, cene e altri eventi senza cambiare il filtro annate.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setSelectedExtraCategories(new Set(EXTRA_CATEGORY_OPTIONS))}
+            >
+              Tutti
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setSelectedExtraCategories(new Set())}
+            >
+              Nessuno
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {EXTRA_CATEGORY_OPTIONS.map((category) => {
+            const on = selectedExtraCategories.has(category);
+            return (
+              <button
+                key={category}
+                type="button"
+                onClick={() => toggleExtraCategoryFilter(category)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-all",
+                  on
+                    ? "border-sky-300 bg-sky-100 text-sky-900 ring-2 ring-sky-200"
+                    : "border-border bg-background text-muted-foreground opacity-60 hover:opacity-90",
+                )}
+                aria-pressed={on}
+              >
+                <ClipboardList className="h-3 w-3" />
+                {EXTRA_CATEGORY_LABELS[category]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="flex items-center gap-2 flex-wrap">
         <Button variant="outline" size="sm" className="h-9 text-xs" onClick={goToPrev}>
           Mese precedente
@@ -695,8 +786,19 @@ export default function SectionCalendar({ section }: { section: Section }) {
             return (
               <div
                 key={key}
+                role={canManageExtraEvents ? "button" : undefined}
+                tabIndex={canManageExtraEvents ? 0 : undefined}
+                onClick={() => openExtraEventDialogForDate(day)}
+                onKeyDown={(event) => {
+                  if (!canManageExtraEvents) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openExtraEventDialogForDate(day);
+                  }
+                }}
                 className={[
                   "min-h-[100px] p-1.5 border-b border-r flex flex-col gap-0.5",
+                  canManageExtraEvents && "cursor-pointer hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-inset",
                   !isCurrentMonth && "bg-muted/20",
                   isLastRow && "border-b-0",
                   isRightEdge && "border-r-0",
@@ -717,6 +819,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
                     return (
                       <div
                         key={`t-${i}`}
+                        onClick={(event) => event.stopPropagation()}
                         title={`${evt.teamName} — Allenamento ${evt.time}`}
                         className="flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-emerald-800 cursor-default"
                       >
@@ -730,6 +833,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
                     return (
                       <div
                         key={`x-${i}`}
+                        onClick={(event) => event.stopPropagation()}
                         title={`${evt.teamName} — ${evt.label} ${evt.time ?? ""}`.trim()}
                         className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border leading-tight cursor-default bg-sky-100 text-sky-800 border-sky-200"
                       >
@@ -741,6 +845,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
                   return (
                     <div
                       key={`m-${i}`}
+                      onClick={(event) => event.stopPropagation()}
                       title={`${evt.teamName} vs ${evt.opponent} (${evt.homeAway === "home" ? "Casa" : "Trasferta"})`}
                       className="flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold leading-tight text-blue-800 cursor-default"
                     >
