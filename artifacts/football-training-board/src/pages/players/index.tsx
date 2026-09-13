@@ -727,6 +727,7 @@ function percentLabel(value: number | null): string {
 }
 
 function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: number; isYouthSection: boolean }) {
+  const { t } = useLanguage();
   const { data, isLoading, isError } = useQuery<PlayerActivitySummary>({
     queryKey: ["/api/players", playerId, "activity-summary"],
     queryFn: async () => {
@@ -738,9 +739,9 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
   });
 
   return (
-    <details className="group rounded-lg border p-3" open>
+    <details className="group rounded-lg border p-3">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-        <span className="text-sm font-semibold">Andamento automatico</span>
+        <span className="text-sm font-semibold">Storico sportivo automatico</span>
         <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
       </summary>
       {isLoading ? (
@@ -804,7 +805,7 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
               Condotta
             </div>
             <p className="mt-2 text-sm">{data.conduct.status}</p>
-            {data.conduct.reason ? <p className="text-xs text-muted-foreground">Motivo: {data.conduct.reason}</p> : null}
+            {data.conduct.reason ? <p className="text-xs text-muted-foreground">Motivo: {reasonLabel(data.conduct.reason, t)}</p> : null}
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
               <span className="rounded border bg-background px-2 py-0.5">Ottima: {data.conduct.training?.ottima ?? 0}</span>
               <span className="rounded border bg-background px-2 py-0.5">Buona: {data.conduct.training?.buona ?? 0}</span>
@@ -3002,11 +3003,29 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </div>
 
-              <div className="space-y-2 rounded-lg border p-3">
-                <div>
-                  <Label className="text-sm font-semibold">Comunicazioni</Label>
-                  <p className="text-xs text-muted-foreground">Puoi inviare una nota o rispondere a una richiesta.</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border bg-background p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tesseramento</p>
+                  <p className="mt-1 text-sm font-semibold">{editingPlayer.registered ? t.registered : "Non tesserato"}</p>
                 </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Certificato</p>
+                  <p className="mt-1 text-sm font-semibold">{isMedicalCertificateValid(editingPlayer.medicalCertificateExpiry) ? `Valido fino al ${editingPlayer.medicalCertificateExpiry}` : "Assente o scaduto"}</p>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagamenti</p>
+                  <p className="mt-1 text-sm font-semibold">{editingPlayerPayments.length > 0 ? `${editingPlayerPayments.length} voci` : "Nessuna quota"}</p>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">App genitori</p>
+                  <p className="mt-1 text-sm font-semibold">{parentDelegateRows.length > 0 ? `${parentDelegateRows.length} delegati` : "Nessun delegato"}</p>
+                </div>
+              </div>
+
+              <details className="group rounded-lg border p-3">
+                <CollapsibleSectionSummary title="Comunicazioni" />
+                <div className="mt-3">
+                  <p className="mb-2 text-xs text-muted-foreground">Puoi inviare una nota o rispondere a una richiesta.</p>
                 {(() => {
                   const parsed = splitPlayerNotes(editForm.watch("notes") ?? "");
                   const pendingForCurrentUser = parsed.thread.filter((n) =>
@@ -3085,7 +3104,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     </div>
                   );
                 })()}
-              </div>
+                </div>
+              </details>
 
               <PlayerActivitySummaryPanel playerId={editingPlayer.id} isYouthSection={editingPlayerIsYouthSection} />
 
@@ -3098,7 +3118,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </details>
               )}
 
-              <details className="group rounded-lg border p-3">
+              <details className="group rounded-lg border p-3" open>
                 <CollapsibleSectionSummary title="Dati principali" />
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-muted-foreground">Squadra principale</span><p>{editingPlayer.teamName || t.unassigned}</p></div>
@@ -3830,10 +3850,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 <CollapsibleSectionSummary title="Squadra assegnata" />
                 <div className="mt-3 space-y-4">
                   <div className="rounded-md border bg-background p-3 space-y-3">
-                    <p className="text-sm font-semibold">Squadra principale</p>
+                    <p className="text-sm font-semibold">Assegnazione principale</p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label>{t.assignToTeam}</Label>
+                        <Label>Annata principale</Label>
                         <Controller
                           control={editForm.control}
                           name="teamId"
@@ -3848,7 +3868,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Squadra</Label>
+                        <Label>Gruppo interno</Label>
                         <Controller
                           control={editForm.control}
                           name="squad"
@@ -3876,7 +3896,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Titolare/Riserva</Label>
+                        <Label>Stato in formazione</Label>
                         <Controller
                           control={editForm.control}
                           name="primaryLineupStatus"
@@ -3889,17 +3909,17 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           )}
                         />
                         {!editingPlayerIsYouthSection && (
-                          <p className="text-xs text-muted-foreground">Campo preparato per il Settore Giovanile.</p>
+                          <p className="text-xs text-muted-foreground">Campo attivo solo per annate del Settore Giovanile.</p>
                         )}
                       </div>
                     </div>
                   </div>
 
                   <div className="rounded-md border bg-background p-3 space-y-3">
-                    <p className="text-sm font-semibold">Squadra supplementare</p>
+                    <p className="text-sm font-semibold">Assegnazione supplementare</p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label>Assegna squadra supplementare</Label>
+                        <Label>Annata supplementare</Label>
                         <Controller
                           control={editForm.control}
                           name="supplementalTeamId"
@@ -3923,7 +3943,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Squadra supplementare</Label>
+                        <Label>Gruppo supplementare</Label>
                         <Controller
                           control={editForm.control}
                           name="supplementalSquad"
@@ -3952,7 +3972,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Titolare/Riserva supplementare</Label>
+                        <Label>Stato in formazione supplementare</Label>
                         <Controller
                           control={editForm.control}
                           name="supplementalLineupStatus"
@@ -3965,7 +3985,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           )}
                         />
                         {!editingPlayerIsYouthSection && (
-                          <p className="text-xs text-muted-foreground">Campo preparato per il Settore Giovanile.</p>
+                          <p className="text-xs text-muted-foreground">Campo attivo solo per annate del Settore Giovanile.</p>
                         )}
                       </div>
                     </div>
@@ -4081,7 +4101,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           <Input type="number" step="0.01" value={upfrontPaymentTotal} onChange={(e) => setUpfrontPaymentTotal(e.target.value)} />
                         </div>
                         <div className="rounded-md border bg-muted/30 px-3 py-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Residuo da rateizzare</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Residuo totale da rateizzare</p>
                           <p className="text-lg font-bold">Euro {formatEuro(plannedResidualTotal)}</p>
                         </div>
                         <label className="flex min-w-0 items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm">
@@ -4461,7 +4481,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedUpfrontAmount)}</p>
                         </div>
                         <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo da rateizzare</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo totale da rateizzare</p>
                           <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedResidualTotal)}</p>
                         </div>
                         <div className="flex min-w-0 items-end xl:col-span-2">
