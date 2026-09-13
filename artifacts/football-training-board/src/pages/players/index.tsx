@@ -878,11 +878,11 @@ function normalizeImportTeamName(value?: string | null): string {
     .replace(/\s+/g, " ");
 }
 
-function playerImportFingerprint(player: { firstName?: unknown; lastName?: unknown; teamId?: unknown }) {
+function playerImportFingerprint(player: { firstName?: unknown; lastName?: unknown; dateOfBirth?: unknown }) {
   return [
     normalizeImportTeamName(String(player.lastName ?? "")),
     normalizeImportTeamName(String(player.firstName ?? "")),
-    String(player.teamId ?? ""),
+    String(player.dateOfBirth ?? "").slice(0, 10),
   ].join("|");
 }
 
