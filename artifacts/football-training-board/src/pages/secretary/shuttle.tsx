@@ -10,8 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { withApi } from "@/lib/api-base";
-import { parseExcelFile, cellToTrimmedString } from "@/lib/excel-import";
-import { exportToExcel } from "@/lib/excel-export";
+import { cellToTrimmedString } from "@/lib/excel-import";
 
 type ShuttleDirection = "outbound" | "round_trip" | "return";
 
@@ -19,6 +18,8 @@ type Player = {
   id: number;
   firstName: string;
   lastName: string;
+  dateOfBirth?: string | null;
+  phone?: string | null;
   teamId?: number | null;
   teamName?: string | null;
   shuttleService?: boolean | null;
@@ -33,6 +34,45 @@ type Team = {
   seasonName?: string | null;
 };
 
+type PlayerPayment = {
+  id: number;
+  playerId: number;
+  amount: number;
+  dueDate?: string | null;
+  status?: string | null;
+  paymentType?: string | null;
+  description?: string | null;
+};
+
+type WarehouseItem = {
+  id: number;
+  name: string;
+  itemType: string;
+  price?: number | null;
+  isActive?: number | boolean | null;
+  category?: string | null;
+  size?: string | null;
+  notes?: string | null;
+};
+
+type ShuttleImportRow = {
+  firstName: string;
+  lastName: string;
+  birthYear: string;
+  phone: string;
+  route: string;
+  outbound: boolean;
+  returnTrip: boolean;
+  direction: ShuttleDirection | null;
+};
+
+type SaveFilePicker = (options?: {
+  suggestedName?: string;
+  types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+}) => Promise<{
+  createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }>;
+}>;
+
 function playerName(player: Player): string {
   return [player.lastName, player.firstName].filter(Boolean).join(" ");
 }
@@ -43,18 +83,34 @@ function directionLabel(value?: string | null): string {
   return "Andata e ritorno";
 }
 
-function normalizeDirection(value: unknown): ShuttleDirection {
-  const raw = cellToTrimmedString(value).toLowerCase();
-  if (raw.includes("solo") && raw.includes("ritorno")) return "return";
-  if (raw.includes("solo") && raw.includes("andata")) return "outbound";
-  if (raw === "return") return "return";
-  if (raw === "outbound") return "outbound";
-  return "round_trip";
-}
-
 function normalizeBool(value: unknown): boolean {
   const raw = cellToTrimmedString(value).toLowerCase();
   return ["si", "sì", "yes", "true", "1", "x", "attivo"].includes(raw);
+}
+
+function normalizeSearch(value: unknown): string {
+  return cellToTrimmedString(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function playerBirthYear(player: Player): string {
+  const year = String(player.dateOfBirth ?? "").slice(0, 4);
+  return /^\d{4}$/.test(year) ? year : "";
+}
+
+function importedDirection(outbound: boolean, returnTrip: boolean): ShuttleDirection | null {
+  if (outbound && returnTrip) return "round_trip";
+  if (outbound) return "outbound";
+  if (returnTrip) return "return";
+  return null;
+}
+
+function pulminoYesNo(value: boolean) {
+  return value ? "SI" : "NO";
 }
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -69,13 +125,165 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 
 function shuttleRows(players: Player[]) {
   return players.map((player) => ({
-    Cognome: player.lastName,
     Nome: player.firstName,
+    Cognome: player.lastName,
+    Anno: playerBirthYear(player),
+    "Cell ragazzo": player.phone ?? "",
+    Paese: player.shuttleRoute ?? "",
+    Andata: pulminoYesNo(player.shuttleService === true && player.shuttleDirection !== "return"),
+    Ritorno: pulminoYesNo(player.shuttleService === true && player.shuttleDirection !== "outbound"),
     Squadra: player.teamName ?? "",
-    Pulmino: player.shuttleService ? "Si" : "No",
-    Tratta: player.shuttleRoute ?? "",
     "Tipo tratta": player.shuttleService ? directionLabel(player.shuttleDirection) : "",
   }));
+}
+
+function parsePulminoWorkbook(file: File): Promise<ShuttleImportRow[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
+        const headerIndex = rawRows.findIndex((row) => {
+          const normalized = row.map(normalizeSearch);
+          return normalized.includes("nome") && normalized.includes("cognome") && normalized.includes("paese");
+        });
+        if (headerIndex < 0) throw new Error("Intestazioni pulmino non trovate");
+        const headers = rawRows[headerIndex].map(normalizeSearch);
+        const indexOf = (header: string) => headers.indexOf(header);
+        const nomeIndex = indexOf("nome");
+        const cognomeIndex = indexOf("cognome");
+        const annoIndex = indexOf("anno");
+        const phoneIndex = headers.findIndex((header) => header.includes("cell"));
+        const paeseIndex = indexOf("paese");
+        const andataIndex = indexOf("andata");
+        const ritornoIndex = indexOf("ritorno");
+
+        const rows = rawRows.slice(headerIndex + 1).map((row) => {
+          const outbound = normalizeBool(row[andataIndex]);
+          const returnTrip = normalizeBool(row[ritornoIndex]);
+          return {
+            firstName: cellToTrimmedString(row[nomeIndex]).replace(/\s+/g, " "),
+            lastName: cellToTrimmedString(row[cognomeIndex]).replace(/\s+/g, " "),
+            birthYear: cellToTrimmedString(row[annoIndex]),
+            phone: cellToTrimmedString(row[phoneIndex]),
+            route: cellToTrimmedString(row[paeseIndex]).replace(/\s+/g, " "),
+            outbound,
+            returnTrip,
+            direction: importedDirection(outbound, returnTrip),
+          };
+        }).filter((row) => row.firstName && row.lastName && row.route && row.direction);
+        resolve(rows);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.onerror = () => reject(new Error("Errore nella lettura del file"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
+  const workbookArray = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([workbookArray], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const safeFilename = filename.toLowerCase().endsWith(".xlsx") ? filename : `${filename}.xlsx`;
+  const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+  if (showSaveFilePicker) {
+    try {
+      const handle = await showSaveFilePicker({
+        suggestedName: safeFilename,
+        types: [{
+          description: "File Excel",
+          accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] },
+        }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (error) {
+      if ((error as { name?: string })?.name === "AbortError") return;
+    }
+  }
+  downloadBlob(blob, safeFilename);
+}
+
+function buildPulminoWorkbook(rows: ReturnType<typeof shuttleRows>) {
+  const data = [
+    ["", "FORTIS JUVENTUS 1909"],
+    ["NOME", "COGNOME", "ANNO", "CELL RAGAZZO", "PAESE", "ANDATA", "RITORNO"],
+    ...rows.map((row) => [row.Nome, row.Cognome, row.Anno, row["Cell ragazzo"], row.Paese, row.Andata, row.Ritorno]),
+  ];
+  const worksheet = XLSX.utils.aoa_to_sheet(data);
+  worksheet["!cols"] = [{ wch: 18 }, { wch: 20 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 12 }];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Pulmino");
+  return workbook;
+}
+
+function findImportedPlayer(players: Player[], row: ShuttleImportRow) {
+  const first = normalizeSearch(row.firstName);
+  const last = normalizeSearch(row.lastName);
+  const candidates = players.filter((player) => {
+    const direct = normalizeSearch(player.firstName) === first && normalizeSearch(player.lastName) === last;
+    const reversed = normalizeSearch(player.firstName) === last && normalizeSearch(player.lastName) === first;
+    return direct || reversed;
+  });
+  if (candidates.length <= 1 || !row.birthYear) return candidates[0];
+  return candidates.find((player) => playerBirthYear(player) === row.birthYear) ?? candidates[0];
+}
+
+function directionTokens(direction: ShuttleDirection | null) {
+  if (direction === "outbound") return ["solo andata", "andata"];
+  if (direction === "return") return ["solo ritorno", "ritorno"];
+  if (direction === "round_trip") return ["andata ritorno", "andata e ritorno", "ar"];
+  return [];
+}
+
+function findShuttleFeeItem(items: WarehouseItem[], route: string, direction: ShuttleDirection | null) {
+  const active = items.filter((item) =>
+    item.itemType === "shuttle_fee" &&
+    item.price != null &&
+    item.isActive !== 0 &&
+    item.isActive !== false
+  );
+  if (active.length === 0) return undefined;
+  const routeToken = normalizeSearch(route);
+  const routeMatches = active.filter((item) => {
+    const haystack = normalizeSearch([item.name, item.category, item.size, item.notes].filter(Boolean).join(" "));
+    return routeToken && haystack.includes(routeToken);
+  });
+  const scoped = routeMatches.length > 0 ? routeMatches : active;
+  const directionMatches = scoped.filter((item) => {
+    const haystack = normalizeSearch([item.name, item.category, item.size, item.notes].filter(Boolean).join(" "));
+    return directionTokens(direction).some((token) => haystack.includes(normalizeSearch(token)));
+  });
+  if (directionMatches.length > 0) return directionMatches[0];
+  if (routeMatches.length === 1) return routeMatches[0];
+  if (active.length === 1) return active[0];
+  return undefined;
+}
+
+async function upsertShuttlePayment(playerId: number, amount: number, existing?: PlayerPayment) {
+  const payload = {
+    playerId,
+    amount,
+    dueDate: existing?.dueDate ?? null,
+    status: existing?.status ?? "pending",
+    description: "Quota pulmino",
+    paymentType: "shuttle_monthly",
+    installmentNumber: 1,
+    totalInstallments: 1,
+    availabilityBlocking: 1,
+  };
+  if (existing) {
+    return apiFetch(`/api/player-payments/${existing.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+  }
+  return apiFetch("/api/player-payments", { method: "POST", body: JSON.stringify(payload) });
 }
 
 function pdfEscape(value: unknown): string {
@@ -132,18 +340,18 @@ function buildShuttlePdfBlob(rows: ReturnType<typeof shuttleRows>) {
   addLine("ELENCO PULMINO", marginX, 18);
   addLine(`${rows.length} giocatori filtrati`, marginX, 11);
   y -= 8;
-  addLine("Cognome Nome | Squadra | Tratta | Tipo tratta", marginX, 10);
+  addLine("Nome Cognome | Anno | Telefono | Paese | Andata | Ritorno", marginX, 10);
   y -= 4;
 
   rows.forEach((row, index) => {
     if (y < bottomY) {
       finishPage();
       addLine("ELENCO PULMINO", marginX, 18);
-      addLine("Cognome Nome | Squadra | Tratta | Tipo tratta", marginX, 10);
+      addLine("Nome Cognome | Anno | Telefono | Paese | Andata | Ritorno", marginX, 10);
       y -= 4;
     }
-    const name = `${row.Cognome} ${row.Nome}`.trim();
-    addLine(`${index + 1}. ${name} | ${row.Squadra || "-"} | ${row.Tratta || "-"} | ${row["Tipo tratta"] || "-"}`);
+    const name = `${row.Nome} ${row.Cognome}`.trim();
+    addLine(`${index + 1}. ${name} | ${row.Anno || "-"} | ${row["Cell ragazzo"] || "-"} | ${row.Paese || "-"} | ${row.Andata} | ${row.Ritorno}`);
   });
 
   if (!content) addLine("Nessun giocatore filtrato.");
@@ -180,8 +388,8 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 const templateRows = [
-  { Cognome: "Rossi", Nome: "Mario", Squadra: "Allievi A", Pulmino: "Si", Tratta: "Ronta", "Tipo tratta": "Andata e ritorno" },
-  { Cognome: "Bianchi", Nome: "Luca", Squadra: "Allievi B", Pulmino: "Si", Tratta: "Ronta", "Tipo tratta": "Solo andata" },
+  { Nome: "MARIO", Cognome: "ROSSI", Anno: "2014", "Cell ragazzo": "", Paese: "RONTA", Andata: "SI", Ritorno: "SI", Squadra: "", "Tipo tratta": "Andata e ritorno" },
+  { Nome: "LUCA", Cognome: "BIANCHI", Anno: "2015", "Cell ragazzo": "", Paese: "SCARPERIA", Andata: "SI", Ritorno: "NO", Squadra: "", "Tipo tratta": "Solo andata" },
 ];
 
 export default function ShuttlePage() {
@@ -199,6 +407,14 @@ export default function ShuttlePage() {
   const { data: teams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", "shuttle"],
     queryFn: () => apiFetch<Team[]>("/api/teams"),
+  });
+  const { data: playerPayments = [] } = useQuery<PlayerPayment[]>({
+    queryKey: ["/api/player-payments", "shuttle"],
+    queryFn: () => apiFetch<PlayerPayment[]>("/api/player-payments"),
+  });
+  const { data: warehouseItems = [] } = useQuery<WarehouseItem[]>({
+    queryKey: ["/api/warehouse-items", "shuttle"],
+    queryFn: () => apiFetch<WarehouseItem[]>("/api/warehouse-items"),
   });
 
   const updatePlayer = useMutation({
@@ -220,6 +436,15 @@ export default function ShuttlePage() {
     if (directionFilter !== "all" && (player.shuttleDirection ?? "round_trip") !== directionFilter) return false;
     return true;
   });
+  const paymentByPlayerId = useMemo(() => {
+    const map = new Map<number, PlayerPayment>();
+    playerPayments.forEach((payment) => {
+      if (payment.paymentType === "shuttle_monthly" && !map.has(payment.playerId)) {
+        map.set(payment.playerId, payment);
+      }
+    });
+    return map;
+  }, [playerPayments]);
 
   function savePlayer(player: Player, patch: Partial<Player>) {
     updatePlayer.mutate({
@@ -235,33 +460,58 @@ export default function ShuttlePage() {
   async function importFile(file?: File | null) {
     if (!file) return;
     try {
-      const rows = await parseExcelFile(file);
+      const rows = await parsePulminoWorkbook(file);
       let updated = 0;
+      let paymentUpdated = 0;
+      let paymentSkipped = 0;
+      let notFound = 0;
       for (const row of rows) {
-        const firstName = cellToTrimmedString(row.Nome);
-        const lastName = cellToTrimmedString(row.Cognome);
-        if (!firstName || !lastName) continue;
-        const player = sortedPlayers.find((item) =>
-          item.firstName.localeCompare(firstName, "it", { sensitivity: "base" }) === 0 &&
-          item.lastName.localeCompare(lastName, "it", { sensitivity: "base" }) === 0
-        );
-        if (!player) continue;
+        const player = findImportedPlayer(sortedPlayers, row);
+        if (!player) {
+          notFound++;
+          continue;
+        }
         await updatePlayer.mutateAsync({
           id: player.id,
           data: {
-            shuttleService: normalizeBool(row.Pulmino),
-            shuttleRoute: cellToTrimmedString(row.Tratta) || null,
-            shuttleDirection: normalizeDirection(row["Tipo tratta"]),
+            shuttleService: true,
+            shuttleRoute: row.route || null,
+            shuttleDirection: row.direction ?? "round_trip",
           },
         });
+        const feeItem = findShuttleFeeItem(warehouseItems, row.route, row.direction);
+        if (feeItem?.price != null) {
+          const existing = playerPayments.find((payment) => payment.playerId === player.id && payment.paymentType === "shuttle_monthly");
+          try {
+            await upsertShuttlePayment(player.id, Number(feeItem.price), existing);
+            paymentUpdated++;
+          } catch {
+            paymentSkipped++;
+          }
+        } else {
+          paymentSkipped++;
+        }
         updated++;
       }
-      toast({ title: "Import pulmino completato", description: `${updated} giocatori aggiornati.` });
+      await queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
+      toast({
+        title: "Import pulmino completato",
+        description: `${updated} giocatori aggiornati. Quote aggiornate: ${paymentUpdated}. Non trovati: ${notFound}. Quote senza prezzo/permesso: ${paymentSkipped}.`,
+      });
     } catch {
       toast({ title: "Import non riuscito", description: "Controlla che il file sia .xlsx o .xls.", variant: "destructive" });
     } finally {
       if (fileRef.current) fileRef.current.value = "";
     }
+  }
+
+  function exportTemplate() {
+    void downloadWorkbook(buildPulminoWorkbook(templateRows), "modello_pulmino_fortis.xlsx");
+  }
+
+  function exportExcel() {
+    void downloadWorkbook(buildPulminoWorkbook(shuttleRows(filteredPlayers)), "pulmino.xlsx");
   }
 
   function exportPdf() {
@@ -278,13 +528,13 @@ export default function ShuttlePage() {
           <p className="text-sm text-muted-foreground">Tratte, direzione e riepiloghi dei giocatori che usufruiscono del servizio.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" className="gap-2" onClick={() => exportToExcel(templateRows, "modello_pulmino.xlsx", "Pulmino", { preferSavePicker: true })}>
+          <Button type="button" variant="outline" className="gap-2" onClick={exportTemplate}>
             <FileDown className="h-4 w-4" />Modello
           </Button>
           <Button type="button" variant="outline" className="gap-2" onClick={() => fileRef.current?.click()}>
             <FileUp className="h-4 w-4" />Importa Excel
           </Button>
-          <Button type="button" variant="outline" className="gap-2" onClick={() => exportToExcel(shuttleRows(filteredPlayers), "pulmino.xlsx", "Pulmino", { preferSavePicker: true })}>
+          <Button type="button" variant="outline" className="gap-2" onClick={exportExcel}>
             <FileDown className="h-4 w-4" />Excel
           </Button>
           <Button type="button" className="gap-2" onClick={exportPdf}>
@@ -360,6 +610,9 @@ export default function ShuttlePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">{directionLabel(player.shuttleDirection)}</Badge>
+                  {paymentByPlayerId.get(player.id)?.amount != null && (
+                    <Badge variant="secondary">Quota Euro {Number(paymentByPlayerId.get(player.id)?.amount ?? 0).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Badge>
+                  )}
                   <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => savePlayer(player, { shuttleService: false, shuttleRoute: null, shuttleDirection: null })}>
                     <Save className="h-4 w-4" />Disattiva
                   </Button>
