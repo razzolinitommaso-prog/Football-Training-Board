@@ -3013,8 +3013,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <p className="mt-1 text-sm font-semibold">{isMedicalCertificateValid(editingPlayer.medicalCertificateExpiry) ? `Valido fino al ${editingPlayer.medicalCertificateExpiry}` : "Assente o scaduto"}</p>
                 </div>
                 <div className="rounded-lg border bg-background p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagamenti</p>
-                  <p className="mt-1 text-sm font-semibold">{editingPlayerPayments.length > 0 ? `${editingPlayerPayments.length} voci` : "Nessuna quota"}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pulmino</p>
+                  <p className="mt-1 text-sm font-semibold">{editingPlayer.shuttleService ? "Si" : "No"}</p>
                 </div>
                 <div className="rounded-lg border bg-background p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">App genitori</p>
@@ -3176,39 +3176,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   )}
                 </div>
               </details>
-              )}
-
-              {canViewFinancials && (
-                <details className="group rounded-lg border p-3" open={overduePlayerPayments.length > 0}>
-                  <CollapsibleSectionSummary title="Quote" status={paymentSectionStatus} />
-                  <div className="mt-3 space-y-2 text-sm">
-                    {overduePlayerPayments.length > 0 && (
-                      <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                        Sono presenti rate scadute non versate: il giocatore risulta non disponibile.
-                      </div>
-                    )}
-                    {editingPlayerPayments.length === 0 ? (
-                      <p className="text-muted-foreground">Nessuna quota registrata.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {editingPlayerPayments.map((payment) => (
-                          <div key={payment.id} className="flex flex-col gap-1 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                              <p className="font-medium">{payment.description || "Quota giocatore"}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {payment.dueDate ? `Scadenza ${payment.dueDate}` : "Senza scadenza"}
-                                {payment.installmentNumber && payment.totalInstallments ? ` - rata ${payment.installmentNumber}/${payment.totalInstallments}` : ""}
-                              </p>
-                            </div>
-                            <div className="text-sm font-semibold">
-                              Euro {formatEuro(payment.amount)} - {payment.status === "paid" ? "Versata" : "Non versata"}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </details>
               )}
 
               {canViewKit && (
