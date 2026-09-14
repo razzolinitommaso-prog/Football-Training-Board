@@ -47,6 +47,7 @@ interface ClubMemberLite {
   lastName?: string;
   email?: string;
   role?: string;
+  clubSection?: string[] | string | null;
 }
 type ExtraCategory = "evento_generico" | "torneo" | "cena" | "corso" | "riunione" | "evento_societario" | "staff" | "allenamento_preparazione" | "camp_estivo" | "partita_interna" | "provino";
 type ExtraFrequency = "everyday" | "selected_days";
@@ -204,12 +205,24 @@ function compareTeamsBySportPath(a: Team, b: Team): number {
   return String(a.name ?? "").localeCompare(String(b.name ?? ""), "it", { numeric: true, sensitivity: "base" });
 }
 
+function memberSectionLabel(value: ClubMemberLite["clubSection"]) {
+  const sections = Array.isArray(value) ? value : value ? [value] : [];
+  return sections
+    .map((item) => SECTION_LABELS[item as Section] ?? String(item))
+    .filter(Boolean)
+    .join(", ");
+}
+
 export default function SectionCalendar({ section }: { section: Section }) {
-  const { role } = useAuth();
+  const { role, sections } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const nr = normalizeSessionRole(role);
   const canManageExtraEvents = ["admin", "presidente", "secretary", "director", "technical_director"].includes(nr);
+  const hasMultipleSectionAccess = Array.isArray(sections) && new Set(sections.filter(Boolean)).size > 1;
+  const canSelectCrossSectionMembers =
+    ["admin", "presidente", "director", "technical_director"].includes(nr) ||
+    (nr === "secretary" && hasMultipleSectionAccess);
   const today = useMemo(() => new Date(), []);
   const schoolYear = useMemo(() => getSchoolYear(today), [today]);
   const [currentMonth, setCurrentMonth] = useState(() => getInitialMonth(today));
@@ -261,8 +274,8 @@ export default function SectionCalendar({ section }: { section: Section }) {
     queryFn: () => apiFetch(`/api/players?section=${section}`),
   });
   const { data: allMembers = [] } = useQuery<ClubMemberLite[]>({
-    queryKey: ["/api/clubs/me/members", section, "calendar-extra"],
-    queryFn: () => apiFetch(`/api/clubs/me/members?section=${section}`),
+    queryKey: ["/api/clubs/me/members", "calendar-extra", canSelectCrossSectionMembers ? "all-sections" : section],
+    queryFn: () => apiFetch(canSelectCrossSectionMembers ? "/api/clubs/me/members" : `/api/clubs/me/members?section=${section}`),
     enabled: canManageExtraEvents,
   });
   const { data: extraEvents = [] } = useQuery<ExtraEvent[]>({
@@ -1041,18 +1054,23 @@ export default function SectionCalendar({ section }: { section: Section }) {
             <div className="max-h-36 overflow-auto rounded border p-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
               {allMembers.map((member) => {
                 const fullName = `${String(member.firstName ?? "").trim()} ${String(member.lastName ?? "").trim()}`.trim() || member.email || `Membro ${member.id}`;
+                const sectionLabel = memberSectionLabel(member.clubSection);
                 return (
                   <label key={member.id} className="flex items-center gap-2 text-sm">
                     <Checkbox checked={extraMemberIds.includes(member.id)} onCheckedChange={() => toggleExtraMember(member.id)} />
                     <span className="min-w-0">
                       <span className="block truncate">{fullName}</span>
-                      {member.role && <span className="block truncate text-xs text-muted-foreground">{member.role}</span>}
+                      {(member.role || sectionLabel) && (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {[member.role, sectionLabel].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                     </span>
                   </label>
                 );
               })}
               {allMembers.length === 0 && (
-                <p className="text-xs text-muted-foreground">Nessun membro disponibile per questa sezione.</p>
+                <p className="text-xs text-muted-foreground">Nessun membro disponibile nel club.</p>
               )}
             </div>
             <p className="text-xs text-muted-foreground">
