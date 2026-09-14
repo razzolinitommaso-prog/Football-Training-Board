@@ -1588,7 +1588,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
   const updateMutation = useUpdatePlayer({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (updatedPlayer) => {
+        queryClient.setQueryData(["/api/players"], (current: unknown) => {
+          if (!Array.isArray(current)) return current;
+          return current.map((player: Player) => player.id === updatedPlayer.id ? { ...player, ...updatedPlayer } : player);
+        });
         queryClient.invalidateQueries({ queryKey: ["/api/players"] });
         setEditingPlayer(null);
         toast({ title: t.editPlayer });
@@ -2489,12 +2493,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       payload.shuttleDirection = "round_trip";
     }
     delete payload.imageUrl;
-    delete payload.supplementalTeamId;
-    delete payload.supplementalSquad;
-    delete payload.primarySpecificRole;
-    delete payload.primaryLineupStatus;
-    delete payload.supplementalSpecificRole;
-    delete payload.supplementalLineupStatus;
     const availabilityOverrideEnabled =
       data.availabilityOverrideActive === true &&
       Boolean(data.availabilityOverrideUntil);

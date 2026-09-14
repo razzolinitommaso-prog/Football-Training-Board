@@ -262,6 +262,70 @@ function stripMetaFromNotes(raw?: string | null): string {
   return nextNewLineIdx >= 0 ? full.slice(nextNewLineIdx + 1).trim() : "";
 }
 
+function composePlayerMeta(notesRaw: string, meta: PlayerMeta): string {
+  const cleanNotes = String(notesRaw ?? "").trim();
+  const hasAnyMeta = Boolean(
+    meta.squad ||
+    meta.supplementalSquad ||
+    meta.imageUrl ||
+    meta.supplementalTeamId ||
+    meta.primarySpecificRole ||
+    meta.primaryLineupStatus ||
+    meta.supplementalSpecificRole ||
+    meta.supplementalLineupStatus,
+  );
+  if (!hasAnyMeta) return cleanNotes;
+  const encoded = `${PLAYER_META_MARKER}${JSON.stringify({
+    squad: meta.squad ?? null,
+    supplementalSquad: meta.supplementalSquad ?? null,
+    imageUrl: meta.imageUrl ?? null,
+    supplementalTeamId: meta.supplementalTeamId ?? null,
+    primarySpecificRole: meta.primarySpecificRole ?? null,
+    primaryLineupStatus: meta.primaryLineupStatus ?? null,
+    supplementalSpecificRole: meta.supplementalSpecificRole ?? null,
+    supplementalLineupStatus: meta.supplementalLineupStatus ?? null,
+  })}`;
+  return cleanNotes ? `${encoded}\n${cleanNotes}` : encoded;
+}
+
+function numberOrNull(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function textOrNull(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  return cleanText(value) || null;
+}
+
+function mergeIncomingPlayerMeta(existingRaw: string | null | undefined, incomingRaw: string | null | undefined, source: Record<string, unknown>): string {
+  const baseMeta = extractPlayerMeta(existingRaw);
+  const incomingMeta = extractPlayerMeta(incomingRaw);
+  const merged: PlayerMeta = {
+    ...baseMeta,
+    ...incomingMeta,
+  };
+  const supplementalTeamId = numberOrNull(source.supplementalTeamId);
+  const squad = textOrNull(source.squad);
+  const supplementalSquad = textOrNull(source.supplementalSquad);
+  const imageUrl = textOrNull(source.imageUrl);
+  const primarySpecificRole = textOrNull(source.primarySpecificRole);
+  const primaryLineupStatus = textOrNull(source.primaryLineupStatus);
+  const supplementalSpecificRole = textOrNull(source.supplementalSpecificRole);
+  const supplementalLineupStatus = textOrNull(source.supplementalLineupStatus);
+  if (supplementalTeamId !== undefined) merged.supplementalTeamId = supplementalTeamId;
+  if (squad !== undefined) merged.squad = squad;
+  if (supplementalSquad !== undefined) merged.supplementalSquad = supplementalSquad;
+  if (imageUrl !== undefined) merged.imageUrl = imageUrl;
+  if (primarySpecificRole !== undefined) merged.primarySpecificRole = primarySpecificRole;
+  if (primaryLineupStatus !== undefined) merged.primaryLineupStatus = primaryLineupStatus;
+  if (supplementalSpecificRole !== undefined) merged.supplementalSpecificRole = supplementalSpecificRole;
+  if (supplementalLineupStatus !== undefined) merged.supplementalLineupStatus = supplementalLineupStatus;
+  return composePlayerMeta(stripMetaFromNotes(incomingRaw), merged);
+}
+
 function preserveExistingMetaInNotes(existingRaw?: string | null, incomingRaw?: string | null): string {
   const cleanIncoming = stripMetaFromNotes(incomingRaw);
   const existing = String(existingRaw ?? "").trim();
@@ -729,6 +793,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   const role = normalizeSessionRole(req.session.role);
   const { parentDelegates: incomingParentDelegates, ...parsedUpdateData } = parsed.data as typeof parsed.data & { parentDelegates?: ParentDelegateInput[] };
   const updateData = { ...parsedUpdateData } as Record<string, unknown>;
+  const rawUpdateData = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
   normalizeNullablePlayerDates(updateData);
   const [existingPlayer] = await db
     .select()
@@ -738,6 +803,28 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   if (!existingPlayer) {
     res.status(404).json({ error: "Player not found" });
     return;
+  }
+
+  const incomingMetaKeys = [
+    "squad",
+    "supplementalSquad",
+    "imageUrl",
+    "supplementalTeamId",
+    "primarySpecificRole",
+    "primaryLineupStatus",
+    "supplementalSpecificRole",
+    "supplementalLineupStatus",
+  ];
+  const hasIncomingMeta = incomingMetaKeys.some((key) => Object.prototype.hasOwnProperty.call(rawUpdateData, key));
+  if (hasIncomingMeta && PLAYER_MANAGE_ROLES.includes(role)) {
+    updateData.notes = mergeIncomingPlayerMeta(
+      existingPlayer.notes,
+      typeof updateData.notes === "string" || updateData.notes === null ? updateData.notes as string | null : existingPlayer.notes,
+      rawUpdateData,
+    );
+  }
+  for (const key of incomingMetaKeys) {
+    delete updateData[key];
   }
 
   const isAvailabilityOverrideOnlyUpdate =
