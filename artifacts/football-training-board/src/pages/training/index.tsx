@@ -90,6 +90,16 @@ interface SessionExerciseLink {
   exercise: LinkedExercise | null;
 }
 
+type AttendanceSummary = {
+  present: number;
+  absent: number;
+  requested: number;
+  injured: number;
+  total: number;
+  recorded: number;
+  percentage: number;
+};
+
 type ExerciseFormState = {
   title: string;
   category: string;
@@ -787,7 +797,7 @@ function parseDirectiveMessage(raw: string): { text: string; attachments: Direct
 // ── Session Card ───────────────────────────────────────────────────────────
 
 function SessionCard({
-  session, canDelete, canEdit, onDelete, onEdit, onComment, onOpenDetails, showRecovery, isReadOnly, timelineState,
+  session, canDelete, canEdit, onDelete, onEdit, onComment, onOpenDetails, showRecovery, isReadOnly, timelineState, attendanceSummary,
 }: {
   session: TrainingSession;
   canDelete?: boolean;
@@ -799,6 +809,7 @@ function SessionCard({
   showRecovery?: boolean;
   isReadOnly?: boolean;
   timelineState?: SessionTimelineState;
+  attendanceSummary?: AttendanceSummary;
 }) {
   const [open, setOpen] = useState(false);
   const calendarNote = getTrainingCalendarNote(session);
@@ -905,6 +916,18 @@ function SessionCard({
             <div className="flex items-center gap-1.5">
               <MapPin className="w-3 h-3" />
               <span>{session.location}</span>
+            </div>
+          )}
+          {attendanceSummary && (
+            <div className="flex items-center gap-1.5">
+              <Users className="w-3 h-3" />
+              <span>
+                Presenze: <span className="font-semibold text-foreground">{attendanceSummary.present}</span>
+                {attendanceSummary.total > 0 && <>/{attendanceSummary.total}</>}
+                {attendanceSummary.recorded > 0 && (
+                  <span className="text-muted-foreground"> ({attendanceSummary.percentage}%)</span>
+                )}
+              </span>
             </div>
           )}
         </div>
@@ -3013,6 +3036,14 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     showRecovery?: boolean;
     isReadOnly?: boolean;
   }) {
+    const sessionIdsKey = useMemo(() => items.map((session) => session.id).slice(0, 80).join(","), [items]);
+    const attendanceSummaryQuery = useQuery<Record<string, AttendanceSummary>>({
+      queryKey: ["/api/attendance-summary", sessionIdsKey],
+      queryFn: () => apiFetch(`/api/attendance-summary?sessionIds=${encodeURIComponent(sessionIdsKey)}`),
+      enabled: sessionIdsKey.length > 0,
+    });
+    const attendanceSummaries = attendanceSummaryQuery.data ?? {};
+
     if (sessionsQuery.isLoading) {
       return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -3050,6 +3081,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             showRecovery={showRecovery}
             isReadOnly={gridReadOnly}
             timelineState={timelineState}
+            attendanceSummary={attendanceSummaries[String(s.id)]}
           />
           );
         })}
