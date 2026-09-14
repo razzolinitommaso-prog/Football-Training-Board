@@ -482,7 +482,7 @@ function normalizeDashboardSection(value: unknown) {
 export default function Dashboard() {
   const { t, language } = useLanguage();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { role, user, club, section, sections } = useAuth();
   const nr = normalizeSessionRole(role);
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
@@ -1949,6 +1949,22 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       ),
     [notifications, playerNoteAlerts]
   );
+
+  useEffect(() => {
+    if (!location.includes("openNotifications=1")) return;
+    setNotificationsCollapsed(false);
+    const query = location.includes("?") ? location.slice(location.indexOf("?") + 1) : "";
+    const params = new URLSearchParams(query);
+    const notificationId = Number(params.get("notificationId") ?? "");
+    const notificationSource = params.get("notificationSource") ?? "";
+    if (!Number.isFinite(notificationId) || !notificationSource) return;
+    const match = notificationsView.find(
+      (notification) =>
+        Number(notification.id) === notificationId &&
+        String(notification.source ?? "internal") === notificationSource,
+    );
+    if (match) openNotificationDetails(match);
+  }, [location, notificationsView]);
 
   const notificationSeasonOptions = useMemo(
     () =>

@@ -70,6 +70,17 @@ function shortNotificationText(value?: string | null) {
   return clean.length > 120 ? `${clean.slice(0, 117)}...` : clean;
 }
 
+function dashboardNotificationsUrl(notification?: LayoutNotification) {
+  const params = new URLSearchParams();
+  params.set("openNotifications", "1");
+  params.set("t", String(Date.now()));
+  if (notification) {
+    params.set("notificationId", String(notification.id));
+    params.set("notificationSource", notification.source);
+  }
+  return `/dashboard?${params.toString()}`;
+}
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, club, role, logout } = useAuth();
   const { toast } = useToast();
@@ -343,8 +354,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           className="block cursor-pointer rounded-md border border-transparent p-3 focus:border-amber-200 focus:bg-amber-50"
                           onSelect={(event) => {
                             event.preventDefault();
+                            setLocation(dashboardNotificationsUrl(notification));
                             void markLayoutNotificationRead(notification);
-                            setLocation("/dashboard");
                           }}
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -369,7 +380,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <DropdownMenuItem
                       className="cursor-pointer justify-center rounded-md"
-                      onSelect={() => setLocation("/dashboard")}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setLocation(dashboardNotificationsUrl());
+                      }}
                     >
                       <ExternalLink className="h-4 w-4" />
                       Apri schede
