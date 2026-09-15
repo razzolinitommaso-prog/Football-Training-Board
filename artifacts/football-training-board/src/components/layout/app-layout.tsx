@@ -48,6 +48,12 @@ type LayoutNotification = {
   source: "internal" | "platform";
 };
 
+const DEFAULT_SECTION_CALENDAR_PATHS: Record<string, string> = {
+  scuola_calcio: "/scuola-calcio/calendar",
+  settore_giovanile: "/settore-giovanile/calendar",
+  prima_squadra: "/prima-squadra/calendar",
+};
+
 function getWorkspaceAreaLabel(path: string): string | null {
   if (path.startsWith("/scuola-calcio")) return "Scuola Calcio";
   if (path.startsWith("/settore-giovanile")) return "Settore Giovanile";
@@ -81,8 +87,19 @@ function dashboardNotificationsUrl(notification?: LayoutNotification) {
   return `/dashboard?${params.toString()}`;
 }
 
+function notificationDestinationUrl(notification: LayoutNotification, userSection?: string | null) {
+  const title = String(notification.title ?? "").toLowerCase();
+  const type = String(notification.type ?? "").toLowerCase();
+  if (notification.source === "platform") return "/club/platform-notifications";
+  if (title.startsWith("nota giocatore") || title.startsWith("forza disponibilita")) return "/players";
+  if (type.includes("calendar") || title.startsWith("calendario:")) {
+    return DEFAULT_SECTION_CALENDAR_PATHS[String(userSection ?? "")] ?? "/scuola-calcio/calendar";
+  }
+  return dashboardNotificationsUrl(notification);
+}
+
 export function AppLayout({ children }: { children: ReactNode }) {
-  const { user, club, role, logout } = useAuth();
+  const { user, club, role, section, logout } = useAuth();
   const { toast } = useToast();
   const { data: liveClub } = useGetMyClub();
   const activeClub = liveClub ?? club;
@@ -354,7 +371,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                           className="block cursor-pointer rounded-md border border-transparent p-3 focus:border-amber-200 focus:bg-amber-50"
                           onSelect={(event) => {
                             event.preventDefault();
-                            setLocation(dashboardNotificationsUrl(notification));
+                            setLocation(notificationDestinationUrl(notification, section));
                             void markLayoutNotificationRead(notification);
                           }}
                         >
