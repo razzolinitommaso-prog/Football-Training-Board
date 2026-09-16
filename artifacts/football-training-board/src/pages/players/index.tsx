@@ -886,6 +886,45 @@ function playerImportFingerprint(player: { firstName?: unknown; lastName?: unkno
   ].join("|");
 }
 
+function playerImportNameKey(player: { firstName?: unknown; lastName?: unknown }) {
+  return [
+    normalizeImportTeamName(String(player.lastName ?? "")),
+    normalizeImportTeamName(String(player.firstName ?? "")),
+  ].join("|");
+}
+
+function playerImportRegistrationKey(player: { registrationNumber?: unknown }) {
+  return normalizeImportTeamName(String(player.registrationNumber ?? ""));
+}
+
+function compactImportPayload(mapped: Record<string, unknown>, existing?: Player): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(mapped)) {
+    if (value === undefined || value === "" || value === null) continue;
+    if (typeof value === "number" && Number.isNaN(value)) continue;
+    payload[key] = value;
+  }
+
+  if (existing) {
+    payload.firstName = existing.firstName;
+    payload.lastName = existing.lastName;
+    payload.status = payload.status ?? existing.status ?? "active";
+    payload.teamId = payload.teamId ?? existing.teamId ?? null;
+  } else {
+    payload.status = payload.status ?? "active";
+  }
+
+  const registered = payload.registered === true || (existing?.registered === true && payload.registered !== false);
+  const certificate = String(payload.medicalCertificateExpiry ?? existing?.medicalCertificateExpiry ?? "");
+  if (registered && isMedicalCertificateValid(certificate)) {
+    payload.available = true;
+    payload.unavailabilityReason = null;
+    payload.expectedReturn = null;
+  }
+
+  return payload;
+}
+
 function removeUniformImageBackground(imageData: ImageData): ImageData {
   const { data, width, height } = imageData;
   const samples = [
@@ -1531,17 +1570,30 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
     const errors: string[] = [];
     let success = 0;
+    let createdPlayers = 0;
+    let updatedPlayers = 0;
     let createdTeams = 0;
     let duplicates = 0;
-    const existingFingerprints = new Set(
-      ((players as any[] | undefined) ?? []).map((player) => playerImportFingerprint(player))
-    );
+    const existingByFingerprint = new Map<string, Player>();
+    const existingByName = new Map<string, Player[]>();
+    const existingByRegistration = new Map<string, Player>();
+    ((players as Player[] | undefined) ?? []).forEach((player) => {
+      existingByFingerprint.set(playerImportFingerprint(player), player);
+      const nameKey = playerImportNameKey(player);
+      existingByName.set(nameKey, [...(existingByName.get(nameKey) ?? []), player]);
+      const registrationKey = playerImportRegistrationKey(player);
+      if (registrationKey) existingByRegistration.set(registrationKey, player);
+    });
     const fileFingerprints = new Set<string>();
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
-        const rawTeamName = normalizeImportedTeamDisplayName(row["Squadra"]);
+        const rowWithSheetTeam = {
+          ...row,
+          Squadra: row["Squadra"] || row.__sheetName || "",
+        };
+        const rawTeamName = normalizeImportedTeamDisplayName(rowWithSheetTeam["Squadra"]);
         const normalizedTeamName = normalizeImportTeamName(rawTeamName);
         let team = normalizedTeamName ? teamByName.get(normalizedTeamName) : undefined;
 
@@ -1558,17 +1610,43 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           createdTeams++;
         }
 
-        const mapped = mapExcelRowToPlayer(row, Array.from(teamByName.values())) as Record<string, unknown>;
+        const mapped = mapExcelRowToPlayer(rowWithSheetTeam, Array.from(teamByName.values())) as Record<string, unknown>;
         if (team) mapped.teamId = team.id;
         const fingerprint = playerImportFingerprint(mapped);
-        if (existingFingerprints.has(fingerprint) || fileFingerprints.has(fingerprint)) {
+        if (fileFingerprints.has(fingerprint)) {
           duplicates++;
           errors.push(`Riga ${i + 1}: duplicato ignorato`);
           continue;
         }
         fileFingerprints.add(fingerprint);
-        await createMutation.mutateAsync({ data: mapped as any });
-        existingFingerprints.add(fingerprint);
+        const registrationKey = playerImportRegistrationKey(mapped);
+        const nameKey = playerImportNameKey(mapped);
+        const mappedDate = String(mapped.dateOfBirth ?? "").slice(0, 10);
+        const mappedTeamId = Number(mapped.teamId ?? 0);
+        const existing =
+          (registrationKey ? existingByRegistration.get(registrationKey) : undefined) ??
+          existingByFingerprint.get(fingerprint) ??
+          (existingByName.get(nameKey) ?? []).find((player) => {
+            const existingDate = String(player.dateOfBirth ?? "").slice(0, 10);
+            const sameDateOrMissing = !mappedDate || !existingDate || mappedDate === existingDate;
+            const sameTeamOrMissing = !mappedTeamId || !player.teamId || Number(player.teamId) === mappedTeamId;
+            return sameDateOrMissing && sameTeamOrMissing;
+          });
+
+        const payload = compactImportPayload(mapped, existing);
+        if (existing) {
+          const response = await fetch(withApi(`/api/players/${existing.id}`), {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) throw new Error("Aggiornamento non riuscito");
+          updatedPlayers++;
+        } else {
+          await createMutation.mutateAsync({ data: payload as any });
+          createdPlayers++;
+        }
         success++;
       } catch {
         errors.push(`Riga ${i + 1}: errore durante l'importazione`);
@@ -1582,6 +1660,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     }
     if (duplicates > 0) {
       toast({ title: `${duplicates} duplicati ignorati` });
+    }
+    if (updatedPlayers > 0) {
+      toast({ title: `${updatedPlayers} giocatori aggiornati` });
+    }
+    if (createdPlayers > 0) {
+      toast({ title: `${createdPlayers} giocatori creati` });
     }
     return { success, failed: errors.length, errors };
   };
@@ -2642,6 +2726,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   { key: "Email Secondo Referente", label: "Email 2Â° referente" },
                   { key: "Relazione Secondo Referente", label: "Relazione 2Â°" },
                   { key: "Tesserato", label: "Tesserato" },
+                  { key: "Certificato medico", label: "Certificato" },
                 ]}
                 onDownloadTemplate={downloadPlayerTemplate}
                 onParseRow={(row) => mapExcelRowToPlayerPreview(row, (teams as any[] ?? [])) as Record<string, unknown>}

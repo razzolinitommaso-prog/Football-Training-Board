@@ -257,6 +257,14 @@ const SECONDARY_PHONE_KEYS = ["Telefono Secondo Referente", "Cellulare Secondo R
 const SECONDARY_EMAIL_KEYS = ["Email Secondo Referente", "E-mail Secondo Referente", "Email Secondo Genitore", "Email Altro Referente"];
 const SECONDARY_RELATION_KEYS = ["Relazione Secondo Referente", "Parentela Secondo Referente", "Rapporto Secondo Referente"];
 const SHUTTLE_KEYS = ["Pulmino", "Servizio Pulmino", "Usufruisce Pulmino", "Trasporto", "Servizio Trasporto"];
+const MEDICAL_CERTIFICATE_KEYS = [
+  "Certificato medico",
+  "Scadenza certificato",
+  "Scadenza Certificato",
+  "Scadenza certificato medico",
+  "Certificato",
+  "Medical Certificate Expiry",
+];
 
 function cellToBoolean(value: unknown): boolean {
   const normalized = cellToLowerString(value);
@@ -313,7 +321,7 @@ function splitImportedPlayerName(row: Record<string, unknown>) {
 
 export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
   const importedName = splitImportedPlayerName(row);
-  const teamName = normalizeImportedTeamDisplayName(row["Squadra"]);
+  const teamName = normalizeImportedTeamDisplayName(row["Squadra"] || row.__sheetName);
   const team = teams.find(t => t.name.trim().toLowerCase() === teamName);
 
   const rawPos = cellToTrimmedString(readCell(row, PLAYER_POSITION_KEYS));
@@ -349,6 +357,7 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
     nationality: cellToTrimmedString(readCell(row, NATIONALITY_KEYS)) || undefined,
     height: isNaN(height) ? null : height,
     weight: isNaN(weight) ? null : weight,
+    medicalCertificateExpiry: cellToDateOfBirth(readCell(row, MEDICAL_CERTIFICATE_KEYS)),
     registered: registeredValue === "sì" || registeredValue === "si" || registeredValue === "sã¬",
     registrationNumber: cellToTrimmedString(readCell(row, REGISTRATION_NUMBER_KEYS)) || undefined,
     phone: cellToTrimmedString(readCell(row, PLAYER_PHONE_KEYS)) || undefined,
@@ -375,7 +384,7 @@ export function mapExcelRowToPlayerPreview(row: Record<string, unknown>, teams: 
   return {
     Nome: mapped.firstName || "",
     Cognome: mapped.lastName || "",
-    Squadra: normalizeImportedTeamDisplayName(row["Squadra"]),
+    Squadra: normalizeImportedTeamDisplayName(row["Squadra"] || row.__sheetName),
     Posizione: mapped.position || "",
     "N° Maglia": mapped.jerseyNumber ?? "",
     "Data di Nascita": mapped.dateOfBirth || "",
@@ -394,6 +403,7 @@ export function mapExcelRowToPlayerPreview(row: Record<string, unknown>, teams: 
     "Email Secondo Referente": mapped.secondaryContactEmail || "",
     "Relazione Secondo Referente": mapped.secondaryContactRelation || "",
     Tesserato: mapped.registered ? "Si" : "",
+    "Certificato medico": mapped.medicalCertificateExpiry || "",
   };
 }
 
@@ -431,6 +441,7 @@ export function downloadPlayerTemplate() {
     "Pulmino": "",
     "Tesserato": "",
     "N° Tessera": "",
+    "Certificato medico": "",
     "Note": "",
   }], "Template_Giocatori_FTB", "Giocatori", { preferSavePicker: true });
 }

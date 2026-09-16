@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { parseExcelWorkbook, type ParsedExcelSheet } from "@/lib/excel-import";
 
 type ImportResult = { success: number; failed: number; errors: string[] };
+const ALL_SHEETS_VALUE = "__all_sheets__";
 
 interface ImportExcelDialogProps {
   label: string;
@@ -58,7 +59,9 @@ export function ImportExcelDialog({
     try {
       const workbookSheets = await parseExcelWorkbook(file);
       const firstSheet = workbookSheets.find((sheet) => sheet.rows.length > 0) ?? workbookSheets[0];
-      const rows = firstSheet?.rows ?? [];
+      const rows = workbookSheets.length > 1
+        ? workbookSheets.flatMap((sheet) => sheet.rows.map((row) => ({ ...row, __sheetName: sheet.name })))
+        : firstSheet?.rows ?? [];
       if (!rows.length) {
         setSheets(workbookSheets);
         setSelectedSheetName(firstSheet?.name ?? workbookSheets[0]?.name ?? "");
@@ -67,7 +70,7 @@ export function ImportExcelDialog({
         return;
       }
       setSheets(workbookSheets);
-      setSelectedSheetName(firstSheet.name);
+      setSelectedSheetName(workbookSheets.length > 1 ? ALL_SHEETS_VALUE : firstSheet.name);
       setRawRows(rows);
       setOpen(true);
     } catch (err: any) {
@@ -124,6 +127,12 @@ export function ImportExcelDialog({
   function handleSheetChange(sheetName: string) {
     setSelectedSheetName(sheetName);
     setResult(null);
+    if (sheetName === ALL_SHEETS_VALUE) {
+      const rows = sheets.flatMap((sheet) => sheet.rows.map((row) => ({ ...row, __sheetName: sheet.name })));
+      setRawRows(rows);
+      setParseError(rows.length ? null : "Il file è vuoto o non contiene dati importabili.");
+      return;
+    }
     const sheet = sheets.find((item) => item.name === sheetName);
     const rows = sheet?.rows ?? [];
     setRawRows(rows);
@@ -175,6 +184,9 @@ export function ImportExcelDialog({
                       <SelectValue placeholder="Seleziona foglio" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={ALL_SHEETS_VALUE}>
+                        Tutte le schede ({sheets.reduce((sum, sheet) => sum + sheet.rows.length, 0)} righe)
+                      </SelectItem>
                       {sheets.map((sheet) => (
                         <SelectItem key={sheet.name} value={sheet.name}>
                           {sheet.name} ({sheet.rows.length} righe)
