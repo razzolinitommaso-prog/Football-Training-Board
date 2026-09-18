@@ -2816,6 +2816,14 @@ function parseFederalLines(
       continue;
     }
 
+    const numericDateIso = parseDateTimeIso(lineCollapsed);
+    if (numericDateIso && !GIORNATA_INLINE_RE.test(lineCollapsed)) {
+      if (inSection) {
+        currentDateIso = numericDateIso;
+      }
+      continue;
+    }
+
     if (!inSection || !currentDateIso) continue;
     if (GIORNATA_INLINE_RE.test(lineCollapsed)) continue;
 
