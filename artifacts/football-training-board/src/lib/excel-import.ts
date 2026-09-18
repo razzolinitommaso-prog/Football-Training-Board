@@ -91,6 +91,7 @@ function readCell(row: Record<string, unknown>, keys: string[]) {
 export type ParsedExcelSheet = {
   name: string;
   rows: Record<string, unknown>[];
+  rawRows?: unknown[][];
 };
 
 export async function parseExcelWorkbook(file: File): Promise<ParsedExcelSheet[]> {
@@ -108,6 +109,11 @@ export async function parseExcelWorkbook(file: File): Promise<ParsedExcelSheet[]
               defval: "",
               raw: false,
             }),
+            rawRows: XLSX.utils.sheet_to_json<unknown[]>(ws, {
+              defval: "",
+              raw: false,
+              header: 1,
+            }),
           };
         });
         resolve(sheets);
@@ -124,6 +130,191 @@ export async function parseExcelFile(file: File, sheetName?: string): Promise<Re
   const sheets = await parseExcelWorkbook(file);
   if (!sheetName) return sheets[0]?.rows ?? [];
   return sheets.find((sheet) => sheet.name === sheetName)?.rows ?? [];
+}
+
+function normalizeImportToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[°º]/g, "o")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isAdministrativeSheetName(name: string): boolean {
+  const n = normalizeImportToken(name);
+  return /\b(quote|quota|pagamenti|pagamento|pulmino|trasporto|riepilogo|totali|kit|contabilita|contabile|privacy)\b/.test(n);
+}
+
+function looksLikeTeamSheetName(name: string): boolean {
+  const n = normalizeImportToken(name);
+  return (
+    /\b(20)?\d{2}\b/.test(n) ||
+    /\b(piccoli|primi|pulcini|esordienti|giovanissimi|allievi|juniores|under|u\s?\d{2}|prima squadra)\b/.test(n)
+  );
+}
+
+function headerScore(key: string, values: unknown[]): number {
+  const h = normalizeImportToken(key);
+  if (!h || /^__empty/.test(h)) return 0;
+  let score = 0;
+  if (/\b(cognome|nome|nominativo|giocatore|atleta|data nascita|nato|tessera|matricola|certificato|visita|telefono|cellulare|email|mail|squadra|annata|ruolo)\b/.test(h)) {
+    score += 4;
+  }
+  const filled = values.filter((v) => cellToTrimmedString(v)).length;
+  if (filled >= 2) score += 1;
+  return score;
+}
+
+function inferColumnField(key: string, values: unknown[]): string | null {
+  const h = normalizeImportToken(key);
+  const sample = values.map(cellToTrimmedString).filter(Boolean).slice(0, 12);
+  const sampleText = normalizeImportToken(sample.join(" "));
+
+  if (/\b(cognome nome|nominativo|giocatore|atleta|nome completo)\b/.test(h)) return "Cognome Nome";
+  if (/\bcognome\b/.test(h) && !/\bnome\b/.test(h)) return "Cognome";
+  if (/\bnome\b/.test(h) && !/\bcognome\b/.test(h)) return "Nome";
+  if (/\b(data nascita|nato il|nascita|dob)\b/.test(h)) return "Data di Nascita";
+  if (/\b(luogo nascita|nato a|comune nascita)\b/.test(h)) return "Luogo di Nascita";
+  if (/\b(tessera|matricola|cartellino)\b/.test(h)) return "N° Tessera";
+  if (/\b(certificato|visita|scadenza)\b/.test(h)) return "Certificato medico";
+  if (/\b(cellulare|telefono|tel)\b/.test(h)) return /\b(genitore|madre|padre|tutore|referente)\b/.test(h) ? "Telefono Genitore" : "Telefono";
+  if (/\b(e mail|email|mail)\b/.test(h)) return /\b(genitore|madre|padre|tutore|referente)\b/.test(h) ? "Email Genitore" : "Email";
+  if (/\b(squadra|annata|categoria|gruppo)\b/.test(h)) return "Squadra";
+  if (/\b(ruolo|posizione)\b/.test(h)) return "Posizione";
+  if (/\b(note|annotazioni)\b/.test(h)) return "Note";
+
+  const dateLike = sample.filter((v) => Boolean(cellToDateOfBirth(v))).length;
+  if (dateLike >= Math.max(2, Math.ceil(sample.length * 0.55))) return "Data di Nascita";
+  const emailLike = sample.filter((v) => /@/.test(v)).length;
+  if (emailLike >= 2) return "Email";
+  const phoneLike = sample.filter((v) => /\+?\d[\d\s/.-]{6,}/.test(v)).length;
+  if (phoneLike >= 2) return "Telefono";
+  const registrationLike = sample.filter((v) => /^\d{5,8}$/.test(v.replace(/\s+/g, ""))).length;
+  if (registrationLike >= 2) return "N° Tessera";
+  const nameLike = sample.filter((v) => /^[A-Za-zÀ-ÿ' -]{4,}$/.test(v) && v.trim().split(/\s+/).length >= 2).length;
+  if (nameLike >= 2) return "Cognome Nome";
+  if (/\b(gk|portiere|difensore|centrocampista|attaccante|def|mid|fwd)\b/.test(sampleText)) return "Posizione";
+  return null;
+}
+
+function rawHeaderScore(row: unknown[]): number {
+  return row.reduce<number>((sum, cell) => {
+    const h = normalizeImportToken(cellToTrimmedString(cell));
+    if (!h) return sum;
+    if (/\b(nome|cognome|nominativo|giocatore|atleta|luogo|data|nascita|matric|tessera|tel|telefono|visita|certificato|email|mail|ruolo|squadra)\b/.test(h)) {
+      return sum + 2;
+    }
+    return sum;
+  }, 0);
+}
+
+function adaptiveRowsFromRawSheet(sheet: ParsedExcelSheet): Record<string, unknown>[] {
+  const rawRows = (sheet.rawRows ?? []).filter((row) => row.some((cell) => cellToTrimmedString(cell)));
+  if (rawRows.length === 0) return [];
+
+  let headerIndex = rawRows.findIndex((row) => rawHeaderScore(row) >= 4);
+  if (headerIndex < 0) headerIndex = -1;
+  const header = headerIndex >= 0 ? rawRows[headerIndex] : [];
+  const dataRows = rawRows.slice(Math.max(headerIndex + 1, 0));
+  const maxCols = Math.max(...rawRows.map((row) => row.length), 0);
+  const columnMap = new Map<number, string>();
+  let dateColumnCount = 0;
+
+  for (let col = 0; col < maxCols; col++) {
+    const headerLabel = cellToTrimmedString(header[col] ?? "");
+    const values = dataRows.map((row) => row[col]);
+    let field = inferColumnField(headerLabel || `col_${col}`, values);
+    if (!field) {
+      const sample = values.map(cellToTrimmedString).filter(Boolean).slice(0, 14);
+      const dateLike = sample.filter((v) => Boolean(cellToDateOfBirth(v))).length;
+      if (dateLike >= Math.max(2, Math.ceil(sample.length * 0.5))) {
+        field = dateColumnCount === 0 ? "Data di Nascita" : "Certificato medico";
+        dateColumnCount++;
+      }
+    } else if (field === "Data di Nascita") {
+      field = dateColumnCount === 0 ? "Data di Nascita" : "Certificato medico";
+      dateColumnCount++;
+    }
+    if (field && !Array.from(columnMap.values()).includes(field)) columnMap.set(col, field);
+  }
+
+  if (![...columnMap.values()].some((field) => ["Cognome Nome", "Nome", "Cognome"].includes(field))) return [];
+
+  return dataRows
+    .map((row) => {
+      const mapped: Record<string, unknown> = { __sheetName: sheet.name, Squadra: sheet.name };
+      for (const [col, field] of columnMap.entries()) {
+        const value = row[col];
+        if (cellToTrimmedString(value)) mapped[field] = value;
+      }
+      if (!rowHasLikelyPlayerData(mapped)) return null;
+      if (mapped["Luogo di Nascita"]) {
+        mapped["Note"] = [mapped["Note"], `Luogo nascita: ${cellToTrimmedString(mapped["Luogo di Nascita"])}`]
+          .map(cellToTrimmedString)
+          .filter(Boolean)
+          .join(" - ");
+      }
+      return mapped;
+    })
+    .filter((row): row is Record<string, unknown> => Boolean(row));
+}
+
+function rowHasLikelyPlayerData(row: Record<string, unknown>): boolean {
+  const joined = Object.values(row).map(cellToTrimmedString).filter(Boolean).join(" ");
+  if (!joined) return false;
+  if (/\b(totale|saldo|quota|pagamento|iban|bonifico)\b/i.test(joined)) return false;
+  const words = joined.split(/\s+/).filter((w) => /[A-Za-zÀ-ÿ]{2,}/.test(w));
+  return words.length >= 2;
+}
+
+export function prepareAdaptivePlayerImportRows(sheets: ParsedExcelSheet[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const sheet of sheets) {
+    if (!sheet.rows.length && !(sheet.rawRows?.length)) continue;
+    const sheetLooksRelevant = looksLikeTeamSheetName(sheet.name) || !isAdministrativeSheetName(sheet.name);
+    if (!sheetLooksRelevant || isAdministrativeSheetName(sheet.name)) continue;
+
+    const rawAdaptiveRows = adaptiveRowsFromRawSheet(sheet);
+    if (rawAdaptiveRows.length > 0) {
+      out.push(...rawAdaptiveRows);
+      continue;
+    }
+
+    const keys = Array.from(new Set(sheet.rows.flatMap((row) => Object.keys(row))));
+    const usefulKeys = keys.filter((key) => headerScore(key, sheet.rows.map((row) => row[key])) > 0);
+    const columnMap = new Map<string, string>();
+    for (const key of usefulKeys.length > 0 ? usefulKeys : keys) {
+      const field = inferColumnField(key, sheet.rows.map((row) => row[key]));
+      if (field && !Array.from(columnMap.values()).includes(field)) columnMap.set(key, field);
+    }
+
+    const hasNameMapping = Array.from(columnMap.values()).some((field) => ["Cognome Nome", "Nome Cognome", "Nome", "Cognome"].includes(field));
+    if (!hasNameMapping && !looksLikeTeamSheetName(sheet.name)) continue;
+
+    for (const row of sheet.rows) {
+      if (!rowHasLikelyPlayerData(row)) continue;
+      const mapped: Record<string, unknown> = { __sheetName: sheet.name };
+      for (const [key, field] of columnMap.entries()) {
+        const value = row[key];
+        if (cellToTrimmedString(value)) mapped[field] = value;
+      }
+      if (!mapped.Squadra) mapped.Squadra = sheet.name;
+      if (!hasNameMapping) {
+        const values = Object.values(row).map(cellToTrimmedString).filter(Boolean);
+        mapped["Cognome Nome"] = values.find((value) => /[A-Za-zÀ-ÿ]{2,}\s+[A-Za-zÀ-ÿ]{2,}/.test(value)) ?? "";
+      }
+      mapped["Note"] = [mapped["Note"], mapped["Luogo di Nascita"] ? `Luogo nascita: ${mapped["Luogo di Nascita"]}` : ""]
+        .map(cellToTrimmedString)
+        .filter(Boolean)
+        .join(" - ");
+      out.push(mapped);
+    }
+  }
+  return out;
 }
 
 // --- Player import ---

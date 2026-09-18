@@ -24,7 +24,7 @@ import { useLocation } from "wouter";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
-import { mapExcelRowToPlayer, mapExcelRowToPlayerPreview, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString, normalizeImportedTeamDisplayName } from "@/lib/excel-import";
+import { mapExcelRowToPlayer, mapExcelRowToPlayerPreview, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString, normalizeImportedTeamDisplayName, prepareAdaptivePlayerImportRows } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
 import { withApi } from "@/lib/api-base";
 
@@ -2731,6 +2731,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 onDownloadTemplate={downloadPlayerTemplate}
                 onParseRow={(row) => mapExcelRowToPlayerPreview(row, (teams as any[] ?? [])) as Record<string, unknown>}
                 isValidRow={isValidPlayerRow}
+                prepareRows={prepareAdaptivePlayerImportRows}
                 onImportValidRows={importPlayersWithTeams}
                 onImportRows={async ([row]) => {
                   await createMutation.mutateAsync({ data: row as any });

@@ -367,6 +367,168 @@ function parseDateTimeIso(line: string): string | null {
   return dt.toISOString();
 }
 
+function parseCompactSeasonDate(value: string, fallbackYearHint?: number | null): string | null {
+  const m = value.match(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const raw = Number(m[3]);
+  let year = raw < 100 ? 2000 + raw : raw;
+  if (fallbackYearHint && raw < 100) {
+    const fallbackCentury = Math.floor(fallbackYearHint / 100) * 100;
+    year = fallbackCentury + raw;
+  }
+  const iso = isoFromDayMonthYear(day, month, year, 15, 0);
+  return iso || null;
+}
+
+function normalizeSeasonCalendarLine(value: string): string {
+  return value
+    .replace(/\b1\s+909\b/g, "1909")
+    .replace(/\b19\s+09\b/g, "1909")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikeSeasonGroupCalendar(text: string): boolean {
+  return /\bUNDER\s*\d{2}\s+GIRONE\s+[A-Z]\b/i.test(text) && /\bANDATA\s*:/i.test(text) && /\bRITORNO\s*:/i.test(text);
+}
+
+function extractSeasonDatePairs(line: string, fallbackYearHint?: number | null): Array<{ firstLeg: string; secondLeg: string }> {
+  const pairs: Array<{ firstLeg: string; secondLeg: string }> = [];
+  const rx = /ANDATA\s*:\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})\s*!?\s*RITORNO\s*:\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(line))) {
+    const firstLeg = parseCompactSeasonDate(m[1], fallbackYearHint);
+    const secondLeg = parseCompactSeasonDate(m[2], fallbackYearHint);
+    if (firstLeg && secondLeg) pairs.push({ firstLeg, secondLeg });
+  }
+  return pairs;
+}
+
+function extractSeasonRoundNumbers(line: string): number[] {
+  const out: number[] = [];
+  const rx = /\b(\d{1,2})\s+G\s*I\s*O\s*R\s*N\s*A\s*T\s*A\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(line))) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n)) out.push(n);
+  }
+  return out;
+}
+
+function cleanSeasonTeamName(value: string): string {
+  return normalizeSeasonCalendarLine(value)
+    .replace(/\bI\b/g, " ")
+    .replace(/[|!]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractSeasonFixturesFromLine(line: string, societyNorm: string): Array<{ homeTeam: string; awayTeam: string; columnIndex: number }> {
+  const clean = normalizeSeasonCalendarLine(line).replace(/[|!]+/g, " ");
+  if (!clean.includes("-")) return [];
+  const chunks = clean
+    .split(/\s{2,}|\s+I\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.includes("-"));
+  const candidates = chunks.length > 0 ? chunks : [clean];
+  const fixtures: Array<{ homeTeam: string; awayTeam: string; columnIndex: number }> = [];
+  for (let columnIndex = 0; columnIndex < candidates.length; columnIndex++) {
+    const candidate = candidates[columnIndex];
+    const parts = candidate.split(/\s+-\s+/);
+    if (parts.length < 2) continue;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const homeTeam = cleanSeasonTeamName(parts[i]);
+      const awayTeam = cleanSeasonTeamName(parts[i + 1]);
+      if (!homeTeam || !awayTeam) continue;
+      const homeNorm = normalizeName(homeTeam);
+      const awayNorm = normalizeName(awayTeam);
+      if (homeNorm.includes(societyNorm) || awayNorm.includes(societyNorm) || societyNorm.includes(homeNorm) || societyNorm.includes(awayNorm)) {
+        fixtures.push({ homeTeam, awayTeam, columnIndex });
+      }
+    }
+  }
+  return fixtures;
+}
+
+function parseSeasonGroupCalendarLines(
+  allPageLines: string[],
+  options: { societyNorm: string; societyDisplay: string; fallbackYearHint?: number | null },
+): MatchPdfImportResult {
+  const recognized: MatchImportRow[] = [];
+  const seen = new Set<string>();
+  let discarded = 0;
+  let currentGroup: string | null = null;
+  let currentPairs: Array<{ firstLeg: string; secondLeg: string }> = [];
+  let currentRounds: number[] = [];
+
+  for (const rawLine of allPageLines) {
+    const line = normalizeSeasonCalendarLine(rawLine);
+    const groupMatch = line.match(/\bUNDER\s*\d{2}\s+GIRONE\s+([A-Z])\b/i) ?? line.match(/\bGIRONE\s+([A-Z])\b/i);
+    if (groupMatch) currentGroup = `Girone ${groupMatch[1].toUpperCase()}`;
+
+    const datePairs = extractSeasonDatePairs(line, options.fallbackYearHint);
+    if (datePairs.length > 0) {
+      currentPairs = datePairs;
+      currentRounds = [];
+      continue;
+    }
+
+    const rounds = extractSeasonRoundNumbers(line);
+    if (rounds.length > 0) {
+      currentRounds = rounds;
+      continue;
+    }
+
+    if (currentPairs.length === 0 || !line.includes("-")) continue;
+    const fixtures = extractSeasonFixturesFromLine(line, options.societyNorm);
+    if (fixtures.length === 0) continue;
+
+    fixtures.forEach((fixture) => {
+      const pair = currentPairs[Math.min(fixture.columnIndex, currentPairs.length - 1)];
+      if (!pair) {
+        discarded++;
+        return;
+      }
+      const round = currentRounds[Math.min(fixture.columnIndex, currentRounds.length - 1)] ?? null;
+      const homeNorm = normalizeName(fixture.homeTeam);
+      const awayNorm = normalizeName(fixture.awayTeam);
+      const ownHome = homeNorm.includes(options.societyNorm) || options.societyNorm.includes(homeNorm);
+      const ownAway = awayNorm.includes(options.societyNorm) || options.societyNorm.includes(awayNorm);
+      if (ownHome === ownAway) {
+        discarded++;
+        return;
+      }
+      const opponent = ownHome ? fixture.awayTeam : fixture.homeTeam;
+      const firstHomeAway: "home" | "away" = ownHome ? "home" : "away";
+      const secondHomeAway: "home" | "away" = ownHome ? "away" : "home";
+      const baseNotes = [`Calendario completo annata`, currentGroup, round ? `${round}ª giornata` : null, "orario da definire"]
+        .filter(Boolean)
+        .join(" - ");
+      [
+        { date: pair.firstLeg, homeAway: firstHomeAway, leg: "andata" },
+        { date: pair.secondLeg, homeAway: secondHomeAway, leg: "ritorno" },
+      ].forEach((entry) => {
+        const key = `${entry.date}|${normalizeName(opponent)}|${entry.homeAway}|${entry.leg}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        recognized.push({
+          date: entry.date,
+          opponent,
+          homeAway: entry.homeAway,
+          competition: currentGroup ? `Campionato ${currentGroup}` : "Campionato",
+          location: null,
+          notes: `${baseNotes} - ${entry.leg}`,
+        });
+      });
+    });
+  }
+
+  recognized.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  return { recognized, discarded, totalDateLines: currentPairs.length };
+}
+
 function parseLocation(line: string): string | null {
   const m = line.match(/\b(?:campo|stadio|impianto|presso)\b[:\s-]*(.+)$/i);
   if (!m) return null;
@@ -5912,6 +6074,17 @@ export function parseMatchCalendarTextLines(
     Number.isFinite(options.lastModified) && Number(options.lastModified) > 0
       ? new Date(Number(options.lastModified)).getFullYear()
       : null;
+
+  if (documentMode !== "tournament" && societyNorm.length >= 2 && looksLikeSeasonGroupCalendar(fullText)) {
+    const seasonGroupResult = parseSeasonGroupCalendarLines(allPageLines, {
+      societyNorm,
+      societyDisplay,
+      fallbackYearHint,
+    });
+    if (seasonGroupResult.recognized.length > 0) {
+      return seasonGroupResult;
+    }
+  }
 
   const federal = documentMode !== "tournament" && looksLikeFederalCalendar(fullText) && societyNorm.length >= 2;
 

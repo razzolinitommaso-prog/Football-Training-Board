@@ -17,6 +17,7 @@ interface ImportExcelDialogProps {
   isValidRow: (row: Record<string, unknown>) => boolean;
   onImportRows: (rows: Record<string, unknown>[]) => Promise<void>;
   onImportValidRows?: (rows: Record<string, unknown>[]) => Promise<ImportResult | void>;
+  prepareRows?: (sheets: ParsedExcelSheet[]) => Record<string, unknown>[];
   canImport?: boolean;
 }
 
@@ -29,6 +30,7 @@ export function ImportExcelDialog({
   isValidRow,
   onImportRows,
   onImportValidRows,
+  prepareRows,
   canImport = true,
 }: ImportExcelDialogProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -59,9 +61,11 @@ export function ImportExcelDialog({
     try {
       const workbookSheets = await parseExcelWorkbook(file);
       const firstSheet = workbookSheets.find((sheet) => sheet.rows.length > 0) ?? workbookSheets[0];
-      const rows = workbookSheets.length > 1
-        ? workbookSheets.flatMap((sheet) => sheet.rows.map((row) => ({ ...row, __sheetName: sheet.name })))
-        : firstSheet?.rows ?? [];
+      const rows = prepareRows
+        ? prepareRows(workbookSheets)
+        : workbookSheets.length > 1
+          ? workbookSheets.flatMap((sheet) => sheet.rows.map((row) => ({ ...row, __sheetName: sheet.name })))
+          : firstSheet?.rows ?? [];
       if (!rows.length) {
         setSheets(workbookSheets);
         setSelectedSheetName(firstSheet?.name ?? workbookSheets[0]?.name ?? "");
@@ -128,13 +132,15 @@ export function ImportExcelDialog({
     setSelectedSheetName(sheetName);
     setResult(null);
     if (sheetName === ALL_SHEETS_VALUE) {
-      const rows = sheets.flatMap((sheet) => sheet.rows.map((row) => ({ ...row, __sheetName: sheet.name })));
+      const rows = prepareRows
+        ? prepareRows(sheets)
+        : sheets.flatMap((sheet) => sheet.rows.map((row) => ({ ...row, __sheetName: sheet.name })));
       setRawRows(rows);
       setParseError(rows.length ? null : "Il file è vuoto o non contiene dati importabili.");
       return;
     }
     const sheet = sheets.find((item) => item.name === sheetName);
-    const rows = sheet?.rows ?? [];
+    const rows = prepareRows && sheet ? prepareRows([sheet]) : sheet?.rows ?? [];
     setRawRows(rows);
     setParseError(rows.length ? null : "La scheda selezionata è vuota o non contiene dati importabili.");
   }
