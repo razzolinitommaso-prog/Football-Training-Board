@@ -878,6 +878,32 @@ function normalizeImportTeamName(value?: string | null): string {
     .replace(/\s+/g, " ");
 }
 
+function importTeamAliases(team: { name?: unknown; category?: unknown; ageGroup?: unknown }): string[] {
+  const label = normalizeImportTeamName([team.name, team.category, team.ageGroup].filter(Boolean).join(" "));
+  const aliases = new Set<string>();
+  [team.name, team.category, team.ageGroup, [team.category, team.ageGroup].filter(Boolean).join(" ")]
+    .map((value) => normalizeImportTeamName(String(value ?? "")))
+    .filter(Boolean)
+    .forEach((value) => aliases.add(value));
+
+  const addYears = (...years: string[]) => years.forEach((year) => aliases.add(normalizeImportTeamName(year)));
+  if (/\ballievi\b/.test(label) && /\ba\b/.test(label)) addYears("2010");
+  if (/\ballievi\b/.test(label) && /\bb\b/.test(label)) addYears("2011");
+  if (/\bgiovanissimi\b/.test(label) && /\ba\b/.test(label)) addYears("2012");
+  if (/\bgiovanissimi\b/.test(label) && /\bb\b/.test(label)) addYears("2013");
+  if (/\besordienti\b/.test(label) && /\b2o?\s*anno\b/.test(label)) addYears("2014");
+  if (/\besordienti\b/.test(label) && /\b1o?\s*anno\b/.test(label)) addYears("2015");
+  if (/\bpulcini\b/.test(label) && /\b2o?\s*anno\b/.test(label)) addYears("2016");
+  if (/\bpulcini\b/.test(label) && /\b1o?\s*anno\b/.test(label)) addYears("2017");
+  if (/\bprimi\s+calci\b/.test(label) && /\b2o?\s*anno\b/.test(label)) addYears("2018");
+  if (/\bprimi\s+calci\b/.test(label) && /\b1o?\s*anno\b/.test(label)) addYears("2019");
+  if (/\bpiccoli\s+amici\b/.test(label)) addYears("2020", "2021");
+  if (/\bjuniores\b/.test(label)) addYears("juniores");
+  if (/\bprima\s+squadra\b/.test(label)) addYears("prima squadra");
+
+  return Array.from(aliases).filter(Boolean);
+}
+
 function playerImportFingerprint(player: { firstName?: unknown; lastName?: unknown; dateOfBirth?: unknown }) {
   return [
     normalizeImportTeamName(String(player.lastName ?? "")),
@@ -923,6 +949,21 @@ function compactImportPayload(mapped: Record<string, unknown>, existing?: Player
   }
 
   return payload;
+}
+
+async function importErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const text = await response.text();
+    if (!text) return fallback;
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+      return String(parsed.error ?? parsed.message ?? text);
+    } catch {
+      return text;
+    }
+  } catch {
+    return fallback;
+  }
 }
 
 function removeUniformImageBackground(imageData: ImageData): ImageData {
@@ -1561,14 +1602,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     const sectionForNewTeams = section ?? "scuola_calcio";
     const teamByName = new Map<string, { id: number; name: string }>();
     ((teams as any[] | undefined) ?? []).forEach((team) => {
-      const keys = [
-        team.name,
-        [team.category, team.ageGroup].filter(Boolean).join(" "),
-      ].map(normalizeImportTeamName).filter(Boolean);
+      const keys = importTeamAliases(team);
       keys.forEach((key) => teamByName.set(key, { id: team.id, name: team.name }));
     });
 
     const errors: string[] = [];
+    const warnings: string[] = [];
     let success = 0;
     let createdPlayers = 0;
     let updatedPlayers = 0;
@@ -1585,6 +1624,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       if (registrationKey) existingByRegistration.set(registrationKey, player);
     });
     const fileFingerprints = new Set<string>();
+    const failedTeamCreations = new Set<string>();
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -1597,17 +1637,22 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         const normalizedTeamName = normalizeImportTeamName(rawTeamName);
         let team = normalizedTeamName ? teamByName.get(normalizedTeamName) : undefined;
 
-        if (!team && rawTeamName) {
-          const created = await createTeamMutation.mutateAsync({
-            data: {
-              name: rawTeamName,
-              category: rawTeamName,
-              clubSection: sectionForNewTeams,
-            } as any,
-          });
-          team = { id: (created as any).id, name: (created as any).name ?? rawTeamName };
-          teamByName.set(normalizedTeamName, team);
-          createdTeams++;
+        if (!team && rawTeamName && !failedTeamCreations.has(normalizedTeamName)) {
+          try {
+            const created = await createTeamMutation.mutateAsync({
+              data: {
+                name: rawTeamName,
+                category: rawTeamName,
+                clubSection: sectionForNewTeams,
+              } as any,
+            });
+            team = { id: (created as any).id, name: (created as any).name ?? rawTeamName };
+            importTeamAliases({ name: team.name, category: rawTeamName, ageGroup: rawTeamName }).forEach((key) => teamByName.set(key, team!));
+            createdTeams++;
+          } catch (error: any) {
+            failedTeamCreations.add(normalizedTeamName);
+            warnings.push(`Squadra "${rawTeamName}" non creata/assegnata: ${error?.data?.error ?? error?.message ?? "importo i giocatori senza squadra"}`);
+          }
         }
 
         const mapped = mapExcelRowToPlayer(rowWithSheetTeam, Array.from(teamByName.values())) as Record<string, unknown>;
@@ -1641,15 +1686,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
-          if (!response.ok) throw new Error("Aggiornamento non riuscito");
+          if (!response.ok) throw new Error(await importErrorMessage(response, "Aggiornamento non riuscito"));
           updatedPlayers++;
         } else {
           await createMutation.mutateAsync({ data: payload as any });
           createdPlayers++;
         }
         success++;
-      } catch {
-        errors.push(`Riga ${i + 1}: errore durante l'importazione`);
+      } catch (error: any) {
+        errors.push(`Riga ${i + 1}: ${error?.data?.error ?? error?.message ?? "errore durante l'importazione"}`);
       }
     }
 
@@ -1666,6 +1711,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     }
     if (createdPlayers > 0) {
       toast({ title: `${createdPlayers} giocatori creati` });
+    }
+    if (warnings.length > 0) {
+      toast({ title: `${warnings.length} avvisi importazione`, description: warnings.slice(0, 2).join(" · ") });
     }
     return { success, failed: errors.length, errors };
   };
