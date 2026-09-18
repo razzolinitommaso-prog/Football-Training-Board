@@ -223,9 +223,16 @@ function MatchCalendarTeamCard({
 
   return (
     <div className="flex flex-col gap-2">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => navigate(`/calendari/${team.id}`)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            navigate(`/calendari/${team.id}`);
+          }
+        }}
         className="group text-left"
       >
         <Card className="hover:shadow-lg hover:border-primary/40 transition-all cursor-pointer h-full">
@@ -352,7 +359,7 @@ function MatchCalendarTeamCard({
             </p>
           </CardContent>
         </Card>
-      </button>
+      </div>
       <Dialog
         open={pdfFilterOpen}
         onOpenChange={(open) => {
