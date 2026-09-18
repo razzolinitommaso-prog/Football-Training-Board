@@ -842,7 +842,6 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
       for (const mapping of YOUTH_FEDERAL_SECTION_MAP) {
         const team = findYouthTeamForOfficialSection(sectionTeams, mapping.teamAliases);
         if (!team) {
-          summary.push(`${mapping.label}: squadra non trovata`);
           continue;
         }
 
@@ -864,7 +863,9 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
           sourceSection: mapping.label,
         }));
         rows.push(...mappedRows);
-        summary.push(`${mapping.label}: ${mappedRows.length} partite riconosciute`);
+        if (mappedRows.length > 0) {
+          summary.push(`${mapping.label}: ${mappedRows.length} partite riconosciute`);
+        }
       }
 
       return { rows, summary };

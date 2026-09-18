@@ -394,6 +394,32 @@ function looksLikeSeasonGroupCalendar(text: string): boolean {
   return /\bUNDER\s*\d{2}\s+GIRONE\s+[A-Z]\b/i.test(text) && /\bANDATA\s*:/i.test(text) && /\bRITORNO\s*:/i.test(text);
 }
 
+function detectSeasonGroupUnderNumbers(text: string): Set<string> {
+  const out = new Set<string>();
+  const rx = /\bUNDER\s*(\d{2})\s+GIRONE\s+[A-Z]\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(text))) {
+    out.add(m[1]);
+  }
+  return out;
+}
+
+function seasonUnderMatchesSectionHints(underNumbers: Set<string>, sectionNorms: string[]): boolean {
+  if (underNumbers.size === 0 || sectionNorms.length === 0) return true;
+  const aliases: Record<string, string[]> = {
+    "17": ["under 17", "u17", "allievi a", "alievi a"],
+    "16": ["under 16", "u16", "allievi b", "alievi b"],
+    "15": ["under 15", "u15", "giovanissimi a"],
+    "14": ["under 14", "u14", "giovanissimi b"],
+  };
+  return [...underNumbers].some((under) =>
+    (aliases[under] ?? [`under ${under}`, `u${under}`]).some((alias) => {
+      const aliasNorm = normalizeName(alias);
+      return sectionNorms.some((sectionNorm) => sectionNorm.includes(aliasNorm) || aliasNorm.includes(sectionNorm));
+    }),
+  );
+}
+
 function extractSeasonDatePairs(line: string, fallbackYearHint?: number | null): Array<{ firstLeg: string; secondLeg: string }> {
   const pairs: Array<{ firstLeg: string; secondLeg: string }> = [];
   const rx = /ANDATA\s*:\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})\s*!?\s*RITORNO\s*:\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})/gi;
@@ -6076,14 +6102,15 @@ export function parseMatchCalendarTextLines(
       : null;
 
   if (documentMode !== "tournament" && societyNorm.length >= 2 && looksLikeSeasonGroupCalendar(fullText)) {
-    const seasonGroupResult = parseSeasonGroupCalendarLines(allPageLines, {
+    const detectedUnderNumbers = detectSeasonGroupUnderNumbers(fullText);
+    if (!seasonUnderMatchesSectionHints(detectedUnderNumbers, sectionNorms)) {
+      return { recognized: [], discarded: 0, totalDateLines: 0 };
+    }
+    return parseSeasonGroupCalendarLines(allPageLines, {
       societyNorm,
       societyDisplay,
       fallbackYearHint,
     });
-    if (seasonGroupResult.recognized.length > 0) {
-      return seasonGroupResult;
-    }
   }
 
   const federal = documentMode !== "tournament" && looksLikeFederalCalendar(fullText) && societyNorm.length >= 2;
