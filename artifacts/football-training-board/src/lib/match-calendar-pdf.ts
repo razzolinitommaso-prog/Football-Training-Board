@@ -2833,6 +2833,7 @@ function parseFederalLines(
       const societyTokens = societyNorm.split(" ").filter((w) => w.length >= 3);
       const mentions =
         lineNorm.includes(societyNorm) ||
+        sideMatchesSociety(lineNorm, societyNorm) ||
         (societyTokens.length > 0 && societyTokens.every((w) => lineNorm.includes(w)));
       if (!mentions) continue;
     }
