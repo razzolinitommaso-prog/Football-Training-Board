@@ -451,11 +451,28 @@ function cleanSeasonTeamName(value: string): string {
     .trim();
 }
 
-function extractSeasonFixturesFromLine(line: string, societyNorm: string): Array<{ homeTeam: string; awayTeam: string; columnIndex: number }> {
+function buildSeasonSocietyNorms(societyDisplay: string): string[] {
+  const base = normalizeName(societyDisplay);
+  const withoutLegalPrefix = normalizeName(base.replace(/\b(asd|a s d|ssd|s s d|ss|s s|ac|a c|fc|f c|us|u s|polisportiva)\b/g, " "));
+  const withoutYears = normalizeName(withoutLegalPrefix.replace(/\b(18|19|20)\d{2}\b/g, " "));
+  return [...new Set([base, withoutLegalPrefix, withoutYears].filter((value) => value.length >= 4))];
+}
+
+function seasonTeamMatchesSociety(teamNorm: string, societyNorms: string[]): boolean {
+  return societyNorms.some((societyNorm) => {
+    if (teamNorm.includes(societyNorm) || societyNorm.includes(teamNorm)) return true;
+    const societyTokens = societyNorm.split(" ").filter((token) => token.length >= 4);
+    if (societyTokens.length === 0) return false;
+    const matched = societyTokens.filter((token) => teamNorm.includes(token));
+    return matched.length >= Math.min(2, societyTokens.length);
+  });
+}
+
+function extractSeasonFixturesFromLine(line: string, societyNorms: string[]): Array<{ homeTeam: string; awayTeam: string; columnIndex: number }> {
   const clean = normalizeSeasonCalendarLine(line).replace(/[|!]+/g, " ");
   if (!clean.includes("-")) return [];
   const chunks = clean
-    .split(/\s{2,}|\s+I\s+/)
+    .split(/\s+I\s+I\s+|\t(?=I\s+)/)
     .map((part) => part.trim())
     .filter((part) => part.includes("-"));
   const candidates = chunks.length > 0 ? chunks : [clean];
@@ -470,7 +487,7 @@ function extractSeasonFixturesFromLine(line: string, societyNorm: string): Array
       if (!homeTeam || !awayTeam) continue;
       const homeNorm = normalizeName(homeTeam);
       const awayNorm = normalizeName(awayTeam);
-      if (homeNorm.includes(societyNorm) || awayNorm.includes(societyNorm) || societyNorm.includes(homeNorm) || societyNorm.includes(awayNorm)) {
+      if (seasonTeamMatchesSociety(homeNorm, societyNorms) || seasonTeamMatchesSociety(awayNorm, societyNorms)) {
         fixtures.push({ homeTeam, awayTeam, columnIndex });
       }
     }
@@ -484,6 +501,7 @@ function parseSeasonGroupCalendarLines(
 ): MatchPdfImportResult {
   const recognized: MatchImportRow[] = [];
   const seen = new Set<string>();
+  const societyNorms = buildSeasonSocietyNorms(options.societyDisplay);
   let discarded = 0;
   let currentGroup: string | null = null;
   let currentPairs: Array<{ firstLeg: string; secondLeg: string }> = [];
@@ -508,7 +526,7 @@ function parseSeasonGroupCalendarLines(
     }
 
     if (currentPairs.length === 0 || !line.includes("-")) continue;
-    const fixtures = extractSeasonFixturesFromLine(line, options.societyNorm);
+    const fixtures = extractSeasonFixturesFromLine(line, societyNorms);
     if (fixtures.length === 0) continue;
 
     fixtures.forEach((fixture) => {
@@ -520,8 +538,8 @@ function parseSeasonGroupCalendarLines(
       const round = currentRounds[Math.min(fixture.columnIndex, currentRounds.length - 1)] ?? null;
       const homeNorm = normalizeName(fixture.homeTeam);
       const awayNorm = normalizeName(fixture.awayTeam);
-      const ownHome = homeNorm.includes(options.societyNorm) || options.societyNorm.includes(homeNorm);
-      const ownAway = awayNorm.includes(options.societyNorm) || options.societyNorm.includes(awayNorm);
+      const ownHome = seasonTeamMatchesSociety(homeNorm, societyNorms);
+      const ownAway = seasonTeamMatchesSociety(awayNorm, societyNorms);
       if (ownHome === ownAway) {
         discarded++;
         return;
