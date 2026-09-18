@@ -146,6 +146,11 @@ function isLikelyMobileBrowser() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
 }
 
+function shouldTryAutomaticOpen() {
+  if (typeof window === "undefined") return false;
+  return !isLikelyMobileBrowser();
+}
+
 export function buildCallupPdfBlob(input: {
   match: CallupPdfMatch;
   players: CallupPdfPlayer[];
@@ -199,7 +204,7 @@ export async function downloadOrShareCallupPdf(input: {
   const filename = `${fileSafe(input.match.teamName || "squadra")}-${datePart}-convocazione.pdf`;
   const blobUrl = URL.createObjectURL(blob);
 
-  if ((input.preferShare || isLikelyMobileBrowser()) && typeof File !== "undefined" && navigator.share) {
+  if (input.preferShare && typeof File !== "undefined" && navigator.share) {
     try {
       const file = new File([blob], filename, { type: "application/pdf" });
       const shareApi = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
@@ -227,10 +232,12 @@ export async function downloadOrShareCallupPdf(input: {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  try {
-    window.open(blobUrl, "_blank", "noopener");
-  } catch {
-    // The visible link returned to the UI remains available if automatic opening is blocked.
+  if (shouldTryAutomaticOpen()) {
+    try {
+      window.open(blobUrl, "_blank", "noopener");
+    } catch {
+      // The visible link returned to the UI remains available if automatic opening is blocked.
+    }
   }
   return { filename, url: blobUrl };
 }

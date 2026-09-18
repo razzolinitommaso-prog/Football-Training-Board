@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { CalendarDays, Download, ExternalLink, Loader2, MapPin, Trophy, UsersRound } from "lucide-react";
+import { CalendarDays, Download, ExternalLink, FileDown, Loader2, MapPin, Trophy, UsersRound } from "lucide-react";
 import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -156,7 +156,7 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
       }
       toast({
         title: "PDF convocazione generato",
-        description: result.url ? "Usa Apri PDF se il download non parte automaticamente." : result.filename,
+        description: result.url ? "Puoi aprirlo o scaricarlo dai pulsanti sulla convocazione." : result.filename,
       });
     } catch (error) {
       toast({
@@ -280,12 +280,20 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
                       {exportingMatchId === match.id ? "Esporto..." : "Export PDF"}
                     </Button>
                     {generatedPdf?.matchId === match.id && (
-                      <Button type="button" size="sm" variant="secondary" className="gap-2" asChild>
-                        <a href={generatedPdf.url} target="_blank" rel="noopener" download={generatedPdf.filename}>
-                          <ExternalLink className="h-4 w-4" />
-                          Apri PDF
-                        </a>
-                      </Button>
+                      <>
+                        <Button type="button" size="sm" variant="secondary" className="gap-2" asChild>
+                          <a href={generatedPdf.url} target="_blank" rel="noopener">
+                            <ExternalLink className="h-4 w-4" />
+                            Apri PDF
+                          </a>
+                        </Button>
+                        <Button type="button" size="sm" variant="secondary" className="gap-2" asChild>
+                          <a href={generatedPdf.url} download={generatedPdf.filename}>
+                            <FileDown className="h-4 w-4" />
+                            Scarica PDF
+                          </a>
+                        </Button>
+                      </>
                     )}
                     <Button type="button" size="sm" className="gap-2" disabled={!match.teamId} onClick={() => openMatch(match)}>
                       <ExternalLink className="h-4 w-4" />
