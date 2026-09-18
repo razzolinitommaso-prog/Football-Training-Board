@@ -53,8 +53,7 @@ function formatDateTime(value?: string | null): string {
 function playerLabel(player: CallupPdfPlayer): string {
   const name = player.playerName?.trim() || `${player.lastName ?? ""} ${player.firstName ?? ""}`.trim();
   const number = player.jerseyNumber ? `${player.jerseyNumber}. ` : "";
-  const role = player.position ? ` - ${player.position}` : "";
-  return `${number}${name || "Giocatore"}${role}`;
+  return `${number}${name || "Giocatore"}`;
 }
 
 function wrapText(text: string, maxChars: number): string[] {
