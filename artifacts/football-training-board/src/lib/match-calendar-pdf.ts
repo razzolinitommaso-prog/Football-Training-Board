@@ -2561,6 +2561,7 @@ function opponentLooksPlausible(raw: string): boolean {
 function stripOpponentBleed(opponentRaw: string, ourSideRaw: string): string {
   let o = opponentRaw.trim();
   if (!o) return o;
+  o = o.replace(/\s+[AR]\s+\d{1,5}\b.*$/i, "").trim();
   const ourToks = ourSideRaw.split(/\s+/).filter(Boolean);
   const oppToks = o.split(/\s+/).filter(Boolean);
   if (ourToks.length && oppToks.length) {
