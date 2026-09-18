@@ -3695,13 +3695,21 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const teamId = overrideTeamId ?? (params?.teamId ? parseInt(params.teamId) : null);
   const isStandalone = !overrideTeamId;
 
-  const canImportExport = role === "secretary";
-  const canManageTournament = role === "secretary";
+  const canManageMatchCalendar = [
+    "admin",
+    "presidente",
+    "director",
+    "secretary",
+    "sporting_director",
+    "technical_director",
+  ].includes(role ?? "");
+  const canImportExport = canManageMatchCalendar;
+  const canManageTournament = canManageMatchCalendar;
 
   // Segreteria, Direttore Sportivo, Amministratore → gestione logistica partita
-  const canEditSchedule  = role === "secretary";
+  const canEditSchedule  = canManageMatchCalendar;
   // stessa categoria: note pre-partita (indicazioni operative/logistiche)
-  const canEditPreNotes  = role === "secretary";
+  const canEditPreNotes  = canManageMatchCalendar;
   // Post-partita: menu completo note/allegati disponibile anche in segreteria.
   const canEditPostNotes = [
     "secretary",
