@@ -226,8 +226,14 @@ function MatchCalendarTeamCard({
       <div
         role="button"
         tabIndex={0}
-        onClick={() => navigate(`/calendari/${team.id}`)}
+        onClick={(e) => {
+          const target = e.target as HTMLElement | null;
+          if (target?.closest("button,a,input,label,select,textarea")) return;
+          navigate(`/calendari/${team.id}`);
+        }}
         onKeyDown={(e) => {
+          const target = e.target as HTMLElement | null;
+          if (target?.closest("button,a,input,label,select,textarea")) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             navigate(`/calendari/${team.id}`);
