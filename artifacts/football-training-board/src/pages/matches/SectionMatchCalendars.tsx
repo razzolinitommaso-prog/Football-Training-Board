@@ -45,6 +45,8 @@ type MatchRow = {
   opponent: string;
   date: string;
   homeAway: string;
+  teamId?: number | null;
+  teamName?: string | null;
   competition?: string | null;
   location?: string | null;
   notes?: string | null;
@@ -794,6 +796,8 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
   const [sectorPreviewOpen, setSectorPreviewOpen] = useState(false);
   const [sectorPreviewRows, setSectorPreviewRows] = useState<SectorYouthImportRow[]>([]);
   const [sectorImportSummary, setSectorImportSummary] = useState<string[]>([]);
+  const [bulkPanelOpen, setBulkPanelOpen] = useState(false);
+  const [selectedMatchIds, setSelectedMatchIds] = useState<Set<number>>(() => new Set());
 
   const { data: sectionTeams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", section],
@@ -812,6 +816,23 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
 
   const visibleTeams = isManagement ? sectionTeams : staffTeams;
   const canImportYouthFederalPdf = isManagement && section === "settore_giovanile";
+  const visibleTeamIds = useMemo(() => new Set(visibleTeams.map((team) => team.id)), [visibleTeams]);
+
+  const { data: sectionMatches = [] } = useQuery<MatchRow[]>({
+    queryKey: ["/api/matches", section, "bulk"],
+    queryFn: () => apiFetch("/api/matches"),
+    enabled: isManagement && visibleTeams.length > 0,
+  });
+
+  const visibleSectionMatches = useMemo(
+    () =>
+      sectionMatches
+        .filter((match) => typeof match.teamId === "number" && visibleTeamIds.has(match.teamId))
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+    [sectionMatches, visibleTeamIds],
+  );
+
+  const selectedVisibleMatchCount = visibleSectionMatches.filter((match) => selectedMatchIds.has(match.id)).length;
 
   const analyzeYouthFederalPdfMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -913,6 +934,24 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
     onError: (e: Error) => toast({ title: e.message || "Errore import settore giovanile", variant: "destructive" }),
   });
 
+  const bulkDeleteMatchesMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      for (const id of ids) {
+        await apiFetch(`/api/matches/${id}`, { method: "DELETE" });
+      }
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      qc.invalidateQueries({ queryKey: ["/api/matches"] });
+      setSelectedMatchIds(new Set());
+      toast({
+        title: "Partite eliminate",
+        description: `${count} partite rimosse dal calendario.`,
+      });
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore eliminazione partite", variant: "destructive" }),
+  });
+
   if (isManagement || isStaff) {
     return (
       <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -949,7 +988,127 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
               />
             </div>
           )}
+          {isManagement && visibleTeams.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-2">
+              <Button
+                type="button"
+                variant={bulkPanelOpen ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => setBulkPanelOpen((open) => !open)}
+              >
+                {bulkPanelOpen ? "Chiudi selezione partite" : "Seleziona partite"}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {selectedVisibleMatchCount}/{visibleSectionMatches.length} selezionate
+              </span>
+              {bulkPanelOpen && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={visibleSectionMatches.length === 0 || bulkDeleteMatchesMutation.isPending}
+                    onClick={() => setSelectedMatchIds(new Set(visibleSectionMatches.map((match) => match.id)))}
+                  >
+                    Seleziona tutte
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={selectedVisibleMatchCount === 0 || bulkDeleteMatchesMutation.isPending}
+                    onClick={() => setSelectedMatchIds(new Set())}
+                  >
+                    Deseleziona
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={selectedVisibleMatchCount === 0 || bulkDeleteMatchesMutation.isPending}
+                    onClick={() => {
+                      const ids = visibleSectionMatches.filter((match) => selectedMatchIds.has(match.id)).map((match) => match.id);
+                      if (ids.length === 0) return;
+                      if (!confirm(`Eliminare ${ids.length} partite selezionate? L'operazione non può essere annullata.`)) return;
+                      bulkDeleteMatchesMutation.mutate(ids);
+                    }}
+                  >
+                    Elimina selezionate
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
         </div>
+
+        {bulkPanelOpen && isManagement && (
+          <Card>
+            <CardContent className="p-0">
+              {visibleSectionMatches.length === 0 ? (
+                <div className="p-4 text-sm text-muted-foreground">Nessuna partita presente nelle squadre visibili.</div>
+              ) : (
+                <div className="max-h-[420px] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-background border-b">
+                      <tr>
+                        <th className="w-10 p-2 text-left">
+                          <input
+                            type="checkbox"
+                            aria-label="Seleziona tutte le partite"
+                            checked={visibleSectionMatches.length > 0 && selectedVisibleMatchCount === visibleSectionMatches.length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedMatchIds(new Set(visibleSectionMatches.map((match) => match.id)));
+                              } else {
+                                setSelectedMatchIds(new Set());
+                              }
+                            }}
+                          />
+                        </th>
+                        <th className="p-2 text-left">Data</th>
+                        <th className="p-2 text-left">Squadra</th>
+                        <th className="p-2 text-left">Avversario</th>
+                        <th className="p-2 text-left">Tipo</th>
+                        <th className="p-2 text-left">Competizione</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleSectionMatches.map((match) => {
+                        const date = new Date(match.date);
+                        const dateText = Number.isNaN(date.getTime()) ? match.date : format(date, "dd/MM/yyyy HH:mm");
+                        const teamName = match.teamName || visibleTeams.find((team) => team.id === match.teamId)?.name || "-";
+                        return (
+                          <tr key={match.id} className="border-b last:border-b-0">
+                            <td className="p-2 align-top">
+                              <input
+                                type="checkbox"
+                                aria-label={`Seleziona partita ${match.opponent}`}
+                                checked={selectedMatchIds.has(match.id)}
+                                onChange={(e) => {
+                                  setSelectedMatchIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) next.add(match.id);
+                                    else next.delete(match.id);
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </td>
+                            <td className="p-2 align-top whitespace-nowrap">{dateText}</td>
+                            <td className="p-2 align-top">{teamName}</td>
+                            <td className="p-2 align-top font-medium">{match.opponent}</td>
+                            <td className="p-2 align-top">{match.homeAway === "home" ? "Casa" : "Trasferta"}</td>
+                            <td className="p-2 align-top">{match.competition ?? "-"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {visibleTeams.length === 0 ? (
           <Card>
