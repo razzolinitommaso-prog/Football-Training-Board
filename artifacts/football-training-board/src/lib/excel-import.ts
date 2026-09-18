@@ -174,7 +174,7 @@ function inferColumnField(key: string, values: unknown[]): string | null {
   const sample = values.map(cellToTrimmedString).filter(Boolean).slice(0, 12);
   const sampleText = normalizeImportToken(sample.join(" "));
 
-  if (/\b(cognome nome|nominativo|giocatore|atleta|nome completo)\b/.test(h)) return "Cognome Nome";
+  if (/\b(cognome nome|nome cognome|nominativo|giocatore|atleta|nome completo)\b/.test(h)) return "Cognome Nome";
   if (/\bcognome\b/.test(h) && !/\bnome\b/.test(h)) return "Cognome";
   if (/\bnome\b/.test(h) && !/\bcognome\b/.test(h)) return "Nome";
   if (/\b(data nascita|nato il|nascita|dob)\b/.test(h)) return "Data di Nascita";
@@ -187,7 +187,7 @@ function inferColumnField(key: string, values: unknown[]): string | null {
   if (/\b(ruolo|posizione)\b/.test(h)) return "Posizione";
   if (/\b(note|annotazioni)\b/.test(h)) return "Note";
 
-  const dateLike = sample.filter((v) => Boolean(cellToDateOfBirth(v))).length;
+  const dateLike = values.filter(isLikelyImportDateValue).length;
   if (dateLike >= Math.max(2, Math.ceil(sample.length * 0.55))) return "Data di Nascita";
   const emailLike = sample.filter((v) => /@/.test(v)).length;
   if (emailLike >= 2) return "Email";
@@ -212,6 +212,31 @@ function rawHeaderScore(row: unknown[]): number {
   }, 0);
 }
 
+function isLikelyImportDateValue(value: unknown): boolean {
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  if (typeof value === "number") return Number.isFinite(value) && value > 20000 && value < 80000;
+  const text = cellToTrimmedString(value);
+  if (!text) return false;
+  if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(text)) return true;
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(text)) return true;
+  if (/^(?:ag|ago|scad|visita|cert)\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/i.test(text)) return true;
+  return false;
+}
+
+function isLikelyProgressiveColumn(values: unknown[]): boolean {
+  const nums = values
+    .map((value) => Number(cellToTrimmedString(value)))
+    .filter((value) => Number.isFinite(value));
+  if (nums.length < 3) return false;
+  const small = nums.filter((value) => value > 0 && value < 300).length;
+  if (small < Math.ceil(nums.length * 0.8)) return false;
+  let sequential = 0;
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] >= nums[i - 1] && nums[i] - nums[i - 1] <= 3) sequential++;
+  }
+  return sequential >= Math.max(2, nums.length - 2);
+}
+
 function adaptiveRowsFromRawSheet(sheet: ParsedExcelSheet): Record<string, unknown>[] {
   const rawRows = (sheet.rawRows ?? []).filter((row) => row.some((cell) => cellToTrimmedString(cell)));
   if (rawRows.length === 0) return [];
@@ -227,10 +252,11 @@ function adaptiveRowsFromRawSheet(sheet: ParsedExcelSheet): Record<string, unkno
   for (let col = 0; col < maxCols; col++) {
     const headerLabel = cellToTrimmedString(header[col] ?? "");
     const values = dataRows.map((row) => row[col]);
+    if (isLikelyProgressiveColumn(values)) continue;
     let field = inferColumnField(headerLabel || `col_${col}`, values);
     if (!field) {
       const sample = values.map(cellToTrimmedString).filter(Boolean).slice(0, 14);
-      const dateLike = sample.filter((v) => Boolean(cellToDateOfBirth(v))).length;
+      const dateLike = values.filter(isLikelyImportDateValue).length;
       if (dateLike >= Math.max(2, Math.ceil(sample.length * 0.5))) {
         field = dateColumnCount === 0 ? "Data di Nascita" : "Certificato medico";
         dateColumnCount++;
