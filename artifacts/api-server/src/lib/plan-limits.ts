@@ -8,7 +8,7 @@ export const PLAN_LIMITS: Record<string, { maxTeams: number; maxPlayers: number 
   basic: { maxTeams: 3, maxPlayers: 50 },
   advanced: { maxTeams: 5, maxPlayers: 100 },
   "semi-pro": { maxTeams: 10, maxPlayers: 200 },
-  pro: { maxTeams: 10, maxPlayers: 200 },
+  pro: { maxTeams: 99, maxPlayers: 9999 },
   elite: { maxTeams: 99, maxPlayers: 9999 },
 };
 

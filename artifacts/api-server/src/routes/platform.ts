@@ -154,6 +154,8 @@ router.patch("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise
   const body = req.body as Record<string, string | number | undefined>;
   const updates: Record<string, string | number | null> = {};
   const requestedSeasonName = typeof body.activeSeasonName === "string" ? body.activeSeasonName.trim() : "";
+  const requestedPlanName = typeof body.planName === "string" && body.planName.trim() ? body.planName.trim() : "";
+  const requestedPaymentMethod = typeof body.paymentMethod === "string" && body.paymentMethod.trim() ? body.paymentMethod.trim() : "";
   const presidentEmail = typeof body.adminEmail === "string" ? body.adminEmail.trim().toLowerCase() : "";
   const presidentPassword = typeof body.adminPassword === "string" ? body.adminPassword : "";
   const presidentFirstName = typeof body.adminFirstName === "string" && body.adminFirstName.trim() ? body.adminFirstName.trim() : "Presidente";
@@ -255,7 +257,45 @@ router.patch("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise
     }
   }
 
-  res.json({ ...updated, activeSeason: activeSeason ?? null, presidentUser });
+  let subscription = null;
+  if (requestedPlanName || requestedPaymentMethod) {
+    const existing = await db
+      .select()
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.clubId, clubId))
+      .limit(1);
+    const currentPlanName = requestedPlanName || existing[0]?.planName || "standard";
+    const limits = limitsForPlan(currentPlanName);
+    const subscriptionUpdates = {
+      planName: currentPlanName,
+      paymentMethod: requestedPaymentMethod || existing[0]?.paymentMethod || null,
+      status: existing[0]?.status || "active",
+      startDate: existing[0]?.startDate || new Date().toISOString().slice(0, 10),
+      maxTeams: limits.maxTeams,
+      maxPlayers: limits.maxPlayers,
+    };
+
+    if (existing[0]) {
+      [subscription] = await db
+        .update(subscriptionsTable)
+        .set(subscriptionUpdates)
+        .where(eq(subscriptionsTable.id, existing[0].id))
+        .returning();
+    } else {
+      [subscription] = await db
+        .insert(subscriptionsTable)
+        .values({ clubId, ...subscriptionUpdates })
+        .returning();
+    }
+  } else {
+    [subscription] = await db
+      .select()
+      .from(subscriptionsTable)
+      .where(eq(subscriptionsTable.clubId, clubId))
+      .limit(1);
+  }
+
+  res.json({ ...updated, activeSeason: activeSeason ?? null, presidentUser, subscription: subscription ?? null });
 });
 
 router.delete("/platform/clubs/:id", requireSuperAdmin, async (req, res): Promise<void> => {
