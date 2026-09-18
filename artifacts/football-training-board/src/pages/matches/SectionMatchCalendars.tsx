@@ -22,7 +22,7 @@ import {
   discoverPdfSectionTitles,
   isGenericPdfCategoryHint,
 } from "@/lib/match-calendar-pdf";
-import { findImportDuplicateConflicts } from "@/lib/match-import-conflicts";
+import { findImportDuplicateConflicts, matchImportFingerprint } from "@/lib/match-import-conflicts";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { format } from "date-fns";
 import { withApi } from "@/lib/api-base";
@@ -50,6 +50,54 @@ type MatchRow = {
   notes?: string | null;
   result?: string | null;
 };
+
+type SectorYouthImportRow = MatchImportRow & {
+  teamId: number;
+  teamName: string;
+  sourceSection: string;
+};
+
+const YOUTH_FEDERAL_SECTION_MAP = [
+  {
+    teamAliases: ["allievi a", "alievi a", "under 17", "u17"],
+    sectionTitle: "UNDER 17 ALLIEVI FIRENZE",
+    label: "U17 / Allievi A",
+  },
+  {
+    teamAliases: ["allievi b", "alievi b", "under 16", "u16"],
+    sectionTitle: "UNDER 16 ALLIEVI B FIRENZE",
+    label: "U16 / Allievi B",
+  },
+  {
+    teamAliases: ["giovanissimi a", "under 15", "u15"],
+    sectionTitle: "UNDER 15 GIOVANISSIMI FIRENZE",
+    label: "U15 / Giovanissimi A",
+  },
+  {
+    teamAliases: ["giovanissimi b", "under 14", "u14"],
+    sectionTitle: "UNDER 14 GIOVANISSIMI B FIRENZE",
+    label: "U14 / Giovanissimi B",
+  },
+];
+
+function normalizeLocalName(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function findYouthTeamForOfficialSection(teams: Team[], aliases: string[]): Team | null {
+  const normalizedAliases = aliases.map(normalizeLocalName);
+  return teams.find((team) => {
+    const candidates = [team.name, team.category].map(normalizeLocalName).filter(Boolean);
+    return candidates.some((candidate) =>
+      normalizedAliases.some((alias) => candidate === alias || candidate.includes(alias)),
+    );
+  }) ?? null;
+}
 
 function MatchCalendarTeamCard({
   team,
@@ -738,6 +786,14 @@ async function apiFetch(url: string, options?: RequestInit) {
 export default function SectionMatchCalendars({ section }: { section: string }) {
   const { role, user } = useAuth();
   const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data: myClub } = useGetMyClub();
+  const clubLabel = myClub?.name?.trim() || DEFAULT_CLUB_LABEL;
+  const sectorPdfFileRef = useRef<HTMLInputElement>(null);
+  const [sectorPreviewOpen, setSectorPreviewOpen] = useState(false);
+  const [sectorPreviewRows, setSectorPreviewRows] = useState<SectorYouthImportRow[]>([]);
+  const [sectorImportSummary, setSectorImportSummary] = useState<string[]>([]);
 
   const { data: sectionTeams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", section],
@@ -755,6 +811,107 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
   );
 
   const visibleTeams = isManagement ? sectionTeams : staffTeams;
+  const canImportYouthFederalPdf = isManagement && section === "settore_giovanile";
+
+  const analyzeYouthFederalPdfMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const rows: SectorYouthImportRow[] = [];
+      const summary: string[] = [];
+
+      for (const mapping of YOUTH_FEDERAL_SECTION_MAP) {
+        const team = findYouthTeamForOfficialSection(sectionTeams, mapping.teamAliases);
+        if (!team) {
+          summary.push(`${mapping.label}: squadra non trovata`);
+          continue;
+        }
+
+        const parsed = await parseMatchCalendarPdfFile(file, {
+          teamName: team.name,
+          clubName: clubLabel,
+          societyHint: clubLabel,
+          searchTerms: buildPdfImportSearchTerms({
+            categoryLine: mapping.sectionTitle,
+            clubLine: clubLabel,
+          }),
+          sectionTitleHints: [mapping.sectionTitle],
+        });
+
+        const mappedRows = parsed.recognized.map((row) => ({
+          ...row,
+          teamId: team.id,
+          teamName: team.name,
+          sourceSection: mapping.label,
+        }));
+        rows.push(...mappedRows);
+        summary.push(`${mapping.label}: ${mappedRows.length} partite riconosciute`);
+      }
+
+      return { rows, summary };
+    },
+    onSuccess: ({ rows, summary }) => {
+      setSectorImportSummary(summary);
+      if (rows.length === 0) {
+        toast({
+          title: "Nessuna partita settore giovanile riconosciuta",
+          description: summary.join(" · ") || "Controlla il PDF o i nomi delle squadre.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setSectorPreviewRows(rows);
+      setSectorPreviewOpen(true);
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore analisi PDF settore giovanile", variant: "destructive" }),
+  });
+
+  const applyYouthFederalImportMutation = useMutation({
+    mutationFn: async (rows: SectorYouthImportRow[]) => {
+      let imported = 0;
+      let skipped = 0;
+      const rowsByTeam = new Map<number, SectorYouthImportRow[]>();
+      rows.forEach((row) => rowsByTeam.set(row.teamId, [...(rowsByTeam.get(row.teamId) ?? []), row]));
+
+      for (const [teamId, teamRows] of rowsByTeam.entries()) {
+        const existing = (await apiFetch(`/api/matches?teamId=${teamId}`)) as MatchRow[];
+        const existingKeys = new Set(existing.map((match) => matchImportFingerprint(match)));
+        const batchKeys = new Set<string>();
+
+        for (const row of teamRows) {
+          const key = matchImportFingerprint(row);
+          if (existingKeys.has(key) || batchKeys.has(key)) {
+            skipped++;
+            continue;
+          }
+          batchKeys.add(key);
+          await apiFetch("/api/matches", {
+            method: "POST",
+            body: JSON.stringify({
+              opponent: row.opponent,
+              date: row.date,
+              teamId,
+              homeAway: row.homeAway,
+              competition: row.competition ?? "Campionato",
+              location: row.location ?? undefined,
+              notes: row.notes ?? `PDF ufficiale settore giovanile - ${row.sourceSection}`,
+            }),
+          });
+          imported++;
+        }
+      }
+
+      return { imported, skipped };
+    },
+    onSuccess: ({ imported, skipped }) => {
+      qc.invalidateQueries({ queryKey: ["/api/matches"] });
+      setSectorPreviewOpen(false);
+      setSectorPreviewRows([]);
+      toast({
+        title: "Import settore giovanile completato",
+        description: `${imported} partite importate${skipped ? `, ${skipped} duplicate saltate` : ""}.`,
+      });
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore import settore giovanile", variant: "destructive" }),
+  });
 
   if (isManagement || isStaff) {
     return (
@@ -767,6 +924,31 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
           <p className="text-sm text-muted-foreground mt-1">
             Seleziona un'annata per vedere il calendario gare
           </p>
+          {canImportYouthFederalPdf && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                disabled={analyzeYouthFederalPdfMutation.isPending}
+                onClick={() => sectorPdfFileRef.current?.click()}
+              >
+                <FileText className="h-4 w-4" />
+                {analyzeYouthFederalPdfMutation.isPending ? "Lettura PDF..." : "Carica PDF ufficiale settore giovanile"}
+              </Button>
+              <input
+                ref={sectorPdfFileRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) analyzeYouthFederalPdfMutation.mutate(file);
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {visibleTeams.length === 0 ? (
@@ -784,6 +966,51 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
             ))}
           </div>
         )}
+        <Dialog open={sectorPreviewOpen} onOpenChange={setSectorPreviewOpen}>
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Anteprima PDF ufficiale settore giovanile</DialogTitle>
+              <DialogDescription>
+                Categorie ufficiali lette dal comunicato FIGC e abbinate alle squadre del Settore Giovanile.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              {sectorImportSummary.length > 0 && (
+                <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                  {sectorImportSummary.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </div>
+              )}
+              <div className="rounded-md border divide-y">
+                {sectorPreviewRows.map((row, index) => {
+                  const date = new Date(row.date);
+                  const dateText = Number.isNaN(date.getTime()) ? row.date : format(date, "dd/MM/yyyy HH:mm");
+                  return (
+                    <div key={`${row.teamId}-${row.date}-${row.opponent}-${index}`} className="p-3 text-sm">
+                      <div className="font-semibold">{row.teamName} · {row.sourceSection}</div>
+                      <div className="text-muted-foreground">
+                        {dateText} · {row.homeAway === "home" ? "Casa" : "Trasferta"} · {row.opponent}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setSectorPreviewOpen(false)}>
+                Annulla
+              </Button>
+              <Button
+                type="button"
+                disabled={applyYouthFederalImportMutation.isPending || sectorPreviewRows.length === 0}
+                onClick={() => applyYouthFederalImportMutation.mutate(sectorPreviewRows)}
+              >
+                {applyYouthFederalImportMutation.isPending ? "Importo..." : "Importa partite"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
