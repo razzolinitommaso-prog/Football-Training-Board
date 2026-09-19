@@ -25,6 +25,16 @@ export function cellToDateOfBirth(value: unknown): string | undefined {
   if (typeof value === "string") {
     const t = value.trim();
     if (!t) return undefined;
+    const embeddedDateMatch = t.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+    const parseDayMonthYear = (day: string, month: string, rawYear: string) => {
+      const year = rawYear.length === 2 ? 2000 + Number(rawYear) : Number(rawYear);
+      const monthNum = Number(month);
+      const dayNum = Number(day);
+      if (year >= 1900 && monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31) {
+        return `${year}-${String(monthNum).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+      }
+      return undefined;
+    };
     const isoMatch = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
     if (isoMatch) {
       const [, y, m, d] = isoMatch;
@@ -33,18 +43,19 @@ export function cellToDateOfBirth(value: unknown): string | undefined {
     const slashMatch = t.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
     if (slashMatch) {
       const [, a, b, rawYear] = slashMatch;
-      const year = rawYear.length === 2 ? 2000 + Number(rawYear) : Number(rawYear);
       const first = Number(a);
       const second = Number(b);
       const month = first > 12 ? second : first;
       const day = first > 12 ? first : second;
-      if (year >= 1900 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-        return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      }
+      return parseDayMonthYear(String(day), String(month), rawYear);
+    }
+    if (embeddedDateMatch) {
+      const [, day, month, rawYear] = embeddedDateMatch;
+      return parseDayMonthYear(day, month, rawYear);
     }
     const parsed = new Date(t);
     if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-    return t;
+    return undefined;
   }
   if (typeof value === "number" && Number.isFinite(value)) {
     const n = Math.floor(value);
