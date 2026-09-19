@@ -951,6 +951,15 @@ function compactImportPayload(mapped: Record<string, unknown>, existing?: Player
   return payload;
 }
 
+async function fetchPlayersForImport(section?: ClubSection): Promise<Player[]> {
+  const urls = section ? ["/api/players?section=all", "/api/players"] : ["/api/players"];
+  for (const url of urls) {
+    const res = await fetch(withApi(url), { credentials: "include" });
+    if (res.ok) return res.json() as Promise<Player[]>;
+  }
+  return [];
+}
+
 async function importErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
     const text = await response.text();
@@ -1616,7 +1625,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     const existingByFingerprint = new Map<string, Player>();
     const existingByName = new Map<string, Player[]>();
     const existingByRegistration = new Map<string, Player>();
-    ((players as Player[] | undefined) ?? []).forEach((player) => {
+    const existingPlayersForImport = await fetchPlayersForImport(section);
+    const existingSource = existingPlayersForImport.length > 0 ? existingPlayersForImport : ((players as Player[] | undefined) ?? []);
+    existingSource.forEach((player) => {
       existingByFingerprint.set(playerImportFingerprint(player), player);
       const nameKey = playerImportNameKey(player);
       existingByName.set(nameKey, [...(existingByName.get(nameKey) ?? []), player]);
@@ -2738,6 +2749,25 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (status === "inactive") return t.inactive;
     return status;
   };
+  const playerHealthTone = (player: Player): "green" | "orange" | "red" => {
+    const registered = player.registered === true;
+    const medicalValid = isMedicalCertificateValid(player.medicalCertificateExpiry);
+    if (registered && medicalValid && player.available !== false && player.status !== "injured") return "green";
+    if (!registered && !medicalValid) return "red";
+    return "orange";
+  };
+  const toneClasses = {
+    avatar: {
+      green: "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800",
+      orange: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800",
+      red: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800",
+    },
+    badge: {
+      green: "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800",
+      orange: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800",
+      red: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800",
+    },
+  } as const;
 
   return (
     <div className="max-w-full space-y-8 overflow-hidden animate-in fade-in duration-500">
@@ -5304,6 +5334,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   (() => {
                     const { meta } = splitPlayerMeta(player.notes ?? "");
                     const imageUrl = player.imageUrl ?? meta.imageUrl ?? null;
+                    const tone = playerHealthTone(player);
                     return (
                   <tr key={player.id} className="hover:bg-muted/30 transition-colors">
                     {canDeletePlayer && (
@@ -5331,9 +5362,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           />
                         ) : (
                           <div className={`w-10 h-10 rounded-md flex items-center justify-center border shadow-sm ${
-                            player.available === false
-                              ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
-                              : "bg-muted text-muted-foreground"
+                            toneClasses.avatar[tone]
                           }`}>
                             <User className="w-4 h-4" />
                           </div>
@@ -5362,7 +5391,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     <td className="px-6 py-4">
                       {player.available === false ? (
                         <div className="space-y-0.5">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${toneClasses.badge[tone]}`}>
                             <AlertTriangle className="w-3 h-3" />
                             {t.notAvailable}
                           </span>
@@ -5381,9 +5410,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     </td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
-                        player.status === 'active' ? 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' :
-                        player.status === 'injured' ? 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' :
-                        'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700'
+                        toneClasses.badge[tone]
                       }`}>
                         {statusLabel(player.status)}
                       </span>
@@ -5459,6 +5486,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               const { meta } = splitPlayerMeta(player.notes ?? "");
               const imageUrl = player.imageUrl ?? meta.imageUrl ?? null;
               const selected = selectedPlayerIds.includes(player.id);
+              const tone = playerHealthTone(player);
               return (
                 <div key={player.id} className="p-4">
                   <div className="flex items-start gap-3">
@@ -5480,9 +5508,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <img src={imageUrl} alt={playerName(player, nameOrder)} className="h-11 w-11 rounded-md border object-cover shadow-sm" />
                     ) : (
                       <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md border shadow-sm ${
-                        player.available === false
-                          ? "bg-red-100 text-red-800 border-red-200"
-                          : "bg-muted text-muted-foreground"
+                        toneClasses.avatar[tone]
                       }`}>
                         <User className="h-4 w-4" />
                       </div>
@@ -5507,13 +5533,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <div className="mt-3 flex flex-wrap gap-2">
                         <span className="rounded bg-muted px-2 py-1 font-mono text-xs">{player.position || "N/A"}</span>
                         <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-                          player.available === false
-                            ? "bg-red-100 text-red-800 border-red-200"
-                            : "bg-green-100 text-green-800 border-green-200"
+                          toneClasses.badge[tone]
                         }`}>
                           {player.available === false ? t.notAvailable : t.available}
                         </span>
-                        <span className="rounded-full border px-2.5 py-1 text-xs font-medium">
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${toneClasses.badge[tone]}`}>
                           {statusLabel(player.status)}
                         </span>
                       </div>

@@ -555,7 +555,8 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
   const weightRaw = row["Peso (kg)"];
   const weight =
     typeof weightRaw === "number" ? weightRaw : parseFloat(cellToTrimmedString(weightRaw));
-  const registeredValue = cellToLowerString(row["Tesserato"]);
+  const registeredRaw = readCell(row, ["Tesserato", "Tesseramento", "Tesserato stagione", "Tesserato annuale"]);
+  const registeredValue = cellToLowerString(registeredRaw);
   const phoneOwnerValue = cellToLowerString(readCell(row, PHONE_OWNER_KEYS));
   const parentFirstName = cellToTrimmedString(readCell(row, PARENT_FIRST_NAME_KEYS));
   const parentLastName = cellToTrimmedString(readCell(row, PARENT_LAST_NAME_KEYS));
@@ -563,8 +564,9 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
   const parentEmail = cellToTrimmedString(readCell(row, PARENT_EMAIL_KEYS));
   const parentRelation = cellToTrimmedString(readCell(row, PARENT_RELATION_KEYS));
   const hasParentContact = Boolean(parentFirstName || parentLastName || parentPhone || parentEmail || parentRelation);
+  const shuttleRaw = readCell(row, SHUTTLE_KEYS);
 
-  return {
+  const mapped: Record<string, unknown> = {
     firstName: importedName.firstName,
     lastName: importedName.lastName,
     teamId: team?.id ?? null,
@@ -575,7 +577,6 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
     height: isNaN(height) ? null : height,
     weight: isNaN(weight) ? null : weight,
     medicalCertificateExpiry: cellToDateOfBirth(readCell(row, MEDICAL_CERTIFICATE_KEYS)),
-    registered: registeredValue === "sì" || registeredValue === "si" || registeredValue === "sã¬",
     registrationNumber: cellToTrimmedString(readCell(row, REGISTRATION_NUMBER_KEYS)) || undefined,
     phone: cellToTrimmedString(readCell(row, PLAYER_PHONE_KEYS)) || undefined,
     email: cellToTrimmedString(readCell(row, PLAYER_EMAIL_KEYS)) || undefined,
@@ -590,10 +591,15 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
     secondaryContactPhone: cellToTrimmedString(readCell(row, SECONDARY_PHONE_KEYS)) || undefined,
     secondaryContactEmail: cellToTrimmedString(readCell(row, SECONDARY_EMAIL_KEYS)) || undefined,
     secondaryContactRelation: cellToTrimmedString(readCell(row, SECONDARY_RELATION_KEYS)) || undefined,
-    shuttleService: cellToBoolean(readCell(row, SHUTTLE_KEYS)),
     notes: composeImportedPlayerNotes(cellToTrimmedString(row["Note"]), importedRole.specificRole),
-    status: "active",
   };
+  if (cellToTrimmedString(registeredRaw)) {
+    mapped.registered = registeredValue === "sì" || registeredValue === "si" || registeredValue === "sã¬" || registeredValue === "yes" || registeredValue === "true" || registeredValue === "1" || registeredValue === "x";
+  }
+  if (cellToTrimmedString(shuttleRaw)) {
+    mapped.shuttleService = cellToBoolean(shuttleRaw);
+  }
+  return mapped;
 }
 
 export function mapExcelRowToPlayerPreview(row: Record<string, unknown>, teams: { id: number; name: string }[]) {

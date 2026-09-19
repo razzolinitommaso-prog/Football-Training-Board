@@ -409,12 +409,31 @@ function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?
   const certificate = "medicalCertificateExpiry" in data
     ? (data.medicalCertificateExpiry as string | null | undefined)
     : existing?.medicalCertificateExpiry;
+  const incomingStatus = typeof data.status === "string" ? data.status : existing?.status;
   const overrideSource = {
     availabilityOverrideActive: "availabilityOverrideActive" in data ? data.availabilityOverrideActive : (existing as PlayerWithAvailabilityOverride | undefined)?.availabilityOverrideActive,
     availabilityOverrideFrom: "availabilityOverrideFrom" in data ? data.availabilityOverrideFrom : (existing as PlayerWithAvailabilityOverride | undefined)?.availabilityOverrideFrom,
     availabilityOverrideUntil: "availabilityOverrideUntil" in data ? data.availabilityOverrideUntil : (existing as PlayerWithAvailabilityOverride | undefined)?.availabilityOverrideUntil,
   };
-  if ((!registered || !hasValidMedicalCertificate(certificate)) && !isAvailabilityOverrideActive(overrideSource)) {
+  if (incomingStatus === "injured") {
+    data.status = "injured";
+    data.available = false;
+    if (!data.unavailabilityReason) data.unavailabilityReason = "injury";
+    data.expectedReturn = null;
+    return;
+  }
+
+  const hasRequirements = registered && hasValidMedicalCertificate(certificate);
+  if (hasRequirements) {
+    data.status = "active";
+    data.available = true;
+    data.unavailabilityReason = null;
+    data.expectedReturn = null;
+    return;
+  }
+
+  data.status = "inactive";
+  if (!isAvailabilityOverrideActive(overrideSource)) {
     data.available = false;
     data.unavailabilityReason = "other";
     data.expectedReturn = null;
@@ -540,11 +559,10 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   const queryParams = ListPlayersQueryParams.safeParse(req.query);
   const requestedTeamId = queryParams.success ? queryParams.data.teamId : undefined;
   const role = req.session.role ?? "";
-  const section = resolveClubSectionFilter(
-    role,
-    typeof req.query.section === "string" ? req.query.section : undefined,
-    req.session.section,
-  );
+  const requestedSection = typeof req.query.section === "string" ? req.query.section : undefined;
+  const section = requestedSection === "all" && PLAYER_MANAGE_ROLES.includes(normalizeSessionRole(role))
+    ? undefined
+    : resolveClubSectionFilter(role, requestedSection, req.session.section);
 
   let conditions = [eq(playersTable.clubId, clubId)];
   if (section) conditions.push(eq(playersTable.clubSection, section));
