@@ -422,7 +422,7 @@ function seasonUnderMatchesSectionHints(underNumbers: Set<string>, sectionNorms:
 
 function extractSeasonDatePairs(line: string, fallbackYearHint?: number | null): Array<{ firstLeg: string; secondLeg: string }> {
   const pairs: Array<{ firstLeg: string; secondLeg: string }> = [];
-  const rx = /ANDATA\s*:\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})\s*!?\s*RITORNO\s*:\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})/gi;
+  const rx = /ANDATA\s*:\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})[\s!|I]*RITORNO\s*:\s*(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4})/gi;
   let m: RegExpExecArray | null;
   while ((m = rx.exec(line))) {
     const firstLeg = parseCompactSeasonDate(m[1], fallbackYearHint);
