@@ -35,6 +35,12 @@ const POST_NOTES_ROLES = [
 const MATCH_PLAN_EDIT_ROLES = ["coach", "fitness_coach", "athletic_director"];
 const MATCH_PLAN_VIEW_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
 const MATCH_PLAN_MARKER = "[FTB_MATCH_PLAN]";
+const MATCH_SECTION_VALUES = new Set(["scuola_calcio", "settore_giovanile", "prima_squadra"]);
+
+function normalizeMatchSection(value: unknown): string | undefined {
+  const section = String(value ?? "").trim();
+  return MATCH_SECTION_VALUES.has(section) ? section : undefined;
+}
 
 function parseRouteIdParam(value: string | string[] | undefined): number {
   if (Array.isArray(value)) return Number.parseInt(value[0] ?? "", 10);
@@ -126,7 +132,7 @@ router.get("/matches", requireAuth, async (req, res): Promise<void> => {
   const teamId = req.query.teamId ? parseInt(req.query.teamId as string) : null;
   const conditions: ReturnType<typeof eq>[] = [eq(matchesTable.clubId, req.session.clubId!) as any];
   if (teamId && !isNaN(teamId)) conditions.push(eq(matchesTable.teamId, teamId) as any);
-  const sectionFilter = req.session.section;
+  const sectionFilter = normalizeMatchSection(req.query.section) ?? (!teamId ? normalizeMatchSection(req.session.section) : undefined);
   if (sectionFilter) {
     const sectionTeams = await db.select({ id: teamsTable.id }).from(teamsTable)
       .where(and(eq(teamsTable.clubId, req.session.clubId!), eq(teamsTable.clubSection, sectionFilter)));

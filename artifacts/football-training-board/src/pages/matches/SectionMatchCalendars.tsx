@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { useGetMyClub } from "@workspace/api-client-react";
 
-interface Team { id: number; name: string; category?: string; assignedStaff?: { userId: number }[]; }
+interface Team { id: number; name: string; category?: string; clubSection?: string | null; assignedStaff?: { userId: number }[]; }
 
 const DEFAULT_CLUB_LABEL = "Gavinana Firenze";
 
@@ -799,10 +799,14 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
   const [bulkPanelOpen, setBulkPanelOpen] = useState(false);
   const [selectedMatchIds, setSelectedMatchIds] = useState<Set<number>>(() => new Set());
 
-  const { data: sectionTeams = [] } = useQuery<Team[]>({
+  const { data: rawSectionTeams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", section],
     queryFn: () => apiFetch(`/api/teams?section=${section}`),
   });
+  const sectionTeams = useMemo(
+    () => rawSectionTeams.filter((team) => !team.clubSection || team.clubSection === section),
+    [rawSectionTeams, section],
+  );
 
   const isManagement = ["admin", "director", "secretary", "presidente"].includes(role ?? "");
   const isStaff = ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(role ?? "");
@@ -820,7 +824,7 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
 
   const { data: sectionMatches = [] } = useQuery<MatchRow[]>({
     queryKey: ["/api/matches", section, "bulk"],
-    queryFn: () => apiFetch("/api/matches"),
+    queryFn: () => apiFetch(`/api/matches?section=${section}`),
     enabled: isManagement && visibleTeams.length > 0,
   });
 
