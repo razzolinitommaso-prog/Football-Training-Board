@@ -908,7 +908,7 @@ function playerImportFingerprint(player: { firstName?: unknown; lastName?: unkno
   return [
     normalizeImportTeamName(String(player.lastName ?? "")),
     normalizeImportTeamName(String(player.firstName ?? "")),
-    String(player.dateOfBirth ?? "").slice(0, 10),
+    normalizeImportDateKey(player.dateOfBirth),
   ].join("|");
 }
 
@@ -921,6 +921,22 @@ function playerImportNameKey(player: { firstName?: unknown; lastName?: unknown }
 
 function playerImportRegistrationKey(player: { registrationNumber?: unknown }) {
   return normalizeImportTeamName(String(player.registrationNumber ?? ""));
+}
+
+function normalizeImportDateKey(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const european = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (european) {
+    const year = european[3].length === 2 ? `20${european[3]}` : european[3];
+    return `${year}-${european[2].padStart(2, "0")}-${european[1].padStart(2, "0")}`;
+  }
+  const date = new Date(raw);
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  return normalizeImportTeamName(raw);
 }
 
 function compactImportPayload(mapped: Record<string, unknown>, existing?: Player): Record<string, unknown> {
@@ -1688,15 +1704,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         fileFingerprints.add(fingerprint);
         const registrationKey = playerImportRegistrationKey(mapped);
         const nameKey = playerImportNameKey(mapped);
-        const mappedDate = String(mapped.dateOfBirth ?? "").slice(0, 10);
+        const mappedDate = normalizeImportDateKey(mapped.dateOfBirth);
         const mappedTeamId = Number(mapped.teamId ?? 0);
         const existing =
           (registrationKey ? existingByRegistration.get(registrationKey) : undefined) ??
           existingByFingerprint.get(fingerprint) ??
           (existingByName.get(nameKey) ?? []).find((player) => {
-            const existingDate = String(player.dateOfBirth ?? "").slice(0, 10);
+            const existingDate = normalizeImportDateKey(player.dateOfBirth);
             const sameDateOrMissing = !mappedDate || !existingDate || mappedDate === existingDate;
-            const sameTeamOrMissing = !mappedTeamId || !player.teamId || Number(player.teamId) === mappedTeamId;
+            const sameTeamOrMissing = !mappedDate && (!mappedTeamId || !player.teamId || Number(player.teamId) === mappedTeamId);
+            if (mappedDate && existingDate && mappedDate === existingDate) return true;
             return sameDateOrMissing && sameTeamOrMissing;
           });
 
