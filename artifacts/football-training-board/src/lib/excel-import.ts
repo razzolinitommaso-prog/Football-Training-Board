@@ -105,36 +105,42 @@ export type ParsedExcelSheet = {
   rawRows?: unknown[][];
 };
 
-export async function parseExcelWorkbook(file: File): Promise<ParsedExcelSheet[]> {
+function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
+  if (typeof file.arrayBuffer === "function") return file.arrayBuffer();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
-        const sheets = wb.SheetNames.map((name) => {
-          const ws = wb.Sheets[name];
-          return {
-            name,
-            rows: XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
-              defval: "",
-              raw: false,
-            }),
-            rawRows: XLSX.utils.sheet_to_json<unknown[]>(ws, {
-              defval: "",
-              raw: false,
-              header: 1,
-            }),
-          };
-        });
-        resolve(sheets);
-      } catch {
-        reject(new Error("File non valido. Assicurati di caricare un file .xlsx o .xls"));
-      }
+      const result = e.target?.result;
+      if (result instanceof ArrayBuffer) resolve(result);
+      else reject(new Error("Errore nella lettura del file"));
     };
     reader.onerror = () => reject(new Error("Errore nella lettura del file"));
     reader.readAsArrayBuffer(file);
   });
+}
+
+export async function parseExcelWorkbook(file: File): Promise<ParsedExcelSheet[]> {
+  try {
+    const data = new Uint8Array(await readFileAsArrayBuffer(file));
+    const wb = XLSX.read(data, { type: "array", cellDates: true });
+    return wb.SheetNames.map((name) => {
+      const ws = wb.Sheets[name];
+      return {
+        name,
+        rows: XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+          defval: "",
+          raw: false,
+        }),
+        rawRows: XLSX.utils.sheet_to_json<unknown[]>(ws, {
+          defval: "",
+          raw: false,
+          header: 1,
+        }),
+      };
+    });
+  } catch {
+    throw new Error("File non valido. Assicurati di caricare un file .xlsx o .xls");
+  }
 }
 
 export async function parseExcelFile(file: File, sheetName?: string): Promise<Record<string, unknown>[]> {
