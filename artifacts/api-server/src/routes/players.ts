@@ -584,9 +584,20 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
+  const sectionTeamIds = section
+    ? (await db
+        .select({ id: teamsTable.id })
+        .from(teamsTable)
+        .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.clubSection, section))))
+        .map((team) => team.id)
+    : [];
+  const sectionTeamIdSet = new Set(sectionTeamIds);
+
   const playerWhere = requestedTeamId || needsAssignmentFiltering
     ? eq(playersTable.clubId, clubId)
-    : and(...conditions);
+    : section
+      ? eq(playersTable.clubId, clubId)
+      : and(...conditions);
   const players = await db.select().from(playersTable).where(playerWhere);
   const filtered = players.filter((player) => {
     const supplementalTeamId = extractSupplementalTeamId(player.notes);
@@ -598,6 +609,11 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
         (player.teamId != null && assignedTeamIds.includes(player.teamId)) ||
         (supplementalTeamId != null && assignedTeamIds.includes(supplementalTeamId))
       );
+    }
+    if (section) {
+      if (player.teamId != null) return sectionTeamIdSet.has(player.teamId);
+      if (supplementalTeamId != null) return sectionTeamIdSet.has(supplementalTeamId);
+      return player.clubSection === section;
     }
     return true;
   });
