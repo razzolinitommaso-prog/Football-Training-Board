@@ -161,7 +161,7 @@ function headerScore(key: string, values: unknown[]): number {
   const h = normalizeImportToken(key);
   if (!h || /^__empty/.test(h)) return 0;
   let score = 0;
-  if (/\b(cognome|nome|nominativo|giocatore|atleta|data nascita|nato|tessera|matricola|certificato|visita|telefono|cellulare|email|mail|squadra|annata|ruolo)\b/.test(h)) {
+  if (/\b(cognome|nome|nominativo|giocatore|atleta|data nascita|nato|tessera|tesserato|tesseramento|matricola|certificato|visita|telefono|cellulare|email|mail|squadra|annata|ruolo)\b/.test(h)) {
     score += 4;
   }
   const filled = values.filter((v) => cellToTrimmedString(v)).length;
@@ -179,6 +179,7 @@ function inferColumnField(key: string, values: unknown[]): string | null {
   if (/\bnome\b/.test(h) && !/\bcognome\b/.test(h)) return "Nome";
   if (/\b(data nascita|nato il|nascita|dob)\b/.test(h)) return "Data di Nascita";
   if (/\b(luogo nascita|nato a|comune nascita)\b/.test(h)) return "Luogo di Nascita";
+  if (/\b(tesserato|tesseramento|tesserato stagione|tesserato annuale)\b/.test(h)) return "Tesserato";
   if (/\b(tessera|matricola|cartellino)\b/.test(h)) return "N° Tessera";
   if (/\b(certificato|visita|scadenza)\b/.test(h)) return "Certificato medico";
   if (/\b(cellulare|telefono|tel)\b/.test(h)) return /\b(genitore|madre|padre|tutore|referente)\b/.test(h) ? "Telefono Genitore" : "Telefono";
@@ -205,7 +206,7 @@ function rawHeaderScore(row: unknown[]): number {
   return row.reduce<number>((sum, cell) => {
     const h = normalizeImportToken(cellToTrimmedString(cell));
     if (!h) return sum;
-    if (/\b(nome|cognome|nominativo|giocatore|atleta|luogo|data|nascita|matric|tessera|tel|telefono|visita|certificato|email|mail|ruolo|squadra)\b/.test(h)) {
+    if (/\b(nome|cognome|nominativo|giocatore|atleta|luogo|data|nascita|matric|tessera|tesserato|tesseramento|tel|telefono|visita|certificato|email|mail|ruolo|squadra)\b/.test(h)) {
       return sum + 2;
     }
     return sum;
