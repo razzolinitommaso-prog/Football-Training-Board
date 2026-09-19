@@ -150,6 +150,15 @@ function shouldTryAutomaticOpen() {
   return !isLikelyMobileBrowser();
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("Impossibile preparare il PDF"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export function buildCallupPdfBlob(input: {
   match: CallupPdfMatch;
   players: CallupPdfPlayer[];
@@ -201,7 +210,7 @@ export async function downloadOrShareCallupPdf(input: {
   const date = input.match.date ? new Date(input.match.date) : null;
   const datePart = date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "data";
   const filename = `${fileSafe(input.match.teamName || "squadra")}-${datePart}-convocazione.pdf`;
-  const blobUrl = URL.createObjectURL(blob);
+  const pdfUrl = await blobToDataUrl(blob);
 
   if (input.preferShare && typeof File !== "undefined" && navigator.share) {
     try {
@@ -213,17 +222,16 @@ export async function downloadOrShareCallupPdf(input: {
         text: "Convocazione partita",
         files: [file],
       });
-      URL.revokeObjectURL(blobUrl);
-      return { filename };
+      return { filename, url: pdfUrl };
     } catch (error) {
       if ((error as DOMException | undefined)?.name === "AbortError") {
-        return { filename, url: blobUrl };
+        return { filename, url: pdfUrl };
       }
     }
   }
 
   const link = document.createElement("a");
-  link.href = blobUrl;
+  link.href = pdfUrl;
   link.download = filename;
   link.target = "_blank";
   link.rel = "noopener";
@@ -233,10 +241,10 @@ export async function downloadOrShareCallupPdf(input: {
   link.remove();
   if (shouldTryAutomaticOpen()) {
     try {
-      window.open(blobUrl, "_blank", "noopener");
+      window.open(pdfUrl, "_blank", "noopener");
     } catch {
       // The visible link returned to the UI remains available if automatic opening is blocked.
     }
   }
-  return { filename, url: blobUrl };
+  return { filename, url: pdfUrl };
 }

@@ -2026,6 +2026,7 @@ function MatchCard({
           convocationPlace: planDraft.convocationPlace,
         },
         players,
+        preferShare: true,
       });
       if (result.url) {
         setGeneratedCallupPdf({ filename: result.filename, url: result.url });
@@ -2308,12 +2309,20 @@ function MatchCard({
                   {exportingCallupPdf ? "Esporto..." : "Export convocazione"}
                 </Button>
                 {generatedCallupPdf && (
-                  <Button type="button" size="sm" variant="secondary" className="h-7 gap-1.5 px-2 text-xs" asChild>
-                    <a href={generatedCallupPdf.url} target="_blank" rel="noopener" download={generatedCallupPdf.filename}>
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Apri PDF
-                    </a>
-                  </Button>
+                  <>
+                    <Button type="button" size="sm" variant="secondary" className="h-7 gap-1.5 px-2 text-xs" asChild>
+                      <a href={generatedCallupPdf.url} target="_blank" rel="noopener">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Apri PDF
+                      </a>
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" className="h-7 gap-1.5 px-2 text-xs" asChild>
+                      <a href={generatedCallupPdf.url} download={generatedCallupPdf.filename}>
+                        <Download className="h-3.5 w-3.5" />
+                        Scarica
+                      </a>
+                    </Button>
+                  </>
                 )}
                 {canManageMatchPlan ? (
                   <Button size="sm" variant="ghost" className="h-6 text-xs gap-1" onClick={() => setPlanOpen((v) => !v)}>

@@ -150,6 +150,7 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
           convocationPlace: match.matchPlan?.convocationPlace,
         },
         players: callups.map((callup) => ({ playerName: callup.playerName })),
+        preferShare: true,
       });
       if (result.url) {
         setGeneratedPdf({ matchId: match.id, filename: result.filename, url: result.url });
