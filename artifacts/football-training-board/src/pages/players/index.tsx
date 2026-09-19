@@ -1285,6 +1285,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return res.json() as Promise<Team[]>;
     },
   });
+  const { data: importTeams = [] } = useQuery<Team[]>({
+    queryKey: ["/api/teams", "import-scope"],
+    queryFn: async () => {
+      const res = await fetch(withApi("/api/teams"), { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<Team[]>;
+    },
+  });
   const { data: clubMembers = [] } = useListClubMembers();
   const { data: parentAccessCredentials } = useQuery<ParentAccessCredentials>({
     queryKey: ["/api/clubs/me/credentials"],
@@ -1610,7 +1618,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const importPlayersWithTeams = async (rows: Record<string, unknown>[]) => {
     const sectionForNewTeams = section ?? "scuola_calcio";
     const teamByName = new Map<string, { id: number; name: string }>();
-    ((teams as any[] | undefined) ?? []).forEach((team) => {
+    const teamsForImport = ((importTeams as any[] | undefined) ?? []).length > 0
+      ? (importTeams as any[])
+      : ((teams as any[] | undefined) ?? []);
+    teamsForImport.forEach((team) => {
       const keys = importTeamAliases(team);
       keys.forEach((key) => teamByName.set(key, { id: team.id, name: team.name }));
     });
@@ -2807,7 +2818,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   { key: "Certificato medico", label: "Certificato" },
                 ]}
                 onDownloadTemplate={downloadPlayerTemplate}
-                onParseRow={(row) => mapExcelRowToPlayerPreview(row, (teams as any[] ?? [])) as Record<string, unknown>}
+                onParseRow={(row) => mapExcelRowToPlayerPreview(row, ((importTeams as any[] | undefined) ?? (teams as any[] | undefined) ?? [])) as Record<string, unknown>}
                 isValidRow={isValidPlayerRow}
                 prepareRows={prepareAdaptivePlayerImportRows}
                 onImportValidRows={importPlayersWithTeams}
