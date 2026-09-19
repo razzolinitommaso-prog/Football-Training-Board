@@ -474,6 +474,7 @@ const SECONDARY_PHONE_KEYS = ["Telefono Secondo Referente", "Cellulare Secondo R
 const SECONDARY_EMAIL_KEYS = ["Email Secondo Referente", "E-mail Secondo Referente", "Email Secondo Genitore", "Email Altro Referente"];
 const SECONDARY_RELATION_KEYS = ["Relazione Secondo Referente", "Parentela Secondo Referente", "Rapporto Secondo Referente"];
 const SHUTTLE_KEYS = ["Pulmino", "Servizio Pulmino", "Usufruisce Pulmino", "Trasporto", "Servizio Trasporto"];
+const REGISTERED_KEYS = ["Tesserato", "Tesseramento", "Tesserato stagione", "Tesserato annuale"];
 const MEDICAL_CERTIFICATE_KEYS = [
   "Certificato medico",
   "Scadenza certificato",
@@ -486,6 +487,16 @@ const MEDICAL_CERTIFICATE_KEYS = [
 function cellToBoolean(value: unknown): boolean {
   const normalized = cellToLowerString(value);
   return ["si", "sì", "yes", "true", "1", "x"].includes(normalized);
+}
+
+function cellToOptionalBoolean(value: unknown): boolean | undefined {
+  const raw = cellToTrimmedString(value);
+  if (!raw) return undefined;
+
+  const normalized = cellToLowerString(value);
+  if (["si", "sì", "sã¬", "yes", "true", "1", "x"].includes(normalized)) return true;
+  if (["no", "false", "0", "n"].includes(normalized)) return false;
+  return undefined;
 }
 
 function splitNameParts(value: string, order: "last_first" | "first_last") {
@@ -555,8 +566,8 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
   const weightRaw = row["Peso (kg)"];
   const weight =
     typeof weightRaw === "number" ? weightRaw : parseFloat(cellToTrimmedString(weightRaw));
-  const registeredRaw = readCell(row, ["Tesserato", "Tesseramento", "Tesserato stagione", "Tesserato annuale"]);
-  const registeredValue = cellToLowerString(registeredRaw);
+  const registeredRaw = readCell(row, REGISTERED_KEYS);
+  const registeredValue = cellToOptionalBoolean(registeredRaw);
   const phoneOwnerValue = cellToLowerString(readCell(row, PHONE_OWNER_KEYS));
   const parentFirstName = cellToTrimmedString(readCell(row, PARENT_FIRST_NAME_KEYS));
   const parentLastName = cellToTrimmedString(readCell(row, PARENT_LAST_NAME_KEYS));
@@ -593,8 +604,8 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
     secondaryContactRelation: cellToTrimmedString(readCell(row, SECONDARY_RELATION_KEYS)) || undefined,
     notes: composeImportedPlayerNotes(cellToTrimmedString(row["Note"]), importedRole.specificRole),
   };
-  if (cellToTrimmedString(registeredRaw)) {
-    mapped.registered = registeredValue === "sì" || registeredValue === "si" || registeredValue === "sã¬" || registeredValue === "yes" || registeredValue === "true" || registeredValue === "1" || registeredValue === "x";
+  if (registeredValue !== undefined) {
+    mapped.registered = registeredValue;
   }
   if (cellToTrimmedString(shuttleRaw)) {
     mapped.shuttleService = cellToBoolean(shuttleRaw);
@@ -604,6 +615,7 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
 
 export function mapExcelRowToPlayerPreview(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
   const mapped = mapExcelRowToPlayer(row, teams);
+  const registeredValue = cellToOptionalBoolean(readCell(row, REGISTERED_KEYS));
   return {
     Nome: mapped.firstName || "",
     Cognome: mapped.lastName || "",
@@ -625,7 +637,7 @@ export function mapExcelRowToPlayerPreview(row: Record<string, unknown>, teams: 
     "Telefono Secondo Referente": mapped.secondaryContactPhone || "",
     "Email Secondo Referente": mapped.secondaryContactEmail || "",
     "Relazione Secondo Referente": mapped.secondaryContactRelation || "",
-    Tesserato: mapped.registered ? "Si" : "",
+    Tesserato: registeredValue === true ? "Si" : registeredValue === false ? "No" : "",
     "Certificato medico": mapped.medicalCertificateExpiry || "",
   };
 }
