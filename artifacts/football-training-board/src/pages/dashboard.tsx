@@ -1663,8 +1663,26 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   const dashboardSectionLabel = dashboardSections.length > 1
     ? dashboardSections.map(sectionLabel).join(", ")
     : sectionLabel(dashboardSection);
-  const dashboardUsesSchoolSeasonPhases = dashboardSections.length === 0 || dashboardSections.includes("scuola_calcio");
-  const dashboardPrimarySection = dashboardSections[0] || dashboardSection;
+  const dashboardPhaseReferenceTeams = dashboardSelectedTeamIds.size > 0
+    ? dashboardTeams.filter((team) => dashboardSelectedTeamIds.has(Number(team.id)))
+    : dashboardTeams;
+  const dashboardVisibleSections = Array.from(
+    new Set(
+      dashboardPhaseReferenceTeams
+        .map((team) => normalizeDashboardSection(team.clubSection))
+        .filter(Boolean),
+    ),
+  );
+  const dashboardUsesSchoolSeasonPhases =
+    dashboardVisibleSections.length > 0
+      ? dashboardVisibleSections.every((value) => value === "scuola_calcio")
+      : dashboardSection === "scuola_calcio";
+  const dashboardPrimarySection =
+    dashboardVisibleSections.find((value) => value !== "scuola_calcio") ??
+    dashboardVisibleSections[0] ??
+    dashboardSections.find((value) => value !== "scuola_calcio") ??
+    dashboardSections[0] ??
+    dashboardSection;
   const dashboardSectionPath = dashboardPrimarySection === "settore_giovanile"
     ? "settore-giovanile"
     : dashboardPrimarySection === "prima_squadra"
