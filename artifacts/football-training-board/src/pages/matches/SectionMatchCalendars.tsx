@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trophy, ArrowRight, Users, Upload, Download, FileSpreadsheet, FileText, Trash2 } from "lucide-react";
+import { Trophy, ArrowRight, Users, Upload, Download, FileSpreadsheet, FileText, Trash2, BarChart3, Plus, Save } from "lucide-react";
 import {
   downloadMatchCalendarTemplate,
   exportMatchesToExcel,
@@ -59,6 +59,47 @@ type SectorYouthImportRow = MatchImportRow & {
   sourceSection: string;
 };
 
+type ChampionshipFixture = {
+  id: number;
+  round?: number | null;
+  leg?: string | null;
+  homeTeam: string;
+  awayTeam: string;
+  date?: string | null;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  matchId?: number | null;
+  linkedResult?: string | null;
+};
+
+type ChampionshipStanding = {
+  team: string;
+  pg: number;
+  v: number;
+  n: number;
+  p: number;
+  gf: number;
+  gs: number;
+  dr: number;
+  pts: number;
+};
+
+type ChampionshipGroup = {
+  id: number;
+  name: string;
+  fixtures: ChampionshipFixture[];
+  standings: ChampionshipStanding[];
+};
+
+type Championship = {
+  id: number;
+  title: string;
+  category?: string | null;
+  section: string;
+  teamId?: number | null;
+  groups: ChampionshipGroup[];
+};
+
 const YOUTH_FEDERAL_SECTION_MAP = [
   {
     teamAliases: ["allievi a", "alievi a", "under 17", "u17"],
@@ -101,11 +142,249 @@ function findYouthTeamForOfficialSection(teams: Team[], aliases: string[]): Team
   }) ?? null;
 }
 
+function scoreDisplay(fixture: ChampionshipFixture): string {
+  if (fixture.homeScore == null || fixture.awayScore == null) return "-";
+  return `${fixture.homeScore}-${fixture.awayScore}`;
+}
+
+function fixtureDateDisplay(value?: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : format(date, "dd/MM/yyyy HH:mm");
+}
+
+function ChampionshipSectionPanel({ section, teams }: { section: string; teams: Team[] }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [groupName, setGroupName] = useState("Girone");
+  const [teamId, setTeamId] = useState<string>("all");
+  const [fixtureDrafts, setFixtureDrafts] = useState<Record<number, { homeScore: string; awayScore: string }>>({});
+
+  const { data: championships = [], isLoading } = useQuery<Championship[]>({
+    queryKey: ["/api/championships", section],
+    queryFn: () => apiFetch(`/api/championships?section=${section}`),
+    enabled: section !== "scuola_calcio",
+  });
+
+  const createChampionshipMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/championships", {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          section,
+          groupName,
+          teamId: teamId === "all" ? null : Number(teamId),
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/championships", section] });
+      setCreateOpen(false);
+      setTitle("");
+      setGroupName("Girone");
+      setTeamId("all");
+      toast({ title: "Campionato creato" });
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore creazione campionato", variant: "destructive" }),
+  });
+
+  const updateFixtureResultMutation = useMutation({
+    mutationFn: ({ fixtureId, homeScore, awayScore }: { fixtureId: number; homeScore: string; awayScore: string }) =>
+      apiFetch(`/api/championship-fixtures/${fixtureId}/result`, {
+        method: "PATCH",
+        body: JSON.stringify({ homeScore, awayScore }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/championships", section] });
+      toast({ title: "Risultato aggiornato" });
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore risultato campionato", variant: "destructive" }),
+  });
+
+  if (section === "scuola_calcio") return null;
+
+  return (
+    <Card className="border-emerald-500/20 bg-emerald-500/5">
+      <CardHeader className="pb-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4 text-emerald-600" />
+              Campionati e classifiche gironi
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Area separata dal calendario squadra: qui vivranno gironi, risultati delle altre squadre e classifiche.
+            </p>
+          </div>
+          <Button type="button" size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Nuovo campionato
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <div className="rounded-md border bg-background/70 p-3 text-sm text-muted-foreground">Caricamento campionati...</div>
+        ) : championships.length === 0 ? (
+          <div className="rounded-md border bg-background/70 p-4 text-sm text-muted-foreground">
+            Nessun campionato creato. Il calendario squadra resta invariato; nel prossimo passo collegheremo il parser PDF a questa area.
+          </div>
+        ) : (
+          championships.map((championship) => (
+            <div key={championship.id} className="rounded-md border bg-background/80 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-semibold">{championship.title}</p>
+                  {championship.category && <p className="text-xs text-muted-foreground">{championship.category}</p>}
+                </div>
+                <Badge variant="outline">{championship.groups.length} gironi</Badge>
+              </div>
+              <div className="mt-3 space-y-3">
+                {championship.groups.map((group) => (
+                  <div key={group.id} className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+                    <div className="rounded-md border bg-muted/20 p-2">
+                      <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Risultati {group.name}</p>
+                      {group.fixtures.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nessuna partita girone inserita.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {group.fixtures.slice(0, 8).map((fixture) => {
+                            const draft = fixtureDrafts[fixture.id] ?? {
+                              homeScore: fixture.homeScore == null ? "" : String(fixture.homeScore),
+                              awayScore: fixture.awayScore == null ? "" : String(fixture.awayScore),
+                            };
+                            return (
+                              <div key={fixture.id} className="rounded border bg-background p-2 text-xs">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-medium">{fixture.homeTeam} - {fixture.awayTeam}</span>
+                                  <span className="text-muted-foreground">{fixtureDateDisplay(fixture.date)}</span>
+                                </div>
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <Input
+                                    inputMode="numeric"
+                                    className="h-8 w-16"
+                                    value={draft.homeScore}
+                                    onChange={(e) => setFixtureDrafts((prev) => ({ ...prev, [fixture.id]: { ...draft, homeScore: e.target.value } }))}
+                                    placeholder="Casa"
+                                  />
+                                  <span className="text-muted-foreground">-</span>
+                                  <Input
+                                    inputMode="numeric"
+                                    className="h-8 w-16"
+                                    value={draft.awayScore}
+                                    onChange={(e) => setFixtureDrafts((prev) => ({ ...prev, [fixture.id]: { ...draft, awayScore: e.target.value } }))}
+                                    placeholder="Trasf."
+                                  />
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 gap-1"
+                                    disabled={updateFixtureResultMutation.isPending}
+                                    onClick={() => updateFixtureResultMutation.mutate({ fixtureId: fixture.id, ...draft })}
+                                  >
+                                    <Save className="h-3.5 w-3.5" />
+                                    Salva
+                                  </Button>
+                                  <span className="ml-auto text-muted-foreground">Ris. {scoreDisplay(fixture)}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {group.fixtures.length > 8 && (
+                            <p className="text-xs text-muted-foreground">Mostrate 8 partite su {group.fixtures.length}. La lista completa arrivera nel passo parser/UI avanzata.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded-md border bg-muted/20 p-2">
+                      <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Classifica {group.name}</p>
+                      {group.standings.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Classifica pronta: apparira quando ci saranno squadre nel girone.</p>
+                      ) : (
+                        <div className="overflow-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b text-muted-foreground">
+                                <th className="py-1 text-left">Squadra</th>
+                                <th className="py-1 text-right">Pt</th>
+                                <th className="py-1 text-right">PG</th>
+                                <th className="py-1 text-right">DR</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {group.standings.map((row) => (
+                                <tr key={row.team} className="border-b last:border-b-0">
+                                  <td className="py-1 pr-2 font-medium">{row.team}</td>
+                                  <td className="py-1 text-right font-semibold">{row.pts}</td>
+                                  <td className="py-1 text-right">{row.pg}</td>
+                                  <td className="py-1 text-right">{row.dr}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </CardContent>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nuovo campionato</DialogTitle>
+            <DialogDescription>
+              Crea il contenitore del campionato. Le partite del girone verranno collegate dal parser nel passo successivo.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Titolo campionato</Label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Es. Campionato U17 - Allievi A" />
+            </div>
+            <div className="space-y-1">
+              <Label>Nome girone</Label>
+              <Input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Es. Girone B" />
+            </div>
+            <div className="space-y-1">
+              <Label>Squadra collegata (facoltativa)</Label>
+              <select
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
+              >
+                <option value="all">Nessuna squadra specifica</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>{team.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Annulla</Button>
+            <Button type="button" disabled={!title.trim() || createChampionshipMutation.isPending} onClick={() => createChampionshipMutation.mutate()}>
+              Crea campionato
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 function MatchCalendarTeamCard({
   team,
+  section,
   navigate,
 }: {
   team: Team;
+  section: string;
   navigate: (to: string) => void;
 }) {
   const { toast } = useToast();
@@ -303,12 +582,25 @@ function MatchCalendarTeamCard({
           </CardHeader>
           <CardContent className="pt-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="secondary" className="text-xs">
-                🍂 Fase Autunnale
-              </Badge>
-              <Badge variant="outline" className="text-xs">
-                🌸 Fase Primaverile
-              </Badge>
+              {section === "scuola_calcio" ? (
+                <>
+                  <Badge variant="secondary" className="text-xs">
+                    🍂 Fase Autunnale
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    🌸 Fase Primaverile
+                  </Badge>
+                </>
+              ) : (
+                <>
+                  <Badge variant="secondary" className="text-xs">
+                    Campionato
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    Classifica girone
+                  </Badge>
+                </>
+              )}
               <Badge variant="outline" className="text-xs">
                 🏆 Tornei
               </Badge>
@@ -1115,6 +1407,8 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
           </Card>
         )}
 
+        <ChampionshipSectionPanel section={section} teams={visibleTeams} />
+
         {visibleTeams.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
@@ -1126,7 +1420,7 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {visibleTeams.map(team => (
-              <MatchCalendarTeamCard key={team.id} team={team} navigate={navigate} />
+              <MatchCalendarTeamCard key={team.id} team={team} section={section} navigate={navigate} />
             ))}
           </div>
         )}

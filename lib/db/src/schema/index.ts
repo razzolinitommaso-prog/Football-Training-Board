@@ -6,6 +6,7 @@ export * from "./players";
 export * from "./training";
 export * from "./fitness";
 export * from "./matches";
+export * from "./championships";
 export * from "./tournament-documents";
 export * from "./attendance";
 export * from "./exercises";
