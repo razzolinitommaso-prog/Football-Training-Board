@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboardStats, useListPlayers } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell, Heart, Eye, RotateCcw, Leaf, Grape, Handshake } from "lucide-react";
+import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell, Heart, Eye, RotateCcw, Leaf, Grape, Handshake, BarChart3 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1663,6 +1663,14 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   const dashboardSectionLabel = dashboardSections.length > 1
     ? dashboardSections.map(sectionLabel).join(", ")
     : sectionLabel(dashboardSection);
+  const dashboardUsesSchoolSeasonPhases = dashboardSections.length === 0 || dashboardSections.includes("scuola_calcio");
+  const dashboardPrimarySection = dashboardSections[0] || dashboardSection;
+  const dashboardSectionPath = dashboardPrimarySection === "settore_giovanile"
+    ? "settore-giovanile"
+    : dashboardPrimarySection === "prima_squadra"
+      ? "prima-squadra"
+      : "scuola-calcio";
+  const dashboardChampionshipMatchCount = dashboardMatchSummary.autunnale + dashboardMatchSummary.primaverile;
 
   const dashboardTeamYearsLabel = useMemo(() => {
     const teamNames = ((allTeams as any[] | undefined) ?? [])
@@ -2619,22 +2627,45 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Fasi ed eventi</h2>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <DashboardMatchSummaryCard
-          title="Fase autunnale"
-          value={dashboardMatchSummary.autunnale}
-          description="partite (ago-gen)"
-          icon={Leaf}
-          tone="amber"
-          onClick={() => openDashboardPhaseCalendar("autunnale", "Fase autunnale")}
-        />
-        <DashboardMatchSummaryCard
-          title="Fase primaverile"
-          value={dashboardMatchSummary.primaverile}
-          description="partite (feb-lug)"
-          icon={Grape}
-          tone="pink"
-          onClick={() => openDashboardPhaseCalendar("primaverile", "Fase primaverile")}
-        />
+        {dashboardUsesSchoolSeasonPhases ? (
+          <>
+            <DashboardMatchSummaryCard
+              title="Fase autunnale"
+              value={dashboardMatchSummary.autunnale}
+              description="partite (ago-gen)"
+              icon={Leaf}
+              tone="amber"
+              onClick={() => openDashboardPhaseCalendar("autunnale", "Fase autunnale")}
+            />
+            <DashboardMatchSummaryCard
+              title="Fase primaverile"
+              value={dashboardMatchSummary.primaverile}
+              description="partite (feb-lug)"
+              icon={Grape}
+              tone="pink"
+              onClick={() => openDashboardPhaseCalendar("primaverile", "Fase primaverile")}
+            />
+          </>
+        ) : (
+          <>
+            <DashboardMatchSummaryCard
+              title="Campionato"
+              value={dashboardChampionshipMatchCount}
+              description="gare andata/ritorno"
+              icon={Trophy}
+              tone="amber"
+              onClick={() => setLocation(`/${dashboardSectionPath}/matches`)}
+            />
+            <DashboardMatchSummaryCard
+              title="Classifica girone"
+              value={dashboardTeams.length}
+              description="risultati e graduatoria"
+              icon={BarChart3}
+              tone="pink"
+              onClick={() => setLocation(`/${dashboardSectionPath}/matches`)}
+            />
+          </>
+        )}
         <DashboardMatchSummaryCard
           title="Tornei"
           value={dashboardMatchSummary.tornei}
