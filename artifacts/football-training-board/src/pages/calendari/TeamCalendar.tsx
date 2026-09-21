@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRoute } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
@@ -172,10 +172,23 @@ interface Team {
   clubId?: number;
   name: string;
   category?: string;
+  clubSection?: string | null;
   assignedStaff?: { userId: number }[];
   trainingSchedule?: TrainingSlot[] | null;
 }
 interface TrainingSlot { day: string; startTime?: string | null; endTime?: string | null; }
+type TeamCalendarPhaseTab = "campionato" | "autunnale" | "primaverile" | "tornei" | "amichevoli";
+
+function sectionMatchesPath(section?: string | null) {
+  if (section === "settore_giovanile") return "/settore-giovanile/matches";
+  if (section === "prima_squadra") return "/prima-squadra/matches";
+  return "/scuola-calcio/matches";
+}
+
+function usesChampionshipSeason(section?: string | null) {
+  return section === "settore_giovanile" || section === "prima_squadra";
+}
+
 interface Player {
   id: number;
   firstName: string;
@@ -3610,6 +3623,7 @@ interface TeamCalendarProps { overrideTeamId?: number; }
 
 export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {}) {
   const [, params] = useRoute("/calendari/:teamId");
+  const [, setLocation] = useLocation();
   const { role, user, section } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -3646,11 +3660,11 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   }, []);
   const initialPhaseTab = useMemo(() => {
     const phase = new URLSearchParams(window.location.search).get("phase");
-    return phase === "autunnale" || phase === "primaverile" || phase === "tornei" || phase === "amichevoli"
+    return phase === "campionato" || phase === "autunnale" || phase === "primaverile" || phase === "tornei" || phase === "amichevoli"
       ? phase
       : "autunnale";
   }, []);
-  const [phaseTab, setPhaseTab] = useState(initialPhaseTab);
+  const [phaseTab, setPhaseTab] = useState<TeamCalendarPhaseTab>(initialPhaseTab);
   const [duplicateImportOpen, setDuplicateImportOpen] = useState(false);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
   const [createTournamentOpen, setCreateTournamentOpen] = useState(false);
@@ -3740,6 +3754,19 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   });
 
   const team = teams.find(t => t.id === teamId);
+  const teamUsesChampionshipSeason = usesChampionshipSeason(team?.clubSection);
+  const teamMatchesPath = sectionMatchesPath(team?.clubSection);
+
+  useEffect(() => {
+    if (!team) return;
+    if (teamUsesChampionshipSeason && (phaseTab === "autunnale" || phaseTab === "primaverile")) {
+      setPhaseTab("campionato");
+      return;
+    }
+    if (!teamUsesChampionshipSeason && phaseTab === "campionato") {
+      setPhaseTab("autunnale");
+    }
+  }, [phaseTab, team, teamUsesChampionshipSeason]);
 
   const { players: teamPlayers = [] } = useTeamPlayers(teamId);
   const isAssignedStaffForTeam = !!team && !!user?.id && Array.isArray(team.assignedStaff)
@@ -4562,16 +4589,24 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     if (!openMatchIdFromQuery) return;
     const targetMatch = sorted.find((m) => m.id === openMatchIdFromQuery);
     if (!targetMatch) return;
-    setPhaseTab(matchPhase(targetMatch));
+    const targetPhase = matchPhase(targetMatch);
+    setPhaseTab(teamUsesChampionshipSeason && (targetPhase === "autunnale" || targetPhase === "primaverile") ? "campionato" : targetPhase);
     setMatchSearchText("");
     setMatchTournamentFilter("");
     setMatchVenueFilter("all");
     setMatchSquadFilter("all");
     setScheduleFilter({ ...EMPTY_SCHEDULE_FILTER });
-  }, [openMatchIdFromQuery, sorted]);
+  }, [openMatchIdFromQuery, sorted, teamUsesChampionshipSeason]);
 
   const autunnale = useMemo(() => sorted.filter((m) => matchPhase(m) === "autunnale"), [sorted]);
   const primaverile = useMemo(() => sorted.filter((m) => matchPhase(m) === "primaverile"), [sorted]);
+  const campionato = useMemo(
+    () => sorted.filter((m) => {
+      const phase = matchPhase(m);
+      return phase === "autunnale" || phase === "primaverile";
+    }),
+    [sorted],
+  );
   const tornei = useMemo(() => sorted.filter((m) => matchPhase(m) === "tornei"), [sorted]);
   const amichevoli = useMemo(() => sorted.filter((m) => matchPhase(m) === "amichevoli"), [sorted]);
 
@@ -4601,6 +4636,10 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const primaverileFiltered = useMemo(
     () => primaverile.filter((m) => matchPassesListFilters(m, team?.name, listFilterOpts)),
     [primaverile, team?.name, listFilterOpts],
+  );
+  const campionatoFiltered = useMemo(
+    () => campionato.filter((m) => matchPassesListFilters(m, team?.name, listFilterOpts)),
+    [campionato, team?.name, listFilterOpts],
   );
   const torneiFiltered = useMemo(
     () => tornei.filter((m) => matchPassesListFilters(m, team?.name, listFilterOpts)),
@@ -5133,11 +5172,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     ) : null;
 
   const activePhase = useMemo(() => {
+    if (phaseTab === "campionato") return { items: buildMatchTimelineItems(campionatoFiltered), rawCount: campionato.length };
     if (phaseTab === "primaverile") return { items: buildMatchTimelineItems(primaverileFiltered), rawCount: primaverile.length };
     if (phaseTab === "tornei") return { items: buildMatchTimelineItems(torneiFiltered), rawCount: tornei.length };
     if (phaseTab === "amichevoli") return { items: buildMatchTimelineItems(amichevoliFiltered), rawCount: amichevoli.length };
     return { items: buildMatchTimelineItems(autunnaleFiltered), rawCount: autunnale.length };
-  }, [phaseTab, autunnaleFiltered, primaverileFiltered, torneiFiltered, amichevoliFiltered, autunnale.length, primaverile.length, tornei.length, amichevoli.length]);
+  }, [phaseTab, campionatoFiltered, autunnaleFiltered, primaverileFiltered, torneiFiltered, amichevoliFiltered, campionato.length, autunnale.length, primaverile.length, tornei.length, amichevoli.length]);
 
   if (!teamId) return <div className="p-6 text-muted-foreground">Squadra non trovata.</div>;
 
@@ -5282,40 +5322,78 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       ) : (
         <div className="space-y-4 min-w-0">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={() => setPhaseTab("autunnale")}
-              className={cn(
-                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
-                phaseTab === "autunnale" ? "border-amber-500/50 bg-amber-500/5 ring-1 ring-amber-500/20" : "border-border",
-              )}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
-                  <Leaf className="w-4 h-4 text-amber-700 dark:text-amber-400" />
-                </div>
-                <span className="font-semibold text-sm">Fase autunnale</span>
-              </div>
-              <p className="text-2xl font-bold tabular-nums">{autunnale.length}</p>
-              <p className="text-xs text-muted-foreground">partite (ago–gen)</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPhaseTab("primaverile")}
-              className={cn(
-                "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
-                phaseTab === "primaverile" ? "border-pink-500/50 bg-pink-500/5 ring-1 ring-pink-500/20" : "border-border",
-              )}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-9 h-9 rounded-lg bg-pink-500/15 flex items-center justify-center">
-                  <Flower2 className="w-4 h-4 text-pink-700 dark:text-pink-400" />
-                </div>
-                <span className="font-semibold text-sm">Fase primaverile</span>
-              </div>
-              <p className="text-2xl font-bold tabular-nums">{primaverile.length}</p>
-              <p className="text-xs text-muted-foreground">partite (feb–lug)</p>
-            </button>
+            {teamUsesChampionshipSeason ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setPhaseTab("campionato")}
+                  className={cn(
+                    "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
+                    phaseTab === "campionato" ? "border-emerald-500/50 bg-emerald-500/5 ring-1 ring-emerald-500/20" : "border-border",
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-9 h-9 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                      <ListChecks className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+                    </div>
+                    <span className="font-semibold text-sm">Campionato</span>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{campionato.length}</p>
+                  <p className="text-xs text-muted-foreground">gare andata/ritorno</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLocation(teamMatchesPath)}
+                  className="text-left rounded-xl border border-border p-4 transition-all hover:bg-muted/40"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-9 h-9 rounded-lg bg-blue-500/15 flex items-center justify-center">
+                      <Trophy className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+                    </div>
+                    <span className="font-semibold text-sm">Classifica girone</span>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{campionato.length > 0 ? 1 : 0}</p>
+                  <p className="text-xs text-muted-foreground">risultati e graduatoria</p>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setPhaseTab("autunnale")}
+                  className={cn(
+                    "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
+                    phaseTab === "autunnale" ? "border-amber-500/50 bg-amber-500/5 ring-1 ring-amber-500/20" : "border-border",
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                      <Leaf className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                    </div>
+                    <span className="font-semibold text-sm">Fase autunnale</span>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{autunnale.length}</p>
+                  <p className="text-xs text-muted-foreground">partite (ago–gen)</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPhaseTab("primaverile")}
+                  className={cn(
+                    "text-left rounded-xl border p-4 transition-all hover:bg-muted/40",
+                    phaseTab === "primaverile" ? "border-pink-500/50 bg-pink-500/5 ring-1 ring-pink-500/20" : "border-border",
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-9 h-9 rounded-lg bg-pink-500/15 flex items-center justify-center">
+                      <Flower2 className="w-4 h-4 text-pink-700 dark:text-pink-400" />
+                    </div>
+                    <span className="font-semibold text-sm">Fase primaverile</span>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">{primaverile.length}</p>
+                  <p className="text-xs text-muted-foreground">partite (feb–lug)</p>
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={() => setPhaseTab("tornei")}
