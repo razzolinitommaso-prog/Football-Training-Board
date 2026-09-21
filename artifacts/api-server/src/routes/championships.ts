@@ -272,6 +272,8 @@ router.post("/championships/:id/fixtures", requireAuth, async (req, res): Promis
   const groupId = Number(req.body?.groupId);
   const homeTeam = String(req.body?.homeTeam ?? "").trim();
   const awayTeam = String(req.body?.awayTeam ?? "").trim();
+  const matchIdRaw = req.body?.matchId == null ? null : Number(req.body.matchId);
+  const matchId = Number.isInteger(matchIdRaw) && matchIdRaw! > 0 ? matchIdRaw : null;
   if (!Number.isInteger(championshipId) || !Number.isInteger(groupId) || !homeTeam || !awayTeam) {
     res.status(400).json({ error: "Campionato, girone, casa e trasferta sono obbligatori" });
     return;
@@ -290,6 +292,17 @@ router.post("/championships/:id/fixtures", requireAuth, async (req, res): Promis
     res.status(404).json({ error: "Campionato o girone non trovato" });
     return;
   }
+  if (matchId) {
+    const [match] = await db
+      .select({ id: matchesTable.id })
+      .from(matchesTable)
+      .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)))
+      .limit(1);
+    if (!match) {
+      res.status(400).json({ error: "Partita calendario non valida per questa societa" });
+      return;
+    }
+  }
   const dateRaw = String(req.body?.date ?? "").trim();
   const date = dateRaw ? new Date(dateRaw) : null;
   const [fixture] = await db
@@ -298,6 +311,7 @@ router.post("/championships/:id/fixtures", requireAuth, async (req, res): Promis
       clubId,
       championshipId,
       groupId,
+      matchId,
       homeTeam,
       awayTeam,
       round: req.body?.round == null ? null : Number(req.body.round),

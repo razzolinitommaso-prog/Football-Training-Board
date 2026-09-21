@@ -112,6 +112,17 @@ export type TournamentProgramEntry = {
   kind?: "match" | "composition" | "fixture_placeholder";
 };
 
+export type YouthChampionshipFixtureImportRow = {
+  date: string;
+  homeTeam: string;
+  awayTeam: string;
+  group: string | null;
+  round: number | null;
+  leg: "andata" | "ritorno";
+  location?: string | null;
+  notes?: string | null;
+};
+
 type OcrWorker = {
   recognize: (image: unknown) => Promise<{ data: { lines?: unknown[]; text?: string } }>;
   terminate: () => Promise<unknown>;
@@ -493,6 +504,95 @@ function extractSeasonFixturesFromLine(line: string, societyNorms: string[]): Ar
     }
   }
   return fixtures;
+}
+
+function extractAllSeasonFixturesFromLine(line: string): Array<{ homeTeam: string; awayTeam: string; columnIndex: number }> {
+  const clean = normalizeSeasonCalendarLine(line).replace(/[|!]+/g, " ");
+  if (!clean.includes("-")) return [];
+  const chunks = clean
+    .split(/\s+I\s+I\s+|\t(?=I\s+)/)
+    .map((part) => part.trim())
+    .filter((part) => part.includes("-"));
+  const candidates = chunks.length > 0 ? chunks : [clean];
+  const fixtures: Array<{ homeTeam: string; awayTeam: string; columnIndex: number }> = [];
+  for (let columnIndex = 0; columnIndex < candidates.length; columnIndex++) {
+    const candidate = candidates[columnIndex];
+    const parts = candidate.split(/\s+-\s+/);
+    if (parts.length < 2) continue;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const homeTeam = cleanSeasonTeamName(parts[i]);
+      const awayTeam = cleanSeasonTeamName(parts[i + 1]);
+      if (!homeTeam || !awayTeam) continue;
+      if (normalizeName(homeTeam) === normalizeName(awayTeam)) continue;
+      fixtures.push({ homeTeam, awayTeam, columnIndex });
+    }
+  }
+  return fixtures;
+}
+
+function parseYouthChampionshipFixtureLines(
+  allPageLines: string[],
+  options: { sectionTitleHints?: string[]; fallbackYearHint?: number | null },
+): YouthChampionshipFixtureImportRow[] {
+  const fullText = allPageLines.join("\n");
+  const sectionNorms = (options.sectionTitleHints ?? [])
+    .map((t) => normalizeName(String(t)))
+    .filter((t) => t.length >= 3);
+  const detectedUnderNumbers = detectSeasonGroupUnderNumbers(fullText);
+  if (!seasonUnderMatchesSectionHints(detectedUnderNumbers, sectionNorms)) return [];
+
+  const rows: YouthChampionshipFixtureImportRow[] = [];
+  const seen = new Set<string>();
+  let currentGroup: string | null = null;
+  let currentPairs: Array<{ firstLeg: string; secondLeg: string }> = [];
+  let currentRounds: number[] = [];
+
+  for (const rawLine of allPageLines) {
+    const line = normalizeSeasonCalendarLine(rawLine);
+    const groupMatch = line.match(/\bUNDER\s*\d{2}\s+GIRONE\s+([A-Z])\b/i) ?? line.match(/\bGIRONE\s+([A-Z])\b/i);
+    if (groupMatch) currentGroup = `Girone ${groupMatch[1].toUpperCase()}`;
+
+    const datePairs = extractSeasonDatePairs(line, options.fallbackYearHint);
+    if (datePairs.length > 0) {
+      currentPairs = datePairs;
+      currentRounds = [];
+      continue;
+    }
+
+    const rounds = extractSeasonRoundNumbers(line);
+    if (rounds.length > 0) {
+      currentRounds = rounds;
+      continue;
+    }
+
+    if (currentPairs.length === 0 || !line.includes("-")) continue;
+    const fixtures = extractAllSeasonFixturesFromLine(line);
+    if (fixtures.length === 0) continue;
+
+    fixtures.forEach((fixture) => {
+      const pair = currentPairs[Math.min(fixture.columnIndex, currentPairs.length - 1)];
+      if (!pair) return;
+      const round = currentRounds[Math.min(fixture.columnIndex, currentRounds.length - 1)] ?? null;
+      const notes = [currentGroup, round ? `${round}ª giornata` : null].filter(Boolean).join(" - ") || null;
+      [
+        { date: pair.firstLeg, homeTeam: fixture.homeTeam, awayTeam: fixture.awayTeam, leg: "andata" as const },
+        { date: pair.secondLeg, homeTeam: fixture.awayTeam, awayTeam: fixture.homeTeam, leg: "ritorno" as const },
+      ].forEach((entry) => {
+        const key = `${entry.date}|${normalizeName(entry.homeTeam)}|${normalizeName(entry.awayTeam)}|${currentGroup ?? ""}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        rows.push({
+          ...entry,
+          group: currentGroup,
+          round,
+          location: null,
+          notes,
+        });
+      });
+    });
+  }
+
+  return rows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 }
 
 function parseSeasonGroupCalendarLines(
@@ -6500,6 +6600,29 @@ export function parseMatchCalendarTextLines(
   }
 
   return { recognized, discarded, totalDateLines };
+}
+
+export async function parseYouthChampionshipPdfFile(
+  file: File,
+  options: Pick<ParsePdfOptions, "sectionTitleHints"> = {},
+): Promise<YouthChampionshipFixtureImportRow[]> {
+  const raw = await file.arrayBuffer();
+  const loadingTask = getDocument({ data: raw });
+  const pdf = await loadingTask.promise;
+  const allPageLines: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const parsed = await pageToLinesWithYs(page);
+    allPageLines.push(...parsed.lines);
+  }
+  const fallbackYearHint =
+    Number.isFinite(file.lastModified) && Number(file.lastModified) > 0
+      ? new Date(Number(file.lastModified)).getFullYear()
+      : null;
+  return parseYouthChampionshipFixtureLines(allPageLines, {
+    sectionTitleHints: options.sectionTitleHints,
+    fallbackYearHint,
+  });
 }
 
 export async function parseMatchCalendarPdfFileClone(

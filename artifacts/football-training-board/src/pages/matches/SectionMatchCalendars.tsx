@@ -18,9 +18,11 @@ import {
 } from "@/lib/match-calendar-excel";
 import {
   parseMatchCalendarPdfFile,
+  parseYouthChampionshipPdfFile,
   buildPdfImportSearchTerms,
   discoverPdfSectionTitles,
   isGenericPdfCategoryHint,
+  type YouthChampionshipFixtureImportRow,
 } from "@/lib/match-calendar-pdf";
 import { findImportDuplicateConflicts, matchImportFingerprint } from "@/lib/match-import-conflicts";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -57,6 +59,14 @@ type SectorYouthImportRow = MatchImportRow & {
   teamId: number;
   teamName: string;
   sourceSection: string;
+};
+
+type SectorYouthChampionshipImportRow = YouthChampionshipFixtureImportRow & {
+  teamId: number;
+  teamName: string;
+  sourceSection: string;
+  isClubMatch: boolean;
+  calendarRow?: MatchImportRow;
 };
 
 type ChampionshipFixture = {
@@ -140,6 +150,46 @@ function findYouthTeamForOfficialSection(teams: Team[], aliases: string[]): Team
       normalizedAliases.some((alias) => candidate === alias || candidate.includes(alias)),
     );
   }) ?? null;
+}
+
+function clubNameAliases(clubLabel: string): string[] {
+  const base = normalizeLocalName(clubLabel);
+  const withoutLegalPrefix = normalizeLocalName(base.replace(/\b(asd|a s d|ssd|s s d|ss|s s|ac|a c|fc|f c|us|u s|polisportiva)\b/g, " "));
+  const withoutYears = normalizeLocalName(withoutLegalPrefix.replace(/\b(18|19|20)\d{2}\b/g, " "));
+  return [...new Set([base, withoutLegalPrefix, withoutYears].filter((value) => value.length >= 4))];
+}
+
+function sideMatchesClub(side: string, aliases: string[]): boolean {
+  const normalized = normalizeLocalName(side);
+  return aliases.some((alias) => {
+    if (normalized.includes(alias) || alias.includes(normalized)) return true;
+    const tokens = alias.split(" ").filter((token) => token.length >= 4);
+    if (tokens.length === 0) return false;
+    const matched = tokens.filter((token) => normalized.includes(token));
+    return matched.length >= Math.min(2, tokens.length);
+  });
+}
+
+function fixtureToCalendarRow(
+  fixture: YouthChampionshipFixtureImportRow,
+  clubAliases: string[],
+): MatchImportRow | null {
+  const homeIsClub = sideMatchesClub(fixture.homeTeam, clubAliases);
+  const awayIsClub = sideMatchesClub(fixture.awayTeam, clubAliases);
+  if (homeIsClub === awayIsClub) return null;
+  return {
+    date: fixture.date,
+    opponent: homeIsClub ? fixture.awayTeam : fixture.homeTeam,
+    homeAway: homeIsClub ? "home" : "away",
+    competition: fixture.group ? `Campionato ${fixture.group}` : "Campionato",
+    location: fixture.location ?? null,
+    notes: [
+      "PDF ufficiale settore giovanile",
+      fixture.group,
+      fixture.round ? `${fixture.round}ª giornata` : null,
+      fixture.leg,
+    ].filter(Boolean).join(" - "),
+  };
 }
 
 function scoreDisplay(fixture: ChampionshipFixture): string {
@@ -250,7 +300,7 @@ function ChampionshipSectionPanel({ section, teams }: { section: string; teams: 
                         <p className="text-sm text-muted-foreground">Nessuna partita girone inserita.</p>
                       ) : (
                         <div className="space-y-2">
-                          {group.fixtures.slice(0, 8).map((fixture) => {
+                          {group.fixtures.map((fixture) => {
                             const draft = fixtureDrafts[fixture.id] ?? {
                               homeScore: fixture.homeScore == null ? "" : String(fixture.homeScore),
                               awayScore: fixture.awayScore == null ? "" : String(fixture.awayScore),
@@ -293,9 +343,6 @@ function ChampionshipSectionPanel({ section, teams }: { section: string; teams: 
                               </div>
                             );
                           })}
-                          {group.fixtures.length > 8 && (
-                            <p className="text-xs text-muted-foreground">Mostrate 8 partite su {group.fixtures.length}. La lista completa arrivera nel passo parser/UI avanzata.</p>
-                          )}
                         </div>
                       )}
                     </div>
@@ -1086,7 +1133,7 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
   const clubLabel = myClub?.name?.trim() || DEFAULT_CLUB_LABEL;
   const sectorPdfFileRef = useRef<HTMLInputElement>(null);
   const [sectorPreviewOpen, setSectorPreviewOpen] = useState(false);
-  const [sectorPreviewRows, setSectorPreviewRows] = useState<SectorYouthImportRow[]>([]);
+  const [sectorPreviewRows, setSectorPreviewRows] = useState<SectorYouthChampionshipImportRow[]>([]);
   const [sectorImportSummary, setSectorImportSummary] = useState<string[]>([]);
   const [bulkPanelOpen, setBulkPanelOpen] = useState(false);
   const [selectedMatchIds, setSelectedMatchIds] = useState<Set<number>>(() => new Set());
@@ -1132,12 +1179,35 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
 
   const analyzeYouthFederalPdfMutation = useMutation({
     mutationFn: async (file: File) => {
-      const rows: SectorYouthImportRow[] = [];
+      const rows: SectorYouthChampionshipImportRow[] = [];
       const summary: string[] = [];
+      const clubAliases = clubNameAliases(clubLabel);
 
       for (const mapping of YOUTH_FEDERAL_SECTION_MAP) {
         const team = findYouthTeamForOfficialSection(sectionTeams, mapping.teamAliases);
         if (!team) {
+          continue;
+        }
+
+        const fixtures = await parseYouthChampionshipPdfFile(file, {
+          sectionTitleHints: [mapping.sectionTitle],
+        });
+        if (fixtures.length > 0) {
+          const mappedRows = fixtures.map((fixture) => {
+            const calendarRow = fixtureToCalendarRow(fixture, clubAliases);
+            return {
+              ...fixture,
+              teamId: team.id,
+              teamName: team.name,
+              sourceSection: mapping.label,
+              isClubMatch: !!calendarRow,
+              calendarRow: calendarRow ?? undefined,
+            };
+          });
+          rows.push(...mappedRows);
+          summary.push(
+            `${mapping.label}: ${mappedRows.length} gare girone lette, ${mappedRows.filter((row) => row.isClubMatch).length} del club`,
+          );
           continue;
         }
 
@@ -1153,14 +1223,23 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
         });
 
         const mappedRows = parsed.recognized.map((row) => ({
-          ...row,
+          date: row.date,
+          homeTeam: row.homeAway === "home" ? clubLabel : row.opponent,
+          awayTeam: row.homeAway === "home" ? row.opponent : clubLabel,
+          group: row.competition?.replace(/^Campionato\s*/i, "").trim() || "Girone",
+          round: null,
+          leg: "andata" as const,
+          location: row.location ?? null,
+          notes: row.notes ?? null,
           teamId: team.id,
           teamName: team.name,
           sourceSection: mapping.label,
+          isClubMatch: true,
+          calendarRow: row,
         }));
         rows.push(...mappedRows);
         if (mappedRows.length > 0) {
-          summary.push(`${mapping.label}: ${mappedRows.length} partite riconosciute`);
+          summary.push(`${mapping.label}: ${mappedRows.length} partite del club riconosciute`);
         }
       }
 
@@ -1183,49 +1262,122 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
   });
 
   const applyYouthFederalImportMutation = useMutation({
-    mutationFn: async (rows: SectorYouthImportRow[]) => {
-      let imported = 0;
+    mutationFn: async (rows: SectorYouthChampionshipImportRow[]) => {
+      let calendarImported = 0;
+      let calendarLinked = 0;
+      let fixturesImported = 0;
       let skipped = 0;
-      const rowsByTeam = new Map<number, SectorYouthImportRow[]>();
-      rows.forEach((row) => rowsByTeam.set(row.teamId, [...(rowsByTeam.get(row.teamId) ?? []), row]));
+      const championships = (await apiFetch(`/api/championships?section=${section}`)) as Championship[];
+      const championshipByTitle = new Map<string, Championship>(
+        championships.map((championship) => [`${championship.teamId ?? "all"}|${normalizeLocalName(championship.title)}`, championship]),
+      );
+      const rowsByCompetition = new Map<string, SectorYouthChampionshipImportRow[]>();
+      rows.forEach((row) => {
+        const groupName = row.group || "Girone";
+        const title = `${row.sourceSection} - ${groupName}`;
+        const key = `${row.teamId}|${normalizeLocalName(title)}`;
+        rowsByCompetition.set(key, [...(rowsByCompetition.get(key) ?? []), row]);
+      });
 
-      for (const [teamId, teamRows] of rowsByTeam.entries()) {
+      for (const teamRows of rowsByCompetition.values()) {
+        const first = teamRows[0];
+        if (!first) continue;
+        const groupName = first.group || "Girone";
+        const title = `${first.sourceSection} - ${groupName}`;
+        const titleKey = `${first.teamId}|${normalizeLocalName(title)}`;
+        let championship = championshipByTitle.get(titleKey);
+        if (!championship) {
+          championship = await apiFetch("/api/championships", {
+            method: "POST",
+            body: JSON.stringify({
+              title,
+              section,
+              groupName,
+              teamId: first.teamId,
+              category: first.sourceSection,
+            }),
+          }) as Championship;
+          championshipByTitle.set(titleKey, championship);
+        }
+        const group = championship.groups.find((item) => normalizeLocalName(item.name) === normalizeLocalName(groupName)) ?? championship.groups[0];
+        if (!group) continue;
+        const existingFixtureKeys = new Set(
+          group.fixtures.map((fixture) => {
+            const day = fixture.date ? new Date(fixture.date).toISOString().slice(0, 10) : "";
+            return `${day}|${normalizeLocalName(fixture.homeTeam)}|${normalizeLocalName(fixture.awayTeam)}|${fixture.leg ?? ""}`;
+          }),
+        );
+        const batchFixtureKeys = new Set<string>();
+        const teamId = first.teamId;
         const existing = (await apiFetch(`/api/matches?teamId=${teamId}`)) as MatchRow[];
         const existingKeys = new Set(existing.map((match) => matchImportFingerprint(match)));
+        const existingByKey = new Map(existing.map((match) => [matchImportFingerprint(match), match.id]));
         const batchKeys = new Set<string>();
 
         for (const row of teamRows) {
-          const key = matchImportFingerprint(row);
-          if (existingKeys.has(key) || batchKeys.has(key)) {
+          let matchId: number | null = null;
+          if (row.calendarRow) {
+            const key = matchImportFingerprint(row.calendarRow);
+            const existingMatchId = existingByKey.get(key);
+            if (existingMatchId) {
+              matchId = existingMatchId;
+              calendarLinked++;
+            } else if (!batchKeys.has(key)) {
+              batchKeys.add(key);
+              const created = await apiFetch("/api/matches", {
+                method: "POST",
+                body: JSON.stringify({
+                  opponent: row.calendarRow.opponent,
+                  date: row.calendarRow.date,
+                  teamId,
+                  homeAway: row.calendarRow.homeAway,
+                  competition: row.calendarRow.competition ?? "Campionato",
+                  location: row.calendarRow.location ?? undefined,
+                  notes: row.calendarRow.notes ?? `PDF ufficiale settore giovanile - ${row.sourceSection}`,
+                }),
+              }) as MatchRow;
+              matchId = created.id;
+              existingByKey.set(key, created.id);
+              existingKeys.add(key);
+              calendarImported++;
+            }
+          }
+
+          const fixtureDay = new Date(row.date).toISOString().slice(0, 10);
+          const fixtureKey = `${fixtureDay}|${normalizeLocalName(row.homeTeam)}|${normalizeLocalName(row.awayTeam)}|${row.leg}`;
+          if (existingFixtureKeys.has(fixtureKey) || batchFixtureKeys.has(fixtureKey)) {
             skipped++;
             continue;
           }
-          batchKeys.add(key);
-          await apiFetch("/api/matches", {
+          batchFixtureKeys.add(fixtureKey);
+          await apiFetch(`/api/championships/${championship.id}/fixtures`, {
             method: "POST",
             body: JSON.stringify({
-              opponent: row.opponent,
+              groupId: group.id,
+              matchId,
+              homeTeam: row.homeTeam,
+              awayTeam: row.awayTeam,
               date: row.date,
-              teamId,
-              homeAway: row.homeAway,
-              competition: row.competition ?? "Campionato",
+              round: row.round,
+              leg: row.leg,
               location: row.location ?? undefined,
-              notes: row.notes ?? `PDF ufficiale settore giovanile - ${row.sourceSection}`,
+              notes: row.notes ?? undefined,
             }),
           });
-          imported++;
+          fixturesImported++;
         }
       }
 
-      return { imported, skipped };
+      return { fixturesImported, calendarImported, calendarLinked, skipped };
     },
-    onSuccess: ({ imported, skipped }) => {
+    onSuccess: ({ fixturesImported, calendarImported, calendarLinked, skipped }) => {
       qc.invalidateQueries({ queryKey: ["/api/matches"] });
+      qc.invalidateQueries({ queryKey: ["/api/championships", section] });
       setSectorPreviewOpen(false);
       setSectorPreviewRows([]);
       toast({
         title: "Import settore giovanile completato",
-        description: `${imported} partite importate${skipped ? `, ${skipped} duplicate saltate` : ""}.`,
+        description: `${fixturesImported} gare girone, ${calendarImported} nel calendario squadra${calendarLinked ? `, ${calendarLinked} gia presenti collegate` : ""}${skipped ? `, ${skipped} duplicate saltate` : ""}.`,
       });
     },
     onError: (e: Error) => toast({ title: e.message || "Errore import settore giovanile", variant: "destructive" }),
@@ -1445,10 +1597,16 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
                   const date = new Date(row.date);
                   const dateText = Number.isNaN(date.getTime()) ? row.date : format(date, "dd/MM/yyyy HH:mm");
                   return (
-                    <div key={`${row.teamId}-${row.date}-${row.opponent}-${index}`} className="p-3 text-sm">
-                      <div className="font-semibold">{row.teamName} · {row.sourceSection}</div>
+                    <div key={`${row.teamId}-${row.date}-${row.homeTeam}-${row.awayTeam}-${index}`} className="p-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{row.sourceSection}</span>
+                        <Badge variant={row.isClubMatch ? "secondary" : "outline"} className="text-[11px]">
+                          {row.isClubMatch ? "Calendario + classifica" : "Solo classifica"}
+                        </Badge>
+                        {row.group && <Badge variant="outline" className="text-[11px]">{row.group}</Badge>}
+                      </div>
                       <div className="text-muted-foreground">
-                        {dateText} · {row.homeAway === "home" ? "Casa" : "Trasferta"} · {row.opponent}
+                        {dateText} · {row.homeTeam} - {row.awayTeam}
                       </div>
                     </div>
                   );
