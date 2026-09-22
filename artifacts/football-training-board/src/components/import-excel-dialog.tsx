@@ -5,7 +5,15 @@ import { FileUp, Download, AlertCircle, CheckCircle2, XCircle, Loader2 } from "l
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { parseExcelWorkbook, type ParsedExcelSheet } from "@/lib/excel-import";
 
-type ImportResult = { success: number; failed: number; errors: string[] };
+type ImportResult = {
+  success: number;
+  failed: number;
+  errors: string[];
+  created?: number;
+  updated?: number;
+  duplicates?: number;
+  warnings?: string[];
+};
 const ALL_SHEETS_VALUE = "__all_sheets__";
 
 interface ImportExcelDialogProps {
@@ -218,7 +226,7 @@ export function ImportExcelDialog({
                     <CheckCircle2 className="w-6 h-6 text-green-500" />
                     <div>
                       <p className="text-2xl font-bold text-green-600">{result.success}</p>
-                      <p className="text-xs text-muted-foreground">Importati con successo</p>
+                      <p className="text-xs text-muted-foreground">Righe elaborate con successo</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 p-4 rounded-xl bg-destructive/10 border border-destructive/20">
@@ -229,6 +237,30 @@ export function ImportExcelDialog({
                     </div>
                   </div>
                 </div>
+                {(result.created !== undefined || result.updated !== undefined || result.duplicates !== undefined) && (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-lg font-semibold">{result.created ?? 0}</p>
+                      <p className="text-xs text-muted-foreground">Creati</p>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-lg font-semibold">{result.updated ?? 0}</p>
+                      <p className="text-xs text-muted-foreground">Aggiornati</p>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-lg font-semibold">{result.duplicates ?? 0}</p>
+                      <p className="text-xs text-muted-foreground">Duplicati ignorati</p>
+                    </div>
+                  </div>
+                )}
+                {result.warnings && result.warnings.length > 0 && (
+                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 space-y-1">
+                    {result.warnings.slice(0, 4).map((warning, i) => (
+                      <p key={i} className="text-xs text-amber-700 dark:text-amber-300">{warning}</p>
+                    ))}
+                    {result.warnings.length > 4 && <p className="text-xs text-muted-foreground">...e altri {result.warnings.length - 4} avvisi</p>}
+                  </div>
+                )}
                 {result.errors.length > 0 && (
                   <div className="p-3 rounded-lg bg-muted/50 space-y-1">
                     {result.errors.slice(0, 5).map((e, i) => (

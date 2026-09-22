@@ -923,6 +923,27 @@ function playerImportRegistrationKey(player: { registrationNumber?: unknown }) {
   return normalizeImportTeamName(String(player.registrationNumber ?? ""));
 }
 
+function findExistingPlayerForImport(candidates: Player[] | undefined, mappedDate: string, mappedTeamId: number): Player | undefined {
+  const list = candidates ?? [];
+  if (list.length === 0) return undefined;
+
+  if (mappedDate) {
+    const sameDate = list.filter((player) => normalizeImportDateKey(player.dateOfBirth) === mappedDate);
+    if (sameDate.length === 1) return sameDate[0];
+    if (mappedTeamId) {
+      const sameDateAndTeam = sameDate.filter((player) => Number(player.teamId ?? 0) === mappedTeamId);
+      if (sameDateAndTeam.length === 1) return sameDateAndTeam[0];
+    }
+  }
+
+  if (mappedTeamId) {
+    const sameTeam = list.filter((player) => Number(player.teamId ?? 0) === mappedTeamId);
+    if (sameTeam.length === 1) return sameTeam[0];
+  }
+
+  return list.length === 1 ? list[0] : undefined;
+}
+
 function normalizeImportDateKey(value: unknown): string {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
   const raw = String(value ?? "").trim();
@@ -1709,13 +1730,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         const existing =
           (registrationKey ? existingByRegistration.get(registrationKey) : undefined) ??
           existingByFingerprint.get(fingerprint) ??
-          (existingByName.get(nameKey) ?? []).find((player) => {
-            const existingDate = normalizeImportDateKey(player.dateOfBirth);
-            const sameDateOrMissing = !mappedDate || !existingDate || mappedDate === existingDate;
-            const sameTeamOrMissing = !mappedDate && (!mappedTeamId || !player.teamId || Number(player.teamId) === mappedTeamId);
-            if (mappedDate && existingDate && mappedDate === existingDate) return true;
-            return sameDateOrMissing && sameTeamOrMissing;
-          });
+          findExistingPlayerForImport(existingByName.get(nameKey), mappedDate, mappedTeamId);
 
         const payload = compactImportPayload(mapped, existing);
         if (existing) {
@@ -1754,7 +1769,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (warnings.length > 0) {
       toast({ title: `${warnings.length} avvisi importazione`, description: warnings.slice(0, 2).join(" · ") });
     }
-    return { success, failed: errors.length, errors };
+    return {
+      success,
+      failed: errors.length,
+      errors,
+      created: createdPlayers,
+      updated: updatedPlayers,
+      duplicates,
+      warnings,
+    };
   };
 
   const updateMutation = useUpdatePlayer({
