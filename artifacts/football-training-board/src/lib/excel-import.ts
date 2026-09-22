@@ -75,6 +75,39 @@ export function normalizeImportedTeamDisplayName(value?: unknown): string {
     .trim();
 }
 
+function normalizeTeamLookup(value?: unknown): string {
+  return normalizeImportedTeamDisplayName(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[°º]/g, "o");
+}
+
+function importedTeamAliases(team: { name?: unknown; category?: unknown; ageGroup?: unknown }): string[] {
+  const label = normalizeTeamLookup([team.name, team.category, team.ageGroup].filter(Boolean).join(" "));
+  const aliases = new Set<string>();
+  [team.name, team.category, team.ageGroup, [team.category, team.ageGroup].filter(Boolean).join(" ")]
+    .map(normalizeTeamLookup)
+    .filter(Boolean)
+    .forEach((value) => aliases.add(value));
+
+  const addYears = (...years: string[]) => years.forEach((year) => aliases.add(normalizeTeamLookup(year)));
+  if (/\ballievi\b/.test(label) && /\ba\b/.test(label)) addYears("2010");
+  if (/\ballievi\b/.test(label) && /\bb\b/.test(label)) addYears("2011");
+  if (/\bgiovanissimi\b/.test(label) && /\ba\b/.test(label)) addYears("2012");
+  if (/\bgiovanissimi\b/.test(label) && /\bb\b/.test(label)) addYears("2013");
+  if (/\besordienti\b/.test(label) && /\b2o?\s*anno\b/.test(label)) addYears("2014");
+  if (/\besordienti\b/.test(label) && /\b1o?\s*anno\b/.test(label)) addYears("2015");
+  if (/\bpulcini\b/.test(label) && /\b2o?\s*anno\b/.test(label)) addYears("2016");
+  if (/\bpulcini\b/.test(label) && /\b1o?\s*anno\b/.test(label)) addYears("2017");
+  if (/\bprimi\s+calci\b/.test(label) && /\b2o?\s*anno\b/.test(label)) addYears("2018");
+  if (/\bprimi\s+calci\b/.test(label) && /\b1o?\s*anno\b/.test(label)) addYears("2019");
+  if (/\bpiccoli\s+amici\b/.test(label)) addYears("2020", "2021", "2020 2021");
+  if (/\bjuniores\b/.test(label)) addYears("juniores");
+  if (/\bprima\s+squadra\b/.test(label)) addYears("prima squadra");
+
+  return Array.from(aliases);
+}
+
 function cellToLowerString(value: unknown): string {
   return cellToTrimmedString(value).toLowerCase();
 }
@@ -255,6 +288,93 @@ function isLikelyProgressiveColumn(values: unknown[]): boolean {
   return sequential >= Math.max(2, nums.length - 2);
 }
 
+function isLikelyPersonName(value: unknown): boolean {
+  const text = cellToTrimmedString(value);
+  if (!text || /\d/.test(text) || /@/.test(text)) return false;
+  const words = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/\s+/)
+    .filter((part) => /^[A-Za-z'’-]{2,}$/.test(part));
+  return words.length >= 2;
+}
+
+function looksLikeYesNo(value: unknown): boolean {
+  return /^(si|sì|yes|y|no|n)$/i.test(normalizeImportToken(cellToTrimmedString(value)));
+}
+
+function isLikelyEmail(value: unknown): boolean {
+  return /@/.test(cellToTrimmedString(value));
+}
+
+function isLikelyPhone(value: unknown): boolean {
+  const text = cellToTrimmedString(value);
+  return /\d/.test(text) && /(?:\d[\s/.-]*){7,}/.test(text);
+}
+
+function isLikelyRegistrationNumber(value: unknown): boolean {
+  const text = cellToTrimmedString(value).replace(/\s+/g, "");
+  return /^\d{5,8}$/.test(text);
+}
+
+function adaptiveRowsFromProgressiveNameSheet(sheet: ParsedExcelSheet, dataRows: unknown[][]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const row of dataRows) {
+    const values = row.map(cellToTrimmedString);
+    const nameIndex = values.findIndex((value, index) => index <= 2 && isLikelyPersonName(value));
+    if (nameIndex < 0) continue;
+
+    const mapped: Record<string, unknown> = {
+      __sheetName: sheet.name,
+      Squadra: sheet.name,
+      "Cognome Nome": row[nameIndex],
+    };
+
+    const afterName = row.slice(nameIndex + 1);
+    const firstDateIndex = afterName.findIndex(isLikelyImportDateValue);
+    if (firstDateIndex > 0) mapped["Luogo di Nascita"] = afterName[firstDateIndex - 1];
+    if (firstDateIndex >= 0) mapped["Data di Nascita"] = afterName[firstDateIndex];
+
+    const afterBirth = firstDateIndex >= 0 ? afterName.slice(firstDateIndex + 1) : afterName;
+    const registration = afterBirth.find(isLikelyRegistrationNumber);
+    if (registration) mapped["N° Tessera"] = registration;
+
+    const phone = afterBirth.find((value) => isLikelyPhone(value) && !isLikelyRegistrationNumber(value));
+    if (phone) mapped["Telefono"] = phone;
+
+    const certificate = afterBirth.find((value) => isLikelyImportDateValue(value) && value !== mapped["Data di Nascita"]);
+    if (certificate) mapped["Certificato medico"] = certificate;
+
+    const emails = afterBirth.filter(isLikelyEmail);
+    if (emails[0]) mapped["Email"] = emails[0];
+    if (emails[1]) mapped["Email Genitore"] = emails[1];
+
+    const registered = [...afterBirth].reverse().find(looksLikeYesNo);
+    if (registered) mapped["Tesserato"] = registered;
+
+    const notes = afterBirth
+      .filter((value) => {
+        const text = cellToTrimmedString(value);
+        if (!text) return false;
+        return ![
+          mapped["N° Tessera"],
+          mapped["Telefono"],
+          mapped["Certificato medico"],
+          mapped["Email"],
+          mapped["Email Genitore"],
+          mapped["Tesserato"],
+        ].some((known) => cellToTrimmedString(known) === text);
+      })
+      .filter((value) => !isLikelyRegistrationNumber(value) && !isLikelyImportDateValue(value) && !isLikelyPhone(value) && !isLikelyEmail(value))
+      .map(cellToTrimmedString)
+      .filter(Boolean);
+    if (notes.length > 0) mapped["Note"] = notes.join(" - ");
+
+    if (rowHasLikelyPlayerData(mapped)) out.push(mapped);
+  }
+  return out;
+}
+
 function adaptiveRowsFromRawSheet(sheet: ParsedExcelSheet): Record<string, unknown>[] {
   const rawRows = (sheet.rawRows ?? []).filter((row) => row.some((cell) => cellToTrimmedString(cell)));
   if (rawRows.length === 0) return [];
@@ -266,6 +386,11 @@ function adaptiveRowsFromRawSheet(sheet: ParsedExcelSheet): Record<string, unkno
   const maxCols = Math.max(...rawRows.map((row) => row.length), 0);
   const columnMap = new Map<number, string>();
   let dateColumnCount = 0;
+
+  const progressiveNameRows = adaptiveRowsFromProgressiveNameSheet(sheet, dataRows);
+  if (progressiveNameRows.length >= Math.max(2, Math.ceil(dataRows.length * 0.35))) {
+    return progressiveNameRows;
+  }
 
   for (let col = 0; col < maxCols; col++) {
     const headerLabel = cellToTrimmedString(header[col] ?? "");
@@ -565,10 +690,11 @@ function splitImportedPlayerName(row: Record<string, unknown>) {
   return { firstName: explicitFirstName, lastName: explicitLastName };
 }
 
-export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
+export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: number; name: string; category?: string | null; ageGroup?: string | null }[]) {
   const importedName = splitImportedPlayerName(row);
   const teamName = normalizeImportedTeamDisplayName(row["Squadra"] || row.__sheetName);
-  const team = teams.find(t => t.name.trim().toLowerCase() === teamName);
+  const teamKey = normalizeTeamLookup(teamName);
+  const team = teams.find((t) => importedTeamAliases(t).includes(teamKey));
 
   const rawPos = cellToTrimmedString(readCell(row, PLAYER_POSITION_KEYS));
   const rawSpecificRole = cellToTrimmedString(readCell(row, PLAYER_SPECIFIC_ROLE_KEYS));

@@ -35,6 +35,7 @@ export function resolveClubSectionFilter(
   querySection: string | undefined,
   sessionSection: string | undefined,
 ): string | undefined {
+  if (typeof querySection === "string" && querySection.trim().toLowerCase() === "all") return undefined;
   // DT / DG: sempre panoramica club (altrimenti ?section=... nel GET filtrerebbe a zero righe).
   if (isClubWideListRole(role)) return undefined;
   if (typeof querySection === "string" && querySection.length > 0) return querySection;

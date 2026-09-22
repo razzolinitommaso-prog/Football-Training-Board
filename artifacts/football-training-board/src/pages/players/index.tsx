@@ -1304,7 +1304,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const { data: importTeams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", "import-scope"],
     queryFn: async () => {
-      const res = await fetch(withApi("/api/teams"), { credentials: "include" });
+      const res = await fetch(withApi("/api/teams?section=all"), { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<Team[]>;
     },
