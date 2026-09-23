@@ -500,6 +500,7 @@ export default function Dashboard() {
     );
     return unique.length ? unique : [dashboardSection];
   }, [dashboardIsClubWide, dashboardSection, sections]);
+  const dashboardSectionsKey = dashboardSections.join("|");
   const dashboardMembersAreClubWide = dashboardIsClubWide;
   const canPrepareFromDashboardCalendar = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director" || nr === "technical_director";
   const canEditDashboardCalendar = nr === "secretary" || nr === "sporting_director" || nr === "admin" || nr === "director" || nr === "presidente";
@@ -511,7 +512,7 @@ export default function Dashboard() {
     },
   });
   const { data: allPlayers = [] } = useQuery<any[]>({
-    queryKey: ["/api/players", clubIdNum, nr, dashboardSections.join("|") || "club", "dashboard"],
+    queryKey: ["/api/players", clubIdNum, nr, dashboardSectionsKey || "club", "dashboard"],
     queryFn: async () => {
       const urls = dashboardSections.length
         ? dashboardSections.map((s) => `/api/players?section=${encodeURIComponent(s)}`)
@@ -526,7 +527,7 @@ export default function Dashboard() {
     enabled: Boolean(user),
   });
   const { data: allTeams = [] } = useQuery<DashboardTeam[]>({
-    queryKey: ["/api/teams", clubIdNum, nr, dashboardSections.join("|") || "club"],
+    queryKey: ["/api/teams", clubIdNum, nr, dashboardSectionsKey || "club"],
     queryFn: async () => {
       const urls = dashboardSections.length
         ? dashboardSections.map((s) => `/api/teams?section=${encodeURIComponent(s)}`)
@@ -669,8 +670,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
 }
 
   const dashboardAllowedSectionSet = useMemo(
-    () => dashboardSections.length > 0 ? new Set(dashboardSections) : null,
-    [dashboardSections],
+    () => dashboardSectionsKey ? new Set(dashboardSectionsKey.split("|")) : null,
+    [dashboardSectionsKey],
   );
   const filterDashboardTeamBySection = (team: { clubSection?: string | null }) => {
     if (!dashboardAllowedSectionSet) return true;
@@ -708,7 +709,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   });
 
   const { data: dashboardMembers = [] } = useQuery<Array<{ id: number; role: string }>>({
-    queryKey: ["/api/clubs/me/members", clubIdNum, dashboardMembersAreClubWide ? "club" : dashboardSections.join("|") || dashboardSection, "dashboard-tiles"],
+    queryKey: ["/api/clubs/me/members", clubIdNum, dashboardMembersAreClubWide ? "club" : dashboardSectionsKey || dashboardSection, "dashboard-tiles"],
     queryFn: async () => {
       if (dashboardMembersAreClubWide) {
         return fetchJsonOrThrow<Array<{ id: number; role: string }>>("/api/clubs/me/members");
@@ -764,7 +765,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   });
 
   const { data: dashboardExtraEvents = [] } = useQuery<DashboardExtraEvent[]>({
-    queryKey: ["/api/calendar-extra-events", clubIdNum, nr, dashboardSections.join("|") || dashboardSection, "dashboard-calendar"],
+    queryKey: ["/api/calendar-extra-events", clubIdNum, nr, dashboardSectionsKey || dashboardSection, "dashboard-calendar"],
     queryFn: async () => {
       const targetSections = dashboardSections.length ? dashboardSections : [dashboardSection];
       const results = await Promise.all(
@@ -831,7 +832,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   }, [trainingSecondBandTone]);
 
   const { data: dashboardTrainingOverrides = [] } = useQuery<DashboardTrainingOverride[]>({
-    queryKey: ["/api/training-calendar-overrides", clubIdNum, nr, dashboardSections.join("|") || dashboardSection, dashboardOverrideFrom, dashboardOverrideTo],
+    queryKey: ["/api/training-calendar-overrides", clubIdNum, nr, dashboardSectionsKey || dashboardSection, dashboardOverrideFrom, dashboardOverrideTo],
     queryFn: async () => {
       const targetSections = dashboardSections.length ? dashboardSections : [dashboardSection];
       const results = await Promise.all(
@@ -853,7 +854,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       .filter((team) => Number(team?.id) > 0)
       .filter(filterDashboardTeamBySection)
       .sort(compareDashboardTeamsByYear),
-    [allTeams, dashboardAllowedSectionSet],
+    [allTeams, dashboardSectionsKey],
   );
 
   function openDashboardPhaseCalendar(phase: DashboardMatchPhase, title: string) {
