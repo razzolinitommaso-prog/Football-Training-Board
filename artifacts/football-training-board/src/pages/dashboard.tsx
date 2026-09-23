@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useGetDashboardStats, useListPlayers } from "@workspace/api-client-react";
+import { useGetDashboardStats } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { UsersRound, Users, ShieldCheck, CalendarDays, ArrowRight, Activity, AlertTriangle, X, Bell, BellRing, CheckCheck, Plus, Send, Info, Siren, Clock, Layers, RefreshCw, Trophy, FileUp, FileText, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Dumbbell, Heart, Eye, RotateCcw, Leaf, Grape, Handshake, BarChart3 } from "lucide-react";
@@ -487,8 +487,10 @@ export default function Dashboard() {
   const nr = normalizeSessionRole(role);
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
   const dashboardSection = normalizeDashboardSection(section) || "scuola_calcio";
+  const dashboardClubWideRoles = ["admin", "presidente", "director", "technical_director"];
+  const dashboardIsClubWide = dashboardClubWideRoles.includes(nr);
   const dashboardSections = useMemo(() => {
-    if (["admin", "presidente", "director", "technical_director"].includes(nr)) return [] as string[];
+    if (dashboardIsClubWide) return [] as string[];
     const unique = Array.from(
       new Set(
         (sections.length ? sections : [dashboardSection])
@@ -497,11 +499,8 @@ export default function Dashboard() {
       )
     );
     return unique.length ? unique : [dashboardSection];
-  }, [dashboardSection, nr, sections]);
-  const dashboardMembersAreClubWide = ["admin", "presidente", "director", "technical_director"].includes(nr);
-  const dashboardMembersUrl = dashboardMembersAreClubWide
-    ? "/api/clubs/me/members"
-    : `/api/clubs/me/members?section=${encodeURIComponent(dashboardSection)}`;
+  }, [dashboardIsClubWide, dashboardSection, sections]);
+  const dashboardMembersAreClubWide = dashboardIsClubWide;
   const canPrepareFromDashboardCalendar = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director" || nr === "technical_director";
   const canEditDashboardCalendar = nr === "secretary" || nr === "sporting_director" || nr === "admin" || nr === "director" || nr === "presidente";
 
@@ -511,12 +510,20 @@ export default function Dashboard() {
       enabled: Boolean(user && nr),
     },
   });
-  const { data: allPlayers } = useListPlayers(undefined, {
-    query: {
-      queryKey: ["/api/players", clubIdNum, nr],
-      // La sessione API ha già clubId: non attendere club.id dal client (evita gare e liste mai caricate).
-      enabled: Boolean(user),
+  const { data: allPlayers = [] } = useQuery<any[]>({
+    queryKey: ["/api/players", clubIdNum, nr, dashboardSections.join("|") || "club", "dashboard"],
+    queryFn: async () => {
+      const urls = dashboardSections.length
+        ? dashboardSections.map((s) => `/api/players?section=${encodeURIComponent(s)}`)
+        : ["/api/players"];
+      const results = await Promise.all(urls.map((url) => fetchJsonOrThrow<any[]>(url)));
+      const byId = new Map<number, any>();
+      results.flat().forEach((player) => {
+        if (Number(player?.id) > 0) byId.set(Number(player.id), player);
+      });
+      return Array.from(byId.values());
     },
+    enabled: Boolean(user),
   });
   const { data: allTeams = [] } = useQuery<DashboardTeam[]>({
     queryKey: ["/api/teams", clubIdNum, nr, dashboardSections.join("|") || "club"],
@@ -689,8 +696,21 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   });
 
   const { data: dashboardMembers = [] } = useQuery<Array<{ id: number; role: string }>>({
-    queryKey: ["/api/clubs/me/members", clubIdNum, dashboardMembersAreClubWide ? "club" : dashboardSection, "dashboard-tiles"],
-    queryFn: () => fetchJsonOrThrow<Array<{ id: number; role: string }>>(dashboardMembersUrl),
+    queryKey: ["/api/clubs/me/members", clubIdNum, dashboardMembersAreClubWide ? "club" : dashboardSections.join("|") || dashboardSection, "dashboard-tiles"],
+    queryFn: async () => {
+      if (dashboardMembersAreClubWide) {
+        return fetchJsonOrThrow<Array<{ id: number; role: string }>>("/api/clubs/me/members");
+      }
+      const targetSections = dashboardSections.length ? dashboardSections : [dashboardSection];
+      const results = await Promise.all(
+        targetSections.map((s) => fetchJsonOrThrow<Array<{ id: number; role: string }>>(`/api/clubs/me/members?section=${encodeURIComponent(s)}`)),
+      );
+      const byId = new Map<number, { id: number; role: string }>();
+      results.flat().forEach((member) => {
+        if (Number(member?.id) > 0) byId.set(Number(member.id), member);
+      });
+      return Array.from(byId.values());
+    },
     enabled: Boolean(user),
   });
 
@@ -1592,7 +1612,9 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       tournaments: new Set<string>(),
       amichevoli: 0,
     };
+    const allowedTeamIds = new Set(dashboardTeams.map((team) => Number(team.id)));
     dashboardMatches.forEach((match) => {
+      if (allowedTeamIds.size > 0 && !allowedTeamIds.has(Number(match.teamId ?? 0))) return;
       const phase = dashboardMatchPhase(match);
       if (phase === "tornei") {
         const competition = normalCompetition(match.competition) || "Torneo";
@@ -1611,15 +1633,17 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       tornei: summary.tournaments.size,
       amichevoli: summary.amichevoli,
     };
-  }, [dashboardMatches]);
+  }, [dashboardMatches, dashboardTeams]);
 
   const dashboardMatchPhaseCountsByTeam = useMemo(() => {
     const counts = new Map<number, Record<DashboardMatchPhase, number>>();
     const tournamentKeysByTeam = new Map<number, Set<string>>();
 
+    const allowedTeamIds = new Set(dashboardTeams.map((team) => Number(team.id)));
     dashboardMatches.forEach((match) => {
       const teamId = Number(match.teamId ?? 0);
       if (!teamId) return;
+      if (allowedTeamIds.size > 0 && !allowedTeamIds.has(teamId)) return;
 
       const phase = dashboardMatchPhase(match);
       if (phase === "tornei") {
@@ -1641,7 +1665,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
     });
 
     return counts;
-  }, [dashboardMatches]);
+  }, [dashboardMatches, dashboardTeams]);
 
   function dashboardPhaseCountLabel(count: number, phase: DashboardMatchPhase): string {
     if (phase === "tornei") return `${count} ${count === 1 ? "torneo" : "tornei"}`;
@@ -1652,9 +1676,10 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   const dashboardTeamCount = useMemo(() => {
     const fromApi = stats?.totalTeams ?? 0;
     const n = allTeams?.length ?? 0;
+    if (!dashboardIsClubWide) return n;
     if (isClubWideTechnicalRole && n > fromApi) return n;
     return fromApi;
-  }, [stats?.totalTeams, allTeams?.length, isClubWideTechnicalRole]);
+  }, [stats?.totalTeams, allTeams?.length, isClubWideTechnicalRole, dashboardIsClubWide]);
   const sectionLabel = (value: string) => value === "settore_giovanile"
     ? "Settore giovanile"
     : value === "prima_squadra"
@@ -1688,7 +1713,23 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
     : dashboardPrimarySection === "prima_squadra"
       ? "prima-squadra"
       : "scuola-calcio";
+  const dashboardTeamsPath = `/${dashboardSectionPath}/teams`;
+  const dashboardPlayersPath = `/${dashboardSectionPath}/players`;
   const dashboardChampionshipMatchCount = dashboardMatchSummary.autunnale + dashboardMatchSummary.primaverile;
+
+  const dashboardTeamSectionBreakdown = useMemo(() => {
+    const counts = new Map<string, number>();
+    dashboardTeams.forEach((team) => {
+      const key = normalizeDashboardSection(team.clubSection) || dashboardSection;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .sort(([a], [b]) => {
+        const order = ["scuola_calcio", "settore_giovanile", "prima_squadra"];
+        return order.indexOf(a) - order.indexOf(b);
+      })
+      .map(([key, count]) => ({ key, label: sectionLabel(key), count }));
+  }, [dashboardTeams, dashboardSection]);
 
   const dashboardTeamYearsLabel = useMemo(() => {
     const teamNames = ((allTeams as any[] | undefined) ?? [])
@@ -1702,9 +1743,10 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   const dashboardPlayerCount = useMemo(() => {
     const fromApi = stats?.totalPlayers ?? 0;
     const n = allPlayers?.length ?? 0;
+    if (!dashboardIsClubWide) return n;
     if (isClubWideTechnicalRole && n > fromApi) return n;
     return fromApi;
-  }, [stats?.totalPlayers, allPlayers?.length, isClubWideTechnicalRole]);
+  }, [stats?.totalPlayers, allPlayers?.length, isClubWideTechnicalRole, dashboardIsClubWide]);
 
   const dashboardPlayerSummary = useMemo(() => {
     const players = (allPlayers as any[] | undefined) ?? [];
@@ -1724,6 +1766,25 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       : 0;
     return { active, inactive, available, unavailable };
   }, [allPlayers, dashboardPlayerCount]);
+
+  const dashboardPlayerSectionBreakdown = useMemo(() => {
+    const teamSectionById = new Map<number, string>();
+    dashboardTeams.forEach((team) => {
+      const key = normalizeDashboardSection(team.clubSection) || dashboardSection;
+      teamSectionById.set(Number(team.id), key);
+    });
+    const counts = new Map<string, number>();
+    ((allPlayers as any[] | undefined) ?? []).forEach((player) => {
+      const key = teamSectionById.get(Number(player.teamId)) || dashboardSection;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .sort(([a], [b]) => {
+        const order = ["scuola_calcio", "settore_giovanile", "prima_squadra"];
+        return order.indexOf(a) - order.indexOf(b);
+      })
+      .map(([key, count]) => ({ key, label: sectionLabel(key), count }));
+  }, [allPlayers, dashboardTeams, dashboardSection]);
 
   const dashboardUpcomingCount = useMemo(() => {
     const fromApi = stats?.upcomingTrainingSessions ?? 0;
@@ -1900,10 +1961,10 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
 
   const openPlayerNotesInbox = (notification: ClubNotification) => {
     if (notification.playerId) {
-      setLocation(`/players?openPlayerId=${notification.playerId}&focus=notes`);
+      setLocation(`${dashboardPlayersPath}?openPlayerId=${notification.playerId}&focus=notes`);
       return;
     }
-    setLocation("/players");
+    setLocation(dashboardPlayersPath);
   };
 
   const sendNotification = async () => {
@@ -2591,19 +2652,29 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Panoramica</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link="/teams">
+        <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link={dashboardTeamsPath}>
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
             <span>Visibili: <strong className="text-foreground">{dashboardTeamCount}</strong></span>
             <span>Area: <strong className="text-foreground">{dashboardSectionLabel}</strong></span>
             <span className="col-span-2 truncate">Annate: <strong className="text-foreground">{dashboardTeamYearsLabel}</strong></span>
+            {dashboardTeamSectionBreakdown.length > 1 && dashboardTeamSectionBreakdown.map((item) => (
+              <span key={item.key} className="truncate">
+                {item.label}: <strong className="text-foreground">{item.count}</strong>
+              </span>
+            ))}
           </div>
         </StatCard>
-        <StatCard title="Giocatori" value={dashboardPlayerSummary.active} icon={Users} link="/players">
+        <StatCard title="Giocatori" value={dashboardPlayerSummary.active} icon={Users} link={dashboardPlayersPath}>
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
             <span>Attivi: <strong className="text-foreground">{dashboardPlayerSummary.active}</strong></span>
             <span>Non attivi: <strong className="text-foreground">{dashboardPlayerSummary.inactive}</strong></span>
             <span>Disponibili: <strong className="text-foreground">{dashboardPlayerSummary.available}</strong></span>
             <span>Non disponibili: <strong className="text-foreground">{dashboardPlayerSummary.unavailable}</strong></span>
+            {dashboardPlayerSectionBreakdown.length > 1 && dashboardPlayerSectionBreakdown.map((item) => (
+              <span key={item.key} className="truncate">
+                {item.label}: <strong className="text-foreground">{item.count}</strong>
+              </span>
+            ))}
           </div>
         </StatCard>
         {(nr === "secretary" || nr === "sporting_director") ? (
@@ -4055,7 +4126,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
               </div>
               <div className="mt-3">
                 <Button size="sm" variant="outline" asChild className="text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900/30 text-xs h-7">
-                  <Link href="/players">{t.players} →</Link>
+                  <Link href={dashboardPlayersPath}>{t.players} →</Link>
                 </Button>
               </div>
             </div>
