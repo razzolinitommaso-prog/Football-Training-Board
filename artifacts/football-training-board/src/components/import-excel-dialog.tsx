@@ -14,6 +14,11 @@ type ImportResult = {
   duplicates?: number;
   warnings?: string[];
 };
+type PreviewSummaryItem = {
+  label: string;
+  value: string | number;
+  tone?: "default" | "green" | "amber";
+};
 const ALL_SHEETS_VALUE = "__all_sheets__";
 
 interface ImportExcelDialogProps {
@@ -26,6 +31,7 @@ interface ImportExcelDialogProps {
   onImportRows: (rows: Record<string, unknown>[]) => Promise<void>;
   onImportValidRows?: (rows: Record<string, unknown>[]) => Promise<ImportResult | void>;
   prepareRows?: (sheets: ParsedExcelSheet[]) => Record<string, unknown>[];
+  getPreviewSummary?: (rows: Record<string, unknown>[]) => PreviewSummaryItem[];
   canImport?: boolean;
 }
 
@@ -39,6 +45,7 @@ export function ImportExcelDialog({
   onImportRows,
   onImportValidRows,
   prepareRows,
+  getPreviewSummary,
   canImport = true,
 }: ImportExcelDialogProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -59,6 +66,7 @@ export function ImportExcelDialog({
     }
   });
   const invalidCount = rawRows.length - validRows.length;
+  const previewSummary = getPreviewSummary ? getPreviewSummary(rawRows) : [];
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -282,6 +290,25 @@ export function ImportExcelDialog({
                     </span>
                   )}
                 </div>
+                {previewSummary.length > 0 && (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {previewSummary.map((item, index) => (
+                      <div
+                        key={`${item.label}-${index}`}
+                        className={`rounded-lg border p-3 text-sm ${
+                          item.tone === "green"
+                            ? "border-green-500/20 bg-green-500/10"
+                            : item.tone === "amber"
+                              ? "border-amber-500/20 bg-amber-500/10"
+                              : "bg-muted/30"
+                        }`}
+                      >
+                        <p className="text-xs text-muted-foreground">{item.label}</p>
+                        <p className="font-semibold">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <div className="border rounded-lg overflow-auto max-h-[350px] max-w-full">
                   <table className="min-w-[640px] w-full text-xs text-left">

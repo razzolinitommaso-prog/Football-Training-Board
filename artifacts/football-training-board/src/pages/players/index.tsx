@@ -24,7 +24,7 @@ import { useLocation } from "wouter";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
-import { mapExcelRowToPlayer, mapExcelRowToPlayerPreview, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString, normalizeImportedTeamDisplayName, prepareAdaptivePlayerImportRows } from "@/lib/excel-import";
+import { mapExcelRowToPlayer, mapExcelRowToPlayerPreview, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString, normalizeImportedTeamDisplayName, prepareAdaptivePlayerImportRows, importSeasonStartYear, resolveImportedPlayerRowTeam } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
 import { withApi } from "@/lib/api-base";
 
@@ -962,6 +962,8 @@ function normalizeImportDateKey(value: unknown): string {
 
 function compactImportPayload(mapped: Record<string, unknown>, existing?: Player): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
+  const hasIncomingRegistered = Object.prototype.hasOwnProperty.call(mapped, "registered") && mapped.registered !== undefined && mapped.registered !== "";
+  const hasIncomingCertificate = Object.prototype.hasOwnProperty.call(mapped, "medicalCertificateExpiry") && Boolean(mapped.medicalCertificateExpiry);
   for (const [key, value] of Object.entries(mapped)) {
     if (value === undefined || value === "" || value === null) continue;
     if (typeof value === "number" && Number.isNaN(value)) continue;
@@ -977,19 +979,32 @@ function compactImportPayload(mapped: Record<string, unknown>, existing?: Player
     payload.status = payload.status ?? "active";
   }
 
-  const registered = payload.registered === true || (existing?.registered === true && payload.registered !== false);
+  const registered = hasIncomingRegistered
+    ? payload.registered === true
+    : existing
+      ? existing.registered === true
+      : false;
   const certificate = String(payload.medicalCertificateExpiry ?? existing?.medicalCertificateExpiry ?? "");
-  if (registered && isMedicalCertificateValid(certificate)) {
+  const hasValidCertificate = isMedicalCertificateValid(certificate);
+  const shouldRecalculateAvailability = !existing || hasIncomingRegistered || hasIncomingCertificate;
+  if (registered && hasValidCertificate) {
     payload.available = true;
+    payload.status = "active";
     payload.unavailabilityReason = null;
     payload.expectedReturn = null;
+  } else if (shouldRecalculateAvailability) {
+    payload.available = false;
+    payload.status = "inactive";
+    if (!payload.unavailabilityReason) {
+      payload.unavailabilityReason = registered || hasValidCertificate ? "other" : "payment";
+    }
   }
 
   return payload;
 }
 
-async function fetchPlayersForImport(section?: ClubSection): Promise<Player[]> {
-  const urls = section ? ["/api/players?section=all", "/api/players"] : ["/api/players"];
+async function fetchPlayersForImport(_section?: ClubSection): Promise<Player[]> {
+  const urls = ["/api/players?section=all", "/api/players"];
   for (const url of urls) {
     const res = await fetch(withApi(url), { credentials: "include" });
     if (res.ok) return res.json() as Promise<Player[]>;
@@ -1348,6 +1363,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return res.json();
     },
   });
+  const activeSeason = seasons.find((season) => season.isActive) ?? seasons[seasons.length - 1] ?? null;
+  const seasonStartYearForImport = importSeasonStartYear(activeSeason?.name ?? activeSeason?.startDate);
   const { data: playerDocuments = [] } = useQuery<PlayerDocument[]>({
     queryKey: ["/api/player-documents"],
     queryFn: async () => {
@@ -1653,14 +1670,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   });
 
   const importPlayersWithTeams = async (rows: Record<string, unknown>[]) => {
-    const sectionForNewTeams = section ?? "scuola_calcio";
-    const teamByName = new Map<string, { id: number; name: string }>();
+    const teamByName = new Map<string, { id: number; name: string; category?: string | null; ageGroup?: string | null; clubSection?: ClubSection }>();
     const teamsForImport = ((importTeams as any[] | undefined) ?? []).length > 0
       ? (importTeams as any[])
       : ((teams as any[] | undefined) ?? []);
     teamsForImport.forEach((team) => {
       const keys = importTeamAliases(team);
-      keys.forEach((key) => teamByName.set(key, { id: team.id, name: team.name }));
+      keys.forEach((key) => teamByName.set(key, { id: team.id, name: team.name, category: team.category, ageGroup: team.ageGroup, clubSection: team.clubSection }));
     });
 
     const errors: string[] = [];
@@ -1690,23 +1706,30 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       try {
         const rowWithSheetTeam = {
           ...row,
-          Squadra: row["Squadra"] || row.__sheetName || "",
+          Squadra: row.__derivedTeamName || row["Squadra"] || row.__sheetName || "",
         };
-        const rawTeamName = normalizeImportedTeamDisplayName(rowWithSheetTeam["Squadra"]);
+        const resolvedTeam = resolveImportedPlayerRowTeam(rowWithSheetTeam, seasonStartYearForImport);
+        if (section && resolvedTeam?.clubSection && resolvedTeam.clubSection !== section) {
+          duplicates++;
+          warnings.push(`Riga ${i + 1}: ${resolvedTeam.teamName} appartiene a ${resolvedTeam.clubSection}, non a ${section}. Riga ignorata.`);
+          continue;
+        }
+        const rawTeamName = resolvedTeam?.teamName ?? normalizeImportedTeamDisplayName(rowWithSheetTeam["Squadra"]);
         const normalizedTeamName = normalizeImportTeamName(rawTeamName);
         let team = normalizedTeamName ? teamByName.get(normalizedTeamName) : undefined;
+        const sectionForNewTeams = resolvedTeam?.clubSection ?? section ?? "scuola_calcio";
 
         if (!team && rawTeamName && !failedTeamCreations.has(normalizedTeamName)) {
           try {
             const created = await createTeamMutation.mutateAsync({
               data: {
                 name: rawTeamName,
-                category: rawTeamName,
+                category: resolvedTeam?.category ?? rawTeamName,
                 clubSection: sectionForNewTeams,
               } as any,
             });
-            team = { id: (created as any).id, name: (created as any).name ?? rawTeamName };
-            importTeamAliases({ name: team.name, category: rawTeamName, ageGroup: rawTeamName }).forEach((key) => teamByName.set(key, team!));
+            team = { id: (created as any).id, name: (created as any).name ?? rawTeamName, category: resolvedTeam?.category ?? rawTeamName, ageGroup: resolvedTeam?.category ?? rawTeamName, clubSection: sectionForNewTeams };
+            importTeamAliases({ name: team.name, category: team.category, ageGroup: team.ageGroup }).forEach((key) => teamByName.set(key, team!));
             createdTeams++;
           } catch (error: any) {
             failedTeamCreations.add(normalizedTeamName);
@@ -1714,7 +1737,18 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           }
         }
 
-        const mapped = mapExcelRowToPlayer(rowWithSheetTeam, Array.from(teamByName.values())) as Record<string, unknown>;
+        const mapped = mapExcelRowToPlayer(
+          {
+            ...rowWithSheetTeam,
+            ...(resolvedTeam ? {
+              Squadra: resolvedTeam.teamName,
+              __derivedTeamName: resolvedTeam.teamName,
+              __derivedCategory: resolvedTeam.category,
+              __derivedClubSection: resolvedTeam.clubSection,
+            } : {}),
+          },
+          Array.from(teamByName.values()),
+        ) as Record<string, unknown>;
         if (team) mapped.teamId = team.id;
         const fingerprint = playerImportFingerprint(mapped);
         if (fileFingerprints.has(fingerprint)) {
@@ -2838,6 +2872,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   { key: "Nome", label: "Nome" },
                   { key: "Cognome", label: "Cognome" },
                   { key: "Squadra", label: "Squadra" },
+                  { key: "Settore", label: "Settore" },
+                  { key: "Categoria", label: "Categoria" },
                   { key: "Posizione", label: "Posizione" },
                   { key: "N° Maglia", label: "N° Maglia" },
                   { key: "Data di Nascita", label: "Data Nascita" },
@@ -2860,7 +2896,24 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 onDownloadTemplate={downloadPlayerTemplate}
                 onParseRow={(row) => mapExcelRowToPlayerPreview(row, ((importTeams as any[] | undefined) ?? (teams as any[] | undefined) ?? [])) as Record<string, unknown>}
                 isValidRow={isValidPlayerRow}
-                prepareRows={prepareAdaptivePlayerImportRows}
+                prepareRows={(sheets) => prepareAdaptivePlayerImportRows(sheets, { seasonStartYear: seasonStartYearForImport })}
+                getPreviewSummary={(rows) => {
+                  const buckets = new Map<string, number>();
+                  let unresolved = 0;
+                  for (const row of rows) {
+                    const resolved = resolveImportedPlayerRowTeam(row, seasonStartYearForImport);
+                    if (!resolved) {
+                      unresolved++;
+                      continue;
+                    }
+                    const label = `${resolved.clubSection} · ${resolved.category}`;
+                    buckets.set(label, (buckets.get(label) ?? 0) + 1);
+                  }
+                  return [
+                    ...Array.from(buckets.entries()).map(([label, value]) => ({ label, value, tone: "green" as const })),
+                    ...(unresolved > 0 ? [{ label: "Righe senza annata riconosciuta", value: unresolved, tone: "amber" as const }] : []),
+                  ];
+                }}
                 onImportValidRows={importPlayersWithTeams}
                 onImportRows={async ([row]) => {
                   await createMutation.mutateAsync({ data: row as any });

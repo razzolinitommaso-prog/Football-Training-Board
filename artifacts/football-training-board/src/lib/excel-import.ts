@@ -108,6 +108,92 @@ function importedTeamAliases(team: { name?: unknown; category?: unknown; ageGrou
   return Array.from(aliases);
 }
 
+export type ImportClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
+
+export type ImportedPlayerTeamResolution = {
+  source: string;
+  teamName: string;
+  category: string;
+  clubSection: ImportClubSection;
+  birthYear?: number;
+  under?: number;
+};
+
+export function importSeasonStartYear(value?: unknown): number {
+  const raw = cellToTrimmedString(value);
+  const match = raw.match(/\b(20\d{2})\b/);
+  return match ? Number(match[1]) : 2026;
+}
+
+function categorySectionForUnder(under: number): Pick<ImportedPlayerTeamResolution, "teamName" | "category" | "clubSection"> | null {
+  if (under >= 18 && under <= 20) return { teamName: "Juniores", category: "Juniores", clubSection: "settore_giovanile" };
+  if (under === 17) return { teamName: "Allievi A", category: "Allievi A", clubSection: "settore_giovanile" };
+  if (under === 16) return { teamName: "Allievi B", category: "Allievi B", clubSection: "settore_giovanile" };
+  if (under === 15) return { teamName: "Giovanissimi A", category: "Giovanissimi A", clubSection: "settore_giovanile" };
+  if (under === 14) return { teamName: "Giovanissimi B", category: "Giovanissimi B", clubSection: "settore_giovanile" };
+  if (under === 13) return { teamName: "Esordienti 2° anno", category: "Esordienti 2° anno", clubSection: "scuola_calcio" };
+  if (under === 12) return { teamName: "Esordienti 1° anno", category: "Esordienti 1° anno", clubSection: "scuola_calcio" };
+  if (under === 11) return { teamName: "Pulcini 2° anno", category: "Pulcini 2° anno", clubSection: "scuola_calcio" };
+  if (under === 10) return { teamName: "Pulcini 1° anno", category: "Pulcini 1° anno", clubSection: "scuola_calcio" };
+  if (under === 9) return { teamName: "Primi Calci 2° anno", category: "Primi Calci 2° anno", clubSection: "scuola_calcio" };
+  if (under === 8) return { teamName: "Primi Calci 1° anno", category: "Primi Calci 1° anno", clubSection: "scuola_calcio" };
+  if (under >= 5 && under <= 7) return { teamName: "Piccoli Amici", category: "Piccoli Amici", clubSection: "scuola_calcio" };
+  return null;
+}
+
+export function resolveImportedPlayerTeam(value: unknown, seasonStartYear = 2026): ImportedPlayerTeamResolution | null {
+  const source = cellToTrimmedString(value);
+  const lookup = normalizeTeamLookup(source);
+  if (!lookup) return null;
+
+  if (/\bprima\s+squadra\b/.test(lookup)) {
+    return { source, teamName: "Prima Squadra", category: "Prima Squadra", clubSection: "prima_squadra" };
+  }
+  if (/\bjuniores\b|\bu\s*19\b|\bunder\s*19\b|\bu\s*20\b|\bunder\s*20\b|\bu\s*18\b|\bunder\s*18\b/.test(lookup)) {
+    return { source, teamName: "Juniores", category: "Juniores", clubSection: "settore_giovanile" };
+  }
+
+  const underMatch = lookup.match(/\b(?:u|under)\s*(\d{1,2})\b/);
+  if (underMatch) {
+    const under = Number(underMatch[1]);
+    const mapped = categorySectionForUnder(under);
+    return mapped ? { source, ...mapped, under } : null;
+  }
+
+  const yearMatch = lookup.match(/\b(20\d{2})\b/);
+  if (yearMatch) {
+    const birthYear = Number(yearMatch[1]);
+    const under = seasonStartYear - birthYear + 1;
+    const mapped = categorySectionForUnder(under);
+    return mapped ? { source, ...mapped, birthYear, under } : null;
+  }
+
+  if (/\ballievi\b/.test(lookup) && /\ba\b/.test(lookup)) return { source, teamName: "Allievi A", category: "Allievi A", clubSection: "settore_giovanile", under: 17 };
+  if (/\ballievi\b/.test(lookup) && /\bb\b/.test(lookup)) return { source, teamName: "Allievi B", category: "Allievi B", clubSection: "settore_giovanile", under: 16 };
+  if (/\bgiovanissimi\b/.test(lookup) && /\ba\b/.test(lookup)) return { source, teamName: "Giovanissimi A", category: "Giovanissimi A", clubSection: "settore_giovanile", under: 15 };
+  if (/\bgiovanissimi\b/.test(lookup) && /\bb\b/.test(lookup)) return { source, teamName: "Giovanissimi B", category: "Giovanissimi B", clubSection: "settore_giovanile", under: 14 };
+  if (/\besordienti\b/.test(lookup) && /\b2o?\s*anno\b/.test(lookup)) return { source, teamName: "Esordienti 2° anno", category: "Esordienti 2° anno", clubSection: "scuola_calcio", under: 13 };
+  if (/\besordienti\b/.test(lookup)) return { source, teamName: "Esordienti 1° anno", category: "Esordienti 1° anno", clubSection: "scuola_calcio", under: 12 };
+  if (/\bpulcini\b/.test(lookup) && /\b2o?\s*anno\b/.test(lookup)) return { source, teamName: "Pulcini 2° anno", category: "Pulcini 2° anno", clubSection: "scuola_calcio", under: 11 };
+  if (/\bpulcini\b/.test(lookup)) return { source, teamName: "Pulcini 1° anno", category: "Pulcini 1° anno", clubSection: "scuola_calcio", under: 10 };
+  if (/\bprimi\s+calci\b/.test(lookup) && /\b2o?\s*anno\b/.test(lookup)) return { source, teamName: "Primi Calci 2° anno", category: "Primi Calci 2° anno", clubSection: "scuola_calcio", under: 9 };
+  if (/\bprimi\s+calci\b/.test(lookup)) return { source, teamName: "Primi Calci 1° anno", category: "Primi Calci 1° anno", clubSection: "scuola_calcio", under: 8 };
+  if (/\bpiccoli\s+amici\b/.test(lookup)) return { source, teamName: "Piccoli Amici", category: "Piccoli Amici", clubSection: "scuola_calcio" };
+
+  return null;
+}
+
+export function resolveImportedPlayerRowTeam(row: Record<string, unknown>, seasonStartYear = 2026): ImportedPlayerTeamResolution | null {
+  const explicit = resolveImportedPlayerTeam(row["Squadra"], seasonStartYear);
+  if (explicit) return explicit;
+  const sheet = resolveImportedPlayerTeam(row.__sheetName, seasonStartYear);
+  if (sheet) return sheet;
+  const birthDate = cellToDateOfBirth(row["Data di Nascita"]);
+  const birthYear = birthDate ? Number(birthDate.slice(0, 4)) : NaN;
+  if (Number.isFinite(birthYear)) return resolveImportedPlayerTeam(String(birthYear), seasonStartYear);
+  return null;
+}
+
 function cellToLowerString(value: unknown): string {
   return cellToTrimmedString(value).toLowerCase();
 }
@@ -440,8 +526,24 @@ function rowHasLikelyPlayerData(row: Record<string, unknown>): boolean {
   return words.length >= 2;
 }
 
-export function prepareAdaptivePlayerImportRows(sheets: ParsedExcelSheet[]): Record<string, unknown>[] {
+export function prepareAdaptivePlayerImportRows(sheets: ParsedExcelSheet[], options?: { seasonStartYear?: number }): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
+  const seasonStartYear = options?.seasonStartYear ?? 2026;
+  const withResolvedTeam = (row: Record<string, unknown>) => {
+    const resolution = resolveImportedPlayerRowTeam(row, seasonStartYear);
+    if (!resolution) return row;
+    const currentTeam = cellToTrimmedString(row.Squadra);
+    const shouldReplaceTeam = !currentTeam || normalizeTeamLookup(currentTeam) === normalizeTeamLookup(resolution.source);
+    return {
+      ...row,
+      Squadra: shouldReplaceTeam ? resolution.teamName : row.Squadra,
+      __derivedTeamName: resolution.teamName,
+      __derivedCategory: resolution.category,
+      __derivedClubSection: resolution.clubSection,
+      __derivedUnder: resolution.under ?? "",
+      __derivedBirthYear: resolution.birthYear ?? "",
+    };
+  };
   for (const sheet of sheets) {
     if (!sheet.rows.length && !(sheet.rawRows?.length)) continue;
     const sheetLooksRelevant = looksLikeTeamSheetName(sheet.name) || !isAdministrativeSheetName(sheet.name);
@@ -449,7 +551,7 @@ export function prepareAdaptivePlayerImportRows(sheets: ParsedExcelSheet[]): Rec
 
     const rawAdaptiveRows = adaptiveRowsFromRawSheet(sheet);
     if (rawAdaptiveRows.length > 0) {
-      out.push(...rawAdaptiveRows);
+      out.push(...rawAdaptiveRows.map((row) => withResolvedTeam({ ...row, __sheetName: row.__sheetName || sheet.name })));
       continue;
     }
 
@@ -472,6 +574,8 @@ export function prepareAdaptivePlayerImportRows(sheets: ParsedExcelSheet[]): Rec
         if (cellToTrimmedString(value)) mapped[field] = value;
       }
       if (!mapped.Squadra) mapped.Squadra = sheet.name;
+      const resolved = resolveImportedPlayerRowTeam(mapped, seasonStartYear);
+      if (resolved) mapped.Squadra = resolved.teamName;
       if (!hasNameMapping) {
         const values = Object.values(row).map(cellToTrimmedString).filter(Boolean);
         mapped["Cognome Nome"] = values.find((value) => /[A-Za-zÀ-ÿ]{2,}\s+[A-Za-zÀ-ÿ]{2,}/.test(value)) ?? "";
@@ -480,7 +584,7 @@ export function prepareAdaptivePlayerImportRows(sheets: ParsedExcelSheet[]): Rec
         .map(cellToTrimmedString)
         .filter(Boolean)
         .join(" - ");
-      out.push(mapped);
+      out.push(withResolvedTeam(mapped));
     }
   }
   return out;
@@ -692,7 +796,7 @@ function splitImportedPlayerName(row: Record<string, unknown>) {
 
 export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: number; name: string; category?: string | null; ageGroup?: string | null }[]) {
   const importedName = splitImportedPlayerName(row);
-  const teamName = normalizeImportedTeamDisplayName(row["Squadra"] || row.__sheetName);
+  const teamName = normalizeImportedTeamDisplayName(row.__derivedTeamName || row["Squadra"] || row.__sheetName);
   const teamKey = normalizeTeamLookup(teamName);
   const team = teams.find((t) => importedTeamAliases(t).includes(teamKey));
 
@@ -760,10 +864,13 @@ export function mapExcelRowToPlayer(row: Record<string, unknown>, teams: { id: n
 export function mapExcelRowToPlayerPreview(row: Record<string, unknown>, teams: { id: number; name: string }[]) {
   const mapped = mapExcelRowToPlayer(row, teams);
   const registeredValue = cellToOptionalBoolean(readCell(row, REGISTERED_KEYS));
+  const resolved = resolveImportedPlayerRowTeam(row);
   return {
     Nome: mapped.firstName || "",
     Cognome: mapped.lastName || "",
-    Squadra: normalizeImportedTeamDisplayName(row["Squadra"] || row.__sheetName),
+    Squadra: row.__derivedTeamName || resolved?.teamName || normalizeImportedTeamDisplayName(row["Squadra"] || row.__sheetName),
+    Settore: row.__derivedClubSection || resolved?.clubSection || "",
+    Categoria: row.__derivedCategory || resolved?.category || "",
     Posizione: mapped.position || "",
     "N° Maglia": mapped.jerseyNumber ?? "",
     "Data di Nascita": mapped.dateOfBirth || "",
@@ -819,6 +926,7 @@ export function downloadPlayerTemplate() {
     "Relazione Secondo Referente": "",
     "Pulmino": "",
     "Tesserato": "",
+    "Codice Fiscale": "",
     "N° Tessera": "",
     "Certificato medico": "",
     "Note": "",
