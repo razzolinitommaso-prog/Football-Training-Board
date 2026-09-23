@@ -1731,6 +1731,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
     : dashboardSingleSection === "prima_squadra"
       ? "prima-squadra"
       : "scuola-calcio";
+  const dashboardCalendarPath = `/${dashboardSectionPath}/calendar`;
   const dashboardCompetitionSectionPath = dashboardEffectiveSections.includes("settore_giovanile")
     ? "settore-giovanile"
     : dashboardEffectiveSections.includes("prima_squadra")
@@ -1844,12 +1845,12 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       roles.set(label, (roles.get(label) ?? 0) + 1);
     });
     return Array.from(roles.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 4);
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   }, [dashboardMembers]);
   const dashboardStaffCount = dashboardMembersAreClubWide
     ? (stats?.totalMembers ?? dashboardMembers.length)
     : dashboardMembers.length;
+  const dashboardStaffTitle = `Membri ${dashboardActiveSectionLabel}`;
 
   const [alertDismissed, setAlertDismissed] = useState(false);
   const [unavailableAlertOpen, setUnavailableAlertOpen] = useState(false);
@@ -2723,9 +2724,10 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
             </div>
           </StatCard>
         )}
-        <StatCard title={t.staffMembers} value={dashboardStaffCount} icon={ShieldCheck} link="/members">
+        <StatCard title={dashboardStaffTitle} value={dashboardStaffCount} icon={ShieldCheck} link="/members">
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
-            <span>{dashboardMembersAreClubWide ? "Totale club" : "Sezione"}: <strong className="text-foreground">{dashboardStaffCount}</strong></span>
+            <span>Appartenenza: <strong className="text-foreground">{dashboardActiveSectionLabel}</strong></span>
+            <span>Totale: <strong className="text-foreground">{dashboardStaffCount}</strong></span>
             {dashboardStaffRoleSummary.length > 0 ? (
               dashboardStaffRoleSummary.map(([label, count]) => (
                 <span key={label} className="truncate">
@@ -2904,7 +2906,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                   </SelectContent>
                 </Select>
               </div>
-              <Link href="/scuola-calcio/calendar">
+              <Link href={dashboardCalendarPath}>
                 <Button type="button" variant="outline" size="sm" className="gap-2">
                   Apri completo
                   <ArrowRight className="w-4 h-4" />
