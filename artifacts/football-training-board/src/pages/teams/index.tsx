@@ -123,6 +123,27 @@ function teamYearRank(value?: string | null): number {
   return 99;
 }
 
+function teamUnderLabel(team: { category?: string | null; ageGroup?: string | null }) {
+  const text = normalizeTeamLabel([team.category, team.ageGroup].filter(Boolean).join(" "));
+  if (/\bu\s*\d{1,2}\b/.test(text) || /\bunder\s*\d{1,2}\b/.test(text)) {
+    const match = text.match(/\b(?:u|under)\s*(\d{1,2})\b/);
+    return match ? `U${match[1]}` : "";
+  }
+  if (text.includes("juniores")) return "U19";
+  if (text.includes("allievi a")) return "U17";
+  if (text.includes("allievi b")) return "U16";
+  if (text.includes("giovanissimi a")) return "U15";
+  if (text.includes("giovanissimi b")) return "U14";
+  if (text.includes("esordienti") && text.includes("2")) return "U13";
+  if (text.includes("esordienti")) return "U12";
+  if (text.includes("pulcini") && text.includes("2")) return "U11";
+  if (text.includes("pulcini")) return "U10";
+  if (text.includes("primi calci") && text.includes("2")) return "U9";
+  if (text.includes("primi calci")) return "U8";
+  if (text.includes("piccoli amici")) return "U7";
+  return "";
+}
+
 function compareTeamCategoryLabels(a: string, b: string): number {
   const categoryDiff = teamCategoryRank(a) - teamCategoryRank(b);
   if (categoryDiff !== 0) return categoryDiff;
@@ -931,6 +952,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
             const displayName = teamSportDisplayName(team);
             const aliasName = team.name?.trim();
             const showAlias = Boolean(aliasName && normalizeTeamLabel(aliasName) !== normalizeTeamLabel(displayName));
+            const underLabel = teamUnderLabel(team);
+            const showAgeGroup = Boolean(team.ageGroup && normalizeTeamLabel(team.ageGroup) !== normalizeTeamLabel(underLabel));
 
             return (
               <Card key={team.id} className="overflow-hidden group hover:shadow-lg transition-all border-border/50">
@@ -1002,7 +1025,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                           {sectionLabel(team.clubSection)}
                         </span>
                       )}
-                      {team.ageGroup && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">{team.ageGroup}</span>}
+                      {underLabel && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800">{underLabel}</span>}
+                      {showAgeGroup && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">{team.ageGroup}</span>}
                       {team.category && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border text-muted-foreground">{team.category}</span>}
                     </div>
 

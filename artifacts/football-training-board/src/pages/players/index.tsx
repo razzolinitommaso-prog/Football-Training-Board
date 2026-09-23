@@ -1721,14 +1721,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
         if (!team && rawTeamName && !failedTeamCreations.has(normalizedTeamName)) {
           try {
+            const resolvedAgeGroup = resolvedTeam?.under ? `U${resolvedTeam.under}` : resolvedTeam?.category ?? rawTeamName;
             const created = await createTeamMutation.mutateAsync({
               data: {
                 name: rawTeamName,
                 category: resolvedTeam?.category ?? rawTeamName,
+                ageGroup: resolvedAgeGroup,
                 clubSection: sectionForNewTeams,
               } as any,
             });
-            team = { id: (created as any).id, name: (created as any).name ?? rawTeamName, category: resolvedTeam?.category ?? rawTeamName, ageGroup: resolvedTeam?.category ?? rawTeamName, clubSection: sectionForNewTeams };
+            team = { id: (created as any).id, name: (created as any).name ?? rawTeamName, category: resolvedTeam?.category ?? rawTeamName, ageGroup: resolvedAgeGroup, clubSection: sectionForNewTeams };
             importTeamAliases({ name: team.name, category: team.category, ageGroup: team.ageGroup }).forEach((key) => teamByName.set(key, team!));
             createdTeams++;
           } catch (error: any) {
