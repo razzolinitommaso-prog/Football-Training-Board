@@ -479,17 +479,22 @@ function normalizeDashboardSection(value: unknown) {
   return VALID_DASHBOARD_SECTIONS.has(key) ? key : "";
 }
 
-export default function Dashboard() {
+type DashboardProps = {
+  sectionOverride?: "scuola_calcio" | "settore_giovanile" | "prima_squadra";
+};
+
+export default function Dashboard({ sectionOverride }: DashboardProps = {}) {
   const { t, language } = useLanguage();
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
   const { role, user, club, section, sections } = useAuth();
   const nr = normalizeSessionRole(role);
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
-  const dashboardSection = normalizeDashboardSection(section) || "scuola_calcio";
+  const dashboardSection = normalizeDashboardSection(sectionOverride || section) || "scuola_calcio";
   const dashboardClubWideRoles = ["admin", "presidente", "director", "technical_director"];
-  const dashboardIsClubWide = dashboardClubWideRoles.includes(nr);
+  const dashboardIsClubWide = !sectionOverride && dashboardClubWideRoles.includes(nr);
   const dashboardSections = useMemo(() => {
+    if (sectionOverride) return [sectionOverride];
     if (dashboardIsClubWide) return [] as string[];
     const unique = Array.from(
       new Set(
@@ -499,7 +504,7 @@ export default function Dashboard() {
       )
     );
     return unique.length ? unique : [dashboardSection];
-  }, [dashboardIsClubWide, dashboardSection, sections]);
+  }, [dashboardIsClubWide, dashboardSection, sectionOverride, sections]);
   const dashboardSectionsKey = dashboardSections.join("|");
   const dashboardMembersAreClubWide = dashboardIsClubWide;
   const canPrepareFromDashboardCalendar = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director" || nr === "technical_director";
@@ -1699,6 +1704,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
     : value === "prima_squadra"
       ? "Prima squadra"
       : "Scuola calcio";
+  const dashboardActiveSectionLabel = sectionLabel(dashboardSection);
   const dashboardSectionLabel = dashboardSections.length > 1
     ? dashboardSections.map(sectionLabel).join(", ")
     : sectionLabel(dashboardSection);
@@ -2205,8 +2211,12 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       {/* Header + Season Banner */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">{t.dashboard}</h1>
-          <p className="text-muted-foreground mt-1 text-lg">{t.overviewDesc}</p>
+          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">
+            {t.dashboard} {dashboardActiveSectionLabel}
+          </h1>
+          <p className="text-muted-foreground mt-1 text-lg">
+            Visualizzazione separata per {dashboardActiveSectionLabel.toLowerCase()}.
+          </p>
         </div>
 
         {/* Season indicator */}

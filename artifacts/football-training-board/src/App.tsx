@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Redirect, Switch, Route } from "wouter";
 import NotFound from "@/pages/not-found";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/layout/app-layout";
@@ -57,6 +57,7 @@ import SectionCalendar from "@/pages/calendar/SectionCalendar";
 import SeasonTransitionPage from "@/pages/season-transition/index";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import SectionMatchCalendars from "@/pages/matches/SectionMatchCalendars";
+import { useAuth } from "@/hooks/use-auth";
 
 const coachingRoles = ["admin", "coach", "technical_director", "director", "fitness_coach", "athletic_director"];
 const secretaryRoles = ["admin", "secretary", "sporting_director"];
@@ -67,12 +68,47 @@ const sectionAttendanceRoles = ["admin", "presidente", "director", "secretary", 
 const trainingEditRoles = ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 const trainingCalendarRoles = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 
+const dashboardSections = [
+  { key: "scuola_calcio", path: "/scuola-calcio/dashboard" },
+  { key: "settore_giovanile", path: "/settore-giovanile/dashboard" },
+  { key: "prima_squadra", path: "/prima-squadra/dashboard" },
+] as const;
+
+function DashboardRedirect() {
+  const { role, section, sections } = useAuth();
+  const normalizedRole = String(role ?? "");
+  const clubWideRoles = ["admin", "presidente", "director", "technical_director"];
+  const normalizedSections = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(sections) ? sections : []),
+        section,
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).replace(/-/g, "_"))
+    )
+  );
+  const target = clubWideRoles.includes(normalizedRole)
+    ? dashboardSections[0]
+    : dashboardSections.find((item) => normalizedSections.includes(item.key)) ?? dashboardSections[0];
+  return <Redirect to={target.path} />;
+}
+
 function ProtectedAppRoutes() {
   return (
     <AppLayout>
       <Switch>
+        <Route path="/scuola-calcio/dashboard">
+          <ProtectedRoute><Dashboard sectionOverride="scuola_calcio" /></ProtectedRoute>
+        </Route>
+        <Route path="/settore-giovanile/dashboard">
+          <ProtectedRoute><Dashboard sectionOverride="settore_giovanile" /></ProtectedRoute>
+        </Route>
+        <Route path="/prima-squadra/dashboard">
+          <ProtectedRoute><Dashboard sectionOverride="prima_squadra" /></ProtectedRoute>
+        </Route>
         <Route path="/dashboard">
-          <ProtectedRoute><Dashboard /></ProtectedRoute>
+          <ProtectedRoute><DashboardRedirect /></ProtectedRoute>
         </Route>
         <Route path="/teams">
           <ProtectedRoute><TeamsList /></ProtectedRoute>
@@ -332,7 +368,7 @@ function ProtectedAppRoutes() {
           </ProtectedRoute>
         </Route>
         <Route path="/">
-          <ProtectedRoute><Dashboard /></ProtectedRoute>
+          <ProtectedRoute><DashboardRedirect /></ProtectedRoute>
         </Route>
         <Route component={NotFound} />
       </Switch>
