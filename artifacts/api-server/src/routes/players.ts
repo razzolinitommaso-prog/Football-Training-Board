@@ -28,7 +28,7 @@ import {
   DeletePlayerParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
-import { isClubWideListRole, normalizeSessionRole, resolveClubSectionFilter } from "../lib/club-scope";
+import { isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { requireClubAndUserIds } from "../lib/session-context";
 import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 
@@ -560,12 +560,16 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   const requestedTeamId = queryParams.success ? queryParams.data.teamId : undefined;
   const role = req.session.role ?? "";
   const requestedSection = typeof req.query.section === "string" ? req.query.section : undefined;
-  const section = requestedSection === "all" && PLAYER_MANAGE_ROLES.includes(normalizeSessionRole(role))
-    ? undefined
-    : resolveClubSectionFilter(role, requestedSection, req.session.section);
+  const sections = await resolveAllowedClubSections(req, requestedSection);
 
   let conditions = [eq(playersTable.clubId, clubId)];
-  if (section) conditions.push(eq(playersTable.clubSection, section));
+  if (sections) {
+    if (sections.length === 0) {
+      res.json(ListPlayersResponse.parse([]));
+      return;
+    }
+    conditions.push(inArray(playersTable.clubSection, sections));
+  }
 
   let assignedTeamIds: number[] = [];
   const needsAssignmentFiltering = !isClubWideListRole(role) && PLAYER_ASSIGNMENT_FILTER_ROLES_NORM.has(normalizeSessionRole(role));
@@ -584,18 +588,18 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  const sectionTeamIds = section
+  const sectionTeamIds = sections
     ? (await db
         .select({ id: teamsTable.id })
         .from(teamsTable)
-        .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.clubSection, section))))
+        .where(and(eq(teamsTable.clubId, clubId), inArray(teamsTable.clubSection, sections))))
         .map((team) => team.id)
     : [];
   const sectionTeamIdSet = new Set(sectionTeamIds);
 
   const playerWhere = requestedTeamId || needsAssignmentFiltering
     ? eq(playersTable.clubId, clubId)
-    : section
+    : sections
       ? eq(playersTable.clubId, clubId)
       : and(...conditions);
   const players = await db.select().from(playersTable).where(playerWhere);
@@ -610,10 +614,10 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
         (supplementalTeamId != null && assignedTeamIds.includes(supplementalTeamId))
       );
     }
-    if (section) {
+    if (sections) {
       if (player.teamId != null) return sectionTeamIdSet.has(player.teamId);
       if (supplementalTeamId != null) return sectionTeamIdSet.has(supplementalTeamId);
-      return player.clubSection === section;
+      return sections.includes(player.clubSection);
     }
     return true;
   });

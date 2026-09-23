@@ -1698,23 +1698,26 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
         .filter(Boolean),
     ),
   );
-  const dashboardUsesSchoolSeasonPhases =
-    dashboardVisibleSections.length > 0
-      ? dashboardVisibleSections.every((value) => value === "scuola_calcio")
-      : dashboardSection === "scuola_calcio";
-  const dashboardPrimarySection =
-    dashboardVisibleSections.find((value) => value !== "scuola_calcio") ??
-    dashboardVisibleSections[0] ??
-    dashboardSections.find((value) => value !== "scuola_calcio") ??
-    dashboardSections[0] ??
-    dashboardSection;
-  const dashboardSectionPath = dashboardPrimarySection === "settore_giovanile"
+  const dashboardEffectiveSections = dashboardVisibleSections.length > 0
+    ? dashboardVisibleSections
+    : dashboardSections.length > 0
+      ? dashboardSections
+      : [dashboardSection];
+  const dashboardShowsSchoolSeasonPhases = dashboardEffectiveSections.includes("scuola_calcio");
+  const dashboardShowsChampionshipPhases = dashboardEffectiveSections.some((value) => value === "settore_giovanile" || value === "prima_squadra");
+  const dashboardSingleSection = dashboardEffectiveSections.length === 1 ? dashboardEffectiveSections[0] : null;
+  const dashboardSectionPath = dashboardSingleSection === "settore_giovanile"
     ? "settore-giovanile"
-    : dashboardPrimarySection === "prima_squadra"
+    : dashboardSingleSection === "prima_squadra"
       ? "prima-squadra"
       : "scuola-calcio";
-  const dashboardTeamsPath = `/${dashboardSectionPath}/teams`;
-  const dashboardPlayersPath = `/${dashboardSectionPath}/players`;
+  const dashboardCompetitionSectionPath = dashboardEffectiveSections.includes("settore_giovanile")
+    ? "settore-giovanile"
+    : dashboardEffectiveSections.includes("prima_squadra")
+      ? "prima-squadra"
+      : dashboardSectionPath;
+  const dashboardTeamsPath = dashboardSingleSection ? `/${dashboardSectionPath}/teams` : "/teams";
+  const dashboardPlayersPath = dashboardSingleSection ? `/${dashboardSectionPath}/players` : "/players";
   const dashboardChampionshipMatchCount = dashboardMatchSummary.autunnale + dashboardMatchSummary.primaverile;
 
   const dashboardTeamSectionBreakdown = useMemo(() => {
@@ -2716,7 +2719,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Fasi ed eventi</h2>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {dashboardUsesSchoolSeasonPhases ? (
+        {dashboardShowsSchoolSeasonPhases && (
           <>
             <DashboardMatchSummaryCard
               title="Fase autunnale"
@@ -2735,7 +2738,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
               onClick={() => openDashboardPhaseCalendar("primaverile", "Fase primaverile")}
             />
           </>
-        ) : (
+        )}
+        {dashboardShowsChampionshipPhases && (
           <>
             <DashboardMatchSummaryCard
               title="Campionato"
@@ -2743,7 +2747,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
               description="gare andata/ritorno"
               icon={Trophy}
               tone="amber"
-              onClick={() => setLocation(`/${dashboardSectionPath}/matches`)}
+              onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/matches`)}
             />
             <DashboardMatchSummaryCard
               title="Classifica girone"
@@ -2751,7 +2755,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
               description="risultati e graduatoria"
               icon={BarChart3}
               tone="pink"
-              onClick={() => setLocation(`/${dashboardSectionPath}/matches`)}
+              onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/matches`)}
             />
           </>
         )}

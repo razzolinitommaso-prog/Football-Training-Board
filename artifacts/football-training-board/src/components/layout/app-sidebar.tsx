@@ -92,7 +92,7 @@ function isWorkspaceSectionKey(value: string): value is WorkspaceSectionKey {
 // Ruoli che hanno accesso ad almeno una sezione (il direttore tecnico usa il menu “area tecnica” unificato, senza albero a 3 sezioni)
 const SEZIONE_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director"];
 
-// Ruoli gestionali: le tre sezioni restano visibili, ma quelle non assegnate sono grigie/disabilitate.
+// Ruoli gestionali: se hanno assegnazioni esplicite vedono solo quelle sezioni.
 const SECTION_MANAGEMENT_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director"];
 const SECTION_OPERATION_URLS = new Set([
   "/training",
@@ -194,7 +194,7 @@ export function AppSidebar() {
 
   function shouldShowSection(sectionKey: WorkspaceSectionKey): boolean {
     if (!SEZIONE_ROLES.includes(role || "")) return false;
-    if (isSectionManagementRole) return true;
+    if (isSectionManagementRole && !hasExplicitSectionAssignments) return true;
     return userSectionKeys.includes(sectionKey);
   }
 

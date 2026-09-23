@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import {
   db,
   registrationsTable,
@@ -17,7 +17,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, gte, lte, asc, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
-import { normalizeSessionRole } from "../lib/club-scope";
+import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 
 const router: IRouter = Router();
 
@@ -211,17 +211,21 @@ async function withPlayerName<T extends { playerId: number; clubId: number }>(re
   }));
 }
 
-async function getSectionPlayerIds(clubId: number, section: string): Promise<number[]> {
+async function getScopedPlayerIds(req: Request, clubId: number): Promise<number[] | null> {
+  const sections = await resolveAllowedClubSections(req, typeof req.query.section === "string" ? req.query.section : undefined);
+  if (!sections) return null;
+  if (sections.length === 0) return [];
   const rows = await db.select({ id: playersTable.id }).from(playersTable)
-    .where(and(eq(playersTable.clubId, clubId), eq(playersTable.clubSection, section)));
+    .where(and(eq(playersTable.clubId, clubId), inArray(playersTable.clubSection, sections)));
   return rows.map(r => r.id);
 }
 
 router.get("/registrations", requireAuth, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
   let where: any = eq(registrationsTable.clubId, clubId);
-  if (req.session.section) {
-    const ids = await getSectionPlayerIds(clubId, req.session.section);
+  const scopedPlayerIds = await getScopedPlayerIds(req, clubId);
+  if (scopedPlayerIds) {
+    const ids = scopedPlayerIds;
     where = ids.length > 0
       ? and(eq(registrationsTable.clubId, clubId), inArray(registrationsTable.playerId, ids))
       : and(eq(registrationsTable.clubId, clubId), sql`false`);
@@ -268,8 +272,9 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
   }
   const clubId = req.session.clubId!;
   let where: any = eq(playerPaymentsTable.clubId, clubId);
-  if (req.session.section) {
-    const ids = await getSectionPlayerIds(clubId, req.session.section);
+  const scopedPlayerIds = await getScopedPlayerIds(req, clubId);
+  if (scopedPlayerIds) {
+    const ids = scopedPlayerIds;
     where = ids.length > 0
       ? and(eq(playerPaymentsTable.clubId, clubId), inArray(playerPaymentsTable.playerId, ids))
       : and(eq(playerPaymentsTable.clubId, clubId), sql`false`);
@@ -340,8 +345,9 @@ router.delete("/player-payments/:id", requireAuth, async (req, res): Promise<voi
 router.get("/player-documents", requireAuth, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
   let where: any = eq(playerDocumentsTable.clubId, clubId);
-  if (req.session.section) {
-    const ids = await getSectionPlayerIds(clubId, req.session.section);
+  const scopedPlayerIds = await getScopedPlayerIds(req, clubId);
+  if (scopedPlayerIds) {
+    const ids = scopedPlayerIds;
     where = ids.length > 0
       ? and(eq(playerDocumentsTable.clubId, clubId), inArray(playerDocumentsTable.playerId, ids))
       : and(eq(playerDocumentsTable.clubId, clubId), sql`false`);
@@ -527,8 +533,9 @@ router.delete("/warehouse-items/:id", requireAuth, async (req, res): Promise<voi
 router.get("/equipment", requireAuth, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
   let where: any = eq(equipmentAssignmentsTable.clubId, clubId);
-  if (req.session.section) {
-    const ids = await getSectionPlayerIds(clubId, req.session.section);
+  const scopedPlayerIds = await getScopedPlayerIds(req, clubId);
+  if (scopedPlayerIds) {
+    const ids = scopedPlayerIds;
     where = ids.length > 0
       ? and(eq(equipmentAssignmentsTable.clubId, clubId), inArray(equipmentAssignmentsTable.playerId, ids))
       : and(eq(equipmentAssignmentsTable.clubId, clubId), sql`false`);

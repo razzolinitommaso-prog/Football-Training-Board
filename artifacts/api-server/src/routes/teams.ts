@@ -12,7 +12,7 @@ import {
   DeleteTeamParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
-import { isClubWideListRole, normalizeSessionRole, resolveClubSectionFilter } from "../lib/club-scope";
+import { isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 import { requireClubAndUserIds } from "../lib/session-context";
 
@@ -150,10 +150,11 @@ async function resolveMyTeamForUser(
   return fallback[0] ?? null;
 }
 
-async function getTeamsWithCounts(clubId: number, filterTeamIds?: number[], section?: string) {
+async function getTeamsWithCounts(clubId: number, filterTeamIds?: number[], sections?: string[]) {
   let whereClause: SQL = eq(teamsTable.clubId, clubId);
-  if (section) {
-    whereClause = and(eq(teamsTable.clubId, clubId), eq(teamsTable.clubSection, section))!;
+  if (sections) {
+    if (sections.length === 0) return [];
+    whereClause = and(eq(teamsTable.clubId, clubId), inArray(teamsTable.clubSection, sections))!;
   }
   const allTeams = await db.select().from(teamsTable).where(whereClause);
   const teams = filterTeamIds ? allTeams.filter(t => filterTeamIds.includes(t.id)) : allTeams;
@@ -206,16 +207,12 @@ router.get("/teams", requireAuth, async (req, res): Promise<void> => {
   }
   const { clubId, userId } = ids;
   const role = req.session.role ?? "";
-  const section = resolveClubSectionFilter(
-    role,
-    typeof req.query.section === "string" ? req.query.section : undefined,
-    req.session.section,
-  );
+  const sections = await resolveAllowedClubSections(req, typeof req.query.section === "string" ? req.query.section : undefined);
   let filterTeamIds: number[] | undefined;
   if (!isClubWideListRole(role) && TEAM_ASSIGNMENT_FILTER_ROLES_NORM.has(normalizeSessionRole(role))) {
     filterTeamIds = await getAssignedTeamIds(userId, clubId);
   }
-  const teams = await getTeamsWithCounts(clubId, filterTeamIds, section);
+  const teams = await getTeamsWithCounts(clubId, filterTeamIds, sections);
   res.json(ListTeamsResponse.parse(teams));
 });
 
