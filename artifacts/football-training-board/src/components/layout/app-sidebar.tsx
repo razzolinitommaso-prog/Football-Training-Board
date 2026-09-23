@@ -266,51 +266,6 @@ export function AppSidebar() {
     );
   }
 
-  function DashboardSectionMenu() {
-    const dashboardItems = SEZIONI
-      .filter(({ key }) => shouldShowSection(key))
-      .map(({ key, label, icon: Icon }) => ({
-        key,
-        label,
-        Icon,
-        url: `/${key}/dashboard`,
-      }));
-    if (dashboardItems.length === 0 || !(role || "")) return null;
-    if (!["admin", "presidente", "coach", "secretary", "sporting_director", "technical_director", "fitness_coach", "director", "athletic_director"].includes(role || "")) return null;
-
-    const isActive = dashboardItems.some((item) => location.startsWith(item.url)) || location === "/dashboard";
-    return (
-      <Collapsible defaultOpen={isActive} className="group/collapsible">
-        <SidebarMenuItem>
-          <CollapsibleTrigger asChild>
-            <SidebarMenuButton isActive={isActive} tooltip="Cruscotto" className="font-medium w-full">
-              <LayoutDashboard className={`w-5 h-5 ${isActive ? "text-primary" : "text-sidebar-foreground/70"}`} />
-              <span>Cruscotto</span>
-              <ChevronRight className="ml-auto w-4 h-4 text-sidebar-foreground/50 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-            </SidebarMenuButton>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <SidebarMenuSub>
-              {dashboardItems.map(({ key, label, Icon, url }) => {
-                const active = location.startsWith(url);
-                return (
-                  <SidebarMenuSubItem key={key}>
-                    <SidebarMenuSubButton asChild isActive={active}>
-                      <Link href={url} className="flex items-center gap-2">
-                        <Icon className={`w-4 h-4 ${active ? "text-primary" : "text-sidebar-foreground/60"}`} />
-                        <span>{label}</span>
-                      </Link>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                );
-              })}
-            </SidebarMenuSub>
-          </CollapsibleContent>
-        </SidebarMenuItem>
-      </Collapsible>
-    );
-  }
-
   function NavGroup({ items, labelKey }: { items: NavItem[]; labelKey: string }) {
     if (items.length === 0) return null;
     return (
@@ -341,11 +296,23 @@ export function AppSidebar() {
   }
 
   const userHasSectionMenu = role !== "technical_director" && SEZIONI.some(({ key }) => shouldShowSection(key));
+  const dashboardNavRoles = ["admin", "presidente", "coach", "secretary", "sporting_director", "technical_director", "fitness_coach", "director", "athletic_director"];
+  const dashboardItems = dashboardNavRoles.includes(role || "")
+    ? SEZIONI
+        .filter(({ key }) => shouldShowSection(key))
+        .map(({ key, label, icon: Icon }) => ({
+          key,
+          label,
+          Icon,
+          url: `/${key}/dashboard`,
+        }))
+    : [];
+  const dashboardMenuActive = dashboardItems.some((item) => location.startsWith(item.url)) || location === "/dashboard";
   const topMainUrls = ["/tactical-board", "/training", "/training/convocazioni", "/training/presenze", "/training/calendario-operativo", "/exercises"];
   const topMainItems = mainNav.filter((i) =>
     topMainUrls.includes(i.url) && !(userHasSectionMenu && SECTION_OPERATION_URLS.has(i.url)),
   );
-  const bottomMainItems = mainNav.filter(i => !topMainUrls.includes(i.url));
+  const bottomMainItems = mainNav.filter(i => !topMainUrls.includes(i.url) && i.url !== "/dashboard");
 
   return (
     <Sidebar variant="sidebar" className="border-r shadow-sm">
@@ -386,7 +353,36 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              <DashboardSectionMenu />
+              {dashboardItems.length > 0 && (
+                <Collapsible defaultOpen={dashboardMenuActive} className="group/collapsible">
+                  <SidebarMenuItem>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton isActive={dashboardMenuActive} tooltip="Cruscotto" className="font-medium w-full">
+                        <LayoutDashboard className={`w-5 h-5 ${dashboardMenuActive ? "text-primary" : "text-sidebar-foreground/70"}`} />
+                        <span>Cruscotto</span>
+                        <ChevronRight className="ml-auto w-4 h-4 text-sidebar-foreground/50 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {dashboardItems.map(({ key, label, Icon, url }) => {
+                          const active = location.startsWith(url);
+                          return (
+                            <SidebarMenuSubItem key={key}>
+                              <SidebarMenuSubButton asChild isActive={active}>
+                                <Link href={url} className="flex items-center gap-2">
+                                  <Icon className={`w-4 h-4 ${active ? "text-primary" : "text-sidebar-foreground/60"}`} />
+                                  <span>{label}</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          );
+                        })}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  </SidebarMenuItem>
+                </Collapsible>
+              )}
 
               {topMainItems.map((item) => {
                 const isActive = location.startsWith(item.url);
