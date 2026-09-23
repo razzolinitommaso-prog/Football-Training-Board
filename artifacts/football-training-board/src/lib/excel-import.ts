@@ -126,6 +126,7 @@ export function importSeasonStartYear(value?: unknown): number {
 }
 
 function categorySectionForUnder(under: number): Pick<ImportedPlayerTeamResolution, "teamName" | "category" | "clubSection"> | null {
+  // Player imports are multi-club: resolve by season/year/category only, never by a specific club file format.
   if (under >= 18 && under <= 20) return { teamName: "Juniores", category: "Juniores", clubSection: "settore_giovanile" };
   if (under === 17) return { teamName: "Allievi A", category: "Allievi A", clubSection: "settore_giovanile" };
   if (under === 16) return { teamName: "Allievi B", category: "Allievi B", clubSection: "settore_giovanile" };
