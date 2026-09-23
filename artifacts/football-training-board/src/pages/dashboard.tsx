@@ -668,7 +668,19 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   return a.name.localeCompare(b.name, "it", { numeric: true, sensitivity: "base" });
 }
 
-  const teamsForCalendarImport = ((allTeams ?? []) as any[]).filter((team) => Number(team?.id) > 0);
+  const dashboardAllowedSectionSet = useMemo(
+    () => dashboardSections.length > 0 ? new Set(dashboardSections) : null,
+    [dashboardSections],
+  );
+  const filterDashboardTeamBySection = (team: { clubSection?: string | null }) => {
+    if (!dashboardAllowedSectionSet) return true;
+    const teamSection = normalizeDashboardSection(team.clubSection);
+    return Boolean(teamSection && dashboardAllowedSectionSet.has(teamSection));
+  };
+
+  const teamsForCalendarImport = ((allTeams ?? []) as any[])
+    .filter((team) => Number(team?.id) > 0)
+    .filter(filterDashboardTeamBySection);
   const openCalendarPdfImport = (mode: "federation" | "tournament") => {
     setCalendarImportMode(mode);
     setCalendarImportTeamId("");
@@ -839,8 +851,9 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   const dashboardTeams = useMemo(
     () => ((allTeams ?? []) as DashboardTeam[])
       .filter((team) => Number(team?.id) > 0)
+      .filter(filterDashboardTeamBySection)
       .sort(compareDashboardTeamsByYear),
-    [allTeams],
+    [allTeams, dashboardAllowedSectionSet],
   );
 
   function openDashboardPhaseCalendar(phase: DashboardMatchPhase, title: string) {
@@ -1675,11 +1688,11 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
 
   const dashboardTeamCount = useMemo(() => {
     const fromApi = stats?.totalTeams ?? 0;
-    const n = allTeams?.length ?? 0;
+    const n = dashboardTeams.length;
     if (!dashboardIsClubWide) return n;
     if (isClubWideTechnicalRole && n > fromApi) return n;
     return fromApi;
-  }, [stats?.totalTeams, allTeams?.length, isClubWideTechnicalRole, dashboardIsClubWide]);
+  }, [stats?.totalTeams, dashboardTeams.length, isClubWideTechnicalRole, dashboardIsClubWide]);
   const sectionLabel = (value: string) => value === "settore_giovanile"
     ? "Settore giovanile"
     : value === "prima_squadra"
@@ -1735,13 +1748,13 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   }, [dashboardTeams, dashboardSection]);
 
   const dashboardTeamYearsLabel = useMemo(() => {
-    const teamNames = ((allTeams as any[] | undefined) ?? [])
+    const teamNames = dashboardTeams
       .map((team) => String(team?.name ?? "").trim())
       .filter(Boolean);
     if (teamNames.length === 0) return "Nessuna";
     const preview = teamNames.slice(0, 2).join(", ");
     return teamNames.length > 2 ? `${preview} +${teamNames.length - 2}` : preview;
-  }, [allTeams]);
+  }, [dashboardTeams]);
 
   const dashboardPlayerCount = useMemo(() => {
     const fromApi = stats?.totalPlayers ?? 0;
