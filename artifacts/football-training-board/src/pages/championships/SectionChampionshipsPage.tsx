@@ -330,7 +330,7 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
 
   return (
     <div className="overflow-auto">
-      <table className="w-full min-w-[520px] text-sm">
+      <table className="w-full min-w-[600px] text-sm">
         <thead>
           <tr className="border-b text-xs uppercase text-muted-foreground">
             <th className="py-2 pr-2 text-left">#</th>
@@ -339,6 +339,8 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
             <th className="py-2 text-right">V</th>
             <th className="py-2 text-right">N</th>
             <th className="py-2 text-right">S</th>
+            <th className="py-2 text-right">GF</th>
+            <th className="py-2 text-right">GS</th>
             <th className="py-2 text-right">DR</th>
             <th className="py-2 text-right">P</th>
           </tr>
@@ -354,6 +356,8 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
                 <td className="py-2 text-right tabular-nums">{row.v}</td>
                 <td className="py-2 text-right tabular-nums">{row.n}</td>
                 <td className="py-2 text-right tabular-nums">{row.p}</td>
+                <td className="py-2 text-right tabular-nums">{row.gf}</td>
+                <td className="py-2 text-right tabular-nums">{row.gs}</td>
                 <td className="py-2 text-right tabular-nums">{row.dr > 0 ? `+${row.dr}` : row.dr}</td>
                 <td className="py-2 text-right font-semibold tabular-nums">{row.pts}</td>
               </tr>
