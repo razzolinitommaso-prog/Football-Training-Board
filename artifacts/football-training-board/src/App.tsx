@@ -57,6 +57,7 @@ import SectionCalendar from "@/pages/calendar/SectionCalendar";
 import SeasonTransitionPage from "@/pages/season-transition/index";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import SectionMatchCalendars from "@/pages/matches/SectionMatchCalendars";
+import SectionChampionshipsPage from "@/pages/championships/SectionChampionshipsPage";
 import { useAuth } from "@/hooks/use-auth";
 
 const coachingRoles = ["admin", "coach", "technical_director", "director", "fitness_coach", "athletic_director"];
@@ -325,6 +326,11 @@ function ProtectedAppRoutes() {
             <SectionMatchCalendars section="settore_giovanile" />
           </ProtectedRoute>
         </Route>
+        <Route path="/settore-giovanile/campionati">
+          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
+            <SectionChampionshipsPage section="settore_giovanile" />
+          </ProtectedRoute>
+        </Route>
         <Route path="/settore-giovanile/attendance">
           <ProtectedRoute allowedRoles={sectionAttendanceRoles}><AttendancePage section="settore_giovanile" /></ProtectedRoute>
         </Route>
@@ -363,6 +369,11 @@ function ProtectedAppRoutes() {
         <Route path="/prima-squadra/matches">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
             <SectionMatchCalendars section="prima_squadra" />
+          </ProtectedRoute>
+        </Route>
+        <Route path="/prima-squadra/campionati">
+          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
+            <SectionChampionshipsPage section="prima_squadra" />
           </ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/attendance">

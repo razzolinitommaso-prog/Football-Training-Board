@@ -74,6 +74,13 @@ const SEZIONE_SUB_ITEMS: SubItem[] = [
   { label: "Calendario",           url: "calendar",   icon: CalendarRange, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
 ];
 
+const CHAMPIONSHIP_SUB_ITEM: SubItem = {
+  label: "Campionati",
+  url: "campionati",
+  icon: BarChart3,
+  roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"],
+};
+
 // Tutte e 3 le sezioni — la visibilità viene filtrata per section utente in CollapsibleSection
 const SEZIONI = [
   { key: "scuola-calcio",     label: "Scuola Calcio",     icon: School },
@@ -214,6 +221,9 @@ export function AppSidebar() {
       ...SEZIONE_SUB_ITEMS
       .filter(s => s.roles.includes(role || ""))
       .map(s => ({ ...s, url: `${basePath}/${s.url}` })),
+      ...(sectionKey !== "scuola-calcio" && CHAMPIONSHIP_SUB_ITEM.roles.includes(role || "")
+        ? [{ ...CHAMPIONSHIP_SUB_ITEM, url: `${basePath}/${CHAMPIONSHIP_SUB_ITEM.url}` }]
+        : []),
     ];
 
     if (subItems.length === 0) return null;

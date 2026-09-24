@@ -185,6 +185,12 @@ function sectionMatchesPath(section?: string | null) {
   return "/scuola-calcio/matches";
 }
 
+function sectionChampionshipsPath(section?: string | null) {
+  if (section === "settore_giovanile") return "/settore-giovanile/campionati";
+  if (section === "prima_squadra") return "/prima-squadra/campionati";
+  return sectionMatchesPath(section);
+}
+
 function usesChampionshipSeason(section?: string | null) {
   return section === "settore_giovanile" || section === "prima_squadra";
 }
@@ -3763,7 +3769,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
   const team = teams.find(t => t.id === teamId);
   const teamUsesChampionshipSeason = usesChampionshipSeason(team?.clubSection);
-  const teamMatchesPath = sectionMatchesPath(team?.clubSection);
+  const teamChampionshipsPath = sectionChampionshipsPath(team?.clubSection);
 
   useEffect(() => {
     if (!team) return;
@@ -5351,7 +5357,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                 </button>
                 <button
                   type="button"
-                  onClick={() => setLocation(teamMatchesPath)}
+                  onClick={() => setLocation(teamChampionshipsPath)}
                   className="text-left rounded-xl border border-border p-4 transition-all hover:bg-muted/40"
                 >
                   <div className="flex items-center gap-2 mb-1">
