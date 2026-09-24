@@ -77,11 +77,13 @@ function categoryOptionsForSection(section?: string | null) {
 }
 
 function teamSportDisplayName(data: { name?: string | null; category?: string | null; ageGroup?: string | null; clubSection?: string | null }) {
+  const name = data.name?.trim();
   const category = data.category?.trim();
   const ageGroup = data.ageGroup?.trim();
   const shouldAppendAgeGroup = Boolean(ageGroup && !/^\d{4}$/.test(ageGroup) && !normalizeTeamLabel(category).includes(normalizeTeamLabel(ageGroup)));
   const generated = [category, shouldAppendAgeGroup ? ageGroup : null].filter(Boolean).join(" ").trim();
-  return generated || category || ageGroup || data.name?.trim() || sectionLabel(data.clubSection) || "Squadra";
+  if (name && !/^\d{4}$/.test(name)) return name;
+  return generated || category || ageGroup || name || sectionLabel(data.clubSection) || "Squadra";
 }
 
 function storedTeamAlias(data: { name?: string | null; category?: string | null; ageGroup?: string | null; clubSection?: string | null }) {
