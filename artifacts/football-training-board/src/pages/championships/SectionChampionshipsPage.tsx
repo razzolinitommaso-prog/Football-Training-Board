@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trophy, CalendarDays, BarChart3, Clock, CheckCircle2, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +49,8 @@ type Championship = {
   title: string;
   category?: string | null;
   section: string;
+  sourceProvider?: string | null;
+  sourceUrl?: string | null;
   groups: ChampionshipGroup[];
 };
 
@@ -312,9 +314,16 @@ function ChampionshipView({ championship, group }: { championship: Championship;
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {championship.id < 0 && <Badge variant="secondary">Da calendario squadra</Badge>}
+          {championship.sourceProvider === "lnd" && <Badge variant="secondary">Fonte LND salvata</Badge>}
           <Badge variant="outline">{group.fixtures.length} partite</Badge>
         </div>
       </div>
+
+      {championship.sourceProvider === "lnd" && championship.sourceUrl && (
+        <div className="rounded-md border bg-emerald-500/10 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200">
+          Link Gare LND salvato per questo campionato. Quando riapri la sincronizzazione lo trovi gia compilato.
+        </div>
+      )}
 
       {championship.id < 0 && (
         <div className="rounded-md border bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
@@ -402,11 +411,27 @@ function ChampionshipView({ championship, group }: { championship: Championship;
   );
 }
 
-function LndSyncDialog({ section, open, onOpenChange }: { section: SectionKey; open: boolean; onOpenChange: (open: boolean) => void }) {
+function LndSyncDialog({
+  section,
+  open,
+  onOpenChange,
+  initialUrl,
+}: {
+  section: SectionKey;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialUrl?: string | null;
+}) {
   const [url, setUrl] = useState("");
   const [preview, setPreview] = useState<LndPreview | null>(null);
   const qc = useQueryClient();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (open && !url.trim() && initialUrl) {
+      setUrl(initialUrl);
+    }
+  }, [initialUrl, open, url]);
 
   const previewMutation = useMutation({
     mutationFn: () => apiFetch<LndPreview>("/api/championships/lnd/preview", {
@@ -434,7 +459,6 @@ function LndSyncDialog({ section, open, onOpenChange }: { section: SectionKey; o
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["/api/championships", section, "page"] });
       setPreview(null);
-      setUrl("");
       onOpenChange(false);
       toast({
         title: "Sync LND completata",
@@ -561,7 +585,12 @@ export default function SectionChampionshipsPage({ section }: { section: Section
         </Button>
       </div>
 
-      <LndSyncDialog section={section} open={syncOpen} onOpenChange={setSyncOpen} />
+      <LndSyncDialog
+        section={section}
+        open={syncOpen}
+        onOpenChange={setSyncOpen}
+        initialUrl={activeOption?.championship.sourceUrl}
+      />
 
       {isLoading || isMatchesLoading ? (
         <Card>
