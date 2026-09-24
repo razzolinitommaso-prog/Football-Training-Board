@@ -250,6 +250,116 @@ function extractTableRows(html: string): string[][] {
   return rows;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function readString(row: Record<string, unknown>, key: string): string {
+  return cleanText(row[key]);
+}
+
+function readNumber(row: Record<string, unknown>, key: string): number | null {
+  const value = Number(row[key]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function parseLndDateTime(dateValue: unknown, timeValue: unknown): string | null {
+  const dateText = cleanText(dateValue);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return null;
+  const timeText = cleanText(timeValue) || "15:00:00";
+  const time = timeText.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  const hour = time ? Number(time[1]) : 15;
+  const minute = time ? Number(time[2]) : 0;
+  const second = time?.[3] ? Number(time[3]) : 0;
+  const date = new Date(`${dateText}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}+01:00`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function scoreFromLnd(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+function extractLndInertiaPayload(html: string): Record<string, unknown> | null {
+  const scriptMatches = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
+  for (const match of scriptMatches) {
+    const text = match[1]?.trim();
+    if (!text || !text.includes('"component"') || !text.includes("QuadroGare")) continue;
+    try {
+      const parsed = JSON.parse(text);
+      return asRecord(parsed);
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function parseLndInertiaPayload(html: string, url: URL, params: Record<string, string>): LndParsedCompetition | null {
+  const payload = extractLndInertiaPayload(html);
+  const props = asRecord(payload?.props);
+  if (!props) return null;
+  const championship = asRecord(props.championship);
+  const group = asRecord(props.group);
+  const currentMatchday = asRecord(props.currentMatchday);
+  const matches = Array.isArray(props.matches) ? props.matches.map(asRecord).filter((row): row is Record<string, unknown> => !!row) : [];
+  const standingsRows = Array.isArray(props.standings) ? props.standings.map(asRecord).filter((row): row is Record<string, unknown> => !!row) : [];
+  const leg = normalizeLegFromSource(readString(currentMatchday ?? {}, "leg") || params.leg);
+  const round = readNumber(currentMatchday ?? {}, "number") ?? (params.giornata ? Number(params.giornata) : null);
+  const sourceParams = {
+    ...params,
+    giornata: round ? String(round) : (params.giornata ?? ""),
+    leg: readString(currentMatchday ?? {}, "leg") || (params.leg ?? ""),
+  };
+  const fixtures = uniqueFixtures(matches.map((match) => {
+    const homeTeam = readString(match, "home");
+    const awayTeam = readString(match, "away");
+    const date = parseLndDateTime(match.date, match.time);
+    const field = readString(match, "field");
+    const fieldAddress = readString(match, "fieldAddress");
+    const externalId = readString(match, "id");
+    return {
+      externalKey: externalId ? `lnd|match|${externalId}` : fixtureSourceKey({ sourceParams, round, leg, homeTeam, awayTeam, date }),
+      round: Number.isInteger(round) ? round : null,
+      leg,
+      homeTeam,
+      awayTeam,
+      date,
+      location: [field, fieldAddress].filter(Boolean).join(" - ") || null,
+      homeScore: scoreFromLnd(match.homeGoals),
+      awayScore: scoreFromLnd(match.awayGoals),
+      notes: readString(match, "outcome") || null,
+    } satisfies LndFixtureRow;
+  }).filter((fixture) => fixture.homeTeam && fixture.awayTeam));
+  const standings = standingsRows.map((row) => {
+    const gf = readNumber(row, "goalsFor") ?? 0;
+    const gs = readNumber(row, "goalsAgainst") ?? 0;
+    return {
+      team: readString(row, "team").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      pg: readNumber(row, "played") ?? 0,
+      v: readNumber(row, "wins") ?? 0,
+      n: readNumber(row, "draws") ?? 0,
+      p: readNumber(row, "losses") ?? 0,
+      gf,
+      gs,
+      dr: gf - gs,
+      pts: readNumber(row, "points") ?? 0,
+    } satisfies LndStandingRow;
+  }).filter((row) => row.team);
+  const groupName = readString(group ?? {}, "name") || (params.girone ? `Girone ${params.girone}` : "Girone");
+  const category = readString(championship ?? {}, "name") || null;
+  return {
+    sourceUrl: url.toString(),
+    sourceParams,
+    title: category ? `${category} - ${groupName}` : `Campionato ${groupName}`,
+    category,
+    groupName,
+    fixtures,
+    standings,
+    rawLineCount: matches.length + standings.length,
+  };
+}
+
 function parseScore(value: string): { homeScore: number; awayScore: number } | null {
   const match = cleanText(value).match(/\b(\d{1,2})\s*[-:]\s*(\d{1,2})\b/);
   if (!match) return null;
@@ -398,6 +508,8 @@ async function fetchAndParseLnd(url: URL): Promise<LndParsedCompetition> {
   if (!response.ok) throw new Error(`Gare LND non raggiungibile (${response.status})`);
   const html = await response.text();
   const params = lndParamsFromUrl(url);
+  const inertiaParsed = parseLndInertiaPayload(html, url, params);
+  if (inertiaParsed) return inertiaParsed;
   const lines = lineTokensFromHtml(html);
   const tableRows = extractTableRows(html);
   const fixtures = uniqueFixtures([
