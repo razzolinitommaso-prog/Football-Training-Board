@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trophy, CalendarDays, BarChart3, Clock, CheckCircle2, RefreshCw } from "lucide-react";
+import { Trophy, CalendarDays, BarChart3, Clock, CheckCircle2, RefreshCw, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -173,6 +173,36 @@ function groupFixturesByRound(fixtures: ChampionshipFixture[]) {
   }));
 }
 
+function roundTimeValue(round: { fixtures: ChampionshipFixture[] }) {
+  const datedFixtures = round.fixtures
+    .map(fixtureDateValue)
+    .filter((value) => value > 0)
+    .sort((a, b) => a - b);
+  return datedFixtures[0] ?? 0;
+}
+
+function defaultOpenRoundKeys(rounds: Array<{ key: string; fixtures: ChampionshipFixture[] }>) {
+  if (rounds.length === 0) return [];
+
+  const now = Date.now();
+  const timedRounds = rounds
+    .map((round) => ({ ...round, time: roundTimeValue(round) }))
+    .filter((round) => round.time > 0);
+
+  const previousRound = timedRounds
+    .filter((round) => round.time <= now)
+    .sort((a, b) => b.time - a.time)[0];
+  const nextRound = timedRounds
+    .filter((round) => round.time > now)
+    .sort((a, b) => a.time - b.time)[0];
+
+  const openKeys = new Set<string>();
+  if (previousRound) openKeys.add(previousRound.key);
+  if (nextRound) openKeys.add(nextRound.key);
+  if (openKeys.size === 0) openKeys.add(rounds[0].key);
+  return Array.from(openKeys);
+}
+
 function buildFallbackChampionships(matches: SectionMatch[], section: SectionKey): Championship[] {
   const championshipMatches = matches
     .filter((match) => Number(match.teamId) > 0)
@@ -251,6 +281,48 @@ function FixtureRow({ fixture }: { fixture: ChampionshipFixture }) {
   );
 }
 
+function RoundAccordion({
+  round,
+  defaultOpen,
+}: {
+  round: { key: string; label: string; fixtures: ChampionshipFixture[] };
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const clubFixtureCount = round.fixtures.filter((fixture) => isClubTeam(fixture.homeTeam) || isClubTeam(fixture.awayTeam)).length;
+  const playedCount = round.fixtures.filter(fixtureHasResult).length;
+
+  useEffect(() => {
+    setOpen(defaultOpen);
+  }, [defaultOpen, round.key]);
+
+  return (
+    <section className="rounded-md border bg-background">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left"
+        aria-expanded={open}
+      >
+        <div className="min-w-0">
+          <h3 className="truncate text-xs font-semibold uppercase text-muted-foreground">{round.label}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {round.fixtures.length} partite
+            {playedCount > 0 ? ` · ${playedCount} risultati` : ""}
+            {clubFixtureCount > 0 ? " · squadra del club" : ""}
+          </p>
+        </div>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="border-t px-3">
+          {round.fixtures.map((fixture) => <FixtureRow key={fixture.id} fixture={fixture} />)}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
   if (standings.length === 0) {
     return <p className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">Classifica non ancora disponibile.</p>;
@@ -295,6 +367,7 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
 
 function ChampionshipView({ championship, group }: { championship: Championship; group: ChampionshipGroup }) {
   const rounds = useMemo(() => groupFixturesByRound(group.fixtures), [group.fixtures]);
+  const defaultOpenRounds = useMemo(() => new Set(defaultOpenRoundKeys(rounds)), [rounds]);
   const now = Date.now();
   const upcomingFixtures = group.fixtures
     .filter((fixture) => !fixtureHasResult(fixture) && fixtureDateValue(fixture) >= now)
@@ -343,16 +416,7 @@ function ChampionshipView({ championship, group }: { championship: Championship;
             {rounds.length === 0 ? (
               <p className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">Nessuna gara inserita nel girone.</p>
             ) : (
-              rounds.map((round) => (
-                <section key={round.key}>
-                  <div className="mb-1 flex items-center justify-between">
-                    <h3 className="text-xs font-semibold uppercase text-muted-foreground">{round.label}</h3>
-                  </div>
-                  <div className="rounded-md border bg-background px-3">
-                    {round.fixtures.map((fixture) => <FixtureRow key={fixture.id} fixture={fixture} />)}
-                  </div>
-                </section>
-              ))
+              rounds.map((round) => <RoundAccordion key={round.key} round={round} defaultOpen={defaultOpenRounds.has(round.key)} />)
             )}
           </CardContent>
         </Card>
