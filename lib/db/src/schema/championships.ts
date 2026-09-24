@@ -16,6 +16,9 @@ export const championshipsTable = pgTable("championships", {
   title: text("title").notNull(),
   category: text("category"),
   pointsRule: jsonb("points_rule").$type<ChampionshipPointsRule>().notNull().default({ win: 3, draw: 1, loss: 0 }),
+  sourceProvider: text("source_provider"),
+  sourceUrl: text("source_url"),
+  sourceParams: jsonb("source_params").$type<Record<string, unknown>>(),
   createdByUserId: integer("created_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
@@ -44,6 +47,7 @@ export const championshipFixturesTable = pgTable("championship_fixtures", {
   homeScore: integer("home_score"),
   awayScore: integer("away_score"),
   notes: text("notes"),
+  externalSourceKey: text("external_source_key"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

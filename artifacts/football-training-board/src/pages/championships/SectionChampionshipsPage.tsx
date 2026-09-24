@@ -1,9 +1,13 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Trophy, CalendarDays, BarChart3, Clock, CheckCircle2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Trophy, CalendarDays, BarChart3, Clock, CheckCircle2, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { withApi } from "@/lib/api-base";
 
@@ -48,6 +52,15 @@ type Championship = {
   groups: ChampionshipGroup[];
 };
 
+type LndPreview = {
+  title: string;
+  category?: string | null;
+  groupName: string;
+  fixtures: ChampionshipFixture[];
+  standings: ChampionshipStanding[];
+  rawLineCount: number;
+};
+
 type SectionMatch = {
   id: number;
   opponent: string;
@@ -65,10 +78,15 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   prima_squadra: "Prima Squadra",
 };
 
-async function apiFetch<T>(path: string): Promise<T> {
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(withApi(path), {
+    ...options,
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      ...(options?.body ? { "Content-Type": "application/json" } : {}),
+      ...(options?.headers ?? {}),
+    },
   });
   if (!response.ok) {
     const text = await response.text();
@@ -384,8 +402,124 @@ function ChampionshipView({ championship, group }: { championship: Championship;
   );
 }
 
+function LndSyncDialog({ section, open, onOpenChange }: { section: SectionKey; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [url, setUrl] = useState("");
+  const [preview, setPreview] = useState<LndPreview | null>(null);
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const previewMutation = useMutation({
+    mutationFn: () => apiFetch<LndPreview>("/api/championships/lnd/preview", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+    onSuccess: (data) => {
+      setPreview(data);
+      toast({
+        title: "Anteprima LND pronta",
+        description: `${data.fixtures.length} partite e ${data.standings.length} righe classifica riconosciute.`,
+      });
+    },
+    onError: (e: Error) => {
+      setPreview(null);
+      toast({ title: e.message || "Errore lettura LND", variant: "destructive" });
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () => apiFetch<{ created: number; updated: number }>("/api/championships/lnd/sync", {
+      method: "POST",
+      body: JSON.stringify({ section, url }),
+    }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["/api/championships", section, "page"] });
+      setPreview(null);
+      setUrl("");
+      onOpenChange(false);
+      toast({
+        title: "Sync LND completata",
+        description: `${data.created} partite create, ${data.updated} aggiornate.`,
+      });
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore sync LND", variant: "destructive" }),
+  });
+
+  const canPreview = url.trim().startsWith("https://gare.lnd.it/");
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Sincronizza da Gare LND</DialogTitle>
+          <DialogDescription>
+            Incolla il link del girone o della giornata. Prima leggiamo l'anteprima, poi aggiorniamo campionato, calendario completo e risultati.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="lnd-url">URL Gare LND</Label>
+            <Input
+              id="lnd-url"
+              value={url}
+              onChange={(event) => {
+                setUrl(event.target.value);
+                setPreview(null);
+              }}
+              placeholder="https://gare.lnd.it/competizione/toscana?campionato=A2&giornata=1&girone=B&leg=first&stagione=2026"
+            />
+          </div>
+
+          {preview && (
+            <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+              <div>
+                <p className="font-semibold">{preview.title}</p>
+                <p className="text-sm text-muted-foreground">{preview.groupName}{preview.category ? ` · ${preview.category}` : ""}</p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-md border bg-background p-2">
+                  <p className="text-2xl font-bold">{preview.fixtures.length}</p>
+                  <p className="text-xs text-muted-foreground">Partite riconosciute</p>
+                </div>
+                <div className="rounded-md border bg-background p-2">
+                  <p className="text-2xl font-bold">{preview.standings.length}</p>
+                  <p className="text-xs text-muted-foreground">Righe classifica</p>
+                </div>
+                <div className="rounded-md border bg-background p-2">
+                  <p className="text-2xl font-bold">{preview.rawLineCount}</p>
+                  <p className="text-xs text-muted-foreground">Righe lette</p>
+                </div>
+              </div>
+              {preview.fixtures.length > 0 && (
+                <div className="max-h-52 overflow-auto rounded-md border bg-background">
+                  {preview.fixtures.slice(0, 8).map((fixture) => (
+                    <div key={fixture.id ?? `${fixture.homeTeam}-${fixture.awayTeam}`} className="border-b px-3 py-2 text-sm last:border-b-0">
+                      <span className="font-medium">{fixture.homeTeam} - {fixture.awayTeam}</span>
+                      <span className="ml-2 text-muted-foreground">{fixtureTimeLabel(fixture.date)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" onClick={() => previewMutation.mutate()} disabled={!canPreview || previewMutation.isPending || syncMutation.isPending}>
+            {previewMutation.isPending ? "Lettura..." : "Leggi anteprima"}
+          </Button>
+          <Button type="button" onClick={() => syncMutation.mutate()} disabled={!preview || syncMutation.isPending || previewMutation.isPending}>
+            {syncMutation.isPending ? "Sincronizzo..." : "Sincronizza girone"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function SectionChampionshipsPage({ section }: { section: SectionKey }) {
   const [selectedKey, setSelectedKey] = useState("");
+  const [syncOpen, setSyncOpen] = useState(false);
   const { data: championships = [], isLoading, error } = useQuery<Championship[], Error>({
     queryKey: ["/api/championships", section, "page"],
     queryFn: () => apiFetch(`/api/championships?section=${section}`),
@@ -421,7 +555,13 @@ export default function SectionChampionshipsPage({ section }: { section: Section
           <h1 className="text-2xl font-bold tracking-tight">Campionati e Classifiche</h1>
           <p className="text-sm text-muted-foreground">Calendario completo del girone, prossima giornata, risultati e classifica.</p>
         </div>
+        <Button type="button" className="gap-2" onClick={() => setSyncOpen(true)}>
+          <RefreshCw className="h-4 w-4" />
+          Sincronizza LND
+        </Button>
       </div>
+
+      <LndSyncDialog section={section} open={syncOpen} onOpenChange={setSyncOpen} />
 
       {isLoading || isMatchesLoading ? (
         <Card>
