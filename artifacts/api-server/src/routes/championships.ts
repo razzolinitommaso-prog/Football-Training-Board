@@ -8,7 +8,7 @@ import {
   teamsTable,
   type ChampionshipPointsRule,
 } from "@workspace/db";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
@@ -29,6 +29,57 @@ type StandingRow = {
   dr: number;
   pts: number;
 };
+
+async function ensureChampionshipTables() {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS championships (
+      id SERIAL PRIMARY KEY,
+      club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+      season_id INTEGER REFERENCES seasons(id) ON DELETE SET NULL,
+      section TEXT NOT NULL,
+      team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      category TEXT,
+      points_rule JSONB NOT NULL DEFAULT '{"win":3,"draw":1,"loss":0}'::jsonb,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS championship_groups (
+      id SERIAL PRIMARY KEY,
+      club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+      championship_id INTEGER NOT NULL REFERENCES championships(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS championship_fixtures (
+      id SERIAL PRIMARY KEY,
+      club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+      championship_id INTEGER NOT NULL REFERENCES championships(id) ON DELETE CASCADE,
+      group_id INTEGER NOT NULL REFERENCES championship_groups(id) ON DELETE CASCADE,
+      match_id INTEGER REFERENCES matches(id) ON DELETE SET NULL,
+      round INTEGER,
+      leg TEXT,
+      home_team TEXT NOT NULL,
+      away_team TEXT NOT NULL,
+      date TIMESTAMPTZ,
+      location TEXT,
+      home_score INTEGER,
+      away_score INTEGER,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_championships_club_section ON championships(club_id, section)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_championship_groups_championship ON championship_groups(championship_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_championship_fixtures_group ON championship_fixtures(group_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_championship_fixtures_match ON championship_fixtures(match_id)`);
+}
 
 function normalizeSection(value: unknown): string | null {
   const section = String(value ?? "").trim();
@@ -180,6 +231,7 @@ router.get("/championships", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: "Club context required" });
     return;
   }
+  await ensureChampionshipTables();
   const section = normalizeSection(req.query.section);
   const teamIdRaw = req.query.teamId == null ? null : Number(req.query.teamId);
   const teamId = Number.isFinite(teamIdRaw) && teamIdRaw! > 0 ? teamIdRaw : null;
@@ -196,6 +248,7 @@ router.post("/championships", requireAuth, async (req, res): Promise<void> => {
     res.status(403).json({ error: "Non autorizzato a creare campionati" });
     return;
   }
+  await ensureChampionshipTables();
   const title = String(req.body?.title ?? "").trim();
   const section = normalizeSection(req.body?.section);
   const teamIdRaw = req.body?.teamId == null ? null : Number(req.body.teamId);
@@ -239,6 +292,7 @@ router.patch("/championship-fixtures/:id/result", requireAuth, async (req, res):
     res.status(403).json({ error: "Non autorizzato a modificare risultati campionato" });
     return;
   }
+  await ensureChampionshipTables();
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "Fixture non valida" });
@@ -268,6 +322,7 @@ router.post("/championships/:id/fixtures", requireAuth, async (req, res): Promis
     res.status(403).json({ error: "Non autorizzato a creare partite girone" });
     return;
   }
+  await ensureChampionshipTables();
   const championshipId = Number(req.params.id);
   const groupId = Number(req.body?.groupId);
   const homeTeam = String(req.body?.homeTeam ?? "").trim();
