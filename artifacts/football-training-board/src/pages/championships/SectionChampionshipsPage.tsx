@@ -54,8 +54,21 @@ const SECTION_LABELS: Record<SectionKey, string> = {
 };
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const response = await fetch(withApi(path), { credentials: "include" });
-  if (!response.ok) throw new Error(await response.text());
+  const response = await fetch(withApi(path), {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = text || `Errore ${response.status}`;
+    try {
+      const parsed = JSON.parse(text) as { error?: string; message?: string };
+      message = parsed.error || parsed.message || message;
+    } catch {
+      // Mantiene il testo originale quando la risposta non e JSON.
+    }
+    throw new Error(message);
+  }
   return response.json();
 }
 
@@ -293,9 +306,10 @@ function ChampionshipView({ championship, group }: { championship: Championship;
 
 export default function SectionChampionshipsPage({ section }: { section: SectionKey }) {
   const [selectedKey, setSelectedKey] = useState("");
-  const { data: championships = [], isLoading, error } = useQuery<Championship[]>({
+  const { data: championships = [], isLoading, error } = useQuery<Championship[], Error>({
     queryKey: ["/api/championships", section, "page"],
     queryFn: () => apiFetch(`/api/championships?section=${section}`),
+    retry: 1,
   });
 
   const groupOptions = useMemo(
@@ -323,7 +337,18 @@ export default function SectionChampionshipsPage({ section }: { section: Section
         </Card>
       ) : error ? (
         <Card>
-          <CardContent className="py-10 text-center text-destructive">Errore nel caricamento dei campionati.</CardContent>
+          <CardContent className="space-y-3 py-10 text-center">
+            <p className="font-medium text-destructive">Errore nel caricamento dei campionati.</p>
+            <p className="mx-auto max-w-2xl text-sm text-muted-foreground">
+              La pagina e pronta, ma la rotta API dei campionati non ha restituito dati validi. Puoi continuare a usare la pagina Partite mentre sistemiamo il collegamento dati.
+            </p>
+            <p className="mx-auto max-w-2xl rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
+              {error.message.slice(0, 240)}
+            </p>
+            <Button type="button" variant="outline" onClick={() => { window.location.href = section === "settore_giovanile" ? "/settore-giovanile/matches" : "/prima-squadra/matches"; }}>
+              Apri gestione partite
+            </Button>
+          </CardContent>
         </Card>
       ) : !activeOption ? (
         <Card>
