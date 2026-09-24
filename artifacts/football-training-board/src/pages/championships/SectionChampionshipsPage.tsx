@@ -48,6 +48,18 @@ type Championship = {
   groups: ChampionshipGroup[];
 };
 
+type SectionMatch = {
+  id: number;
+  opponent: string;
+  date: string;
+  homeAway?: string | null;
+  result?: string | null;
+  teamId?: number | null;
+  teamName?: string | null;
+  competition?: string | null;
+  location?: string | null;
+};
+
 const SECTION_LABELS: Record<SectionKey, string> = {
   settore_giovanile: "Settore Giovanile",
   prima_squadra: "Prima Squadra",
@@ -113,6 +125,14 @@ function fixtureHasResult(fixture: ChampionshipFixture) {
   return fixture.homeScore != null && fixture.awayScore != null;
 }
 
+function parseResult(value?: string | null): { homeScore: number; awayScore: number } | null {
+  const match = String(value ?? "").match(/(\d+)\s*[-–]\s*(\d+)/);
+  if (!match) return null;
+  const homeScore = Number(match[1]);
+  const awayScore = Number(match[2]);
+  return Number.isFinite(homeScore) && Number.isFinite(awayScore) ? { homeScore, awayScore } : null;
+}
+
 function fixtureRoundLabel(fixture: ChampionshipFixture) {
   const round = fixture.round ? `${fixture.round}ª giornata` : "Giornata";
   const leg = fixture.leg ? ` ${fixture.leg}` : "";
@@ -131,6 +151,57 @@ function groupFixturesByRound(fixtures: ChampionshipFixture[]) {
     label: fixtureRoundLabel(rows[0]),
     fixtures: rows.sort((a, b) => fixtureDateValue(a) - fixtureDateValue(b)),
   }));
+}
+
+function buildFallbackChampionships(matches: SectionMatch[], section: SectionKey): Championship[] {
+  const championshipMatches = matches
+    .filter((match) => Number(match.teamId) > 0)
+    .filter((match) => normalize(match.competition ?? "").includes("campionato"))
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const groups = new Map<string, SectionMatch[]>();
+  for (const match of championshipMatches) {
+    const key = `${match.teamId ?? "team"}|${normalize(match.competition || "Campionato")}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(match);
+  }
+
+  return Array.from(groups.values()).map((rows, index) => {
+    const first = rows[0];
+    const title = first.teamName ? `Campionato ${first.teamName}` : "Campionato";
+    const fixtures = rows.map((match, fixtureIndex) => {
+      const score = parseResult(match.result);
+      const teamName = match.teamName || "Squadra del club";
+      const homeAway = String(match.homeAway ?? "").toLowerCase();
+      const isHome = homeAway === "home" || homeAway === "casa";
+      return {
+        id: -Math.abs(match.id || fixtureIndex + 1),
+        round: fixtureIndex + 1,
+        leg: fixtureIndex < Math.ceil(rows.length / 2) ? "andata" : "ritorno",
+        homeTeam: isHome ? teamName : match.opponent,
+        awayTeam: isHome ? match.opponent : teamName,
+        date: match.date,
+        homeScore: score?.homeScore ?? null,
+        awayScore: score?.awayScore ?? null,
+        linkedResult: match.result ?? null,
+      } satisfies ChampionshipFixture;
+    });
+
+    return {
+      id: -(index + 1),
+      title,
+      category: "Vista provvisoria da calendario squadra",
+      section,
+      groups: [
+        {
+          id: -(index + 1),
+          name: first.competition || "Girone",
+          fixtures,
+          standings: [],
+        },
+      ],
+    };
+  });
 }
 
 function FixtureRow({ fixture }: { fixture: ChampionshipFixture }) {
@@ -221,8 +292,17 @@ function ChampionshipView({ championship, group }: { championship: Championship;
           <h2 className="text-xl font-semibold">{championship.title}</h2>
           <p className="text-sm text-muted-foreground">{group.name}{championship.category ? ` · ${championship.category}` : ""}</p>
         </div>
-        <Badge variant="outline">{group.fixtures.length} partite</Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          {championship.id < 0 && <Badge variant="secondary">Da calendario squadra</Badge>}
+          <Badge variant="outline">{group.fixtures.length} partite</Badge>
+        </div>
       </div>
+
+      {championship.id < 0 && (
+        <div className="rounded-md border bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+          Vista provvisoria costruita dalle partite gia presenti nel calendario squadra. Il girone completo e la classifica reale arriveranno quando importeremo o sincronizzeremo tutte le gare del campionato.
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.8fr)]">
         <Card className="shadow-sm">
@@ -311,10 +391,22 @@ export default function SectionChampionshipsPage({ section }: { section: Section
     queryFn: () => apiFetch(`/api/championships?section=${section}`),
     retry: 1,
   });
+  const { data: sectionMatches = [], isLoading: isMatchesLoading } = useQuery<SectionMatch[], Error>({
+    queryKey: ["/api/matches", section, "championship-fallback"],
+    queryFn: () => apiFetch(`/api/matches?section=${section}`),
+    enabled: !isLoading && !error && championships.length === 0,
+    retry: 1,
+  });
+
+  const fallbackChampionships = useMemo(
+    () => championships.length > 0 ? [] : buildFallbackChampionships(sectionMatches, section),
+    [championships.length, sectionMatches, section],
+  );
+  const displayedChampionships = championships.length > 0 ? championships : fallbackChampionships;
 
   const groupOptions = useMemo(
-    () => championships.flatMap((championship) => championship.groups.map((group) => ({ championship, group, key: `${championship.id}:${group.id}` }))),
-    [championships],
+    () => displayedChampionships.flatMap((championship) => championship.groups.map((group) => ({ championship, group, key: `${championship.id}:${group.id}` }))),
+    [displayedChampionships],
   );
   const activeOption = groupOptions.find((option) => option.key === selectedKey) ?? groupOptions[0] ?? null;
 
@@ -331,7 +423,7 @@ export default function SectionChampionshipsPage({ section }: { section: Section
         </div>
       </div>
 
-      {isLoading ? (
+      {isLoading || isMatchesLoading ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">Caricamento campionati...</CardContent>
         </Card>
