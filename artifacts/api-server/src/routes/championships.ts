@@ -81,6 +81,7 @@ async function ensureChampionshipTables() {
       club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
       championship_id INTEGER NOT NULL REFERENCES championships(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
+      standings JSONB,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
@@ -108,6 +109,7 @@ async function ensureChampionshipTables() {
   await db.execute(sql`ALTER TABLE championships ADD COLUMN IF NOT EXISTS source_provider TEXT`);
   await db.execute(sql`ALTER TABLE championships ADD COLUMN IF NOT EXISTS source_url TEXT`);
   await db.execute(sql`ALTER TABLE championships ADD COLUMN IF NOT EXISTS source_params JSONB`);
+  await db.execute(sql`ALTER TABLE championship_groups ADD COLUMN IF NOT EXISTS standings JSONB`);
   await db.execute(sql`ALTER TABLE championship_fixtures ADD COLUMN IF NOT EXISTS external_source_key TEXT`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_championships_club_section ON championships(club_id, section)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_championships_source ON championships(club_id, source_provider)`);
@@ -276,6 +278,7 @@ function parseLndDateTime(dateValue: unknown, timeValue: unknown): string | null
 }
 
 function scoreFromLnd(value: unknown): number | null {
+  if (value == null || value === "") return null;
   const n = Number(value);
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
@@ -619,6 +622,42 @@ function standingsFor(
     .sort((a, b) => b.pts - a.pts || b.dr - a.dr || b.gf - a.gf || a.pg - b.pg || a.team.localeCompare(b.team, "it"));
 }
 
+function normalizedStandingRows(value: unknown): StandingRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    if (!item || typeof item !== "object") return null;
+    const row = item as Record<string, unknown>;
+    const team = String(row.team ?? "").trim();
+    if (!team) return null;
+    return {
+      team,
+      pg: Number(row.pg ?? 0) || 0,
+      v: Number(row.v ?? 0) || 0,
+      n: Number(row.n ?? 0) || 0,
+      p: Number(row.p ?? 0) || 0,
+      gf: Number(row.gf ?? 0) || 0,
+      gs: Number(row.gs ?? 0) || 0,
+      dr: Number(row.dr ?? 0) || 0,
+      pts: Number(row.pts ?? 0) || 0,
+    } satisfies StandingRow;
+  }).filter((row): row is StandingRow => !!row);
+}
+
+function mergeOfficialStandingsWithGoals(officialStandings: StandingRow[], calculatedStandings: StandingRow[]) {
+  if (officialStandings.length === 0) return calculatedStandings;
+  const calculatedByTeam = new Map(calculatedStandings.map((row) => [tableKey(row.team), row]));
+  return officialStandings.map((row) => {
+    const calculated = calculatedByTeam.get(tableKey(row.team));
+    const hasOfficialGoals = row.gf !== 0 || row.gs !== 0;
+    return {
+      ...row,
+      gf: hasOfficialGoals ? row.gf : (calculated?.gf ?? row.gf),
+      gs: hasOfficialGoals ? row.gs : (calculated?.gs ?? row.gs),
+      dr: Number.isFinite(Number(row.dr)) ? row.dr : ((calculated?.gf ?? row.gf) - (calculated?.gs ?? row.gs)),
+    };
+  });
+}
+
 async function teamBelongsToClub(teamId: number | null, clubId: number): Promise<boolean> {
   if (!teamId) return true;
   const [team] = await db
@@ -647,6 +686,21 @@ async function enrichedChampionships(params: { clubId: number; section?: string 
     .from(championshipGroupsTable)
     .where(and(eq(championshipGroupsTable.clubId, params.clubId), inArray(championshipGroupsTable.championshipId, ids)))
     .orderBy(asc(championshipGroupsTable.name));
+  const groupIds = groups.map((group) => group.id);
+  const officialStandingsResult = groupIds.length > 0
+    ? await db.execute(sql`
+        SELECT id, standings
+        FROM championship_groups
+        WHERE club_id = ${params.clubId}
+          AND id IN ${sql.raw(`(${groupIds.map((id) => Number(id)).join(",")})`)}
+      `)
+    : [];
+  const officialStandingsRows = Array.isArray(officialStandingsResult)
+    ? officialStandingsResult
+    : ((officialStandingsResult as { rows?: unknown[] }).rows ?? []);
+  const officialStandingsByGroupId = new Map<number, unknown>(
+    (officialStandingsRows as unknown as Array<{ id: number; standings: unknown }>).map((row) => [Number(row.id), row.standings]),
+  );
   const fixtures = await db
     .select()
     .from(championshipFixturesTable)
@@ -674,7 +728,7 @@ async function enrichedChampionships(params: { clubId: number; section?: string 
         return {
           ...group,
           fixtures: groupFixtures,
-          standings: standingsFor(groupFixtures, pointsRule),
+          standings: mergeOfficialStandingsWithGoals(normalizedStandingRows(officialStandingsByGroupId.get(group.id)), standingsFor(groupFixtures, pointsRule)),
         };
       }),
     };
@@ -798,6 +852,13 @@ router.post("/championships/lnd/sync", requireAuth, async (req, res): Promise<vo
       .limit(1);
     if (!group) {
       [group] = await db.insert(championshipGroupsTable).values({ clubId, championshipId: championship.id, name: groupName }).returning();
+    }
+    if (parsed.standings.length > 0) {
+      await db.execute(sql`
+        UPDATE championship_groups
+        SET standings = ${JSON.stringify(parsed.standings)}::jsonb
+        WHERE id = ${group.id} AND club_id = ${clubId}
+      `);
     }
 
     const existingFixtures = await db

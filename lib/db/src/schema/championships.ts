@@ -29,6 +29,7 @@ export const championshipGroupsTable = pgTable("championship_groups", {
   clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
   championshipId: integer("championship_id").notNull().references(() => championshipsTable.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  standings: jsonb("standings").$type<Array<Record<string, unknown>>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
