@@ -200,6 +200,15 @@ function ProtectedAppRoutes() {
         <Route path="/calendari/:teamId">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}><TeamCalendar /></ProtectedRoute>
         </Route>
+        <Route path="/scuola-calcio/calendari/:teamId">
+          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}><TeamCalendar /></ProtectedRoute>
+        </Route>
+        <Route path="/settore-giovanile/calendari/:teamId">
+          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}><TeamCalendar /></ProtectedRoute>
+        </Route>
+        <Route path="/prima-squadra/calendari/:teamId">
+          <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}><TeamCalendar /></ProtectedRoute>
+        </Route>
         <Route path="/club/credentials">
           <ProtectedRoute allowedRoles={["admin", "secretary", "sporting_director", "director"]}><CredentialsPage /></ProtectedRoute>
         </Route>

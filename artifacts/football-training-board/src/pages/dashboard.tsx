@@ -674,6 +674,18 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   return a.name.localeCompare(b.name, "it", { numeric: true, sensitivity: "base" });
 }
 
+function sectionSlugFromClubSection(value?: string | null) {
+  if (value === "settore_giovanile") return "settore-giovanile";
+  if (value === "prima_squadra") return "prima-squadra";
+  return "scuola-calcio";
+}
+
+function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | null, query = "") {
+  const teamId = Number(team?.id ?? 0);
+  if (!teamId) return `/calendari/${team?.id ?? ""}${query}`;
+  return `/${sectionSlugFromClubSection(team?.clubSection)}/calendari/${teamId}${query}`;
+}
+
   const dashboardAllowedSectionSet = useMemo(
     () => dashboardSectionsKey ? new Set(dashboardSectionsKey.split("|")) : null,
     [dashboardSectionsKey],
@@ -693,7 +705,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
   };
   const startCalendarPdfImport = () => {
     if (!calendarImportMode || !calendarImportTeamId) return;
-    setLocation(`/calendari/${calendarImportTeamId}?importPdf=${calendarImportMode}`);
+    const team = teamsForCalendarImport.find((item) => Number(item.id) === Number(calendarImportTeamId));
+    setLocation(teamCalendarPath(team, `?importPdf=${calendarImportMode}`));
   };
 
   const isStaffViewer = nr === "coach" || nr === "technical_director" || nr === "fitness_coach" || nr === "athletic_director";
@@ -868,7 +881,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
       return;
     }
     if (nr !== "secretary" && nr !== "sporting_director" && dashboardTeams.length === 1) {
-      setLocation(`/calendari/${dashboardTeams[0].id}?phase=${phase}`);
+      setLocation(teamCalendarPath(dashboardTeams[0], `?phase=${phase}`));
       return;
     }
     setPhaseTeamPicker({ phase, title });
@@ -2825,7 +2838,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                   className="w-full justify-between gap-3"
                   onClick={() => {
                     if (!phaseTeamPicker) return;
-                    setLocation(`/calendari/${team.id}?phase=${phaseTeamPicker.phase}`);
+                    setLocation(teamCalendarPath(team, `?phase=${phaseTeamPicker.phase}`));
                     setPhaseTeamPicker(null);
                   }}
                 >
@@ -3341,7 +3354,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                               variant={canPrepareFromDashboardCalendar ? "default" : "outline"}
                               onClick={() => {
                                 if (canPrepareFromDashboardCalendar) {
-                                  setLocation(`/calendari/${match.teamId}?openMatchId=${match.id}`);
+                                  const team = dashboardTeams.find((item) => Number(item.id) === Number(match.teamId));
+                                  setLocation(teamCalendarPath(team ?? { id: Number(match.teamId ?? 0) }, `?openMatchId=${match.id}`));
                                   return;
                                 }
                                 const matchDate = date ?? selectedCalendarItem.date;
@@ -3486,7 +3500,8 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                         type="button"
                         onClick={() => {
                           const match = selectedCalendarItem.match;
-                          setLocation(`/calendari/${match.teamId ?? ""}?openMatchId=${match.id}`);
+                          const team = dashboardTeams.find((item) => Number(item.id) === Number(match.teamId));
+                          setLocation(teamCalendarPath(team ?? { id: Number(match.teamId ?? 0) }, `?openMatchId=${match.id}`));
                         }}
                       >
                         Apri scheda partita
@@ -3832,7 +3847,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{section.label}</p>
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                           {sectionTeams.map((team: any) => (
-                            <Link key={team.id} href={`/calendari/${team.id}`}>
+                            <Link key={team.id} href={teamCalendarPath(team)}>
                               <div className="group flex flex-col gap-1.5 p-3 rounded-xl border bg-card hover:shadow-md hover:border-primary/40 transition-all cursor-pointer">
                                 <div className="flex items-center justify-between">
                                   <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0 group-hover:bg-primary/20 transition-colors">
@@ -3859,7 +3874,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Altre squadre</p>
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                           {rest.map((team: any) => (
-                            <Link key={team.id} href={`/calendari/${team.id}`}>
+                            <Link key={team.id} href={teamCalendarPath(team)}>
                               <div className="group flex flex-col gap-1.5 p-3 rounded-xl border bg-card hover:shadow-md hover:border-primary/40 transition-all cursor-pointer">
                                 <div className="flex items-center justify-between">
                                   <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0 group-hover:bg-primary/20 transition-colors">
@@ -3895,7 +3910,7 @@ function compareDashboardTeamsByYear(a: DashboardTeam, b: DashboardTeam): number
           <CardContent className="p-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {teamsForStaffUi.map((team: any) => (
-                <Link key={team.id} href={`/calendari/${team.id}`}>
+                <Link key={team.id} href={teamCalendarPath(team)}>
                   <div className="group flex items-center gap-3 p-4 rounded-xl border bg-card hover:shadow-md hover:border-primary/40 transition-all cursor-pointer">
                     <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0 group-hover:bg-primary/20 transition-colors">
                       {(team.name as string).substring(0, 2).toUpperCase()}

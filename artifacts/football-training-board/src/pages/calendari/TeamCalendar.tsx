@@ -3622,7 +3622,10 @@ function MatchCard({
 interface TeamCalendarProps { overrideTeamId?: number; }
 
 export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {}) {
-  const [, params] = useRoute("/calendari/:teamId");
+  const [, legacyParams] = useRoute("/calendari/:teamId");
+  const [, scuolaCalcioParams] = useRoute("/scuola-calcio/calendari/:teamId");
+  const [, settoreGiovanileParams] = useRoute("/settore-giovanile/calendari/:teamId");
+  const [, primaSquadraParams] = useRoute("/prima-squadra/calendari/:teamId");
   const [, setLocation] = useLocation();
   const { role, user, section } = useAuth();
   const { toast } = useToast();
@@ -3715,7 +3718,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   });
   const [manualTournamentForm, setManualTournamentForm] = useState<ManualTournamentForm>(() => defaultManualTournamentForm());
 
-  const teamId = overrideTeamId ?? (params?.teamId ? parseInt(params.teamId) : null);
+  const routeTeamId =
+    legacyParams?.teamId ??
+    scuolaCalcioParams?.teamId ??
+    settoreGiovanileParams?.teamId ??
+    primaSquadraParams?.teamId;
+  const teamId = overrideTeamId ?? (routeTeamId ? parseInt(routeTeamId) : null);
   const isStandalone = !overrideTeamId;
 
   const canManageMatchCalendar = [

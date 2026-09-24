@@ -42,6 +42,16 @@ interface Team { id: number; name: string; category?: string; clubSection?: stri
 
 const DEFAULT_CLUB_LABEL = "Gavinana Firenze";
 
+function sectionSlugFromClubSection(value?: string | null) {
+  if (value === "settore_giovanile") return "settore-giovanile";
+  if (value === "prima_squadra") return "prima-squadra";
+  return "scuola-calcio";
+}
+
+function teamCalendarPath(team: Pick<Team, "id" | "clubSection">) {
+  return `/${sectionSlugFromClubSection(team.clubSection)}/calendari/${team.id}`;
+}
+
 type MatchRow = {
   id: number;
   opponent: string;
@@ -605,14 +615,14 @@ function MatchCalendarTeamCard({
         onClick={(e) => {
           const target = e.target as HTMLElement | null;
           if (target?.closest("button,a,input,label,select,textarea")) return;
-          navigate(`/calendari/${team.id}`);
+          navigate(teamCalendarPath(team));
         }}
         onKeyDown={(e) => {
           const target = e.target as HTMLElement | null;
           if (target?.closest("button,a,input,label,select,textarea")) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            navigate(`/calendari/${team.id}`);
+            navigate(teamCalendarPath(team));
           }
         }}
         className="group text-left"
