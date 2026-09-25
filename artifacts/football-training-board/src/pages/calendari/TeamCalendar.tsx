@@ -3638,6 +3638,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const qc = useQueryClient();
   const { data: myClub } = useGetMyClub();
   const clubLabel = myClub?.name?.trim() || CLUB_NAME;
+  const clubImportAliases = useMemo(() => {
+    const club = myClub as { name?: string | null; legalName?: string | null; city?: string | null } | null | undefined;
+    return [club?.name, club?.legalName, club?.city]
+      .map((value) => String(value ?? "").trim())
+      .filter((value, index, list) => value.length >= 3 && list.findIndex((item) => item.toLowerCase() === value.toLowerCase()) === index);
+  }, [myClub]);
   const importFileRef = useRef<HTMLInputElement>(null);
   const importPdfFileRef = useRef<HTMLInputElement>(null);
   const importTournamentImageRef = useRef<HTMLInputElement>(null);
@@ -3838,6 +3844,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       const parsed = await parseMatchCalendarPdfFile(input.file, {
         teamName: team.name,
         clubName: input.clubHint.trim() || clubLabel,
+        clubAliases: clubImportAliases,
         searchTerms: input.searchTerms,
         sectionTitleHints: input.sectionTitleHints,
         societyHint: input.societyHint,
@@ -3909,6 +3916,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       return parseTournamentImageFile(file, {
         teamName: team.name,
         clubName: clubLabel,
+        clubAliases: clubImportAliases,
         societyHint: clubLabel,
         documentMode: "tournament",
       });
@@ -3954,6 +3962,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         const parsed = await parseTournamentImageFile(file, {
           teamName: team.name,
           clubName: clubLabel,
+          clubAliases: clubImportAliases,
           societyHint: clubLabel,
           documentMode: "tournament",
           unifiedTournamentProgram: true,
@@ -3976,6 +3985,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       return parseMatchCalendarPdfFile(file, {
         teamName: team.name,
         clubName: clubLabel,
+        clubAliases: clubImportAliases,
         searchTerms,
         sectionTitleHints: [],
         societyHint: clubLabel,
@@ -4035,6 +4045,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         const parsed = await parseTournamentImageFileClone(file, {
           teamName: team.name,
           clubName: clubLabel,
+          clubAliases: clubImportAliases,
           societyHint: clubLabel,
           documentMode: "tournament",
           unifiedTournamentProgram: true,
@@ -4059,6 +4070,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       const parsed = await parseMatchCalendarPdfFileClone(file, {
         teamName: team.name,
         clubName: clubLabel,
+        clubAliases: clubImportAliases,
         searchTerms,
         sectionTitleHints: [],
         societyHint: clubLabel,

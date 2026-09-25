@@ -17,6 +17,8 @@ export type OcrProgressCallback = (event: OcrProgressEvent) => void;
 type ParsePdfOptions = {
   teamName?: string;
   clubName?: string;
+  /** Alias societa' alternativi, per tornei dove la locandina usa citta' o denominazione breve. */
+  clubAliases?: string[];
   /** Termini per limitare le pagine analizzate (OR). */
   searchTerms?: string[];
   /** Titoli sezione nel PDF (es. PULCINI A7 II ANNO). Separati in UI da virgola. Se vuoto → nessun filtro sezione. */
@@ -3584,7 +3586,11 @@ export async function parseTournamentImageFile(
       : String(result.data.text ?? "").split(/\r?\n/);
     const lines = rawLines.map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
     const societyDisplay = (options.societyHint?.trim() || options.clubName?.trim() || options.teamName?.trim() || "").trim();
-    const aliasNorms = [...new Set([options.societyHint, options.clubName, societyDisplay].filter(Boolean).map((value) => normalizeName(String(value))))].filter(
+    const aliasSources =
+      options.parserVariant === "clone"
+        ? [options.societyHint, options.clubName, societyDisplay, ...(options.clubAliases ?? [])]
+        : [options.societyHint, options.clubName, societyDisplay];
+    const aliasNorms = [...new Set(aliasSources.filter(Boolean).map((value) => normalizeName(String(value))))].filter(
       (value) => value.length >= 3,
     );
     const tournamentName = inferTournamentName(file.name, lines);
@@ -6246,16 +6252,27 @@ export function parseMatchCalendarTextLines(
 
   const tournamentAliasSources =
     documentMode === "tournament"
-      ? [options.societyHint, options.clubName, societyDisplay]
+      ? [
+          options.societyHint,
+          options.clubName,
+          societyDisplay,
+          ...(options.parserVariant === "clone" ? options.clubAliases ?? [] : []),
+        ]
       : [options.societyHint, options.clubName, options.teamName, societyDisplay];
   const clubNameUsed = (options.societyHint?.trim() || options.clubName?.trim() || options.teamName?.trim() || societyDisplay || "").trim();
-  const distinctiveClubTokens = buildCloneDistinctiveClubTokens([options.societyHint, options.clubName, options.teamName, societyDisplay]);
+  const distinctiveClubTokens = buildCloneDistinctiveClubTokens([
+    options.societyHint,
+    options.clubName,
+    options.teamName,
+    societyDisplay,
+    ...(options.parserVariant === "clone" ? options.clubAliases ?? [] : []),
+  ]);
   const baseTournamentAliases = [...new Set(tournamentAliasSources.filter(Boolean).map((value) => normalizeName(String(value))))].filter(
     (value) => value.length >= 3,
   );
   const cloneTournamentAliases =
     options.parserVariant === "clone"
-      ? buildCloneSocietyAliases([options.societyHint, options.clubName, options.teamName, societyDisplay])
+      ? buildCloneSocietyAliases([options.societyHint, options.clubName, options.teamName, societyDisplay, ...(options.clubAliases ?? [])])
       : [];
   const tournamentAliases = [...new Set([...baseTournamentAliases, ...cloneTournamentAliases])];
   const tournamentLooksValid = looksLikeTournamentProgram(fullText);
