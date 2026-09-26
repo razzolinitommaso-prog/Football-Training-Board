@@ -479,6 +479,7 @@ function defaultManualTournamentForm(): ManualTournamentForm {
 }
 
 const TOURNAMENT_LOGISTICS_PREFIX = "__tournamentLogistics=";
+const TOURNAMENT_FALLBACK_FIXTURE_PREFIX = "__tournamentFallbackFixture=";
 
 function encodeTournamentLogistics(logistics: TournamentLogistics): string {
   return `${TOURNAMENT_LOGISTICS_PREFIX}${JSON.stringify(logistics)}`;
@@ -824,6 +825,68 @@ function importRowHasValidDate(row: MatchImportRow): boolean {
   if (!row.date) return false;
   const parsed = new Date(row.date);
   return !Number.isNaN(parsed.getTime());
+}
+
+type TournamentFallbackFixtureMeta = {
+  homeTeam: string;
+  awayTeam: string;
+  phase?: string | null;
+  group?: string | null;
+};
+
+function tournamentFallbackFixtureNotes(meta: TournamentFallbackFixtureMeta, existing?: string | null): string {
+  const payload = `${TOURNAMENT_FALLBACK_FIXTURE_PREFIX}${JSON.stringify(meta)}`;
+  const cleanExisting = String(existing ?? "").trim();
+  return cleanExisting ? `${cleanExisting}\n${payload}` : payload;
+}
+
+function parseTournamentFallbackFixtureMeta(row: MatchImportRow): TournamentFallbackFixtureMeta | null {
+  const notes = String(row.notes ?? "");
+  const line = notes.split(/\r?\n/).find((part) => part.startsWith(TOURNAMENT_FALLBACK_FIXTURE_PREFIX));
+  if (!line) return null;
+  try {
+    const parsed = JSON.parse(line.slice(TOURNAMENT_FALLBACK_FIXTURE_PREFIX.length)) as TournamentFallbackFixtureMeta;
+    if (!parsed.homeTeam?.trim() || !parsed.awayTeam?.trim()) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function stripTournamentFallbackFixtureNotes(notes?: string | null): string | null {
+  const clean = String(notes ?? "")
+    .split(/\r?\n/)
+    .filter((part) => !part.startsWith(TOURNAMENT_FALLBACK_FIXTURE_PREFIX))
+    .join("\n")
+    .trim();
+  return clean || null;
+}
+
+function tournamentFallbackRowsFromProgram(program: TournamentProgramEntry[]): MatchImportRow[] {
+  const seen = new Set<string>();
+  const rows: MatchImportRow[] = [];
+  for (const entry of program) {
+    if (entry.kind === "composition" || entry.kind === "fixture_placeholder") continue;
+    const homeTeam = String(entry.homeTeam ?? "").trim();
+    const awayTeam = String(entry.awayTeam ?? "").trim();
+    if (!homeTeam || !awayTeam || normalizeTournamentText(homeTeam) === normalizeTournamentText(awayTeam)) continue;
+    const key = `${entry.date}|${normalizeTournamentText(homeTeam)}|${normalizeTournamentText(awayTeam)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const phaseGroup = [entry.phase, entry.group].map((value) => String(value ?? "").trim()).filter(Boolean).join(" - ");
+    rows.push({
+      date: entry.date,
+      opponent: `${homeTeam} - ${awayTeam}`,
+      homeAway: "away",
+      competition: "Torneo: Programma torneo",
+      location: null,
+      notes: tournamentFallbackFixtureNotes(
+        { homeTeam, awayTeam, phase: entry.phase ?? null, group: entry.group ?? null },
+        phaseGroup ? `Gara torneo da assegnare: ${phaseGroup}` : "Gara torneo da assegnare",
+      ),
+    });
+  }
+  return rows;
 }
 
 function detectFormatByModule(moduleValue: string): MatchFormat | null {
@@ -3639,8 +3702,8 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const { data: myClub } = useGetMyClub();
   const clubLabel = myClub?.name?.trim() || CLUB_NAME;
   const clubImportAliases = useMemo(() => {
-    const club = myClub as { name?: string | null; legalName?: string | null; city?: string | null } | null | undefined;
-    return [club?.name, club?.legalName, club?.city]
+    const club = myClub as { name?: string | null; legalName?: string | null } | null | undefined;
+    return [club?.name, club?.legalName]
       .map((value) => String(value ?? "").trim())
       .filter((value, index, list) => value.length >= 3 && list.findIndex((item) => item.toLowerCase() === value.toLowerCase()) === index);
   }, [myClub]);
@@ -4114,6 +4177,19 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       setPendingTournamentProgram(parsed.tournamentProgram ?? []);
       setPendingTournamentScores(parsed.tournamentScores ?? {});
       if (parsed.recognized.length === 0) {
+        const fallbackRows = tournamentFallbackRowsFromProgram(parsed.tournamentProgram ?? []);
+        if (fallbackRows.length > 0) {
+          toast({
+            title: "Programma torneo letto",
+            description: "Non ho riconosciuto automaticamente la societa': seleziona le gare e indica il lato della tua squadra.",
+          });
+          setPreviewSource("programma");
+          setPreviewRows(fallbackRows);
+          setPreviewBulkDate("");
+          setSelectedRows(fallbackRows.map(() => false));
+          setPreviewOpen(true);
+          return;
+        }
         toast({
           title: "Programma torneo non importabile automaticamente",
           description:
@@ -4148,6 +4224,19 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       setPendingTournamentProgram(parsed.tournamentProgram ?? []);
       setPendingTournamentScores(parsed.tournamentScores ?? {});
       if (parsed.recognized.length === 0) {
+        const fallbackRows = tournamentFallbackRowsFromProgram(parsed.tournamentProgram ?? []);
+        if (fallbackRows.length > 0) {
+          toast({
+            title: "Programma torneo clone letto",
+            description: "Non ho riconosciuto automaticamente la societa': seleziona le gare e indica il lato della tua squadra.",
+          });
+          setPreviewSource("programma");
+          setPreviewRows(fallbackRows);
+          setPreviewBulkDate("");
+          setSelectedRows(fallbackRows.map(() => false));
+          setPreviewOpen(true);
+          return;
+        }
         toast({
           title: "Programma torneo clone non importabile automaticamente",
           description:
@@ -4193,7 +4282,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             homeAway: m.homeAway,
             competition: m.competition ?? undefined,
             location: m.location ?? undefined,
-            notes: cleanImageTournamentImportNotes(m.notes) ?? undefined,
+            notes: cleanImageTournamentImportNotes(stripTournamentFallbackFixtureNotes(m.notes)) ?? undefined,
           }),
         });
         ok++;
@@ -6698,7 +6787,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                 </tr>
               </thead>
               <tbody>
-                {previewRows.map((row, idx) => (
+                {previewRows.map((row, idx) => {
+                  const fallbackMeta = parseTournamentFallbackFixtureMeta(row);
+                  return (
                   <tr key={`${row.date}-${row.opponent}-${idx}`} className="border-t">
                     <td className="p-2">
                       <input
@@ -6754,10 +6845,59 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                       )}
                     </td>
                     <td className="p-2">{row.opponent}</td>
-                    <td className="p-2">{row.homeAway === "home" ? "Casa" : "Trasferta"}</td>
+                    <td className="p-2">
+                      {fallbackMeta ? (
+                        <Select
+                          value="pending"
+                          onValueChange={(value) => {
+                            setPreviewRows((rows) =>
+                              rows.map((current, i) => {
+                                if (i !== idx) return current;
+                                const meta = parseTournamentFallbackFixtureMeta(current);
+                                if (!meta) return current;
+                                if (value === "left") {
+                                  return {
+                                    ...current,
+                                    opponent: meta.awayTeam,
+                                    homeAway: "home",
+                                    notes: stripTournamentFallbackFixtureNotes(current.notes),
+                                  };
+                                }
+                                if (value === "right") {
+                                  return {
+                                    ...current,
+                                    opponent: meta.homeTeam,
+                                    homeAway: "away",
+                                    notes: stripTournamentFallbackFixtureNotes(current.notes),
+                                  };
+                                }
+                                return current;
+                              }),
+                            );
+                            setSelectedRows((prev) => {
+                              const next = [...prev];
+                              next[idx] = value === "left" || value === "right";
+                              return next;
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 min-w-44">
+                            <SelectValue placeholder="Scegli lato" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pending">Scegli lato</SelectItem>
+                            <SelectItem value="left">Mia squadra: {fallbackMeta.homeTeam}</SelectItem>
+                            <SelectItem value="right">Mia squadra: {fallbackMeta.awayTeam}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        row.homeAway === "home" ? "Casa" : "Trasferta"
+                      )}
+                    </td>
                     <td className="p-2">{row.competition ?? "-"}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -6770,6 +6910,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               disabled={
                 selectedRows.filter(Boolean).length === 0 ||
                 previewRows.some((row, idx) => selectedRows[idx] && !importRowHasValidDate(row)) ||
+                previewRows.some((row, idx) => selectedRows[idx] && parseTournamentFallbackFixtureMeta(row)) ||
                 applyImportMutation.isPending
               }
               onClick={() => {
