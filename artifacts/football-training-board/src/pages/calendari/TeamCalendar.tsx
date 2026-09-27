@@ -3844,6 +3844,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [pdfImportReferenceDate, setPdfImportReferenceDate] = useState("");
   const [pdfOcrStatus, setPdfOcrStatus] = useState<string | null>(null);
   const [imageOcrStatus, setImageOcrStatus] = useState<string | null>(null);
+  const [smartInternalStatus, setSmartInternalStatus] = useState<string | null>(null);
   const [aiImportStatus, setAiImportStatus] = useState<string | null>(null);
   const openMatchIdFromQuery = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -4429,6 +4430,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
 
   const importTournamentSmartInternalMutation = useMutation({
     mutationFn: async (file: File) => {
+      const sizeMb = file.size / (1024 * 1024);
+      setSmartInternalStatus(
+        sizeMb >= 20
+          ? `Lettura interna di ${file.name} (${sizeMb.toFixed(1)} MB). Sto estraendo testo, orari, campi, squadre e gironi...`
+          : `Lettura interna di ${file.name}: controllo torneo, date, orari, campi e squadre...`,
+      );
       return parseTournamentProgramCloneFileWithTwinEngines(file, "Importazione intelligente interna");
     },
     onSuccess: (parsed) => {
@@ -4474,6 +4481,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     onSettled: () => {
       setPdfOcrStatus(null);
       setImageOcrStatus(null);
+      setSmartInternalStatus(null);
     },
   });
 
@@ -5618,6 +5626,26 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
             <p className="text-xs font-semibold text-foreground">Importazione intelligente in corso</p>
             <p className="text-xs text-muted-foreground">
               {aiImportStatus ?? "Analisi AI del torneo in corso..."}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Non chiudere questa pagina: al termine si aprira' l'anteprima modificabile.
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
+    {(smartInternalStatus || importTournamentSmartInternalMutation.isPending) && (
+      <div
+        className="fixed bottom-4 right-4 z-[1001] max-w-sm rounded-md border border-violet-200 bg-background/95 px-4 py-3 shadow-lg backdrop-blur"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-start gap-2.5">
+          <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-violet-600" />
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-foreground">Importazione intelligente interna in corso</p>
+            <p className="text-xs text-muted-foreground">
+              {smartInternalStatus ?? "Analisi interna del torneo in corso..."}
             </p>
             <p className="text-[11px] text-muted-foreground">
               Non chiudere questa pagina: al termine si aprira' l'anteprima modificabile.
