@@ -286,6 +286,37 @@ function extractPrimiCalciTier(n: string): 0 | 1 | 2 {
   return 0;
 }
 
+function categoryAliasNorms(value: string): string[] {
+  const n = normalizeName(value);
+  const out = new Set<string>([n]);
+  const add = (...items: string[]) => items.forEach((item) => out.add(normalizeName(item)));
+  const underMatch = n.match(/\b(?:under|u)\s*[-.]?\s*(\d{1,2})\b/);
+  const birthYearMatch = n.match(/\b(20\d{2})\b/);
+  const under = underMatch?.[1] ?? null;
+  if (under) {
+    add(`under ${under}`, `u${under}`, `u ${under}`, `u-${under}`, `u.${under}`);
+  }
+  if (under === "17") add("allievi a", "allievi", "alievi a");
+  if (under === "16") add("allievi b", "allievi", "alievi b");
+  if (under === "15") add("giovanissimi a", "giovanissimi");
+  if (under === "14") add("giovanissimi b", "giovanissimi");
+  if (under === "13") add("esordienti 2 anno", "esordienti secondo anno", "esordienti");
+  if (under === "12") add("esordienti 1 anno", "esordienti primo anno", "esordienti");
+  if (under === "11") add("pulcini 2 anno", "pulcini secondo anno", "pulcini");
+  if (under === "10") add("pulcini 1 anno", "pulcini primo anno", "pulcini");
+  if (under === "9") add("primi calci 2 anno", "primi calci secondo anno", "primi calci");
+  if (under === "8") add("primi calci 1 anno", "primi calci primo anno", "primi calci");
+  if (under === "7" || under === "6") add("piccoli amici");
+  if (n.includes("alliev")) add("under 17", "u17", "under 16", "u16");
+  if (n.includes("giovanissim")) add("under 15", "u15", "under 14", "u14");
+  if (n.includes("esordient")) add("under 13", "u13", "under 12", "u12");
+  if (n.includes("pulcin")) add("under 11", "u11", "under 10", "u10");
+  if (n.includes("primi") && n.includes("calc")) add("under 9", "u9", "under 8", "u8");
+  if (n.includes("piccoli") && n.includes("amici")) add("under 7", "u7", "under 6", "u6");
+  if (birthYearMatch) add(birthYearMatch[1]);
+  return [...out].filter((item) => item.length >= 2);
+}
+
 function compatibleCategoryTiers(hintNorm: string, pdfNorm: string): boolean {
   const ah = extractAnnoTier(hintNorm);
   const ap = extractAnnoTier(pdfNorm);
@@ -338,6 +369,7 @@ function significantSectionTokens(hintNorm: string): string[] {
  */
 function strictSectionTitleMatch(pdfNorm: string, hintNorm: string): boolean {
   if (hintNorm.length < 2) return pdfNorm.includes(hintNorm);
+  if (categoryAliasNorms(hintNorm).some((alias) => pdfNorm.includes(alias))) return true;
   if (!compatibleCategoryTiers(hintNorm, pdfNorm)) return false;
   if (mistiMentioned(hintNorm) !== mistiMentioned(pdfNorm)) return false;
   const toks = significantSectionTokens(hintNorm);
@@ -409,7 +441,7 @@ function looksLikeSeasonGroupCalendar(text: string): boolean {
 
 function detectSeasonGroupUnderNumbers(text: string): Set<string> {
   const out = new Set<string>();
-  const rx = /\bUNDER\s*(\d{2})\s+GIRONE\s+[A-Z]\b/gi;
+  const rx = /\b(?:UNDER|U)\s*[-.]?\s*(\d{1,2})\s+GIRONE\s+[A-Z]\b/gi;
   let m: RegExpExecArray | null;
   while ((m = rx.exec(text))) {
     out.add(m[1]);
@@ -420,10 +452,17 @@ function detectSeasonGroupUnderNumbers(text: string): Set<string> {
 function seasonUnderMatchesSectionHints(underNumbers: Set<string>, sectionNorms: string[]): boolean {
   if (underNumbers.size === 0 || sectionNorms.length === 0) return true;
   const aliases: Record<string, string[]> = {
-    "17": ["under 17", "u17", "allievi a", "alievi a"],
-    "16": ["under 16", "u16", "allievi b", "alievi b"],
-    "15": ["under 15", "u15", "giovanissimi a"],
-    "14": ["under 14", "u14", "giovanissimi b"],
+    "17": ["under 17", "u17", "u 17", "u-17", "u.17", "allievi a", "allievi", "alievi a"],
+    "16": ["under 16", "u16", "u 16", "u-16", "u.16", "allievi b", "allievi", "alievi b"],
+    "15": ["under 15", "u15", "u 15", "u-15", "u.15", "giovanissimi a", "giovanissimi"],
+    "14": ["under 14", "u14", "u 14", "u-14", "u.14", "giovanissimi b", "giovanissimi"],
+    "13": ["under 13", "u13", "u 13", "u-13", "u.13", "esordienti 2 anno", "esordienti"],
+    "12": ["under 12", "u12", "u 12", "u-12", "u.12", "esordienti 1 anno", "esordienti"],
+    "11": ["under 11", "u11", "u 11", "u-11", "u.11", "pulcini 2 anno", "pulcini"],
+    "10": ["under 10", "u10", "u 10", "u-10", "u.10", "pulcini 1 anno", "pulcini"],
+    "9": ["under 9", "u9", "u 9", "u-9", "u.9", "primi calci 2 anno", "primi calci"],
+    "8": ["under 8", "u8", "u 8", "u-8", "u.8", "primi calci 1 anno", "primi calci"],
+    "7": ["under 7", "u7", "u 7", "u-7", "u.7", "piccoli amici"],
   };
   return [...underNumbers].some((under) =>
     (aliases[under] ?? [`under ${under}`, `u${under}`]).some((alias) => {
@@ -2441,6 +2480,7 @@ export function buildPdfImportSearchTerms(parts: {
     for (const s of parts.categoryLine.split(/[,;]/)) {
       const t = s.trim();
       if (t) raw.push(t);
+      if (t) raw.push(...categoryAliasNorms(t));
     }
   }
   if (parts.clubLine?.trim()) raw.push(parts.clubLine.trim());

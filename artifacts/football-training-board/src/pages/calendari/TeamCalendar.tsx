@@ -3823,6 +3823,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const importTournamentImageRef = useRef<HTMLInputElement>(null);
   const importTournamentProgramRef = useRef<HTMLInputElement>(null);
   const importTournamentProgramCloneRef = useRef<HTMLInputElement>(null);
+  const importTournamentSmartInternalRef = useRef<HTMLInputElement>(null);
   const importTournamentAiRef = useRef<HTMLInputElement>(null);
   /** Evita di azzerare il file PDF quando si passa dal filtro al dialog scelta sezione. */
   const pdfKeepPendingWhilePickerRef = useRef(false);
@@ -4419,6 +4420,56 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     },
     onError: (e: Error) => {
       toast({ title: e.message || "Errore analisi programma torneo clone", variant: "destructive" });
+    },
+    onSettled: () => {
+      setPdfOcrStatus(null);
+      setImageOcrStatus(null);
+    },
+  });
+
+  const importTournamentSmartInternalMutation = useMutation({
+    mutationFn: async (file: File) => {
+      return parseTournamentProgramCloneFileWithTwinEngines(file, "Importazione intelligente interna");
+    },
+    onSuccess: (parsed) => {
+      setPendingTournamentProgram(parsed.tournamentProgram ?? []);
+      setPendingTournamentScores(parsed.tournamentScores ?? {});
+      if (parsed.recognized.length === 0) {
+        const fallbackRows = tournamentFallbackRowsFromProgram(parsed.tournamentProgram ?? []);
+        if (fallbackRows.length > 0) {
+          toast({
+            title: "Torneo letto dal parser interno",
+            description: "Non ho riconosciuto automaticamente la societa': seleziona le gare e indica il lato della tua squadra.",
+          });
+          setPreviewSource("programma");
+          setPreviewRows(fallbackRows);
+          setPreviewBulkDate("");
+          setSelectedRows(fallbackRows.map(() => false));
+          setPreviewOpen(true);
+          return;
+        }
+        toast({
+          title: "Torneo non importabile automaticamente",
+          description:
+            (parsed.tournamentProgram?.length ?? 0) > 0
+              ? "Il programma e' stato letto, ma non sono state trovate partite della societa' da importare."
+              : "File non leggibile in modo affidabile dal parser interno: carica il torneo manualmente o prova un file piu' chiaro.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setPreviewSource("programma");
+      setPreviewRows(parsed.recognized);
+      setPreviewBulkDate("");
+      setSelectedRows(parsed.recognized.map(() => true));
+      setPreviewOpen(true);
+      toast({
+        title: "Importazione interna pronta",
+        description: `${parsed.recognized.length} partita/e riconosciute. Controlla l'anteprima prima di salvare.`,
+      });
+    },
+    onError: (e: Error) => {
+      toast({ title: e.message || "Errore importazione intelligente interna", variant: "destructive" });
     },
     onSettled: () => {
       setPdfOcrStatus(null);
@@ -5205,6 +5256,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     importTournamentImageMutation.isPending ||
     importTournamentProgramMutation.isPending ||
     importTournamentProgramCloneMutation.isPending ||
+    importTournamentSmartInternalMutation.isPending ||
     importTournamentAiMutation.isPending ||
     applyImportMutation.isPending ||
     bulkDeleteMutation.isPending ||
@@ -5400,12 +5452,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
                 variant="outline"
                 size="sm"
                 className="h-8 text-xs gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50"
-                disabled={importActionsBusy || importTournamentAiMutation.isPending}
-                onClick={() => importTournamentAiRef.current?.click()}
-                title="Importazione intelligente via backend AI: legge immagini, PDF, Word ed Excel e apre sempre l'anteprima prima del salvataggio."
+                disabled={importActionsBusy || importTournamentSmartInternalMutation.isPending}
+                onClick={() => importTournamentSmartInternalRef.current?.click()}
+                title="Parser interno a moduli: prova motore base e fallback clone, mostra sempre l'anteprima prima del salvataggio."
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                {importTournamentAiMutation.isPending ? "Analisi AI..." : "Leggi torneo con AI"}
+                {importTournamentSmartInternalMutation.isPending ? "Analisi interna..." : "Importazione intelligente interna"}
               </Button>
               <Button
                 type="button"
@@ -5689,6 +5741,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           if (!picked) return;
           console.log("[CLONE-RUNTIME-CHECK] button clone clicked");
           importTournamentProgramCloneMutation.mutate(picked);
+        }}
+      />
+      <input
+        ref={importTournamentSmartInternalRef}
+        type="file"
+        accept=".pdf,application/pdf,.jpg,.jpeg,.png,.webp,image/*,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="hidden"
+        onChange={async (e) => {
+          const picked = e.target.files?.[0];
+          e.target.value = "";
+          if (!picked) return;
+          importTournamentSmartInternalMutation.mutate(picked);
         }}
       />
       <input
