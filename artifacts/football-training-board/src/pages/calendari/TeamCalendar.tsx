@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   ArrowLeft, Calendar, MapPin, Trophy, FileText,
   CheckCircle, Clock, Pencil, AlertTriangle, RotateCcw,
-  ClipboardList, Upload, Download, FileSpreadsheet, Trash2, ChevronDown, Camera,
+  ClipboardList, Upload, Download, FileSpreadsheet, Trash2, ChevronDown, Camera, Sparkles,
   Leaf, Flower2, ListChecks, Search, Files, Filter, Handshake, Plus, ExternalLink, Loader2,
 } from "lucide-react";
 import {
@@ -129,6 +129,26 @@ type ManualTournamentForm = {
   groups: { id: string; name: string; teams: string[] }[];
   matches: { id: string; date: string; time: string; group: string; homeTeam: string; awayTeam: string }[];
   finals: { id: string; date: string; time: string; label: string; homeTeam: string; awayTeam: string }[];
+};
+
+type TournamentAiMatch = {
+  tournamentName: string | null;
+  category: string | null;
+  date: string | null;
+  venue: string | null;
+  field: string | null;
+  time: string | null;
+  homeTeam: string | null;
+  awayTeam: string | null;
+  notes: string | null;
+  confidence: number;
+};
+
+type TournamentAiParseResponse = {
+  tournamentName: string | null;
+  category: string | null;
+  matches: TournamentAiMatch[];
+  warnings: string[];
 };
 
 type TournamentLogistics = {
@@ -453,6 +473,97 @@ function combineDateAndTimeToIso(dateValue: string, timeValue: string): string |
   const parsed = new Date(`${normalizedDate}T${normalized}:00`);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function normalizeAiTournamentName(value?: string | null): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function aiTournamentSideMatchesOwnTeam(side: string | null | undefined, aliases: string[]): boolean {
+  const sideNorm = normalizeAiTournamentName(side);
+  if (!sideNorm) return false;
+  return aliases.some((alias) => {
+    const aliasNorm = normalizeAiTournamentName(alias);
+    if (aliasNorm.length < 3) return false;
+    if (sideNorm.includes(aliasNorm) || aliasNorm.includes(sideNorm)) return true;
+    const tokens = aliasNorm.split(" ").filter((token) => token.length >= 4);
+    return tokens.length > 0 && tokens.filter((token) => sideNorm.includes(token)).length >= Math.min(2, tokens.length);
+  });
+}
+
+function aiTournamentDateToIso(dateValue: string | null, timeValue: string | null): string {
+  const date = String(dateValue ?? "").trim();
+  const normalizedTime = normalizeTime24(String(timeValue ?? "")) ?? "12:00";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const iso = combineDateAndTimeToIso(date, normalizedTime);
+    if (iso) return iso;
+  }
+  const parsed = new Date(`${date} ${normalizedTime}`);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  const fallback = new Date();
+  fallback.setHours(12, 0, 0, 0);
+  return fallback.toISOString();
+}
+
+function aiTournamentRowsFromResponse(
+  parsed: TournamentAiParseResponse,
+  aliases: string[],
+): { rows: MatchImportRow[]; selected: boolean[]; program: TournamentProgramEntry[] } {
+  const rows: MatchImportRow[] = [];
+  const selected: boolean[] = [];
+  const program: TournamentProgramEntry[] = [];
+  parsed.matches.forEach((match, index) => {
+    const homeTeam = String(match.homeTeam ?? "").trim();
+    const awayTeam = String(match.awayTeam ?? "").trim();
+    if (!homeTeam && !awayTeam) return;
+    const date = aiTournamentDateToIso(match.date, match.time);
+    const tournamentName = match.tournamentName?.trim() || parsed.tournamentName?.trim() || "Torneo";
+    const location = [match.venue, match.field].map((value) => String(value ?? "").trim()).filter(Boolean).join(" - ") || null;
+    const ownHome = aiTournamentSideMatchesOwnTeam(homeTeam, aliases);
+    const ownAway = aiTournamentSideMatchesOwnTeam(awayTeam, aliases);
+    const confidencePct = Math.round(Math.max(0, Math.min(1, Number(match.confidence) || 0)) * 100);
+    const noteParts = [
+      "Importazione intelligente AI",
+      match.category ? `Categoria: ${match.category}` : null,
+      match.notes,
+      `Confidenza: ${confidencePct}%`,
+    ].filter(Boolean);
+    const row: MatchImportRow = ownHome !== ownAway
+      ? {
+          date,
+          opponent: ownHome ? awayTeam || "da completare" : homeTeam || "da completare",
+          homeAway: ownHome ? "home" : "away",
+          competition: `Torneo: ${tournamentName}`,
+          location,
+          notes: noteParts.join(" - "),
+        }
+      : {
+          date,
+          opponent: `${homeTeam || "da completare"} - ${awayTeam || "da completare"}`,
+          homeAway: "home",
+          competition: `Torneo: ${tournamentName}`,
+          location,
+          notes: [TOURNAMENT_FALLBACK_FIXTURE_PREFIX + JSON.stringify({ homeTeam, awayTeam }), ...noteParts].join("\n"),
+        };
+    rows.push(row);
+    selected.push(ownHome !== ownAway);
+    program.push({
+      id: `ai-${date}-${index}-${normalizeAiTournamentName(homeTeam)}-${normalizeAiTournamentName(awayTeam)}`,
+      date,
+      homeTeam: homeTeam || "da completare",
+      awayTeam: awayTeam || "da completare",
+      phase: null,
+      group: match.field ?? null,
+      kind: "match",
+    });
+  });
+  return { rows, selected, program };
 }
 
 function defaultManualTournamentForm(): ManualTournamentForm {
@@ -3712,13 +3823,14 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const importTournamentImageRef = useRef<HTMLInputElement>(null);
   const importTournamentProgramRef = useRef<HTMLInputElement>(null);
   const importTournamentProgramCloneRef = useRef<HTMLInputElement>(null);
+  const importTournamentAiRef = useRef<HTMLInputElement>(null);
   /** Evita di azzerare il file PDF quando si passa dal filtro al dialog scelta sezione. */
   const pdfKeepPendingWhilePickerRef = useRef(false);
   const pdfImportModeRef = useRef<"federation" | "tournament">("federation");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewRows, setPreviewRows] = useState<MatchImportRow[]>([]);
   const [selectedRows, setSelectedRows] = useState<boolean[]>([]);
-  const [previewSource, setPreviewSource] = useState<"excel" | "pdf" | "immagine" | "programma">("excel");
+  const [previewSource, setPreviewSource] = useState<"excel" | "pdf" | "immagine" | "programma" | "ai">("excel");
   const [previewBulkDate, setPreviewBulkDate] = useState("");
   const [pdfFilterOpen, setPdfFilterOpen] = useState(false);
   const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null);
@@ -4311,6 +4423,67 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       setPdfOcrStatus(null);
       setImageOcrStatus(null);
     },
+  });
+
+  const importTournamentAiMutation = useMutation({
+    mutationFn: async (file: File) => {
+      if (!team) throw new Error("Squadra non valida");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("teamName", team.name);
+      form.append("clubName", clubLabel);
+      form.append("category", team.category ?? team.name);
+      const response = await fetch(withApi("/api/tournament-ai/parse"), {
+        method: "POST",
+        credentials: "include",
+        body: form,
+      });
+      if (!response.ok) {
+        const raw = await response.text();
+        let message = raw.trim();
+        try {
+          const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown };
+          message = String(parsed.error ?? parsed.message ?? message);
+        } catch {
+          message = message.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+        }
+        throw new Error(message || "Errore importazione intelligente");
+      }
+      return response.json() as Promise<TournamentAiParseResponse>;
+    },
+    onSuccess: (parsed) => {
+      const aliases = [team?.name, team?.category, clubLabel, ...clubImportAliases]
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean);
+      const { rows, selected, program } = aiTournamentRowsFromResponse(parsed, aliases);
+      setPendingTournamentProgram(program);
+      setPendingTournamentScores({});
+      if (rows.length === 0) {
+        toast({
+          title: "Nessuna partita riconosciuta dall'AI",
+          description: parsed.warnings[0] ?? "Il file e' stato letto, ma non contiene partite strutturate importabili.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setPreviewSource("ai");
+      setPreviewRows(rows);
+      setPreviewBulkDate("");
+      setSelectedRows(selected);
+      setPreviewOpen(true);
+      if (!selected.some(Boolean)) {
+        toast({
+          title: "Partite lette dall'AI",
+          description: "Non ho riconosciuto automaticamente la squadra del club: seleziona manualmente le gare da importare.",
+        });
+      } else {
+        toast({
+          title: "Importazione intelligente pronta",
+          description: `${rows.length} partita/e lette. Controlla l'anteprima prima di salvare.`,
+        });
+      }
+    },
+    onError: (e: Error) => toast({ title: e.message || "Errore importazione intelligente", variant: "destructive" }),
   });
 
   const applyImportMutation = useMutation({
@@ -5024,6 +5197,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     importTournamentImageMutation.isPending ||
     importTournamentProgramMutation.isPending ||
     importTournamentProgramCloneMutation.isPending ||
+    importTournamentAiMutation.isPending ||
     applyImportMutation.isPending ||
     bulkDeleteMutation.isPending ||
     deleteTournamentMutation.isPending;
@@ -5212,6 +5386,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               >
                 <Upload className="w-3.5 h-3.5" />
                 {importTournamentProgramCloneMutation.isPending ? "Analisi clone..." : "Carica programma torneo clone"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50"
+                disabled={importActionsBusy || importTournamentAiMutation.isPending}
+                onClick={() => importTournamentAiRef.current?.click()}
+                title="Importazione intelligente via backend AI: legge immagini, PDF, Word ed Excel e apre sempre l'anteprima prima del salvataggio."
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                {importTournamentAiMutation.isPending ? "Analisi AI..." : "Leggi torneo con AI"}
               </Button>
               <Button
                 type="button"
@@ -5475,6 +5661,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           if (!picked) return;
           console.log("[CLONE-RUNTIME-CHECK] button clone clicked");
           importTournamentProgramCloneMutation.mutate(picked);
+        }}
+      />
+      <input
+        ref={importTournamentAiRef}
+        type="file"
+        accept=".pdf,application/pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,image/*,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="hidden"
+        onChange={async (e) => {
+          const picked = e.target.files?.[0];
+          e.target.value = "";
+          if (!picked) return;
+          importTournamentAiMutation.mutate(picked);
         }}
       />
       <div className="mt-5 sm:mt-6 min-w-0">

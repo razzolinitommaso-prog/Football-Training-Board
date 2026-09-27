@@ -23,6 +23,10 @@ services:
         value: none
       - key: SESSION_COOKIE_SECURE
         value: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_TOURNAMENT_IMPORT_MODEL
+        value: gpt-4.1-mini
       - key: DATABASE_URL
         fromDatabase:
           name: football-training-board-db
