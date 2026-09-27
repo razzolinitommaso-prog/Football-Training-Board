@@ -4098,14 +4098,18 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       const isImage =
         file.type.startsWith("image/") ||
         /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name);
+      const hasUsefulTournamentParse = (parsed: MatchPdfImportResult) =>
+        parsed.recognized.length > 0 ||
+        (parsed.tournamentProgram?.length ?? 0) > 0 ||
+        Object.keys(parsed.tournamentScores ?? {}).length > 0;
 
       if (isImage) {
         setImageOcrStatus("Lettura programma torneo clone da immagine in corso...");
         toast({
           title,
-          description: "Lettura dell'immagine clone in corso...",
+          description: "Lettura dell'immagine in corso...",
         });
-        const parsed = await parseTournamentImageFileClone(file, {
+        const baseParsed = await parseTournamentImageFile(file, {
           teamName: team.name,
           clubName: clubLabel,
           clubAliases: clubImportAliases,
@@ -4113,16 +4117,28 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           documentMode: "tournament",
           unifiedTournamentProgram: true,
         });
-        console.log("[CLONE-RUNTIME-CHECK] final importable rows", parsed.recognized.length);
-        if (parsed.parserDebug) console.info("[tournament-clone-parser]", parsed.parserDebug);
-        const fallbackProgram = maybeBuildKnownEsordientiProgram(file.name, parsed);
-        return fallbackProgram.length > 0 ? { ...parsed, tournamentProgram: fallbackProgram } : parsed;
+        if (hasUsefulTournamentParse(baseParsed)) {
+          const fallbackProgram = maybeBuildKnownEsordientiProgram(file.name, baseParsed);
+          return fallbackProgram.length > 0 ? { ...baseParsed, tournamentProgram: fallbackProgram } : baseParsed;
+        }
+        const cloneParsed = await parseTournamentImageFileClone(file, {
+          teamName: team.name,
+          clubName: clubLabel,
+          clubAliases: clubImportAliases,
+          societyHint: clubLabel,
+          documentMode: "tournament",
+          unifiedTournamentProgram: true,
+        });
+        console.log("[CLONE-RUNTIME-CHECK] final importable rows", cloneParsed.recognized.length);
+        if (cloneParsed.parserDebug) console.info("[tournament-clone-parser]", cloneParsed.parserDebug);
+        const fallbackProgram = maybeBuildKnownEsordientiProgram(file.name, cloneParsed);
+        return fallbackProgram.length > 0 ? { ...cloneParsed, tournamentProgram: fallbackProgram } : cloneParsed;
       }
 
       setPdfOcrStatus("Lettura programma torneo clone da PDF in corso...");
       toast({
         title,
-        description: "Lettura del PDF clone in corso...",
+        description: "Lettura del PDF in corso...",
       });
       const searchTerms = buildPdfImportSearchTerms({
         categoryLine: team.name,
@@ -4130,7 +4146,42 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         teamName: team.name,
         clubName: clubLabel,
       });
-      const parsed = await parseMatchCalendarPdfFileClone(file, {
+      const baseParsed = await parseMatchCalendarPdfFile(file, {
+        teamName: team.name,
+        clubName: clubLabel,
+        clubAliases: clubImportAliases,
+        searchTerms,
+        sectionTitleHints: [],
+        societyHint: clubLabel,
+        documentMode: "tournament",
+        unifiedTournamentProgram: true,
+        ocrProgress: (event) => {
+          console.info("[pdf-ocr]", event);
+          switch (event.phase) {
+            case "loading":
+              setPdfOcrStatus("Preparazione OCR in corso...");
+              break;
+            case "processing":
+              setPdfOcrStatus(`Lettura OCR pagina ${event.page}/${event.totalPages}...`);
+              break;
+            case "done":
+              setPdfOcrStatus(
+                event.addedDateLines > 0
+                  ? `OCR completato: ${event.addedDateLines} righe data aggiunte.`
+                  : "OCR completato: nessuna data aggiuntiva trovata.",
+              );
+              break;
+            case "skipped":
+              setPdfOcrStatus(`OCR non eseguito: ${event.reason}`);
+              break;
+            case "error":
+              setPdfOcrStatus(`OCR non disponibile: ${event.reason}`);
+              break;
+          }
+        },
+      });
+      if (hasUsefulTournamentParse(baseParsed)) return baseParsed;
+      const cloneParsed = await parseMatchCalendarPdfFileClone(file, {
         teamName: team.name,
         clubName: clubLabel,
         clubAliases: clubImportAliases,
@@ -4164,9 +4215,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           }
         },
       });
-      console.log("[CLONE-RUNTIME-CHECK] final importable rows", parsed.recognized.length);
-      if (parsed.parserDebug) console.info("[tournament-clone-parser]", parsed.parserDebug);
-      return parsed;
+      console.log("[CLONE-RUNTIME-CHECK] final importable rows", cloneParsed.recognized.length);
+      if (cloneParsed.parserDebug) console.info("[tournament-clone-parser]", cloneParsed.parserDebug);
+      return cloneParsed;
   }
 
   const importTournamentProgramMutation = useMutation({
