@@ -1939,6 +1939,57 @@ function parseImageTournamentProgramLines(
   return entries;
 }
 
+function inferTournamentImageDateIso(lines: string[], fallbackYearHint?: number | null): string | null {
+  for (const line of lines) {
+    const numericDateIso = parseDateTimeIso(line);
+    const namedDateIso = parseItalianNamedDateIso(line, fallbackYearHint);
+    if (numericDateIso || namedDateIso) return numericDateIso ?? namedDateIso;
+  }
+  return null;
+}
+
+function cloneSequentialTournamentImageCandidates(lines: string[], index: number): string[] {
+  const out: string[] = [];
+  const chunks: string[] = [];
+  for (let i = index; i < Math.min(lines.length, index + 8); i += 1) {
+    const line = lines[i]?.trim().replace(/\s+/g, " ") ?? "";
+    if (!line || isPageFooterOrNoise(line)) continue;
+    if (i > index && /\b\d{1,2}[:.]\d{2}\b/.test(line)) break;
+    const n = normalizeName(line);
+    if (/\b(?:termine|inizio gare|stadio|passione|unione|vittoria|more than|sport|amicizia|rispetto)\b/.test(n)) continue;
+    chunks.push(line);
+    const joined = chunks.join(" ").replace(/^\s*\d{1,2}\s+(?=\d{1,2}[:.]\d{2}\b)/, "");
+    if (/\b\d{1,2}[:.]\d{2}\b/.test(joined) && /\bvs\.?\b/i.test(joined)) out.push(joined);
+  }
+  return [...new Set(out)];
+}
+
+function parseCloneSequentialTournamentImageLines(
+  lines: string[],
+  currentDateIso: string | null,
+): TournamentProgramEntry[] {
+  if (!currentDateIso) return [];
+  const out: TournamentProgramEntry[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (!/\b\d{1,2}[:.]\d{2}\b/.test(line)) continue;
+    for (const candidate of cloneSequentialTournamentImageCandidates(lines, i)) {
+      const parsed = [
+        ...parseImageTournamentProgramLines(candidate, currentDateIso, null),
+        ...parseAnyTournamentProgramLines(candidate, currentDateIso, null),
+      ];
+      for (const entry of parsed) {
+        const key = `${entry.date}|${normalizeName(entry.homeTeam)}|${normalizeName(entry.awayTeam)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(entry);
+      }
+    }
+  }
+  return out;
+}
+
 function isImageTournamentEmptyTeam(value: string): boolean {
   const n = normalizeName(value);
   if (!n) return true;
@@ -1961,10 +2012,14 @@ function tournamentProgramCandidateLines(lines: string[], index: number): string
   const previous = lines[index - 1]?.trim().replace(/\s+/g, " ") ?? "";
   const next = lines[index + 1]?.trim().replace(/\s+/g, " ") ?? "";
   const next2 = lines[index + 2]?.trim().replace(/\s+/g, " ") ?? "";
+  const next3 = lines[index + 3]?.trim().replace(/\s+/g, " ") ?? "";
+  const next4 = lines[index + 4]?.trim().replace(/\s+/g, " ") ?? "";
   const candidates = [
     current,
     [current, next].filter(Boolean).join(" "),
     [current, next, next2].filter(Boolean).join(" "),
+    [current, next, next2, next3].filter(Boolean).join(" "),
+    [current, next, next2, next3, next4].filter(Boolean).join(" "),
     [previous, current].filter(Boolean).join(" "),
   ];
   return [...new Set(candidates.map((line) => line.trim()).filter(Boolean))];
@@ -2090,6 +2145,8 @@ function parseTournamentImageTextLines(
   let discarded = 0;
 
   const normalizedLines = allLines.map((raw) => raw.trim().replace(/\s+/g, " "));
+  const initialImageDateIso = inferTournamentImageDateIso(normalizedLines, options.fallbackYearHint);
+  if (options.parserVariant === "clone" && initialImageDateIso) currentDateIso = initialImageDateIso;
   const useKnownEsordientiProgram =
     options.unifiedTournamentProgram === true &&
     (looksLikeEsordienti2014Image(normalizedLines) || looksLikeEsordienti2014ProgramSource(options.tournamentName));
@@ -2139,6 +2196,16 @@ function parseTournamentImageTextLines(
       ...parsed,
       competition: `Torneo: ${options.tournamentName}`,
     });
+  }
+
+  if (options.parserVariant === "clone" && tournamentProgram.length === 0) {
+    for (const programEntry of parseCloneSequentialTournamentImageLines(normalizedLines, currentDateIso)) {
+      const key = `${programEntry.date}|${normalizeName(programEntry.homeTeam)}|${normalizeName(programEntry.awayTeam)}`;
+      if (!seenProgram.has(key)) {
+        seenProgram.add(key);
+        tournamentProgram.push({ ...programEntry, id: key });
+      }
+    }
   }
 
   const recognizedDateIso = recognized.find((row) => importRowHasDateForProgram(row.date))?.date ?? null;
@@ -2223,6 +2290,12 @@ function parseTournamentImageTextLines(
   const filteredRecognized =
     options.parserVariant === "clone" ? imageOwnClubFilter.kept : recognizedForClone;
   if (options.parserVariant === "clone") {
+    console.log("[CLONE-RUNTIME-CHECK] image inferred date", currentDateIso);
+    console.log("[CLONE-RUNTIME-CHECK] image raw lines JSON", JSON.stringify(allLines.slice(0, 120), null, 2));
+    console.log(
+      "[CLONE-RUNTIME-CHECK] image time lines JSON",
+      JSON.stringify(normalizedLines.filter((line) => /\b\d{1,2}[:.]\d{2}\b/.test(line)).slice(0, 120), null, 2),
+    );
     console.log("[CLONE-RUNTIME-CHECK] clubNameUsed", options.clubNameUsed);
     console.log("[CLONE-RUNTIME-CHECK] aliases", imageOwnClubAliases);
     console.log("[CLONE-RUNTIME-CHECK] aliases JSON", JSON.stringify(imageOwnClubAliases, null, 2));
