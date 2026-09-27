@@ -1,6 +1,6 @@
-import { Router, type IRouter, type Request } from "express";
+import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
@@ -8,7 +8,7 @@ const router: IRouter = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 18 * 1024 * 1024,
+    fileSize: 64 * 1024 * 1024,
     files: 1,
   },
 });
@@ -96,24 +96,49 @@ function normalizeAiPayload(value: unknown): AiTournamentParseResponse {
   };
 }
 
-function buildFilePart(file: Express.Multer.File) {
+function uploadSingleTournamentFile(req: Request, res: Response, next: NextFunction) {
+  upload.single("file")(req, res, (error: unknown) => {
+    if (!error) {
+      next();
+      return;
+    }
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+      res.status(413).json({ error: "File troppo grande per l'importazione AI. Limite massimo: 64 MB." });
+      return;
+    }
+    const message = error instanceof Error ? error.message : "Errore durante il caricamento del file.";
+    res.status(400).json({ error: message });
+  });
+}
+
+async function buildFilePart(
+  client: OpenAI,
+  file: Express.Multer.File,
+): Promise<{ part: unknown; uploadedFileId: string | null }> {
   const base64 = file.buffer.toString("base64");
   const mime = file.mimetype || "application/octet-stream";
   const fileData = `data:${mime};base64,${base64}`;
   if (mime.startsWith("image/")) {
-    return { type: "input_image", image_url: fileData };
+    return { part: { type: "input_image", image_url: fileData }, uploadedFileId: null };
   }
+  const uploaded = await client.files.create({
+    file: await toFile(file.buffer, file.originalname || "torneo", { type: mime }),
+    purpose: "user_data",
+    expires_after: { anchor: "created_at", seconds: 24 * 60 * 60 },
+  });
   return {
-    type: "input_file",
-    filename: file.originalname || "torneo",
-    file_data: fileData,
+    part: {
+      type: "input_file",
+      file_id: uploaded.id,
+    },
+    uploadedFileId: uploaded.id,
   };
 }
 
 router.post(
   "/tournament-ai/parse",
   requireAuth,
-  upload.single("file"),
+  uploadSingleTournamentFile,
   async (req, res): Promise<void> => {
     if (!MATCH_CALENDAR_MANAGE_ROLES.has(getUserRole(req))) {
       res.status(403).json({ error: "Permesso negato" });
@@ -139,8 +164,11 @@ router.post(
       fileName: file.originalname,
       mimeType: file.mimetype,
     };
+    let uploadedFileId: string | null = null;
 
     try {
+      const filePart = await buildFilePart(client, file);
+      uploadedFileId = filePart.uploadedFileId;
       const response = await client.responses.create({
         model: process.env.OPENAI_TOURNAMENT_IMPORT_MODEL ?? "gpt-4.1-mini",
         temperature: 0,
@@ -169,7 +197,7 @@ router.post(
                   "date deve essere YYYY-MM-DD quando possibile; time deve essere HH:mm quando possibile; confidence da 0 a 1. " +
                   `Contesto app: ${JSON.stringify(context)}.`,
               },
-              buildFilePart(file) as never,
+              filePart.part as never,
             ],
           },
         ],
@@ -228,6 +256,12 @@ router.post(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Errore durante l'analisi AI del torneo";
       res.status(502).json({ error: message });
+    } finally {
+      if (uploadedFileId) {
+        void client.files.delete(uploadedFileId).catch((error) => {
+          console.warn("[tournament-ai] unable to delete temporary OpenAI file", error);
+        });
+      }
     }
   },
 );
