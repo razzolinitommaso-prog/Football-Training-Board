@@ -1939,6 +1939,40 @@ function parseImageTournamentProgramLines(
   return entries;
 }
 
+function normalizeCloneOcrTournamentTimeLine(line: string): string {
+  const trimmed = line.trim().replace(/\s+/g, " ");
+  if (!trimmed) return trimmed;
+
+  const normalizeCompactTime = (token: string): string | null => {
+    const compact = normalizeName(token).replace(/\s+/g, "");
+    if (/^(?:0|o){3}$/.test(compact)) return "10:00";
+    if (/^(?:0|o)?40$/.test(compact)) return "10:40";
+    if (/^[mnhil1][z2]?0$/.test(compact)) return "11:20";
+
+    const digits = compact
+      .replace(/[o]/g, "0")
+      .replace(/[z]/g, "2")
+      .replace(/^[mnhil]([0-9]{2})$/, "11$1");
+    if (/^\d{3}$/.test(digits)) return `1${digits[0]}:${digits.slice(1)}`;
+    if (/^\d{4}$/.test(digits)) return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+    return null;
+  };
+
+  const pipeMatch = trimmed.match(/^(.{0,12}?\|\s*)([A-Za-z0-9]{2,4})(\s*\|?\s+)(.+)$/);
+  if (pipeMatch) {
+    const normalized = normalizeCompactTime(pipeMatch[2] ?? "");
+    if (normalized) return `${pipeMatch[1]}${normalized}${pipeMatch[3]}${pipeMatch[4]}`;
+  }
+
+  const leadingMatch = trimmed.match(/^(\D*\d{0,2}\D{0,4})([A-Za-z0-9]{2,4})(\s+.+\bvs\.?\b.+)$/i);
+  if (leadingMatch) {
+    const normalized = normalizeCompactTime(leadingMatch[2] ?? "");
+    if (normalized) return `${leadingMatch[1]}${normalized}${leadingMatch[3]}`;
+  }
+
+  return trimmed;
+}
+
 function inferTournamentImageDateIso(lines: string[], fallbackYearHint?: number | null): string | null {
   for (const line of lines) {
     const numericDateIso = parseDateTimeIso(line);
@@ -1952,7 +1986,7 @@ function cloneSequentialTournamentImageCandidates(lines: string[], index: number
   const out: string[] = [];
   const chunks: string[] = [];
   for (let i = index; i < Math.min(lines.length, index + 8); i += 1) {
-    const line = lines[i]?.trim().replace(/\s+/g, " ") ?? "";
+    const line = normalizeCloneOcrTournamentTimeLine(lines[i]?.trim().replace(/\s+/g, " ") ?? "");
     if (!line || isPageFooterOrNoise(line)) continue;
     if (i > index && /\b\d{1,2}[:.]\d{2}\b/.test(line)) break;
     const n = normalizeName(line);
@@ -1972,9 +2006,11 @@ function parseCloneSequentialTournamentImageLines(
   const out: TournamentProgramEntry[] = [];
   const seen = new Set<string>();
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
+    const line = normalizeCloneOcrTournamentTimeLine(lines[i] ?? "");
     if (!/\b\d{1,2}[:.]\d{2}\b/.test(line)) continue;
-    for (const candidate of cloneSequentialTournamentImageCandidates(lines, i)) {
+    const normalizedLines = [...lines];
+    normalizedLines[i] = line;
+    for (const candidate of cloneSequentialTournamentImageCandidates(normalizedLines, i)) {
       const parsed = [
         ...parseImageTournamentProgramLines(candidate, currentDateIso, null),
         ...parseAnyTournamentProgramLines(candidate, currentDateIso, null),
