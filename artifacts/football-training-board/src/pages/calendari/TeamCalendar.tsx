@@ -3843,6 +3843,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const [pdfImportReferenceDate, setPdfImportReferenceDate] = useState("");
   const [pdfOcrStatus, setPdfOcrStatus] = useState<string | null>(null);
   const [imageOcrStatus, setImageOcrStatus] = useState<string | null>(null);
+  const [aiImportStatus, setAiImportStatus] = useState<string | null>(null);
   const openMatchIdFromQuery = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const id = Number(params.get("openMatchId"));
@@ -4428,6 +4429,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   const importTournamentAiMutation = useMutation({
     mutationFn: async (file: File) => {
       if (!team) throw new Error("Squadra non valida");
+      const sizeMb = file.size / (1024 * 1024);
+      setAiImportStatus(
+        sizeMb >= 20
+          ? `Caricamento e analisi AI di ${file.name} (${sizeMb.toFixed(1)} MB). Puo' richiedere fino a 1-2 minuti...`
+          : `Caricamento e analisi AI di ${file.name}...`,
+      );
       const form = new FormData();
       form.append("file", file);
       form.append("teamName", team.name);
@@ -4484,6 +4491,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       }
     },
     onError: (e: Error) => toast({ title: e.message || "Errore importazione intelligente", variant: "destructive" }),
+    onSettled: () => setAiImportStatus(null),
   });
 
   const applyImportMutation = useMutation({
@@ -5544,6 +5552,26 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         <p className="text-xs font-medium text-foreground">
           {pdfOcrStatus ?? "Analisi PDF in corso…"}
         </p>
+      </div>
+    )}
+    {(aiImportStatus || importTournamentAiMutation.isPending) && (
+      <div
+        className="fixed bottom-4 right-4 z-[1001] max-w-sm rounded-md border border-violet-200 bg-background/95 px-4 py-3 shadow-lg backdrop-blur"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-start gap-2.5">
+          <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-violet-600" />
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-foreground">Importazione intelligente in corso</p>
+            <p className="text-xs text-muted-foreground">
+              {aiImportStatus ?? "Analisi AI del torneo in corso..."}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Non chiudere questa pagina: al termine si aprira' l'anteprima modificabile.
+            </p>
+          </div>
+        </div>
       </div>
     )}
     <div className="w-full max-w-full min-w-0 sm:max-w-6xl mx-auto">
