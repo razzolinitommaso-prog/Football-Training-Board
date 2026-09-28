@@ -2084,6 +2084,10 @@ function inferImageTournamentGroup(homeTeam: string, awayTeam: string): string |
 function tournamentProgramCandidateLines(lines: string[], index: number): string[] {
   const current = lines[index]?.trim().replace(/\s+/g, " ") ?? "";
   if (!current) return [];
+  const normalizedCurrent = normalizeCloneOcrTournamentTimeLine(current);
+  if (/\b\d{1,2}[:.]\d{2}\b/.test(normalizedCurrent) && /\bvs\.?\b/i.test(normalizedCurrent)) {
+    return [normalizedCurrent];
+  }
   const previous = lines[index - 1]?.trim().replace(/\s+/g, " ") ?? "";
   const next = lines[index + 1]?.trim().replace(/\s+/g, " ") ?? "";
   const next2 = lines[index + 2]?.trim().replace(/\s+/g, " ") ?? "";

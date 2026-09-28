@@ -4217,6 +4217,12 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         parsed.recognized.length > 0 ||
         (parsed.tournamentProgram?.length ?? 0) > 0 ||
         Object.keys(parsed.tournamentScores ?? {}).length > 0;
+      const parseUsefulness = (parsed: MatchPdfImportResult) =>
+        parsed.recognized.length * 4 +
+        (parsed.tournamentProgram?.length ?? 0) * 2 +
+        Object.keys(parsed.tournamentScores ?? {}).length;
+      const chooseBetterTournamentParse = (baseParsed: MatchPdfImportResult, cloneParsed: MatchPdfImportResult) =>
+        parseUsefulness(cloneParsed) > parseUsefulness(baseParsed) ? cloneParsed : baseParsed;
 
       if (isImage) {
         setImageOcrStatus("Lettura programma torneo clone da immagine in corso...");
@@ -4232,7 +4238,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           documentMode: "tournament",
           unifiedTournamentProgram: true,
         });
-        if (hasUsefulTournamentParse(baseParsed)) {
+        if (hasUsefulTournamentParse(baseParsed) && baseParsed.recognized.length > 0) {
           const fallbackProgram = maybeBuildKnownEsordientiProgram(file.name, baseParsed);
           return fallbackProgram.length > 0 ? { ...baseParsed, tournamentProgram: fallbackProgram } : baseParsed;
         }
@@ -4246,8 +4252,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         });
         console.log("[CLONE-RUNTIME-CHECK] final importable rows", cloneParsed.recognized.length);
         if (cloneParsed.parserDebug) console.info("[tournament-clone-parser]", cloneParsed.parserDebug);
-        const fallbackProgram = maybeBuildKnownEsordientiProgram(file.name, cloneParsed);
-        return fallbackProgram.length > 0 ? { ...cloneParsed, tournamentProgram: fallbackProgram } : cloneParsed;
+        const selectedParsed = chooseBetterTournamentParse(baseParsed, cloneParsed);
+        const fallbackProgram = maybeBuildKnownEsordientiProgram(file.name, selectedParsed);
+        return fallbackProgram.length > 0 ? { ...selectedParsed, tournamentProgram: fallbackProgram } : selectedParsed;
       }
 
       setPdfOcrStatus("Lettura programma torneo clone da PDF in corso...");
@@ -4295,7 +4302,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
           }
         },
       });
-      if (hasUsefulTournamentParse(baseParsed)) return baseParsed;
+      if (hasUsefulTournamentParse(baseParsed) && baseParsed.recognized.length > 0) return baseParsed;
       const cloneParsed = await parseMatchCalendarPdfFileClone(file, {
         teamName: team.name,
         clubName: clubLabel,
@@ -4332,7 +4339,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
       });
       console.log("[CLONE-RUNTIME-CHECK] final importable rows", cloneParsed.recognized.length);
       if (cloneParsed.parserDebug) console.info("[tournament-clone-parser]", cloneParsed.parserDebug);
-      return cloneParsed;
+      return chooseBetterTournamentParse(baseParsed, cloneParsed);
   }
 
   const importTournamentProgramMutation = useMutation({
