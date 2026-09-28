@@ -3346,6 +3346,7 @@ function extractTesseractLines(
   result: { data: { lines?: unknown[]; text?: unknown } },
   pageHeight: number,
   scale: number,
+  cropOffsetY = 0,
 ): OcrLine[] {
   const out: OcrLine[] = [];
   const rawLines = Array.isArray(result?.data?.lines) ? result.data.lines : [];
@@ -3356,7 +3357,7 @@ function extractTesseractLines(
     const y0 = Number(obj?.bbox?.y0 ?? 0);
     const y1 = Number(obj?.bbox?.y1 ?? y0);
     const cyMid = (y0 + y1) / 2;
-    const pdfY = pageHeight - cyMid / scale;
+    const pdfY = pageHeight - (cropOffsetY + cyMid) / scale;
     out.push({ text, pdfY, source: "lines" });
   }
   if (out.length === 0 && typeof result?.data?.text === "string") {
@@ -3400,6 +3401,35 @@ function createHighContrastOcrImage(canvas: HTMLCanvasElement): string {
   return processed.toDataURL("image/png");
 }
 
+function createCroppedOcrCanvas(
+  source: HTMLCanvasElement,
+  rect: { x: number; y: number; width: number; height: number },
+): HTMLCanvasElement | null {
+  const cropped = document.createElement("canvas");
+  cropped.width = Math.max(1, Math.floor(rect.width));
+  cropped.height = Math.max(1, Math.floor(rect.height));
+  const ctx = cropped.getContext("2d");
+  if (!ctx) return null;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, cropped.width, cropped.height);
+  ctx.drawImage(source, rect.x, rect.y, rect.width, rect.height, 0, 0, cropped.width, cropped.height);
+  return cropped;
+}
+
+function dedupeOcrLines(lines: OcrLine[]): OcrLine[] {
+  const seen = new Set<string>();
+  const out: OcrLine[] = [];
+  for (const line of [...lines].sort((a, b) => b.pdfY - a.pdfY)) {
+    const normalized = line.text.toLowerCase().replace(/\s+/g, " ").trim();
+    const yBucket = Math.round(line.pdfY / 2);
+    const key = `${normalized}|${yBucket}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+  }
+  return out;
+}
+
 /**
  * Esegue OCR (tesseract.js, lingua italiana) su una singola pagina PDF rasterizzata.
  * Ritorna le righe lette con la y in coordinate PDF (origine basso-sinistra), così da poterle
@@ -3429,7 +3459,24 @@ async function ocrPageWithWorker(
   if (enhancedLines.length > 0) return enhancedLines;
 
   const originalResult = await worker.recognize(imageDataUrl);
-  return extractTesseractLines(originalResult, pageHeight, scale);
+  const originalLines = extractTesseractLines(originalResult, pageHeight, scale);
+  if (originalLines.length > 0) return originalLines;
+
+  const cropRects = [
+    { x: canvas.width * 0.02, y: canvas.height * 0.28, width: canvas.width * 0.96, height: canvas.height * 0.62 },
+    { x: canvas.width * 0.04, y: canvas.height * 0.38, width: canvas.width * 0.92, height: canvas.height * 0.42 },
+  ];
+  const croppedLines: OcrLine[] = [];
+  for (const rect of cropRects) {
+    const cropped = createCroppedOcrCanvas(canvas, rect);
+    if (!cropped) continue;
+    const croppedEnhancedResult = await worker.recognize(createHighContrastOcrImage(cropped));
+    croppedLines.push(...extractTesseractLines(croppedEnhancedResult, pageHeight, scale, rect.y));
+    if (croppedLines.length > 0) continue;
+    const croppedOriginalResult = await worker.recognize(cropped.toDataURL("image/png"));
+    croppedLines.push(...extractTesseractLines(croppedOriginalResult, pageHeight, scale, rect.y));
+  }
+  return dedupeOcrLines(croppedLines);
 }
 
 async function createOcrWorker(
@@ -3634,9 +3681,19 @@ export async function parseMatchCalendarPdfFile(
             }
           }
           const dateLines = ocrLines.filter((o) => lineLooksLikeDate(o.text));
-          if (dateLines.length === 0) continue;
           const hasOnlyTextOrder = ocrLines.length > 0 && ocrLines.every((o) => o.source === "text");
-          if (documentMode === "tournament" && hasOnlyTextOrder) {
+          if (documentMode === "tournament" && perPage[i].lines.length === 0 && ocrLines.length > 0) {
+            const ordered = [...ocrLines].sort((a, b) => b.pdfY - a.pdfY);
+            perPage[i] = {
+              lines: ordered.map((o) => o.text),
+              ys: ordered.map((o) => o.pdfY),
+            };
+            totalAddedDates += dateLines.length;
+            continue;
+          }
+          if (dateLines.length === 0) {
+            continue;
+          } else if (documentMode === "tournament" && hasOnlyTextOrder) {
             perPage[i] = alignNativeTournamentLinesWithOcrDates(perPage[i].lines, perPage[i].ys, ocrLines, ocrFallbackYear);
           } else {
             const merged = mergeOcrDateLines(perPage[i].lines, perPage[i].ys, dateLines);
