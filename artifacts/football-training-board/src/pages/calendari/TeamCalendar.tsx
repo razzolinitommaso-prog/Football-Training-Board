@@ -7075,7 +7075,7 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
         </DialogContent>
       </Dialog>
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-[calc(100vw-1rem)] sm:max-w-3xl max-h-[92vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Anteprima import {previewSource.toUpperCase()}</DialogTitle>
             <DialogDescription>
@@ -7130,19 +7130,147 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
               )}
             </div>
           )}
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
             <Button type="button" size="sm" variant="outline" onClick={() => setSelectedRows(previewRows.map(() => true))}>
               Seleziona tutte
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => setSelectedRows(previewRows.map(() => false))}>
               Deseleziona tutte
             </Button>
-            <span className="text-muted-foreground">
+            <span className="text-muted-foreground whitespace-nowrap">
               {selectedRows.filter(Boolean).length}/{previewRows.length} selezionate
             </span>
           </div>
           <div className="max-h-[45vh] overflow-auto rounded-md border">
-            <table className="w-full text-sm">
+            <div className="divide-y sm:hidden">
+              {previewRows.map((row, idx) => {
+                const fallbackMeta = parseTournamentFallbackFixtureMeta(row);
+                return (
+                  <div key={`${row.date}-${row.opponent}-${idx}-mobile`} className="space-y-3 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <label className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+                        <input
+                          type="checkbox"
+                          checked={!!selectedRows[idx]}
+                          onChange={(e) =>
+                            setSelectedRows((prev) => {
+                              const next = [...prev];
+                              next[idx] = e.target.checked;
+                              return next;
+                            })
+                          }
+                        />
+                        <span>Riga {idx + 1}</span>
+                      </label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                        title="Rimuovi dalla lista"
+                        aria-label="Rimuovi dalla lista"
+                        onClick={() => {
+                          setPreviewRows((rows) => rows.filter((_, i) => i !== idx));
+                          setSelectedRows((prev) => prev.filter((_, i) => i !== idx));
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="grid gap-2 text-sm">
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Data</div>
+                        <div className="mt-1">
+                          {importRowHasValidDate(row) ? (
+                            format(new Date(row.date), "dd/MM/yyyy HH:mm")
+                          ) : (
+                            <div className="space-y-1">
+                              <Input
+                                type="date"
+                                className="h-9"
+                                aria-label="Data partita"
+                                onChange={(e) => {
+                                  const time = getImageTournamentMissingTime(row) ?? "15:00";
+                                  const iso = combineDateAndTimeToIso(e.target.value, time);
+                                  if (!iso) return;
+                                  setPreviewRows((rows) =>
+                                    rows.map((r, i) => (i === idx ? { ...r, date: iso } : r)),
+                                  );
+                                }}
+                              />
+                              <div className="text-xs text-muted-foreground">
+                                {getImageTournamentMissingTime(row) ?? "orario da verificare"}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Avversario</div>
+                        <div className="mt-1 break-words font-medium">{row.opponent || "-"}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tipo</div>
+                        <div className="mt-1">
+                          {fallbackMeta ? (
+                            <Select
+                              value="pending"
+                              onValueChange={(value) => {
+                                setPreviewRows((rows) =>
+                                  rows.map((current, i) => {
+                                    if (i !== idx) return current;
+                                    const meta = parseTournamentFallbackFixtureMeta(current);
+                                    if (!meta) return current;
+                                    if (value === "left") {
+                                      return {
+                                        ...current,
+                                        opponent: meta.awayTeam,
+                                        homeAway: "home",
+                                        notes: stripTournamentFallbackFixtureNotes(current.notes),
+                                      };
+                                    }
+                                    if (value === "right") {
+                                      return {
+                                        ...current,
+                                        opponent: meta.homeTeam,
+                                        homeAway: "away",
+                                        notes: stripTournamentFallbackFixtureNotes(current.notes),
+                                      };
+                                    }
+                                    return current;
+                                  }),
+                                );
+                                setSelectedRows((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = value === "left" || value === "right";
+                                  return next;
+                                });
+                              }}
+                            >
+                              <SelectTrigger className="h-9 w-full">
+                                <SelectValue placeholder="Scegli lato" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pending">Scegli lato</SelectItem>
+                                <SelectItem value="left">Mia squadra: {fallbackMeta.homeTeam}</SelectItem>
+                                <SelectItem value="right">Mia squadra: {fallbackMeta.awayTeam}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            row.homeAway === "home" ? "Casa" : "Trasferta"
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Competizione</div>
+                        <div className="mt-1 break-words">{row.competition ?? "-"}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <table className="hidden w-full min-w-[720px] text-sm sm:table">
               <thead className="bg-muted/50 sticky top-0">
                 <tr>
                   <th className="text-left p-2 w-10">#</th>
