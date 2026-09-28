@@ -2808,7 +2808,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const filteredPlayers = playersMatchingFilters?.filter(p => {
     if (teamFilter === "all") return true;
     if (teamFilter === "unassigned") return !p.teamId;
-    return Number(p.teamId ?? 0) === Number(teamFilter);
+    const selectedTeamId = Number(teamFilter);
+    return Number(p.teamId ?? 0) === selectedTeamId || Number(p.supplementalTeamId ?? 0) === selectedTeamId;
   }).sort(comparePlayersBySurname);
   const filteredPlayerIds = (filteredPlayers ?? []).map((player) => player.id);
   const selectedVisiblePlayerIds = selectedPlayerIds.filter((id) => filteredPlayerIds.includes(id));
@@ -2818,16 +2819,19 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const playersByTeam = new Map<number, Player[]>();
   (playersMatchingFilters ?? []).forEach((player) => {
     const teamId = Number(player.teamId ?? 0);
-    if (!teamId) return;
-    const list = playersByTeam.get(teamId) ?? [];
-    list.push(player);
-    playersByTeam.set(teamId, list);
+    const supplementalTeamId = Number(player.supplementalTeamId ?? 0);
+    const ids = [teamId, supplementalTeamId].filter((id, index, source) => id > 0 && source.indexOf(id) === index);
+    ids.forEach((id) => {
+      const list = playersByTeam.get(id) ?? [];
+      list.push(player);
+      playersByTeam.set(id, list);
+    });
   });
   playersByTeam.forEach((list) => {
     list.sort(comparePlayersBySurname);
   });
   const unassignedPlayers = (playersMatchingFilters ?? [])
-    .filter((player) => !player.teamId)
+    .filter((player) => !player.teamId && !player.supplementalTeamId)
     .sort(comparePlayersBySurname);
 
   const statusLabel = (status: string) => {

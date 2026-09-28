@@ -232,6 +232,65 @@ function extractSupplementalTeamId(notes?: string | null): number | null {
   return extractPlayerMeta(notes).supplementalTeamId ?? null;
 }
 
+type PlayerRequestConflict = {
+  playerId: number;
+  requestedByTeamId: number | null;
+  requestedByTeamName: string | null;
+  requestedMatchId: number;
+  requestedMatchDate: string | null;
+};
+
+function rowsFromDbExecute<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  return ((result as { rows?: T[] })?.rows ?? []) as T[];
+}
+
+async function playerRequestConflictsForMatch(clubId: number, matchId: number, playerIds: number[]) {
+  const cleanPlayerIds = [...new Set(playerIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (cleanPlayerIds.length === 0) return new Map<number, PlayerRequestConflict>();
+
+  const [currentMatch] = await db
+    .select({ id: matchesTable.id, date: matchesTable.date, teamId: matchesTable.teamId })
+    .from(matchesTable)
+    .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)))
+    .limit(1);
+  if (!currentMatch) return new Map<number, PlayerRequestConflict>();
+
+  const result = await db.execute(sql`
+    SELECT
+      cu.player_id AS "playerId",
+      m.id AS "requestedMatchId",
+      m.team_id AS "requestedByTeamId",
+      m.date AS "requestedMatchDate",
+      t.name AS "requestedByTeamName"
+    FROM call_ups cu
+    INNER JOIN matches m ON m.id = cu.match_id
+    LEFT JOIN teams t ON t.id = m.team_id
+    WHERE m.club_id = ${clubId}
+      AND cu.player_id IN ${sql.raw(`(${cleanPlayerIds.join(",")})`)}
+      AND m.id <> ${currentMatch.id}
+      AND COALESCE(m.team_id, 0) <> COALESCE(${currentMatch.teamId ?? 0}, 0)
+      AND (cu.status IS NULL OR lower(cu.status) NOT IN ('declined', 'unavailable', 'absent', 'not_called'))
+      AND (m.date AT TIME ZONE 'Europe/Rome')::date = (${currentMatch.date}::timestamptz AT TIME ZONE 'Europe/Rome')::date
+    ORDER BY m.date ASC, m.id ASC
+  `);
+
+  const rows = rowsFromDbExecute<PlayerRequestConflict>(result);
+  const conflicts = new Map<number, PlayerRequestConflict>();
+  for (const row of rows) {
+    const playerId = Number(row.playerId);
+    if (!Number.isInteger(playerId) || conflicts.has(playerId)) continue;
+    conflicts.set(playerId, {
+      playerId,
+      requestedByTeamId: row.requestedByTeamId == null ? null : Number(row.requestedByTeamId),
+      requestedByTeamName: row.requestedByTeamName ?? null,
+      requestedMatchId: Number(row.requestedMatchId),
+      requestedMatchDate: row.requestedMatchDate ? new Date(row.requestedMatchDate).toISOString() : null,
+    });
+  }
+  return conflicts;
+}
+
 async function getAssignedTeamIds(userId: number, clubId: number): Promise<number[]> {
   const staffRows = await db
     .select({ teamId: teamStaffAssignmentsTable.teamId })
@@ -558,6 +617,8 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   const { clubId, userId } = ids;
   const queryParams = ListPlayersQueryParams.safeParse(req.query);
   const requestedTeamId = queryParams.success ? queryParams.data.teamId : undefined;
+  const matchIdRaw = Number(req.query.matchId);
+  const requestedMatchId = Number.isInteger(matchIdRaw) && matchIdRaw > 0 ? matchIdRaw : undefined;
   const role = req.session.role ?? "";
   const requestedSection = typeof req.query.section === "string" ? req.query.section : undefined;
   const sections = await resolveAllowedClubSections(req, requestedSection);
@@ -621,7 +682,23 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
     }
     return true;
   });
-  const enriched = await Promise.all(filtered.map(enrichPlayer));
+  const requestConflicts = requestedMatchId
+    ? await playerRequestConflictsForMatch(clubId, requestedMatchId, filtered.map((player) => player.id))
+    : new Map<number, PlayerRequestConflict>();
+  const enriched = await Promise.all(filtered.map(async (player) => {
+    const row = await enrichPlayer(player);
+    const conflict = requestConflicts.get(player.id);
+    if (!conflict) return row;
+    return {
+      ...row,
+      available: false,
+      unavailabilityReason: "requested_by_other_team",
+      requestedByTeamId: conflict.requestedByTeamId,
+      requestedByTeamName: conflict.requestedByTeamName,
+      requestedMatchId: conflict.requestedMatchId,
+      requestedMatchDate: conflict.requestedMatchDate,
+    };
+  }));
   res.json(ListPlayersResponse.parse(enriched));
 });
 

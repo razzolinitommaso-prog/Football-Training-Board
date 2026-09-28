@@ -407,6 +407,7 @@ export const DeleteTeamParams = zod.object({
  */
 export const ListPlayersQueryParams = zod.object({
   teamId: zod.coerce.number().optional(),
+  matchId: zod.coerce.number().optional(),
 });
 
 export const ParentDelegateItem = zod.object({
@@ -467,6 +468,10 @@ export const ListPlayersResponseItem = zod.object({
   shuttleDirection: zod.string().nullish(),
   available: zod.boolean().optional(),
   unavailabilityReason: zod.string().nullish(),
+  requestedByTeamId: zod.number().nullish(),
+  requestedByTeamName: zod.string().nullish(),
+  requestedMatchId: zod.number().nullish(),
+  requestedMatchDate: zod.string().nullish(),
   expectedReturn: zod.string().nullish(),
   availabilityOverrideActive: zod.boolean().optional(),
   availabilityOverrideFrom: zod.string().nullish(),

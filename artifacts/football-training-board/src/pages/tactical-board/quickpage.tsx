@@ -1530,7 +1530,7 @@ const QuickPage = () => {
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const [elements, setElements] = useState<TacticalBoardElement[]>([]);
   const effectiveTeamId = boardMode === "assigned" ? boardTeamId : null;
-  const { players: fetchedTeamPlayers } = useTeamPlayers(effectiveTeamId);
+  const { players: fetchedTeamPlayers } = useTeamPlayers(effectiveTeamId, selectedMatchId);
   const [teamPlayers, setTeamPlayers] = useState<TeamPlayer[]>([]);
   const [freeRosterPlayers, setFreeRosterPlayers] = useState<TeamPlayer[]>([]);
   const didHydrateBoardFromUrlRef = React.useRef(false);
@@ -5636,6 +5636,7 @@ const QuickPage = () => {
                                 const inBoard = usedPlayerIds.has(String(player.id));
                                 const isPending = pendingRosterPlayerId === player.id;
                                 const isUnavailable = !isPlayerAvailable(player);
+                                const isRequested = player.unavailabilityReason === "requested_by_other_team";
                                 const rosterBadgeClass = isUnavailable
                                   ? "bg-red-500 text-white"
                                   : inBoard
@@ -5674,7 +5675,7 @@ const QuickPage = () => {
                                       <span className="min-w-0 truncate text-[11px] font-semibold">{formatRosterLastName(player)}</span>
                                     </div>
                                     <div className="mt-1 text-[10px] opacity-70">
-                                      {isUnavailable ? "Non disponibile" : inBoard ? "In campo" : "Da schierare"}
+                                      {isRequested ? `RICHIESTO${player.requestedByTeamName ? ` da ${player.requestedByTeamName}` : ""}` : isUnavailable ? "Non disponibile" : inBoard ? "In campo" : "Da schierare"}
                                     </div>
                                   </button>
                                 );

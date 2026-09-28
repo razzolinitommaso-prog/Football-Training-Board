@@ -11,6 +11,11 @@ export type TeamPlayer = {
   teamName?: string | null;
   available?: boolean | null;
   isSupplemental?: boolean | null;
+  unavailabilityReason?: string | null;
+  requestedByTeamId?: number | null;
+  requestedByTeamName?: string | null;
+  requestedMatchId?: number | null;
+  requestedMatchDate?: string | null;
 };
 
 type TeamMembersApiPlayer = {
@@ -36,10 +41,15 @@ function normalizePlayer(raw: any): TeamPlayer | null {
     teamName: (raw?.teamName ?? raw?.team_name ?? null) as string | null,
     available: typeof raw?.available === "boolean" ? raw.available : null,
     isSupplemental: typeof raw?.isSupplemental === "boolean" ? raw.isSupplemental : null,
+    unavailabilityReason: (raw?.unavailabilityReason ?? null) as string | null,
+    requestedByTeamId: typeof raw?.requestedByTeamId === "number" ? raw.requestedByTeamId : raw?.requestedByTeamId == null ? null : Number(raw.requestedByTeamId),
+    requestedByTeamName: (raw?.requestedByTeamName ?? null) as string | null,
+    requestedMatchId: typeof raw?.requestedMatchId === "number" ? raw.requestedMatchId : raw?.requestedMatchId == null ? null : Number(raw.requestedMatchId),
+    requestedMatchDate: (raw?.requestedMatchDate ?? null) as string | null,
   };
 }
 
-export function useTeamPlayers(teamId: number | null) {
+export function useTeamPlayers(teamId: number | null, matchId?: number | null) {
   const [players, setPlayers] = useState<TeamPlayer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -56,7 +66,7 @@ export function useTeamPlayers(teamId: number | null) {
       setIsLoading(true);
       try {
         const [playersRes, membersRes] = await Promise.all([
-          fetch(withApi(`/api/players?teamId=${teamId}`), { credentials: "include" }),
+          fetch(withApi(`/api/players?teamId=${teamId}${matchId ? `&matchId=${matchId}` : ""}`), { credentials: "include" }),
           fetch(withApi(`/api/teams/${teamId}/members`), { credentials: "include" }),
         ]);
 
@@ -81,6 +91,11 @@ export function useTeamPlayers(teamId: number | null) {
             position: normalized.isSupplemental ? normalized.position ?? existing?.position ?? null : existing?.position ?? normalized.position,
             jerseyNumber: existing?.jerseyNumber ?? normalized.jerseyNumber ?? null,
             available: existing?.available ?? normalized.available ?? null,
+            unavailabilityReason: existing?.unavailabilityReason ?? normalized.unavailabilityReason ?? null,
+            requestedByTeamId: existing?.requestedByTeamId ?? normalized.requestedByTeamId ?? null,
+            requestedByTeamName: existing?.requestedByTeamName ?? normalized.requestedByTeamName ?? null,
+            requestedMatchId: existing?.requestedMatchId ?? normalized.requestedMatchId ?? null,
+            requestedMatchDate: existing?.requestedMatchDate ?? normalized.requestedMatchDate ?? null,
             isSupplemental: normalized.isSupplemental ?? existing?.isSupplemental ?? null,
           });
         });
@@ -106,7 +121,7 @@ export function useTeamPlayers(teamId: number | null) {
     return () => {
       cancelled = true;
     };
-  }, [teamId]);
+  }, [teamId, matchId]);
 
   return {
     players,

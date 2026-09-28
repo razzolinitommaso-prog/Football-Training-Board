@@ -85,6 +85,41 @@ function uniqueNumericIds(value: unknown): number[] {
   )];
 }
 
+type CallupConflict = {
+  playerId: number;
+  requestedMatchId: number;
+  requestedByTeamName: string | null;
+};
+
+function rowsFromDbExecute<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  return ((result as { rows?: T[] })?.rows ?? []) as T[];
+}
+
+async function sameDayCallupConflicts(clubId: number, match: typeof matchesTable.$inferSelect, playerIds: number[]) {
+  const cleanPlayerIds = [...new Set(playerIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (cleanPlayerIds.length === 0) return [];
+
+  const result = await db.execute(sql`
+    SELECT
+      cu.player_id AS "playerId",
+      m.id AS "requestedMatchId",
+      t.name AS "requestedByTeamName"
+    FROM call_ups cu
+    INNER JOIN matches m ON m.id = cu.match_id
+    LEFT JOIN teams t ON t.id = m.team_id
+    WHERE m.club_id = ${clubId}
+      AND cu.player_id IN ${sql.raw(`(${cleanPlayerIds.join(",")})`)}
+      AND m.id <> ${match.id}
+      AND COALESCE(m.team_id, 0) <> COALESCE(${match.teamId ?? 0}, 0)
+      AND (cu.status IS NULL OR lower(cu.status) NOT IN ('declined', 'unavailable', 'absent', 'not_called'))
+      AND (m.date AT TIME ZONE 'Europe/Rome')::date = (${match.date}::timestamptz AT TIME ZONE 'Europe/Rome')::date
+    ORDER BY m.date ASC, m.id ASC
+  `);
+
+  return rowsFromDbExecute<CallupConflict>(result);
+}
+
 async function userCanManageAssignedTeamMatch(userId: number, clubId: number, role: string, teamId: number | null): Promise<boolean> {
   if (!teamId) return false;
   if (!MATCH_PLAN_EDIT_ROLES.includes(role)) return false;
@@ -283,6 +318,12 @@ router.post("/matches/:id/callups", requireAuth, async (req, res): Promise<void>
   if (!canManage) { res.status(403).json({ error: "Non autorizzato a modificare le convocazioni" }); return; }
   const [player] = await db.select({ id: playersTable.id }).from(playersTable).where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!)));
   if (!player) { res.status(400).json({ error: "Giocatore non valido per questa societa" }); return; }
+  const conflicts = await sameDayCallupConflicts(req.session.clubId!, match, [Number(playerId)]);
+  if (conflicts.length > 0) {
+    const conflict = conflicts[0];
+    res.status(409).json({ error: `Giocatore gia richiesto da ${conflict.requestedByTeamName ?? "un'altra squadra"} nello stesso giorno` });
+    return;
+  }
   const [existing] = await db.select({ id: callUpsTable.id }).from(callUpsTable).where(and(eq(callUpsTable.matchId, matchId), eq(callUpsTable.playerId, Number(playerId))));
   if (existing) {
     res.status(200).json({ id: existing.id, matchId, playerId: Number(playerId), status: status ?? "pending" });
@@ -355,6 +396,12 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
       .where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, desiredPlayerIds)));
     if (validPlayers.length !== desiredPlayerIds.length) {
       res.status(400).json({ error: "Uno o piu giocatori non appartengono a questa societa" });
+      return;
+    }
+    const conflicts = await sameDayCallupConflicts(clubId, existingMatch, desiredPlayerIds);
+    if (conflicts.length > 0) {
+      const conflict = conflicts[0];
+      res.status(409).json({ error: `Uno o piu giocatori sono gia richiesti da ${conflict.requestedByTeamName ?? "un'altra squadra"} nello stesso giorno` });
       return;
     }
   }
