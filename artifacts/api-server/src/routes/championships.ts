@@ -293,6 +293,24 @@ function scoreFromLnd(value: unknown): number | null {
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
+function normalizeLndFixtureScores(params: {
+  date: string | null;
+  homeScore: number | null;
+  awayScore: number | null;
+  outcome: string;
+}): { homeScore: number | null; awayScore: number | null } {
+  if (params.homeScore == null || params.awayScore == null) {
+    return { homeScore: null, awayScore: null };
+  }
+  const fixtureDate = params.date ? new Date(params.date) : null;
+  const isFuture = !!fixtureDate && !Number.isNaN(fixtureDate.getTime()) && fixtureDate.getTime() > Date.now();
+  const hasOfficialOutcome = params.outcome.trim().length > 0;
+  if (isFuture && !hasOfficialOutcome && params.homeScore === 0 && params.awayScore === 0) {
+    return { homeScore: null, awayScore: null };
+  }
+  return { homeScore: params.homeScore, awayScore: params.awayScore };
+}
+
 function extractLndInertiaPayload(html: string): Record<string, unknown> | null {
   const scriptMatches = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
   for (const match of scriptMatches) {
@@ -331,6 +349,13 @@ function parseLndInertiaPayload(html: string, url: URL, params: Record<string, s
     const field = readString(match, "field");
     const fieldAddress = readString(match, "fieldAddress");
     const externalId = readString(match, "id");
+    const outcome = readString(match, "outcome");
+    const scores = normalizeLndFixtureScores({
+      date,
+      homeScore: scoreFromLnd(match.homeGoals),
+      awayScore: scoreFromLnd(match.awayGoals),
+      outcome,
+    });
     return {
       externalKey: externalId ? `lnd|match|${externalId}` : fixtureSourceKey({ sourceParams, round, leg, homeTeam, awayTeam, date }),
       round: Number.isInteger(round) ? round : null,
@@ -339,9 +364,9 @@ function parseLndInertiaPayload(html: string, url: URL, params: Record<string, s
       awayTeam,
       date,
       location: [field, fieldAddress].filter(Boolean).join(" - ") || null,
-      homeScore: scoreFromLnd(match.homeGoals),
-      awayScore: scoreFromLnd(match.awayGoals),
-      notes: readString(match, "outcome") || null,
+      homeScore: scores.homeScore,
+      awayScore: scores.awayScore,
+      notes: outcome || null,
     } satisfies LndFixtureRow;
   }).filter((fixture) => fixture.homeTeam && fixture.awayTeam));
   const standings = standingsRows.map((row) => {
@@ -655,6 +680,11 @@ function normalizedStandingRows(value: unknown): StandingRow[] {
 
 function mergeOfficialStandingsWithGoals(officialStandings: StandingRow[], calculatedStandings: StandingRow[]) {
   if (officialStandings.length === 0) return calculatedStandings;
+  const officialMaxPlayed = Math.max(...officialStandings.map((row) => row.pg), 0);
+  const calculatedMaxPlayed = Math.max(...calculatedStandings.map((row) => row.pg), 0);
+  const officialTeams = new Set(officialStandings.map((row) => tableKey(row.team)));
+  const missingCalculatedTeams = calculatedStandings.some((row) => !officialTeams.has(tableKey(row.team)));
+  if (calculatedMaxPlayed > officialMaxPlayed || missingCalculatedTeams) return calculatedStandings;
   const calculatedByTeam = new Map(calculatedStandings.map((row) => [tableKey(row.team), row]));
   return officialStandings.map((row) => {
     const calculated = calculatedByTeam.get(tableKey(row.team));
