@@ -34,12 +34,27 @@ const zRegisteredCheckbox = z.preprocess((v) => {
   return v;
 }, z.boolean().optional());
 
+const zNullableNumberInput = z.preprocess((v) => {
+  if (v === "") return null;
+  return v;
+}, z.coerce.number().optional().nullable());
+
+const zNullableSquadInput = z.preprocess((v) => {
+  if (v === "") return null;
+  return v;
+}, z.enum(["A", "B", "C", "D"]).optional().nullable());
+
+const zNullableLineupStatusInput = z.preprocess((v) => {
+  if (v === "") return null;
+  return v;
+}, z.enum(["starter", "reserve"]).optional().nullable());
+
 const playerSchema = z.object({
   firstName: z.string().min(2, "Required"),
   lastName: z.string().min(2, "Required"),
-  teamId: z.coerce.number().optional().nullable(),
+  teamId: zNullableNumberInput,
   position: z.string().optional(),
-  jerseyNumber: z.coerce.number().optional().nullable(),
+  jerseyNumber: zNullableNumberInput,
   status: z.string().default("active"),
   dateOfBirth: z.string().optional(),
   phone: z.string().optional(),
@@ -75,9 +90,9 @@ const playerSchema = z.object({
 const editSchema = z.object({
   firstName: z.string().min(2, "Required"),
   lastName: z.string().min(2, "Required"),
-  teamId: z.coerce.number().optional().nullable(),
+  teamId: zNullableNumberInput,
   position: z.string().optional(),
-  jerseyNumber: z.coerce.number().optional().nullable(),
+  jerseyNumber: zNullableNumberInput,
   status: z.string().optional(),
   dateOfBirth: z.string().optional(),
   phone: z.string().optional(),
@@ -109,8 +124,8 @@ const editSchema = z.object({
   shuttleRoute: z.string().optional().nullable(),
   shuttleDirection: z.string().optional().nullable(),
   nationality: z.string().optional(),
-  height: z.coerce.number().optional().nullable(),
-  weight: z.coerce.number().optional().nullable(),
+  height: zNullableNumberInput,
+  weight: zNullableNumberInput,
   notes: z.string().optional(),
   available: z.boolean().optional(),
   unavailabilityReason: z.string().optional(),
@@ -119,14 +134,14 @@ const editSchema = z.object({
   availabilityOverrideFrom: z.string().optional().nullable(),
   availabilityOverrideUntil: z.string().optional().nullable(),
   availabilityOverrideReason: z.string().optional().nullable(),
-  squad: z.enum(["A", "B", "C", "D"]).optional().nullable(),
-  supplementalSquad: z.enum(["A", "B", "C", "D"]).optional().nullable(),
+  squad: zNullableSquadInput,
+  supplementalSquad: zNullableSquadInput,
   imageUrl: z.string().optional().nullable(),
-  supplementalTeamId: z.coerce.number().optional().nullable(),
+  supplementalTeamId: zNullableNumberInput,
   primarySpecificRole: z.string().optional().nullable(),
-  primaryLineupStatus: z.enum(["starter", "reserve"]).optional().nullable(),
+  primaryLineupStatus: zNullableLineupStatusInput,
   supplementalSpecificRole: z.string().optional().nullable(),
-  supplementalLineupStatus: z.enum(["starter", "reserve"]).optional().nullable(),
+  supplementalLineupStatus: zNullableLineupStatusInput,
 });
 
 type EditForm = z.infer<typeof editSchema>;
@@ -2826,6 +2841,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
   };
 
+  const handleEditInvalid = () => {
+    toast({
+      title: "Scheda non salvata",
+      description: "Controlla i campi della scheda: alcuni dati non sono in un formato valido.",
+      variant: "destructive",
+    });
+  };
+
   const activeFilterCount = [
     positionFilter !== "all",
     availabilityFilter !== "all",
@@ -3298,7 +3321,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           </DialogHeader>
           {editingPlayer && (
             playerDialogMode === "view" ? (
-            <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
+            <form onSubmit={editForm.handleSubmit(handleEditSubmit, handleEditInvalid)} className="space-y-4 pt-2">
               <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center">
                 {editForm.watch("imageUrl") ? (
                   <img src={editForm.watch("imageUrl") ?? ""} alt="Giocatore" className="h-32 w-32 shrink-0 rounded-lg border bg-background object-cover shadow-sm sm:h-36 sm:w-36" />
@@ -3542,7 +3565,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               </DialogFooter>
             </form>
             ) : (
-            <form onSubmit={editForm.handleSubmit(handleEditSubmit)} className="space-y-4 pt-2">
+            <form onSubmit={editForm.handleSubmit(handleEditSubmit, handleEditInvalid)} className="space-y-4 pt-2">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_1fr]">
                 <div className="space-y-2">
                   <Label>Immagine giocatore</Label>
