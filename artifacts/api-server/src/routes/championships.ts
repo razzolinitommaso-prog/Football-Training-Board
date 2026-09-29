@@ -699,13 +699,15 @@ function mergeOfficialStandingsWithGoals(officialStandings: StandingRow[], calcu
   return officialStandings.map((row) => {
     const calculated = calculatedByTeam.get(tableKey(row.team));
     const hasOfficialGoals = row.gf !== 0 || row.gs !== 0;
+    const gf = hasOfficialGoals ? row.gf : (calculated?.gf ?? row.gf);
+    const gs = hasOfficialGoals ? row.gs : (calculated?.gs ?? row.gs);
     return {
       ...row,
-      gf: hasOfficialGoals ? row.gf : (calculated?.gf ?? row.gf),
-      gs: hasOfficialGoals ? row.gs : (calculated?.gs ?? row.gs),
-      dr: Number.isFinite(Number(row.dr)) ? row.dr : ((calculated?.gf ?? row.gf) - (calculated?.gs ?? row.gs)),
+      gf,
+      gs,
+      dr: gf - gs,
     };
-  });
+  }).sort((a, b) => b.pts - a.pts || b.dr - a.dr || b.gf - a.gf || a.pg - b.pg || a.team.localeCompare(b.team, "it"));
 }
 
 async function teamBelongsToClub(teamId: number | null, clubId: number): Promise<boolean> {

@@ -330,7 +330,7 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
 
   return (
     <>
-      <div className="space-y-2 md:hidden">
+      <div className="space-y-2 lg:hidden">
         {standings.map((row, index) => {
           const clubRow = isClubTeam(row.team);
           return (
@@ -376,7 +376,7 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
         })}
       </div>
 
-      <div className="hidden overflow-auto md:block">
+      <div className="hidden overflow-auto lg:block">
         <table className="w-full min-w-[600px] text-sm">
         <thead>
           <tr className="border-b text-xs uppercase text-muted-foreground">
