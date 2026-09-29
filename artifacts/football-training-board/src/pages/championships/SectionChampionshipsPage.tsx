@@ -327,53 +327,49 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
   if (standings.length === 0) {
     return <p className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">Classifica non ancora disponibile.</p>;
   }
+  const sortedStandings = [...standings].sort((a, b) => b.pts - a.pts || b.dr - a.dr || b.gf - a.gf || a.pg - b.pg || a.team.localeCompare(b.team, "it"));
 
   return (
     <>
-      <div className="space-y-2 lg:hidden">
-        {standings.map((row, index) => {
+      <div className="lg:hidden">
+        <div className="grid grid-cols-[minmax(0,1fr)_repeat(7,2rem)] items-center border-b pb-2 text-[11px] font-semibold uppercase text-muted-foreground">
+          <span className="pl-1">Squadra</span>
+          <span className="text-center">PG</span>
+          <span className="text-center">V</span>
+          <span className="text-center">N</span>
+          <span className="text-center">S</span>
+          <span className="text-center">GF</span>
+          <span className="text-center">GS</span>
+          <span className="text-center">PT</span>
+        </div>
+        <div className="divide-y">
+        {sortedStandings.map((row, index) => {
           const clubRow = isClubTeam(row.team);
           return (
             <div
               key={row.team}
               className={cn(
-                "rounded-md border bg-background px-3 py-3",
-                clubRow && "border-emerald-200 bg-emerald-500/5 text-emerald-900 dark:border-emerald-900 dark:text-emerald-100",
+                "grid grid-cols-[minmax(0,1fr)_repeat(7,2rem)] items-center py-3 text-sm",
+                clubRow && "bg-emerald-500/5 text-emerald-900 dark:text-emerald-100",
               )}
             >
-              <div className="flex items-start gap-3">
-                <span className="w-6 shrink-0 pt-0.5 text-sm tabular-nums text-muted-foreground">{index + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <p className={cn("truncate font-semibold", clubRow && "text-emerald-700 dark:text-emerald-300")}>{row.team}</p>
-                  <div className="mt-2 grid grid-cols-6 gap-1 text-center text-[11px] uppercase text-muted-foreground">
-                    <span>PG</span>
-                    <span>V</span>
-                    <span>N</span>
-                    <span>S</span>
-                    <span>GF</span>
-                    <span>GS</span>
-                  </div>
-                  <div className="mt-1 grid grid-cols-6 gap-1 text-center text-sm font-medium tabular-nums">
-                    <span>{row.pg}</span>
-                    <span>{row.v}</span>
-                    <span>{row.n}</span>
-                    <span>{row.p}</span>
-                    <span>{row.gf}</span>
-                    <span>{row.gs}</span>
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-lg font-bold tabular-nums">{row.pts}</p>
-                  <p className="text-[11px] uppercase text-muted-foreground">pt</p>
-                  <p className={cn("mt-2 text-sm font-semibold tabular-nums", row.dr > 0 && "text-emerald-600", row.dr < 0 && "text-rose-600")}>
-                    {row.dr > 0 ? `+${row.dr}` : row.dr}
-                  </p>
-                  <p className="text-[11px] uppercase text-muted-foreground">DR</p>
+              <div className="min-w-0 pr-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{index + 1}</span>
+                  <span className={cn("truncate font-semibold", clubRow && "text-emerald-700 dark:text-emerald-300")}>{row.team}</span>
                 </div>
               </div>
+              <span className="text-center tabular-nums">{row.pg}</span>
+              <span className="text-center tabular-nums">{row.v}</span>
+              <span className="text-center tabular-nums">{row.n}</span>
+              <span className="text-center tabular-nums">{row.p}</span>
+              <span className="text-center tabular-nums">{row.gf}</span>
+              <span className="text-center tabular-nums">{row.gs}</span>
+              <span className="text-center font-bold tabular-nums">{row.pts}</span>
             </div>
           );
         })}
+        </div>
       </div>
 
       <div className="hidden overflow-auto lg:block">
@@ -393,7 +389,7 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
           </tr>
         </thead>
         <tbody>
-          {standings.map((row, index) => {
+          {sortedStandings.map((row, index) => {
             const clubRow = isClubTeam(row.team);
             return (
               <tr key={row.team} className={cn("border-b last:border-b-0", clubRow && "bg-emerald-500/5")}>
