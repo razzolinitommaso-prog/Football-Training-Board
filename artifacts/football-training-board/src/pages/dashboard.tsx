@@ -2786,7 +2786,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
               description="gare andata/ritorno"
               icon={Trophy}
               tone="amber"
-              onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/matches`)}
+              onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/campionati`)}
             />
             <DashboardMatchSummaryCard
               title="Classifica girone"
@@ -2794,7 +2794,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
               description="risultati e graduatoria"
               icon={BarChart3}
               tone="pink"
-              onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/matches`)}
+              onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/campionati`)}
             />
           </>
         )}
