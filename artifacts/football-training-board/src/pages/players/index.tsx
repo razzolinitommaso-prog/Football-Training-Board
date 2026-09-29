@@ -2957,9 +2957,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
             </Button>
           </DialogTrigger>
           )}
-          <DialogContent className="sm:max-w-[540px]">
+          <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[540px] flex-col overflow-hidden p-0 sm:w-[calc(100vw-2rem)]">
             <DialogHeader>
-              <DialogTitle>{t.addNewPlayer}</DialogTitle>
+              <DialogTitle className="px-6 pt-6">{t.addNewPlayer}</DialogTitle>
             </DialogHeader>
             <form onSubmit={form.handleSubmit((data) => {
               const registered = data.registered === true;
@@ -2993,8 +2993,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 payload.expectedReturn = null;
               }
               createMutation.mutate({ data: payload as any });
-            })} className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-4">
+            })} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-6 py-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="firstName">{t.firstName} <span className="text-destructive">*</span></Label>
                   <Input id="firstName" {...form.register("firstName")} />
@@ -3019,7 +3020,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 Scambia nome/cognome
               </Button>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="dateOfBirth">{t.dateOfBirth}</Label>
                   <Input id="dateOfBirth" type="date" {...form.register("dateOfBirth")} />
@@ -3040,7 +3041,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="jerseyNumber">{t.jerseyNumber}</Label>
                   <Input id="jerseyNumber" type="number" {...form.register("jerseyNumber")} />
@@ -3171,7 +3172,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="registrationNumber">{t.registrationNumber}</Label>
                   <Input id="registrationNumber" {...form.register("registrationNumber")} />
@@ -3238,7 +3239,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 )}
               </div>
 
-              <DialogFooter className="pt-4">
+              </div>
+
+              <DialogFooter className="border-t bg-background px-6 py-4">
                 <Button type="submit" disabled={createMutation.isPending} className="w-full sm:w-auto">
                   {createMutation.isPending ? t.saving : t.savePlayer}
                 </Button>
