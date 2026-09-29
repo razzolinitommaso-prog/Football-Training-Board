@@ -13,7 +13,17 @@ import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
 
-const MANAGE_ROLES = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"];
+const MANAGE_ROLES = [
+  "admin",
+  "presidente",
+  "director",
+  "secretary",
+  "sporting_director",
+  "technical_director",
+  "coach",
+  "fitness_coach",
+  "athletic_director",
+];
 const SECTION_VALUES = new Set(["scuola_calcio", "settore_giovanile", "prima_squadra"]);
 const LEG_VALUES = new Set(["andata", "ritorno"]);
 const DEFAULT_POINTS_RULE: ChampionshipPointsRule = { win: 3, draw: 1, loss: 0 };
