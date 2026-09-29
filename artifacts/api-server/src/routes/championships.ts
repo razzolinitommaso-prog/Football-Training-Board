@@ -311,6 +311,18 @@ function normalizeLndFixtureScores(params: {
   return { homeScore: params.homeScore, awayScore: params.awayScore };
 }
 
+function isFuturePlaceholderDraw(fixture: {
+  date: Date | string | null;
+  homeScore: number | null;
+  awayScore: number | null;
+  notes?: string | null;
+}) {
+  if (fixture.homeScore !== 0 || fixture.awayScore !== 0) return false;
+  const date = fixture.date ? new Date(fixture.date) : null;
+  const isFuture = !!date && !Number.isNaN(date.getTime()) && date.getTime() > Date.now();
+  return isFuture && !String(fixture.notes ?? "").trim();
+}
+
 function extractLndInertiaPayload(html: string): Record<string, unknown> | null {
   const scriptMatches = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
   for (const match of scriptMatches) {
@@ -680,11 +692,9 @@ function normalizedStandingRows(value: unknown): StandingRow[] {
 
 function mergeOfficialStandingsWithGoals(officialStandings: StandingRow[], calculatedStandings: StandingRow[]) {
   if (officialStandings.length === 0) return calculatedStandings;
-  const officialMaxPlayed = Math.max(...officialStandings.map((row) => row.pg), 0);
-  const calculatedMaxPlayed = Math.max(...calculatedStandings.map((row) => row.pg), 0);
   const officialTeams = new Set(officialStandings.map((row) => tableKey(row.team)));
   const missingCalculatedTeams = calculatedStandings.some((row) => !officialTeams.has(tableKey(row.team)));
-  if (calculatedMaxPlayed > officialMaxPlayed || missingCalculatedTeams) return calculatedStandings;
+  if (missingCalculatedTeams) return calculatedStandings;
   const calculatedByTeam = new Map(calculatedStandings.map((row) => [tableKey(row.team), row]));
   return officialStandings.map((row) => {
     const calculated = calculatedByTeam.get(tableKey(row.team));
@@ -928,6 +938,10 @@ router.post("/championships/lnd/sync", requireAuth, async (req, res): Promise<vo
         updatedAt: new Date(),
       };
       if (current) {
+        if (isFuturePlaceholderDraw({ ...current, notes: current.notes ?? null }) && fixture.homeScore == null && fixture.awayScore == null) {
+          values.homeScore = null;
+          values.awayScore = null;
+        }
         await db
           .update(championshipFixturesTable)
           .set(values)
