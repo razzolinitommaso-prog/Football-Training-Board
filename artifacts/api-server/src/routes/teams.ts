@@ -18,8 +18,23 @@ import { requireClubAndUserIds } from "../lib/session-context";
 
 /** Solo questi ruoli vedono le squadre limitate alle assegnazioni. Il direttore tecnico ha panoramica su tutto il club. */
 const TEAM_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
+const TEAM_MANAGE_ROLES_NORM = new Set(["admin", "presidente", "director", "secretary", "sporting_director"]);
+const TEAM_SCHEDULE_ROLES_NORM = new Set(["admin", "director", "secretary", "coach"]);
 
 const router: IRouter = Router();
+
+function canManageTeams(req: Request) {
+  return TEAM_MANAGE_ROLES_NORM.has(normalizeSessionRole(req.session.role ?? ""));
+}
+
+function canEditTeamSchedule(req: Request) {
+  return TEAM_SCHEDULE_ROLES_NORM.has(normalizeSessionRole(req.session.role ?? ""));
+}
+
+function isScheduleOnlyUpdate(payload: Record<string, unknown>) {
+  const keys = Object.keys(payload);
+  return keys.length === 1 && keys[0] === "trainingSchedule";
+}
 
 function teamPayloadForSession<T extends object>(payload: T, req: Request): T & { clubSection?: string } {
   const role = normalizeSessionRole(req.session.role ?? "");
@@ -249,6 +264,11 @@ router.get("/teams/my-team", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/teams", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageTeams(req)) {
+    res.status(403).json({ error: "Non autorizzato a creare squadre" });
+    return;
+  }
+
   const limitCheck = await assertCanCreateWithinPlan(req.session.clubId!, "teams");
   if (!limitCheck.ok) {
     res.status(limitCheck.status).json(limitCheck.body);
@@ -345,6 +365,10 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
   }
 
   const teamData = teamPayloadForSession(parsed.data, req);
+  if (!canManageTeams(req) && !(canEditTeamSchedule(req) && isScheduleOnlyUpdate(teamData))) {
+    res.status(403).json({ error: "Non autorizzato a modificare squadre" });
+    return;
+  }
 
   const [team] = await db
     .update(teamsTable)
@@ -460,6 +484,11 @@ router.get("/teams/:id/members", requireAuth, async (req, res): Promise<void> =>
 });
 
 router.delete("/teams/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canManageTeams(req)) {
+    res.status(403).json({ error: "Non autorizzato a eliminare squadre" });
+    return;
+  }
+
   const params = DeleteTeamParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });

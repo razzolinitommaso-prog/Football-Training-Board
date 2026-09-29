@@ -269,8 +269,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
   const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
   const canEditSchedule = nr === "admin" || nr === "coach" || nr === "director" || nr === "secretary";
-  const canEditTeam = nr === "admin" || nr === "director" || nr === "secretary";
-  const canChooseTeamSection = !effectiveSection && (nr === "admin" || nr === "director" || nr === "presidente");
+  const canEditTeam = nr === "admin" || nr === "presidente" || nr === "director" || nr === "secretary" || nr === "sporting_director";
+  const canChooseTeamSection = !effectiveSection && canEditTeam;
   const teams = effectiveSection ? allTeams.filter((t) => t.clubSection === effectiveSection) : allTeams;
 
   const handleExportTeams = () => {
@@ -571,7 +571,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {canExport && (
+            {canEditTeam && (
               <>
                 <ImportExcelDialog
                   label="Importa"
@@ -672,19 +672,22 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                     queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
                   }}
                 />
-                <Button variant="outline" onClick={handleExportTeams} disabled={!teams?.length} className="gap-2">
-                  <FileDown className="w-4 h-4" />
-                  Esporta
-                </Button>
               </>
             )}
-            <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-            <DialogTrigger asChild>
-              <Button className="shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all">
-                <Plus className="w-5 h-5 mr-2" />
-                {t.addTeam}
+            {canExport && (
+              <Button variant="outline" onClick={handleExportTeams} disabled={!teams?.length} className="gap-2">
+                <FileDown className="w-4 h-4" />
+                Esporta
               </Button>
-            </DialogTrigger>
+            )}
+            {canEditTeam && (
+              <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+                <DialogTrigger asChild>
+                  <Button className="shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all">
+                    <Plus className="w-5 h-5 mr-2" />
+                    {t.addTeam}
+                  </Button>
+                </DialogTrigger>
           <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{t.createNewTeam}</DialogTitle>
@@ -825,7 +828,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               </DialogFooter>
             </form>
           </DialogContent>
-        </Dialog>
+              </Dialog>
+            )}
         </div>
       </div>
 
