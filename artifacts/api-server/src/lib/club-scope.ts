@@ -6,8 +6,8 @@ import { clubMembershipsTable, db } from "@workspace/db";
  * Ruoli che devono vedere squadre/giocatori/sessioni/statistiche a livello di tutto il club,
  * senza restringere implicitamente a req.session.section (che spesso è vuota o non allineata alle squadre).
  */
-export const CLUB_WIDE_LIST_ROLES = new Set<string>(["technical_director", "director"]);
-export const CLUB_WIDE_SECTION_ROLES = new Set<string>(["admin", "presidente", "director", "technical_director"]);
+export const CLUB_WIDE_LIST_ROLES = new Set<string>(["admin", "presidente", "director", "sporting_director", "technical_director", "secretary"]);
+export const CLUB_WIDE_SECTION_ROLES = new Set<string>(["admin", "presidente", "director", "sporting_director", "technical_director", "secretary"]);
 
 /** Normalizza il ruolo in sessione (trim, lower case, spazi/trattini → _) per confronti stabili con PG/connect-pg-simple. */
 export function normalizeSessionRole(role: unknown): string {
@@ -23,6 +23,7 @@ const VIEW_ALL_CLUB_TRAINING_SESSIONS = new Set([
   "admin",
   "presidente",
   "director",
+  "sporting_director",
   "technical_director",
   "secretary",
 ]);

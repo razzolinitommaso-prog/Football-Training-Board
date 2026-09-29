@@ -59,6 +59,8 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
   if (reason === "illness") return t.illness;
   if (reason === "injury") return t.injuryReason;
   if (reason === "vacation") return t.vacationReason;
+  if (reason === "suspended") return "Sospeso";
+  if (reason === "pending_transfer") return "In attesa di trasferimento";
   if (reason === "other") return t.otherReason;
   return reason || "—";
 }
@@ -423,6 +425,14 @@ export default function TeamDetail() {
     if (payload.status === "injured") {
       payload.available = false;
       payload.unavailabilityReason = "injury";
+    }
+    if (payload.status === "suspended") {
+      payload.available = false;
+      payload.unavailabilityReason = "suspended";
+    }
+    if (payload.status === "pending_transfer") {
+      payload.available = false;
+      payload.unavailabilityReason = "pending_transfer";
     }
     if (payload.available) {
       payload.unavailabilityReason = null;
@@ -897,6 +907,8 @@ export default function TeamDetail() {
                     <SelectContent>
                       <SelectItem value="active">{t.active}</SelectItem>
                       <SelectItem value="injured">{t.injured}</SelectItem>
+                      <SelectItem value="suspended">Sospeso</SelectItem>
+                      <SelectItem value="pending_transfer">In attesa trasferimento</SelectItem>
                       <SelectItem value="inactive">{t.inactive}</SelectItem>
                     </SelectContent>
                   </Select>
@@ -1037,6 +1049,8 @@ export default function TeamDetail() {
                             <SelectItem value="illness">{t.illness}</SelectItem>
                             <SelectItem value="injury">{t.injuryReason}</SelectItem>
                             <SelectItem value="vacation">{t.vacationReason}</SelectItem>
+                            <SelectItem value="suspended">Sospeso</SelectItem>
+                            <SelectItem value="pending_transfer">In attesa di trasferimento</SelectItem>
                             <SelectItem value="other">{t.otherReason}</SelectItem>
                           </SelectContent>
                         </Select>

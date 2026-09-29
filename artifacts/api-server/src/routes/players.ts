@@ -481,6 +481,20 @@ function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?
     data.expectedReturn = null;
     return;
   }
+  if (incomingStatus === "suspended") {
+    data.status = "suspended";
+    data.available = false;
+    data.unavailabilityReason = "suspended";
+    data.expectedReturn = null;
+    return;
+  }
+  if (incomingStatus === "pending_transfer") {
+    data.status = "pending_transfer";
+    data.available = false;
+    data.unavailabilityReason = "pending_transfer";
+    data.expectedReturn = null;
+    return;
+  }
 
   const hasRequirements = registered && hasValidMedicalCertificate(certificate);
   if (hasRequirements) {
@@ -1008,6 +1022,14 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   if (updateData.status === "injured") {
     updateData.available = false;
     if (!updateData.unavailabilityReason) updateData.unavailabilityReason = "injury";
+  }
+  if (updateData.status === "suspended") {
+    updateData.available = false;
+    updateData.unavailabilityReason = "suspended";
+  }
+  if (updateData.status === "pending_transfer") {
+    updateData.available = false;
+    updateData.unavailabilityReason = "pending_transfer";
   }
   if (updateData.available === true) {
     updateData.unavailabilityReason = null;

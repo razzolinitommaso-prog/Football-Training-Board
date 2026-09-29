@@ -1067,6 +1067,8 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
   if (reason === "injury") return t.injuryReason;
   if (reason === "vacation") return t.vacationReason;
   if (reason === "payment") return "Autorizzazione societaria";
+  if (reason === "suspended") return "Sospeso";
+  if (reason === "pending_transfer") return "In attesa di trasferimento";
   if (reason === "other") return t.otherReason;
   return reason || "—";
 }
@@ -2735,6 +2737,14 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       payload.available = false;
       payload.unavailabilityReason = "injury";
     }
+    if (payload.status === "suspended") {
+      payload.available = false;
+      payload.unavailabilityReason = "suspended";
+    }
+    if (payload.status === "pending_transfer") {
+      payload.available = false;
+      payload.unavailabilityReason = "pending_transfer";
+    }
     if (availabilityOverrideEnabled) {
       payload.available = true;
       payload.unavailabilityReason = null;
@@ -2838,6 +2848,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     if (status === "active") return t.active;
     if (status === "injured") return t.injured;
     if (status === "inactive") return t.inactive;
+    if (status === "suspended") return "Sospeso";
+    if (status === "pending_transfer") return "In attesa trasferimento";
     return status;
   };
   const playerHealthTone = (player: Player): "green" | "orange" | "red" => {
@@ -4242,6 +4254,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                             <SelectContent>
                               <SelectItem value="active">{t.active}</SelectItem>
                               <SelectItem value="injured">{t.injured}</SelectItem>
+                              <SelectItem value="suspended">Sospeso</SelectItem>
+                              <SelectItem value="pending_transfer">In attesa trasferimento</SelectItem>
                               <SelectItem value="inactive">{t.inactive}</SelectItem>
                             </SelectContent>
                           </Select>
@@ -4849,6 +4863,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <SelectContent>
                         <SelectItem value="active">{t.active}</SelectItem>
                         <SelectItem value="injured">{t.injured}</SelectItem>
+                        <SelectItem value="suspended">Sospeso</SelectItem>
+                        <SelectItem value="pending_transfer">In attesa trasferimento</SelectItem>
                         <SelectItem value="inactive">{t.inactive}</SelectItem>
                       </SelectContent>
                     </Select>
@@ -5065,6 +5081,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                               <SelectItem value="illness">{t.illness}</SelectItem>
                               <SelectItem value="injury">{t.injuryReason}</SelectItem>
                               <SelectItem value="vacation">{t.vacationReason}</SelectItem>
+                              <SelectItem value="suspended">Sospeso</SelectItem>
+                              <SelectItem value="pending_transfer">In attesa di trasferimento</SelectItem>
                               <SelectItem value="other">{t.otherReason}</SelectItem>
                             </SelectContent>
                           </Select>

@@ -4,7 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
-const ATTENDANCE_MANAGE_ALL_ROLES = ["admin", "presidente", "director", "technical_director", "secretary"];
+const ATTENDANCE_MANAGE_ALL_ROLES = ["admin", "presidente", "director", "sporting_director", "technical_director", "secretary"];
 const ATTENDANCE_TEAM_ROLES = ["coach", "fitness_coach", "athletic_director"];
 type PlayerAvailabilityOverrideFields = {
   availabilityOverrideActive?: boolean | null;

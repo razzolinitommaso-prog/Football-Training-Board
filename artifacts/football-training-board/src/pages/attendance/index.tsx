@@ -29,6 +29,7 @@ interface Player {
   lastName: string;
   teamId?: number | null;
   teamName?: string | null;
+  status?: string | null;
   available?: boolean | null;
   unavailabilityReason?: string | null;
   availabilityOverrideActive?: boolean | null;
@@ -104,6 +105,9 @@ function composeAttendanceNotes(existingNotes: string | null | undefined, meta: 
 function reasonLabel(reason?: string | null) {
   if (reason === "payment") return "pagamenti non in regola";
   if (reason === "injury") return "infortunio";
+  if (reason === "suspended") return "sospeso";
+  if (reason === "pending_transfer") return "in attesa di trasferimento";
+  if (reason === "requested_by_other_team") return "richiesto da altra squadra";
   if (reason === "other") return "certificato/tesseramento da verificare";
   return "non disponibile";
 }
@@ -501,6 +505,12 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
               </div>
             ) : null}
 
+            {(annataScope || annataOptions.length <= 1) && teamOptions.length === 0 && (
+              <div className="rounded-md border border-dashed bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+                Nessuna seduta di allenamento trovata per questa annata.
+              </div>
+            )}
+
             {teamScope && (
               <>
                 <div className="grid gap-2 sm:grid-cols-[1fr_220px]">
@@ -646,7 +656,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                           <span className="font-medium">{player.lastName} {player.firstName}</span>
                           {blocked && (
                             <p className="text-xs font-medium text-red-700">
-                              Non disponibile: {reasonLabel(player.unavailabilityReason)}
+                              Non disponibile: {reasonLabel(player.unavailabilityReason || player.status)}
                             </p>
                           )}
                         </div>
