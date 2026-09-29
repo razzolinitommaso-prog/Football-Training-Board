@@ -1079,6 +1079,26 @@ type TeamWithSeason = Team & {
   [key: string]: unknown;
 };
 
+type TeamStaffAssignmentLite = {
+  userId?: number | null;
+  role?: string | null;
+  staffRole?: string | null;
+};
+
+function staffRoleForSection(raw: string | null | undefined, section: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { bySection?: Record<string, string> };
+    if (parsed?.bySection && typeof parsed.bySection === "object") {
+      if (section && parsed.bySection[section]) return parsed.bySection[section];
+      return Object.values(parsed.bySection)[0] ?? null;
+    }
+  } catch {
+    return raw;
+  }
+  return raw;
+}
+
 type ClubSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 
 interface PlayersListProps {
@@ -1464,6 +1484,23 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [isSavingParentDelegates, setIsSavingParentDelegates] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const editingPlayerTeamForPermissions = editingPlayer?.teamId
+    ? (teams as TeamWithSeason[] | undefined)?.find((team) => Number(team.id) === Number(editingPlayer.teamId))
+    : undefined;
+  const editingPlayerTeamStaff = (((editingPlayerTeamForPermissions as Record<string, unknown> | undefined)?.assignedStaff ?? []) as TeamStaffAssignmentLite[]);
+  const canPrimaryCoachEditRole =
+    playerDialogMode === "edit" &&
+    nr === "coach" &&
+    !!user?.id &&
+    !!editingPlayerTeamForPermissions &&
+    (
+      Number((editingPlayerTeamForPermissions as Record<string, unknown>).coachId ?? 0) === Number(user.id) ||
+      editingPlayerTeamStaff.some((staff) =>
+        Number(staff.userId ?? 0) === Number(user.id) &&
+        staff.role === "coach" &&
+        staffRoleForSection(staff.staffRole, String((editingPlayerTeamForPermissions as Record<string, unknown>).clubSection ?? "")) === "primo_allenatore"
+      )
+    );
   const canManagePlayers = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"].includes(nr);
   const canDeletePlayer = canManagePlayers;
   const canWritePlayerNotes = ["admin", "presidente", "director", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(nr);
@@ -1475,6 +1512,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const canEditAvailability = (canManagePlayers || canEditSportAvailability) && playerDialogMode === "edit";
   const canForceAvailability = ["admin", "presidente", "director", "secretary"].includes(nr) && playerDialogMode === "edit";
   const canEditRoleAndSquad = canManagePlayers && playerDialogMode === "edit";
+  const canEditPlayerRole = (canManagePlayers || canPrimaryCoachEditRole) && playerDialogMode === "edit";
   const canUploadPlayerImage = canManagePlayers && playerDialogMode === "edit";
   const canEditSupplementalTeam = canManagePlayers && playerDialogMode === "edit";
   const canExport = nr === "admin" || nr === "secretary" || nr === "director" || nr === "technical_director";
@@ -3621,7 +3659,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       control={editForm.control}
                       name="position"
                       render={({ field }) => (
-                        <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditRoleAndSquad}>
+                        <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditPlayerRole}>
                           <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="GK">{t.goalkeeper}</SelectItem>
@@ -4145,7 +4183,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           control={editForm.control}
                           name="primarySpecificRole"
                           render={({ field }) => (
-                            <SpecificRoleSelect value={field.value} onChange={field.onChange} disabled={!canEditRoleAndSquad} />
+                            <SpecificRoleSelect value={field.value} onChange={field.onChange} disabled={!canEditPlayerRole} />
                           )}
                         />
                       </div>
@@ -4158,7 +4196,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                             <LineupStatusSelect
                               value={field.value}
                               onChange={field.onChange}
-                              disabled={!canEditRoleAndSquad || !editingPlayerIsYouthSection}
+                              disabled={!canEditPlayerRole || !editingPlayerIsYouthSection}
                             />
                           )}
                         />
@@ -4839,7 +4877,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                     control={editForm.control}
                     name="position"
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditRoleAndSquad}>
+                      <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditPlayerRole}>
                         <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="GK">{t.goalkeeper}</SelectItem>

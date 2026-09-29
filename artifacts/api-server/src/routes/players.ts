@@ -314,6 +314,48 @@ async function getAssignedTeamIds(userId: number, clubId: number): Promise<numbe
   ]));
 }
 
+function staffRoleForSection(raw: string | null | undefined, section: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { bySection?: Record<string, string> };
+    if (parsed?.bySection && typeof parsed.bySection === "object") {
+      if (section && parsed.bySection[section]) return parsed.bySection[section];
+      return Object.values(parsed.bySection)[0] ?? null;
+    }
+  } catch {
+    return raw;
+  }
+  return raw;
+}
+
+async function userIsPrimaryCoachForPlayer(player: typeof playersTable.$inferSelect, userId: number, clubId: number): Promise<boolean> {
+  if (!player.teamId) return false;
+  const [team] = await db
+    .select({ id: teamsTable.id, coachId: teamsTable.coachId, clubSection: teamsTable.clubSection })
+    .from(teamsTable)
+    .where(and(eq(teamsTable.id, player.teamId), eq(teamsTable.clubId, clubId)))
+    .limit(1);
+  if (!team) return false;
+  if (team.coachId === userId) return true;
+  const [assignment] = await db
+    .select({ role: teamStaffAssignmentsTable.role, staffRole: clubMembershipsTable.staffRole })
+    .from(teamStaffAssignmentsTable)
+    .leftJoin(
+      clubMembershipsTable,
+      and(
+        eq(clubMembershipsTable.userId, teamStaffAssignmentsTable.userId),
+        eq(clubMembershipsTable.clubId, teamStaffAssignmentsTable.clubId),
+      ),
+    )
+    .where(and(
+      eq(teamStaffAssignmentsTable.userId, userId),
+      eq(teamStaffAssignmentsTable.clubId, clubId),
+      eq(teamStaffAssignmentsTable.teamId, team.id),
+    ))
+    .limit(1);
+  return assignment?.role === "coach" && staffRoleForSection(assignment.staffRole, team.clubSection) === "primo_allenatore";
+}
+
 function stripMetaFromNotes(raw?: string | null): string {
   const full = String(raw ?? "").trim();
   if (!full.startsWith(PLAYER_META_MARKER)) return full;
@@ -945,7 +987,13 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     "supplementalLineupStatus",
   ];
   const hasIncomingMeta = incomingMetaKeys.some((key) => Object.prototype.hasOwnProperty.call(rawUpdateData, key));
-  if (hasIncomingMeta && PLAYER_MANAGE_ROLES.includes(role)) {
+  const primaryCoachRoleKeys = new Set(["position", "primarySpecificRole", "primaryLineupStatus"]);
+  const isPrimaryCoachRoleUpdate =
+    role === "coach" &&
+    Object.keys(rawUpdateData).some((key) => primaryCoachRoleKeys.has(key)) &&
+    Object.keys(rawUpdateData).every((key) => primaryCoachRoleKeys.has(key));
+  const canPrimaryCoachEditRole = isPrimaryCoachRoleUpdate && await userIsPrimaryCoachForPlayer(existingPlayer, req.session.userId!, req.session.clubId!);
+  if (hasIncomingMeta && (PLAYER_MANAGE_ROLES.includes(role) || canPrimaryCoachEditRole)) {
     updateData.notes = mergeIncomingPlayerMeta(
       existingPlayer.notes,
       typeof updateData.notes === "string" || updateData.notes === null ? updateData.notes as string | null : existingPlayer.notes,
@@ -974,7 +1022,11 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
       "expectedReturn",
     ].includes(key));
 
-  if (!PLAYER_MANAGE_ROLES.includes(role) && !isAvailabilityOverrideOnlyUpdate && !isSportAvailabilityUpdate) {
+  const isPrimaryCoachRoleOnlyUpdate =
+    canPrimaryCoachEditRole &&
+    Object.keys(updateData).every((key) => primaryCoachRoleKeys.has(key) || key === "notes");
+
+  if (!PLAYER_MANAGE_ROLES.includes(role) && !isAvailabilityOverrideOnlyUpdate && !isSportAvailabilityUpdate && !isPrimaryCoachRoleOnlyUpdate) {
     if (!PLAYER_NOTE_ONLY_ROLES.includes(role)) {
       res.status(403).json({ error: "Non autorizzato a modificare questo giocatore" });
       return;
@@ -996,6 +1048,13 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     }
     if (typeof updateData.notes === "string") {
       updateData.notes = preserveExistingMetaInNotes(existingPlayer.notes, String(updateData.notes));
+    }
+  }
+
+  if (isPrimaryCoachRoleOnlyUpdate) {
+    const allowed = new Set(["position", "notes"]);
+    for (const k of Object.keys(updateData)) {
+      if (!allowed.has(k)) delete updateData[k];
     }
   }
 
