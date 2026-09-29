@@ -213,6 +213,22 @@ function fixtureDateDisplay(value?: string | null): string {
   return Number.isNaN(date.getTime()) ? value : format(date, "dd/MM/yyyy HH:mm");
 }
 
+function fixtureRoundLabel(fixture: ChampionshipFixture): string {
+  if (fixture.round && Number.isFinite(Number(fixture.round))) return `${fixture.round}ª giornata`;
+  const date = fixture.date ? new Date(fixture.date) : null;
+  if (date && !Number.isNaN(date.getTime())) return format(date, "dd/MM/yyyy");
+  return "Giornata da definire";
+}
+
+function groupFixturesByRound(fixtures: ChampionshipFixture[]) {
+  const groups = new Map<string, ChampionshipFixture[]>();
+  for (const fixture of fixtures) {
+    const label = fixtureRoundLabel(fixture);
+    groups.set(label, [...(groups.get(label) ?? []), fixture]);
+  }
+  return [...groups.entries()].map(([label, items]) => ({ label, fixtures: items }));
+}
+
 function ChampionshipSectionPanel({ section, teams }: { section: string; teams: Team[] }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -293,91 +309,63 @@ function ChampionshipSectionPanel({ section, teams }: { section: string; teams: 
           </div>
         ) : (
           championships.map((championship) => (
-            <div key={championship.id} className="rounded-md border bg-background/80 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="font-semibold">{championship.title}</p>
-                  {championship.category && <p className="text-xs text-muted-foreground">{championship.category}</p>}
+            <details key={championship.id} className="group rounded-xl border bg-background/90 shadow-sm" open>
+              <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-3 sm:p-4">
+                <div className="min-w-0">
+                  <p className="break-words text-base font-semibold leading-snug">{championship.title}</p>
+                  {championship.category && <p className="mt-1 text-xs text-muted-foreground">{championship.category}</p>}
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Badge variant="outline">{championship.groups.length} gironi</Badge>
+                    <Badge variant="secondary">
+                      {championship.groups.reduce((sum, group) => sum + group.fixtures.length, 0)} partite
+                    </Badge>
+                  </div>
                 </div>
-                <Badge variant="outline">{championship.groups.length} gironi</Badge>
-              </div>
-              <div className="mt-3 space-y-3">
+                <span className="mt-1 rounded-full border px-2 py-1 text-xs text-muted-foreground group-open:hidden">Apri</span>
+                <span className="mt-1 hidden rounded-full border px-2 py-1 text-xs text-muted-foreground group-open:inline">Chiudi</span>
+              </summary>
+              <div className="space-y-3 border-t p-3 sm:p-4">
                 {championship.groups.map((group) => (
-                  <div key={group.id} className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-                    <div className="rounded-md border bg-muted/20 p-2">
-                      <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Risultati {group.name}</p>
-                      {group.fixtures.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Nessuna partita girone inserita.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {group.fixtures.map((fixture) => {
-                            const draft = fixtureDrafts[fixture.id] ?? {
-                              homeScore: fixture.homeScore == null ? "" : String(fixture.homeScore),
-                              awayScore: fixture.awayScore == null ? "" : String(fixture.awayScore),
-                            };
-                            return (
-                              <div key={fixture.id} className="rounded border bg-background p-2 text-xs">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <span className="font-medium">{fixture.homeTeam} - {fixture.awayTeam}</span>
-                                  <span className="text-muted-foreground">{fixtureDateDisplay(fixture.date)}</span>
-                                </div>
-                                <div className="mt-2 flex flex-wrap items-center gap-2">
-                                  <Input
-                                    inputMode="numeric"
-                                    className="h-8 w-16"
-                                    value={draft.homeScore}
-                                    onChange={(e) => setFixtureDrafts((prev) => ({ ...prev, [fixture.id]: { ...draft, homeScore: e.target.value } }))}
-                                    placeholder="Casa"
-                                  />
-                                  <span className="text-muted-foreground">-</span>
-                                  <Input
-                                    inputMode="numeric"
-                                    className="h-8 w-16"
-                                    value={draft.awayScore}
-                                    onChange={(e) => setFixtureDrafts((prev) => ({ ...prev, [fixture.id]: { ...draft, awayScore: e.target.value } }))}
-                                    placeholder="Trasf."
-                                  />
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 gap-1"
-                                    disabled={updateFixtureResultMutation.isPending}
-                                    onClick={() => updateFixtureResultMutation.mutate({ fixtureId: fixture.id, ...draft })}
-                                  >
-                                    <Save className="h-3.5 w-3.5" />
-                                    Salva
-                                  </Button>
-                                  <span className="ml-auto text-muted-foreground">Ris. {scoreDisplay(fixture)}</span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                  <div key={group.id} className="space-y-3 rounded-lg border bg-muted/10 p-2 sm:p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold">{group.name}</p>
+                      <Badge variant="outline">{group.fixtures.length} partite</Badge>
                     </div>
-                    <div className="rounded-md border bg-muted/20 p-2">
+                    <div className="rounded-lg border bg-background p-2 sm:p-3">
                       <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Classifica {group.name}</p>
                       {group.standings.length === 0 ? (
                         <p className="text-sm text-muted-foreground">Classifica pronta: apparira quando ci saranno squadre nel girone.</p>
                       ) : (
-                        <div className="overflow-auto">
-                          <table className="w-full text-xs">
+                        <div className="overflow-x-auto">
+                          <table className="min-w-[620px] w-full text-xs">
                             <thead>
                               <tr className="border-b text-muted-foreground">
-                                <th className="py-1 text-left">Squadra</th>
-                                <th className="py-1 text-right">Pt</th>
-                                <th className="py-1 text-right">PG</th>
-                                <th className="py-1 text-right">DR</th>
+                                <th className="py-1.5 pr-2 text-left">Squadra</th>
+                                <th className="py-1.5 text-right">Pt</th>
+                                <th className="py-1.5 text-right">PG</th>
+                                <th className="py-1.5 text-right">V</th>
+                                <th className="py-1.5 text-right">N</th>
+                                <th className="py-1.5 text-right">P</th>
+                                <th className="py-1.5 text-right">GF</th>
+                                <th className="py-1.5 text-right">GS</th>
+                                <th className="py-1.5 text-right">DR</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {group.standings.map((row) => (
+                              {group.standings.map((row, index) => (
                                 <tr key={row.team} className="border-b last:border-b-0">
-                                  <td className="py-1 pr-2 font-medium">{row.team}</td>
-                                  <td className="py-1 text-right font-semibold">{row.pts}</td>
-                                  <td className="py-1 text-right">{row.pg}</td>
-                                  <td className="py-1 text-right">{row.dr}</td>
+                                  <td className="py-1.5 pr-2 font-medium">
+                                    <span className="mr-1.5 text-muted-foreground">{index + 1}.</span>
+                                    {row.team}
+                                  </td>
+                                  <td className="py-1.5 text-right font-semibold">{row.pts}</td>
+                                  <td className="py-1.5 text-right">{row.pg}</td>
+                                  <td className="py-1.5 text-right">{row.v}</td>
+                                  <td className="py-1.5 text-right">{row.n}</td>
+                                  <td className="py-1.5 text-right">{row.p}</td>
+                                  <td className="py-1.5 text-right">{row.gf}</td>
+                                  <td className="py-1.5 text-right">{row.gs}</td>
+                                  <td className="py-1.5 text-right">{row.dr}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -385,10 +373,74 @@ function ChampionshipSectionPanel({ section, teams }: { section: string; teams: 
                         </div>
                       )}
                     </div>
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">Risultati {group.name}</p>
+                      {group.fixtures.length === 0 ? (
+                        <p className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">Nessuna partita girone inserita.</p>
+                      ) : (
+                        groupFixturesByRound(group.fixtures).map((roundGroup, roundIndex) => (
+                          <details key={roundGroup.label} className="group/round rounded-lg border bg-background" open={roundIndex === 0}>
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3">
+                              <div>
+                                <p className="text-sm font-semibold">{roundGroup.label}</p>
+                                <p className="text-xs text-muted-foreground">{roundGroup.fixtures.length} partite</p>
+                              </div>
+                              <span className="text-xs text-muted-foreground group-open/round:hidden">Apri</span>
+                              <span className="hidden text-xs text-muted-foreground group-open/round:inline">Chiudi</span>
+                            </summary>
+                            <div className="space-y-2 border-t p-2 sm:p-3">
+                              {roundGroup.fixtures.map((fixture) => {
+                                const draft = fixtureDrafts[fixture.id] ?? {
+                                  homeScore: fixture.homeScore == null ? "" : String(fixture.homeScore),
+                                  awayScore: fixture.awayScore == null ? "" : String(fixture.awayScore),
+                                };
+                                return (
+                                  <div key={fixture.id} className="rounded-lg border bg-muted/10 p-3 text-sm">
+                                    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                                      <span className="break-words font-medium leading-snug">{fixture.homeTeam} - {fixture.awayTeam}</span>
+                                      <span className="shrink-0 text-xs text-muted-foreground">{fixtureDateDisplay(fixture.date)}</span>
+                                    </div>
+                                    <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:flex sm:flex-wrap">
+                                      <Input
+                                        inputMode="numeric"
+                                        className="h-10 min-w-0 text-center"
+                                        value={draft.homeScore}
+                                        onChange={(e) => setFixtureDrafts((prev) => ({ ...prev, [fixture.id]: { ...draft, homeScore: e.target.value } }))}
+                                        placeholder="Casa"
+                                      />
+                                      <span className="text-muted-foreground">-</span>
+                                      <Input
+                                        inputMode="numeric"
+                                        className="h-10 min-w-0 text-center"
+                                        value={draft.awayScore}
+                                        onChange={(e) => setFixtureDrafts((prev) => ({ ...prev, [fixture.id]: { ...draft, awayScore: e.target.value } }))}
+                                        placeholder="Trasf."
+                                      />
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="col-span-3 h-9 gap-1 sm:col-span-1"
+                                        disabled={updateFixtureResultMutation.isPending}
+                                        onClick={() => updateFixtureResultMutation.mutate({ fixtureId: fixture.id, ...draft })}
+                                      >
+                                        <Save className="h-3.5 w-3.5" />
+                                        Salva
+                                      </Button>
+                                      <span className="col-span-3 text-right text-xs text-muted-foreground sm:ml-auto">Ris. {scoreDisplay(fixture)}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </details>
+                        ))
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
+            </details>
           ))
         )}
       </CardContent>
