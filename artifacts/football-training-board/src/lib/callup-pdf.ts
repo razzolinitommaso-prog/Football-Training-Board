@@ -150,7 +150,10 @@ function shouldTryAutomaticOpen() {
   return !isLikelyMobileBrowser();
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
+function blobToPdfUrl(blob: Blob): Promise<string> {
+  if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+    return Promise.resolve(URL.createObjectURL(blob));
+  }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -210,7 +213,7 @@ export async function downloadOrShareCallupPdf(input: {
   const date = input.match.date ? new Date(input.match.date) : null;
   const datePart = date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "data";
   const filename = `${fileSafe(input.match.teamName || "squadra")}-${datePart}-convocazione.pdf`;
-  const pdfUrl = await blobToDataUrl(blob);
+  const pdfUrl = await blobToPdfUrl(blob);
 
   if (input.preferShare && typeof File !== "undefined" && navigator.share) {
     try {
@@ -247,4 +250,25 @@ export async function downloadOrShareCallupPdf(input: {
     }
   }
   return { filename, url: pdfUrl };
+}
+
+export function openGeneratedPdf(url: string) {
+  if (typeof window === "undefined") return;
+  const opened = window.open(url, "_blank", "noopener");
+  if (!opened) {
+    window.location.href = url;
+  }
+}
+
+export function downloadGeneratedPdf(url: string, filename: string) {
+  if (typeof document === "undefined") return;
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }

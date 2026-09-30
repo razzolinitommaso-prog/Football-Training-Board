@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { withApi } from "@/lib/api-base";
-import { downloadOrShareCallupPdf } from "@/lib/callup-pdf";
+import { downloadGeneratedPdf, downloadOrShareCallupPdf, openGeneratedPdf } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -282,17 +282,25 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
                     </Button>
                     {generatedPdf?.matchId === match.id && (
                       <>
-                        <Button type="button" size="sm" variant="secondary" className="gap-2" asChild>
-                          <a href={generatedPdf.url} target="_blank" rel="noopener">
-                            <ExternalLink className="h-4 w-4" />
-                            Apri PDF
-                          </a>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="gap-2"
+                          onClick={() => openGeneratedPdf(generatedPdf.url)}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          Apri PDF
                         </Button>
-                        <Button type="button" size="sm" variant="secondary" className="gap-2" asChild>
-                          <a href={generatedPdf.url} download={generatedPdf.filename}>
-                            <FileDown className="h-4 w-4" />
-                            Scarica PDF
-                          </a>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="gap-2"
+                          onClick={() => downloadGeneratedPdf(generatedPdf.url, generatedPdf.filename)}
+                        >
+                          <FileDown className="h-4 w-4" />
+                          Scarica PDF
                         </Button>
                       </>
                     )}

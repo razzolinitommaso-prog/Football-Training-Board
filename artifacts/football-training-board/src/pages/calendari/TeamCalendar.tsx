@@ -36,7 +36,7 @@ import {
   isGenericPdfCategoryHint,
   type MatchPdfImportResult,
 } from "@/lib/match-calendar-pdf";
-import { downloadOrShareCallupPdf } from "@/lib/callup-pdf";
+import { downloadGeneratedPdf, downloadOrShareCallupPdf, openGeneratedPdf } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
@@ -2517,17 +2517,25 @@ function MatchCard({
                 </Button>
                 {generatedCallupPdf && (
                   <>
-                    <Button type="button" size="sm" variant="secondary" className="h-7 gap-1.5 px-2 text-xs" asChild>
-                      <a href={generatedCallupPdf.url} target="_blank" rel="noopener">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Apri PDF
-                      </a>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="h-7 gap-1.5 px-2 text-xs"
+                      onClick={() => openGeneratedPdf(generatedCallupPdf.url)}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Apri PDF
                     </Button>
-                    <Button type="button" size="sm" variant="secondary" className="h-7 gap-1.5 px-2 text-xs" asChild>
-                      <a href={generatedCallupPdf.url} download={generatedCallupPdf.filename}>
-                        <Download className="h-3.5 w-3.5" />
-                        Scarica
-                      </a>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="h-7 gap-1.5 px-2 text-xs"
+                      onClick={() => downloadGeneratedPdf(generatedCallupPdf.url, generatedCallupPdf.filename)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Scarica
                     </Button>
                   </>
                 )}
