@@ -760,10 +760,22 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
     conditions.push(inArray(playersTable.clubSection, sections));
   }
 
+  const sectionTeamIds = sections
+    ? (await db
+        .select({ id: teamsTable.id })
+        .from(teamsTable)
+        .where(and(eq(teamsTable.clubId, clubId), inArray(teamsTable.clubSection, sections))))
+        .map((team) => team.id)
+    : [];
+  const sectionTeamIdSet = new Set(sectionTeamIds);
+
   let assignedTeamIds: number[] = [];
   const needsAssignmentFiltering = !isClubWideListRole(role) && PLAYER_ASSIGNMENT_FILTER_ROLES_NORM.has(normalizeSessionRole(role));
   if (needsAssignmentFiltering) {
-    assignedTeamIds = await getAssignedTeamIds(userId, clubId);
+    const allAssignedTeamIds = await getAssignedTeamIds(userId, clubId);
+    assignedTeamIds = sections
+      ? allAssignedTeamIds.filter((teamId) => sectionTeamIdSet.has(teamId))
+      : allAssignedTeamIds;
     if (assignedTeamIds.length === 0) {
       res.json(ListPlayersResponse.parse([]));
       return;
@@ -776,15 +788,6 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
       }
     }
   }
-
-  const sectionTeamIds = sections
-    ? (await db
-        .select({ id: teamsTable.id })
-        .from(teamsTable)
-        .where(and(eq(teamsTable.clubId, clubId), inArray(teamsTable.clubSection, sections))))
-        .map((team) => team.id)
-    : [];
-  const sectionTeamIdSet = new Set(sectionTeamIds);
 
   const playerWhere = requestedTeamId || needsAssignmentFiltering
     ? eq(playersTable.clubId, clubId)

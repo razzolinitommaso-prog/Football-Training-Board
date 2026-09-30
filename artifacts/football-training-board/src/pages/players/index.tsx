@@ -1352,7 +1352,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     : "all";
   const [teamFilter, setTeamFilter] = useState<string>(initialTeamFilter);
   const isAssignedStaffRole = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director";
-  const playersUrl = section && !isAssignedStaffRole
+  const playersUrl = section
     ? `/api/players?section=${encodeURIComponent(section)}`
     : "/api/players";
   const { data: players, isLoading } = useQuery<Player[]>({
