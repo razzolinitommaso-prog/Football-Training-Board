@@ -1789,6 +1789,9 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
     const players = (allPlayers as any[] | undefined) ?? [];
     const hasPlayerList = players.length > 0;
     const isActivePlayer = (player: any) => player.status !== "inactive";
+    const total = hasPlayerList
+      ? players.length
+      : dashboardPlayerCount;
     const active = hasPlayerList
       ? players.filter(isActivePlayer).length
       : dashboardPlayerCount;
@@ -1799,9 +1802,9 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       ? players.filter((player) => isActivePlayer(player) && player.available !== false).length
       : active;
     const unavailable = hasPlayerList
-      ? players.filter((player) => isActivePlayer(player) && player.available === false).length
+      ? players.filter((player) => !isActivePlayer(player) || player.available === false).length
       : 0;
-    return { active, inactive, available, unavailable };
+    return { total, active, inactive, available, unavailable };
   }, [allPlayers, dashboardPlayerCount]);
 
   const dashboardPlayerSectionBreakdown = useMemo(() => {
@@ -1850,6 +1853,11 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       completeSessions: completeSessionKeys.size,
     };
   }, [dashboardExercises]);
+
+  const dashboardTrainingCardTotal = Math.max(
+    dashboardUpcomingCount,
+    dashboardExerciseSummary.completeSessions,
+  );
 
   const dashboardStaffRoleSummary = useMemo(() => {
     const roles = new Map<string, number>();
@@ -2705,7 +2713,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
             ))}
           </div>
         </StatCard>
-        <StatCard title="Giocatori" value={dashboardPlayerSummary.active} icon={Users} link={dashboardPlayersPath}>
+        <StatCard title="Giocatori" value={dashboardPlayerSummary.total} icon={Users} link={dashboardPlayersPath}>
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
             <span>Attivi: <strong className="text-foreground">{dashboardPlayerSummary.active}</strong></span>
             <span>Non attivi: <strong className="text-foreground">{dashboardPlayerSummary.inactive}</strong></span>
@@ -2728,9 +2736,9 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
             </div>
           </StatCard>
         ) : (
-          <StatCard title="Sessioni / sedute" value={dashboardUpcomingCount} icon={CalendarDays} link="/training">
+          <StatCard title="Sessioni / sedute" value={dashboardTrainingCardTotal} icon={CalendarDays} link="/training">
             <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
-              <span>Sedute: <strong className="text-foreground">{dashboardUpcomingCount}</strong></span>
+              <span>Prossime: <strong className="text-foreground">{dashboardUpcomingCount}</strong></span>
               <span>Complete: <strong className="text-foreground">{dashboardExerciseSummary.completeSessions}</strong></span>
               <span>Assoc.: <strong className="text-foreground">{dashboardExerciseSummary.associated}</strong></span>
               <span>Libere: <strong className="text-foreground">{dashboardExerciseSummary.free}</strong></span>
