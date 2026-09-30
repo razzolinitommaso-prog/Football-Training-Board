@@ -332,7 +332,7 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
   return (
     <>
       <div className="lg:hidden">
-        <div className="grid grid-cols-[minmax(0,1fr)_repeat(7,2rem)] items-center border-b pb-2 text-[11px] font-semibold uppercase text-muted-foreground">
+        <div className="grid grid-cols-[minmax(0,1fr)_repeat(8,1.75rem)] items-center border-b pb-2 text-[11px] font-semibold uppercase text-muted-foreground">
           <span className="pl-1">Squadra</span>
           <span className="text-center">PG</span>
           <span className="text-center">V</span>
@@ -340,6 +340,7 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
           <span className="text-center">S</span>
           <span className="text-center">GF</span>
           <span className="text-center">GS</span>
+          <span className="text-center">DR</span>
           <span className="text-center">PT</span>
         </div>
         <div className="divide-y">
@@ -349,7 +350,7 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
             <div
               key={row.team}
               className={cn(
-                "grid grid-cols-[minmax(0,1fr)_repeat(7,2rem)] items-center py-3 text-sm",
+                "grid grid-cols-[minmax(0,1fr)_repeat(8,1.75rem)] items-center py-3 text-sm",
                 clubRow && "bg-emerald-500/5 text-emerald-900 dark:text-emerald-100",
               )}
             >
@@ -365,6 +366,7 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
               <span className="text-center tabular-nums">{row.p}</span>
               <span className="text-center tabular-nums">{row.gf}</span>
               <span className="text-center tabular-nums">{row.gs}</span>
+              <span className="text-center tabular-nums">{row.dr > 0 ? `+${row.dr}` : row.dr}</span>
               <span className="text-center font-bold tabular-nums">{row.pts}</span>
             </div>
           );
