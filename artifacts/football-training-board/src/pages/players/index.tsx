@@ -1499,23 +1499,22 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [isSavingParentDelegates, setIsSavingParentDelegates] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const editingPlayerTeamForPermissions = editingPlayer?.teamId
-    ? (teams as TeamWithSeason[] | undefined)?.find((team) => Number(team.id) === Number(editingPlayer.teamId))
-    : undefined;
-  const editingPlayerTeamStaff = (((editingPlayerTeamForPermissions as Record<string, unknown> | undefined)?.assignedStaff ?? []) as TeamStaffAssignmentLite[]);
+  const isPrimaryCoachForPlayer = (player?: Player | null) => {
+    if (nr !== "coach" || !user?.id || !player?.teamId) return false;
+    const team = (teams as TeamWithSeason[] | undefined)?.find((item) => Number(item.id) === Number(player.teamId));
+    if (!team) return false;
+    const teamRecord = team as Record<string, unknown>;
+    if (Number(teamRecord.coachId ?? 0) === Number(user.id)) return true;
+    const teamStaff = ((teamRecord.assignedStaff ?? []) as TeamStaffAssignmentLite[]);
+    return teamStaff.some((staff) =>
+      Number(staff.userId ?? 0) === Number(user.id) &&
+      staff.role === "coach" &&
+      staffRoleForSection(staff.staffRole, String(teamRecord.clubSection ?? "")) === "primo_allenatore"
+    );
+  };
   const canPrimaryCoachEditRole =
     playerDialogMode === "edit" &&
-    nr === "coach" &&
-    !!user?.id &&
-    !!editingPlayerTeamForPermissions &&
-    (
-      Number((editingPlayerTeamForPermissions as Record<string, unknown>).coachId ?? 0) === Number(user.id) ||
-      editingPlayerTeamStaff.some((staff) =>
-        Number(staff.userId ?? 0) === Number(user.id) &&
-        staff.role === "coach" &&
-        staffRoleForSection(staff.staffRole, String((editingPlayerTeamForPermissions as Record<string, unknown>).clubSection ?? "")) === "primo_allenatore"
-      )
-    );
+    isPrimaryCoachForPlayer(editingPlayer);
   const canManagePlayers = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"].includes(nr);
   const canDeletePlayer = canManagePlayers;
   const canWritePlayerNotes = ["admin", "presidente", "director", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director", "secretary"].includes(nr);
@@ -2821,6 +2820,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
     if (canSubmitAvailabilityOverrideOnly) {
       updateMutation.mutate({ id: editingPlayer.id, data: overridePayload as any });
+    } else if (canPrimaryCoachEditRole && !canManagePlayers) {
+      const rolePayload: Record<string, unknown> = {
+        position: payload.position ?? null,
+        primarySpecificRole: payload.primarySpecificRole ?? null,
+        primaryLineupStatus: payload.primaryLineupStatus ?? null,
+      };
+      updateMutation.mutate({ id: editingPlayer.id, data: rolePayload as any });
     } else if (canEditSportAvailability && !canManagePlayers) {
       const sportAvailabilityPayload: Record<string, unknown> = {
         notes: payload.notes,
@@ -5618,7 +5624,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         >
                           <Eye className="w-4 h-4" />
                         </Button>
-                        {canManagePlayers && (
+                        {(canManagePlayers || isPrimaryCoachForPlayer(player)) && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -5715,7 +5721,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openPlayerDialog(player, "view")}>
                             <Eye className="h-4 w-4" />
                           </Button>
-                          {canManagePlayers && (
+                          {(canManagePlayers || isPrimaryCoachForPlayer(player)) && (
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openPlayerDialog(player, "edit")}>
                               <Pencil className="h-4 w-4" />
                             </Button>
