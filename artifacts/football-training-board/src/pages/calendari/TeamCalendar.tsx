@@ -224,6 +224,13 @@ interface Player {
   available?: boolean | null;
   unavailabilityReason?: string | null;
 }
+
+function playerUnavailableLabel(player: Pick<Player, "available" | "unavailabilityReason">) {
+  if (player.available !== false) return "";
+  if (player.unavailabilityReason === "suspended") return " - squalificato";
+  if (player.unavailabilityReason === "requested_by_other_team") return " - richiesto";
+  return " - non disponibile";
+}
 interface MatchCallUp { id: number; playerId: number; status: string; playerName?: string | null; }
 interface TrainingSessionLite { id: number; teamId?: number | null; scheduledAt: string; }
 interface AttendanceLite { id: number; playerId: number; status: string; }
@@ -267,9 +274,10 @@ type MatchPlanPeriodRuntime = MatchPlanPeriod & {
 type MatchDisciplineCard = {
   id: string;
   playerId: number;
-  cardType: "giallo" | "rosso";
+  cardType: "giallo" | "doppio_giallo" | "rosso";
   reason: "proteste" | "fallo_di_gioco" | "altro";
   notes?: string;
+  suspensionGames?: number | null;
 };
 type MatchPlanData = {
   boardLink?: string;
@@ -1667,6 +1675,7 @@ function MatchCard({
     cardType: "giallo",
     reason: "fallo_di_gioco",
     notes: "",
+    suspensionGames: null,
   });
 
   const preTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1847,6 +1856,7 @@ function MatchCard({
     patch.mutate({
       postMatchNotes: composePostNotes(postNoteValue, postAttachments),
       result,
+      ...(canManageMatchPlan ? { matchPlan: planDraft } : {}),
     });
     setPostMenuOpen(false);
   }
@@ -2055,7 +2065,7 @@ function MatchCard({
     setPlanDraft(next);
     setConvocationDateInput(toDateInputValue(next.convocationAt));
     setConvocationTimeInput(toTimeInputValue(next.convocationAt));
-    setDisciplineDraft({ playerId: 0, cardType: "giallo", reason: "fallo_di_gioco", notes: "" });
+    setDisciplineDraft({ playerId: 0, cardType: "giallo", reason: "fallo_di_gioco", notes: "", suspensionGames: null });
   }, [match.matchPlan, matchSection, teamName, teamCategory]);
 
   useEffect(() => {
@@ -2161,10 +2171,14 @@ function MatchCard({
           ...disciplineDraft,
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           notes: disciplineDraft.notes?.trim() || undefined,
+          suspensionGames:
+            disciplineDraft.cardType === "rosso" || disciplineDraft.cardType === "doppio_giallo"
+              ? Math.max(1, Number(disciplineDraft.suspensionGames) || 1)
+              : null,
         },
       ],
     }));
-    setDisciplineDraft({ playerId: 0, cardType: "giallo", reason: "fallo_di_gioco", notes: "" });
+    setDisciplineDraft({ playerId: 0, cardType: "giallo", reason: "fallo_di_gioco", notes: "", suspensionGames: null });
   }
 
   function removeDisciplineCard(id: string) {
@@ -2566,7 +2580,7 @@ function MatchCard({
                             {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
                           </span>
                           <span className="block truncate text-[11px] text-muted-foreground">
-                            {p.position || "Ruolo non indicato"}{p.available === false ? " - non disponibile" : ""}
+                            {p.position || "Ruolo non indicato"}{playerUnavailableLabel(p)}
                           </span>
                           {selectedPlayerIds.has(p.id) && (
                             <span className="flex flex-wrap gap-1">
@@ -2719,7 +2733,7 @@ function MatchCard({
                     Apri su Google Maps
                   </a>
                 )}
-                {matchSection === "settore_giovanile" && (
+                {false && matchSection === "settore_giovanile" && (
                   <div className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <Label className="text-xs font-semibold text-muted-foreground">Cartellini partita</Label>
@@ -3276,6 +3290,109 @@ function MatchCard({
                         </div>
                       </div>
                     </div>
+                    {canManageMatchPlan && usesChampionshipSeason(matchSection) && (
+                      <div className="rounded-md border border-border/60 bg-muted/20 p-2 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label className="text-xs font-semibold text-muted-foreground">Cartellini e squalifiche</Label>
+                          <Badge variant="outline" className="text-[10px]">{planDraft.disciplineCards?.length ?? 0}</Badge>
+                        </div>
+                        {(planDraft.disciplineCards ?? []).length > 0 && (
+                          <div className="space-y-1">
+                            {(planDraft.disciplineCards ?? []).map((card) => {
+                              const player = sortedTeamPlayers.find((p) => p.id === card.playerId);
+                              const suspensionLabel =
+                                card.cardType === "rosso" || card.cardType === "doppio_giallo"
+                                  ? ` · squalifica ${card.suspensionGames ?? 1} giorn.`
+                                  : "";
+                              return (
+                                <div key={card.id} className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1 text-xs">
+                                  <span className="min-w-0 truncate">
+                                    {player ? `${player.lastName} ${player.firstName}` : "Giocatore"} · {card.cardType.replace(/_/g, " ")} · {card.reason.replace(/_/g, " ")}
+                                    {suspensionLabel}
+                                    {card.notes ? ` · ${card.notes}` : ""}
+                                  </span>
+                                  <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => removeDisciplineCard(card.id)}>
+                                    Rimuovi
+                                  </Button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_150px]">
+                          <Select
+                            value={disciplineDraft.playerId ? String(disciplineDraft.playerId) : ""}
+                            onValueChange={(value) => setDisciplineDraft((prev) => ({ ...prev, playerId: Number(value) }))}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Giocatore" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sortedTeamPlayers.map((player) => (
+                                <SelectItem key={player.id} value={String(player.id)}>
+                                  {player.lastName} {player.firstName}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={disciplineDraft.cardType}
+                            onValueChange={(value) =>
+                              setDisciplineDraft((prev) => ({
+                                ...prev,
+                                cardType: value as MatchDisciplineCard["cardType"],
+                                suspensionGames: value === "rosso" || value === "doppio_giallo" ? prev.suspensionGames ?? 1 : null,
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="giallo">Giallo</SelectItem>
+                              <SelectItem value="doppio_giallo">Doppio giallo</SelectItem>
+                              <SelectItem value="rosso">Rosso</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={disciplineDraft.reason}
+                            onValueChange={(value) => setDisciplineDraft((prev) => ({ ...prev, reason: value as MatchDisciplineCard["reason"] }))}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="proteste">Proteste</SelectItem>
+                              <SelectItem value="fallo_di_gioco">Fallo di gioco</SelectItem>
+                              <SelectItem value="altro">Altro</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[120px_1fr_auto]">
+                          <Input
+                            type="number"
+                            min={1}
+                            className="h-8 text-xs"
+                            value={disciplineDraft.suspensionGames ?? ""}
+                            disabled={disciplineDraft.cardType === "giallo"}
+                            onChange={(e) => setDisciplineDraft((prev) => ({ ...prev, suspensionGames: e.target.value ? Number(e.target.value) : null }))}
+                            placeholder="Giornate"
+                          />
+                          <Input
+                            className="h-8 text-xs"
+                            value={disciplineDraft.notes ?? ""}
+                            onChange={(e) => setDisciplineDraft((prev) => ({ ...prev, notes: e.target.value }))}
+                            placeholder="Nota / giudice sportivo"
+                          />
+                          <Button type="button" size="sm" className="h-8 text-xs" disabled={!disciplineDraft.playerId} onClick={addDisciplineCard}>
+                            Aggiungi
+                          </Button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          Il 4° giallo genera automaticamente una giornata di squalifica. Rosso e doppio giallo usano le giornate indicate.
+                        </p>
+                      </div>
+                    )}
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">Spazio note</Label>
                       <Textarea

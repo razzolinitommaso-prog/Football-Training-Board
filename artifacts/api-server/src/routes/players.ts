@@ -96,6 +96,7 @@ const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
 const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
 const ATTENDANCE_META_PREFIX = "[FTB_ATTENDANCE_META]";
 const PARENT_DELEGATE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const DISCIPLINE_CARD_TYPES = new Set(["giallo", "doppio_giallo", "rosso"]);
 
 type PlayerNoteRecipient = "secretary" | "technical_director" | "coach_staff";
 type PlayerNoteThreadItem = {
@@ -462,20 +463,91 @@ function parseAttendanceConduct(raw?: string | null): "ottima" | "buona" | "insu
   }
 }
 
-function normalizeDisciplineCards(matchPlan: unknown): Array<{ playerId: number; cardType: string; reason: string; notes?: string | null }> {
+function normalizeDisciplineCards(matchPlan: unknown): Array<{ playerId: number; cardType: string; reason: string; notes?: string | null; suspensionGames?: number | null }> {
   const source = matchPlan && typeof matchPlan === "object" ? (matchPlan as { disciplineCards?: unknown }) : null;
   if (!Array.isArray(source?.disciplineCards)) return [];
   return source.disciplineCards
     .map((item) => {
-      const card = item as { playerId?: unknown; cardType?: unknown; reason?: unknown; notes?: unknown };
+      const card = item as { playerId?: unknown; cardType?: unknown; reason?: unknown; notes?: unknown; suspensionGames?: unknown };
+      const cardType = String(card.cardType ?? "giallo");
       return {
         playerId: Number(card.playerId),
-        cardType: String(card.cardType ?? "giallo"),
+        cardType: DISCIPLINE_CARD_TYPES.has(cardType) ? cardType : "giallo",
         reason: String(card.reason ?? "altro"),
         notes: card.notes == null ? null : String(card.notes),
+        suspensionGames: card.suspensionGames == null ? null : Number(card.suspensionGames),
       };
     })
     .filter((card) => Number.isFinite(card.playerId) && card.playerId > 0);
+}
+
+function normalizeCompetition(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function disciplinarySuspensionGamesForCard(card: { cardType: string; suspensionGames?: number | null }): number {
+  if (card.suspensionGames != null && Number.isFinite(Number(card.suspensionGames))) {
+    return Math.max(0, Math.floor(Number(card.suspensionGames)));
+  }
+  if (card.cardType === "rosso" || card.cardType === "doppio_giallo") return 1;
+  return 0;
+}
+
+async function suspendedPlayerIdsForMatch(clubId: number, matchId: number, playerIds: number[]): Promise<Set<number>> {
+  const cleanPlayerIds = [...new Set(playerIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (cleanPlayerIds.length === 0) return new Set();
+  const [targetMatch] = await db
+    .select()
+    .from(matchesTable)
+    .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)));
+  if (!targetMatch?.teamId) return new Set();
+
+  const targetCompetition = normalizeCompetition(targetMatch.competition);
+  const rows = await db
+    .select()
+    .from(matchesTable)
+    .where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, targetMatch.teamId)))
+    .orderBy(sql`${matchesTable.date} asc`, sql`${matchesTable.id} asc`);
+
+  const yellowCounts = new Map<number, number>();
+  const suspensionQueues = new Map<number, number>();
+  const targetTime = new Date(targetMatch.date).getTime();
+
+  for (const row of rows) {
+    const rowTime = new Date(row.date).getTime();
+    if (row.id === targetMatch.id || rowTime >= targetTime) break;
+    if (targetCompetition && normalizeCompetition(row.competition) !== targetCompetition) continue;
+
+    for (const [playerId, games] of Array.from(suspensionQueues.entries())) {
+      if (games <= 0) continue;
+      suspensionQueues.set(playerId, games - 1);
+    }
+
+    for (const card of normalizeDisciplineCards(row.matchPlan)) {
+      if (!cleanPlayerIds.includes(card.playerId)) continue;
+      if (card.cardType === "giallo") {
+        const nextCount = (yellowCounts.get(card.playerId) ?? 0) + 1;
+        if (nextCount >= 4) {
+          yellowCounts.set(card.playerId, 0);
+          suspensionQueues.set(card.playerId, (suspensionQueues.get(card.playerId) ?? 0) + 1);
+        } else {
+          yellowCounts.set(card.playerId, nextCount);
+        }
+        continue;
+      }
+      const games = disciplinarySuspensionGamesForCard(card);
+      if (games > 0) {
+        suspensionQueues.set(card.playerId, (suspensionQueues.get(card.playerId) ?? 0) + games);
+      }
+    }
+  }
+
+  return new Set(cleanPlayerIds.filter((playerId) => (suspensionQueues.get(playerId) ?? 0) > 0));
 }
 
 const router: IRouter = Router();
@@ -741,9 +813,19 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   const requestConflicts = requestedMatchId
     ? await playerRequestConflictsForMatch(clubId, requestedMatchId, filtered.map((player) => player.id))
     : new Map<number, PlayerRequestConflict>();
+  const disciplinarySuspensions = requestedMatchId
+    ? await suspendedPlayerIdsForMatch(clubId, requestedMatchId, filtered.map((player) => player.id))
+    : new Set<number>();
   const enriched = await Promise.all(filtered.map(async (player) => {
     const row = await enrichPlayer(player);
     const conflict = requestConflicts.get(player.id);
+    if (disciplinarySuspensions.has(player.id)) {
+      return {
+        ...row,
+        available: false,
+        unavailabilityReason: "suspended",
+      };
+    }
     if (!conflict) return row;
     return {
       ...row,
