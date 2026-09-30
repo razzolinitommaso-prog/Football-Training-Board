@@ -801,10 +801,8 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
       return player.teamId === requestedTeamId || supplementalTeamId === requestedTeamId;
     }
     if (needsAssignmentFiltering) {
-      return (
-        (player.teamId != null && assignedTeamIds.includes(player.teamId)) ||
-        (supplementalTeamId != null && assignedTeamIds.includes(supplementalTeamId))
-      );
+      if (player.teamId != null) return assignedTeamIds.includes(player.teamId);
+      return supplementalTeamId != null && assignedTeamIds.includes(supplementalTeamId);
     }
     if (sections) {
       if (player.teamId != null) return sectionTeamIdSet.has(player.teamId);
