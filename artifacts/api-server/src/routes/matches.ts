@@ -3,6 +3,7 @@ import {
   db,
   matchesTable,
   callUpsTable,
+  clubsTable,
   playersTable,
   teamsTable,
   teamStaffAssignmentsTable,
@@ -37,6 +38,173 @@ const MATCH_PLAN_VIEW_ROLES = ["coach", "fitness_coach", "athletic_director", "t
 const MATCH_PLAN_MARKER = "[FTB_MATCH_PLAN]";
 const MATCH_SECTION_VALUES = new Set(["scuola_calcio", "settore_giovanile", "prima_squadra"]);
 const DISCIPLINE_CARD_TYPES = new Set(["giallo", "doppio_giallo", "rosso"]);
+
+type CallupPdfMatch = {
+  clubName: string;
+  teamName?: string | null;
+  opponent?: string | null;
+  homeAway?: string | null;
+  date?: Date | string | null;
+  competition?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  preMatchNotes?: string | null;
+  convocationAt?: string | null;
+  convocationPlace?: string | null;
+};
+
+type CallupPdfPlayer = {
+  firstName?: string | null;
+  lastName?: string | null;
+  playerName?: string | null;
+};
+
+function pdfEscape(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function fileSafe(value: string): string {
+  return pdfEscape(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "convocazione";
+}
+
+function formatPdfDateTime(value?: Date | string | null): string {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("it-IT", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function callupPdfPlayerLabel(player: CallupPdfPlayer): string {
+  return player.playerName?.trim() || `${player.lastName ?? ""} ${player.firstName ?? ""}`.trim() || "Giocatore";
+}
+
+function wrapPdfText(text: string, maxChars: number): string[] {
+  const words = pdfEscape(text).split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length > 0 ? lines : [""];
+}
+
+type PdfLine = { text: string; size?: number; bold?: boolean; x?: number; y?: number };
+type PdfPage = PdfLine[];
+
+function addPdfFlowLine(state: { pages: PdfPage[]; page: PdfPage; y: number }, line: Omit<PdfLine, "x" | "y"> & { gap?: number }) {
+  const gap = line.gap ?? 16;
+  const nextY = state.y - gap;
+  if (state.page.length > 0 && nextY < 58) {
+    state.pages.push(state.page);
+    state.page = [];
+    state.y = 790;
+  }
+  state.y -= gap;
+  state.page.push({ text: line.text, size: line.size, bold: line.bold, x: 50, y: state.y });
+}
+
+function buildCallupPdfBuffer(match: CallupPdfMatch, playersInput: CallupPdfPlayer[]): Buffer {
+  const players = [...playersInput].sort((a, b) => callupPdfPlayerLabel(a).localeCompare(callupPdfPlayerLabel(b), "it"));
+  const state = { pages: [] as PdfPage[], page: [] as PdfPage, y: 790 };
+  const homeLabel = match.homeAway === "away" ? match.opponent || "Avversario" : match.clubName;
+  const awayLabel = match.homeAway === "away" ? match.clubName : match.opponent || "Avversario";
+
+  addPdfFlowLine(state, { text: "CONVOCAZIONE", size: 20, bold: true, gap: 0 });
+  addPdfFlowLine(state, { text: match.clubName, size: 14, bold: true, gap: 24 });
+  addPdfFlowLine(state, { text: `Squadra: ${match.teamName || "-"}`, bold: true, gap: 28 });
+  addPdfFlowLine(state, { text: `Partita: ${homeLabel} vs ${awayLabel}` });
+  addPdfFlowLine(state, { text: `Competizione: ${match.competition || "-"}` });
+  addPdfFlowLine(state, { text: `Data e ora gara: ${formatPdfDateTime(match.date) || "-"}` });
+  addPdfFlowLine(state, { text: `Luogo gara: ${match.location || "-"}` });
+  addPdfFlowLine(state, { text: `Orario convocazione: ${formatPdfDateTime(match.convocationAt) || "-"}` });
+  addPdfFlowLine(state, { text: `Luogo convocazione: ${match.convocationPlace || "-"}` });
+
+  const notes = [match.preMatchNotes, match.notes].map((v) => v?.trim()).filter(Boolean).join(" - ");
+  if (notes) {
+    addPdfFlowLine(state, { text: "Note", bold: true, gap: 26 });
+    wrapPdfText(notes, 86).slice(0, 5).forEach((text) => addPdfFlowLine(state, { text, size: 10, gap: 14 }));
+  }
+
+  addPdfFlowLine(state, { text: `Convocati (${players.length})`, size: 13, bold: true, gap: 30 });
+  if (players.length === 0) {
+    addPdfFlowLine(state, { text: "Nessun convocato", size: 10, gap: 18 });
+  } else {
+    players.forEach((player, index) => {
+      wrapPdfText(`${index + 1}. ${callupPdfPlayerLabel(player)}`, 88).forEach((text, lineIndex) => {
+        addPdfFlowLine(state, { text, size: 10, gap: lineIndex === 0 ? 18 : 12 });
+      });
+    });
+  }
+
+  state.page.push({ text: "Documento generato da Football Training Board", size: 9, x: 50, y: 34 });
+  state.pages.push(state.page);
+
+  const buildContentStream = (lines: PdfLine[]) => {
+    const out = ["BT"];
+    for (const line of lines) {
+      out.push(`/${line.bold ? "F2" : "F1"} ${line.size ?? 11} Tf`);
+      out.push(`1 0 0 1 ${line.x ?? 50} ${line.y ?? 790} Tm (${pdfEscape(line.text)}) Tj`);
+    }
+    out.push("ET");
+    return out.join("\n");
+  };
+
+  const pageObjectNumbers = state.pages.map((_, index) => 3 + index);
+  const font1Object = 3 + state.pages.length;
+  const font2Object = 4 + state.pages.length;
+  const contentStartObject = 5 + state.pages.length;
+  const pageObjects = state.pages.map((page, index) => {
+    const contentObject = contentStartObject + index;
+    return `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${font1Object} 0 R /F2 ${font2Object} 0 R >> >> /Contents ${contentObject} 0 R >>`;
+  });
+  const contentObjects = state.pages.map((page) => {
+    const content = buildContentStream(page);
+    return `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
+  });
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Kids [${pageObjectNumbers.map((n) => `${n} 0 R`).join(" ")}] /Count ${state.pages.length} >>`,
+    ...pageObjects,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+    ...contentObjects,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((obj, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${obj}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(pdf, "utf8");
+}
 
 function normalizeMatchSection(value: unknown): string | undefined {
   const section = String(value ?? "").trim();
@@ -388,6 +556,63 @@ router.get("/matches/:id/callups", requireAuth, async (req, res): Promise<void> 
     return { ...cu, playerName: player ? `${player.firstName} ${player.lastName}` : null };
   }));
   res.json(enriched);
+});
+
+router.get("/matches/:id/callups/pdf", requireAuth, async (req, res): Promise<void> => {
+  const matchId = parseRouteIdParam(req.params.id);
+  if (isNaN(matchId)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const clubId = req.session.clubId!;
+  const [match] = await db.select().from(matchesTable).where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)));
+  if (!match) { res.status(404).json({ error: "Match not found" }); return; }
+  const canView = await userCanViewMatchPlan(req.session.userId!, clubId, req.session.role ?? "", match.teamId ?? null);
+  if (!canView) { res.status(403).json({ error: "Non autorizzato" }); return; }
+
+  const [club] = await db.select({ name: clubsTable.name }).from(clubsTable).where(eq(clubsTable.id, clubId));
+  const [team] = match.teamId
+    ? await db.select({ name: teamsTable.name }).from(teamsTable).where(and(eq(teamsTable.id, match.teamId), eq(teamsTable.clubId, clubId)))
+    : [null];
+  const callups = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId));
+  const playerIds = [...new Set(callups.map((callup) => callup.playerId).filter((id): id is number => Number(id) > 0))];
+  const players = playerIds.length > 0
+    ? await db
+      .select({ id: playersTable.id, firstName: playersTable.firstName, lastName: playersTable.lastName })
+      .from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, playerIds)))
+    : [];
+  const playerById = new Map(players.map((player) => [player.id, player]));
+  const parsedNotes = splitPublicNotesAndPlan(match.notes);
+  const matchPlan = normalizeMatchPlan(match.matchPlan) ?? normalizeMatchPlan(parsedNotes.plan);
+  const buffer = buildCallupPdfBuffer(
+    {
+      clubName: club?.name ?? "Societa",
+      teamName: team?.name ?? null,
+      opponent: match.opponent,
+      homeAway: match.homeAway,
+      date: match.date,
+      competition: match.competition,
+      location: match.location,
+      notes: parsedNotes.publicNotes,
+      preMatchNotes: match.preMatchNotes,
+      convocationAt: typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null,
+      convocationPlace: typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null,
+    },
+    callups.map((callup) => {
+      const player = playerById.get(callup.playerId);
+      return player
+        ? { firstName: player.firstName, lastName: player.lastName }
+        : { playerName: `Giocatore ${callup.playerId}` };
+    }),
+  );
+  const datePart = match.date instanceof Date && !Number.isNaN(match.date.getTime())
+    ? match.date.toISOString().slice(0, 10)
+    : "data";
+  const filename = `${fileSafe(team?.name ?? "squadra")}-${datePart}-convocazione.pdf`;
+  const disposition = String(req.query.disposition ?? "inline") === "attachment" ? "attachment" : "inline";
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Length", String(buffer.length));
+  res.setHeader("Content-Disposition", `${disposition}; filename="${filename}"`);
+  res.setHeader("Cache-Control", "private, no-store");
+  res.end(buffer);
 });
 
 router.post("/matches/:id/callups", requireAuth, async (req, res): Promise<void> => {

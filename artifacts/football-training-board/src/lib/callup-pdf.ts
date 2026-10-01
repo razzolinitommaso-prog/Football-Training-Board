@@ -1,3 +1,5 @@
+import { withApi } from "@/lib/api-base";
+
 export type CallupPdfMatch = {
   clubName: string;
   teamName?: string | null;
@@ -262,6 +264,10 @@ export function openGeneratedPdf(url: string) {
 
 export function downloadGeneratedPdf(url: string, filename: string) {
   if (typeof document === "undefined") return;
+  if (isLikelyMobileBrowser()) {
+    window.location.href = url;
+    return;
+  }
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
@@ -271,4 +277,12 @@ export function downloadGeneratedPdf(url: string, filename: string) {
   document.body.appendChild(link);
   link.click();
   link.remove();
+}
+
+export function serverCallupPdfUrls(matchId: number) {
+  const base = `/api/matches/${matchId}/callups/pdf`;
+  return {
+    inlineUrl: withApi(`${base}?disposition=inline`),
+    downloadUrl: withApi(`${base}?disposition=attachment`),
+  };
 }

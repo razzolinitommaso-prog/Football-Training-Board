@@ -36,7 +36,7 @@ import {
   isGenericPdfCategoryHint,
   type MatchPdfImportResult,
 } from "@/lib/match-calendar-pdf";
-import { downloadGeneratedPdf, downloadOrShareCallupPdf, openGeneratedPdf } from "@/lib/callup-pdf";
+import { downloadGeneratedPdf, openGeneratedPdf, serverCallupPdfUrls } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
@@ -1619,7 +1619,7 @@ function MatchCard({
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set());
   const [callupSearch, setCallupSearch] = useState("");
   const [exportingCallupPdf, setExportingCallupPdf] = useState(false);
-  const [generatedCallupPdf, setGeneratedCallupPdf] = useState<{ filename: string; url: string } | null>(null);
+  const [generatedCallupPdf, setGeneratedCallupPdf] = useState<{ filename: string; url: string; downloadUrl: string } | null>(null);
   const [planDraft, setPlanDraft] = useState<MatchPlanData>(() =>
     normalizePlanPeriodsForSection(
       ensurePlanPeriods(match.matchPlan ?? null, defaultPeriodsForTeam(matchSection, teamName, teamCategory)),
@@ -2218,29 +2218,14 @@ function MatchCard({
     }
     setExportingCallupPdf(true);
     try {
-      const result = await downloadOrShareCallupPdf({
-        match: {
-          clubName: clubLabel,
-          teamName,
-          opponent: match.opponent,
-          homeAway: match.homeAway,
-          date: match.date,
-          competition: match.competition,
-          location: match.location,
-          notes: match.notes,
-          preMatchNotes: match.preMatchNotes,
-          convocationAt: planDraft.convocationAt,
-          convocationPlace: planDraft.convocationPlace,
-        },
-        players,
-        preferShare: true,
-      });
-      if (result.url) {
-        setGeneratedCallupPdf({ filename: result.filename, url: result.url });
-      }
+      const { inlineUrl, downloadUrl } = serverCallupPdfUrls(match.id);
+      const date = match.date ? new Date(match.date) : null;
+      const datePart = date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "data";
+      const filename = `${(teamName || "squadra").toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "squadra"}-${datePart}-convocazione.pdf`;
+      setGeneratedCallupPdf({ filename, url: inlineUrl, downloadUrl });
       toast({
-        title: "PDF convocazione generato",
-        description: result.url ? "Se il download non parte, usa Apri PDF." : result.filename,
+        title: "PDF convocazione pronto",
+        description: "Puoi aprirlo o scaricarlo dai pulsanti della convocazione.",
       });
     } catch (err: any) {
       toast({ title: err?.message ?? "Impossibile generare il PDF convocazione", variant: "destructive" });
@@ -2532,7 +2517,7 @@ function MatchCard({
                       size="sm"
                       variant="secondary"
                       className="h-7 gap-1.5 px-2 text-xs"
-                      onClick={() => downloadGeneratedPdf(generatedCallupPdf.url, generatedCallupPdf.filename)}
+                      onClick={() => downloadGeneratedPdf(generatedCallupPdf.downloadUrl, generatedCallupPdf.filename)}
                     >
                       <Download className="h-3.5 w-3.5" />
                       Scarica
