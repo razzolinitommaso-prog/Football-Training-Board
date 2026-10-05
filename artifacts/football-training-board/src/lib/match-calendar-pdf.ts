@@ -2996,9 +2996,11 @@ function sideMatchesSociety(sideNorm: string, societyNorm: string): boolean {
   if (need.every((w) => sideNorm.includes(w))) return true;
   // Alcuni PDF mostrano solo una parte della società (es. "GAVINANA" senza "FIRENZE").
   // In quel caso accettiamo almeno un token "specifico" (non generico).
-  const generic = new Set(["calcio", "asd", "ssd", "srl", "polisportiva", "sportiva", "club", "firenze"]);
+  const generic = new Set(["calcio", "asd", "ssd", "srl", "polisportiva", "sportiva", "club", "firenze", "san", "santo", "santa"]);
   const specific = need.filter((w) => !generic.has(w));
-  return specific.some((w) => sideNorm.includes(w));
+  const matchedSpecific = specific.filter((w) => sideNorm.includes(w));
+  if (specific.length <= 1) return matchedSpecific.length === 1;
+  return matchedSpecific.length >= Math.min(2, specific.length);
 }
 
 function opponentLooksPlausible(raw: string): boolean {
@@ -3011,7 +3013,6 @@ function opponentLooksPlausible(raw: string): boolean {
   if (n.length < 5) return false;
   if (/^sq\.?\s?[a-z]\.?$/i.test(t.replace(/\s+/g, ""))) return false;
   if (/^sq\s?[a-z]$/i.test(n)) return false;
-  if (/\b(19|20)\d{2}\b/.test(t)) return false;
   if (/\b(esordienti|pulcini|primi\s+calci|allievi|giovanissimi)\b/i.test(t) && /\banno\b/i.test(t)) return false;
   const clubSigle = (t.match(/\b(?:a\.?s\.?d\.?|s\.?s\.?d\.?|u\.?s\.?d\.?|c\.?f\.?|f\.?c\.?)\b/gi) ?? []).length;
   if (clubSigle >= 3) return false;
@@ -6802,6 +6803,10 @@ export function parseMatchCalendarTextLines(
 
     const federalLikeSplit =
       societyNorm.length >= 2 ? splitFederalFixtureLine(cleanedRow, societyNorm) : null;
+    if (societyNorm.length >= 2 && !federalLikeSplit) {
+      discarded++;
+      continue;
+    }
     const fallback = extractOpponent(line, aliases);
     const opponent = federalLikeSplit?.opponent ?? fallback.opponent;
     const homeAway = federalLikeSplit?.homeAway ?? fallback.homeAway;
