@@ -2054,6 +2054,37 @@ function SessionDetailsDialog({
     }));
   }
 
+  function setStationEquipmentSelection(stationId: string, selection: Partial<Record<MaterialId, number>>) {
+    setStations(exerciseStations.map((item) =>
+      item.id === stationId ? { ...item, equipment: serializeEquipmentSelection(selection) } : item,
+    ));
+  }
+
+  function addStationMaterial(station: ExerciseStation, materialId: MaterialId) {
+    const selection = parseEquipmentSelection(station.equipment);
+    if ((selection[materialId] ?? 0) <= 0) selection[materialId] = 1;
+    setStationEquipmentSelection(station.id, selection);
+    setRecentMaterialIds((current) => {
+      const nextRecent = [materialId, ...current.filter((item) => item !== materialId)].slice(0, 12);
+      if (typeof window !== "undefined") window.localStorage.setItem(RECENT_MATERIALS_STORAGE_KEY, JSON.stringify(nextRecent));
+      return nextRecent;
+    });
+  }
+
+  function setStationMaterialQty(station: ExerciseStation, materialId: MaterialId, rawValue: string) {
+    const selection = parseEquipmentSelection(station.equipment);
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed) || parsed <= 0) delete selection[materialId];
+    else selection[materialId] = parsed;
+    setStationEquipmentSelection(station.id, selection);
+  }
+
+  function removeStationMaterial(station: ExerciseStation, materialId: MaterialId) {
+    const selection = parseEquipmentSelection(station.equipment);
+    delete selection[materialId];
+    setStationEquipmentSelection(station.id, selection);
+  }
+
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-[760px] max-h-[90vh] overflow-y-auto">
@@ -2492,12 +2523,74 @@ function SessionDetailsDialog({
                               onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, exercise: e.target.value } : item))}
                               placeholder="Esercitazione specifica della stazione"
                             />
-                            <Input
-                              className="mt-2"
-                              value={station.equipment}
-                              onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, equipment: e.target.value } : item))}
-                              placeholder="Materiali della stazione"
-                            />
+                            <div className="mt-2 rounded-md border bg-muted/20 p-2">
+                              {(() => {
+                                const stationSelection = parseEquipmentSelection(station.equipment);
+                                const selectedMaterials = MATERIAL_OPTIONS.filter((option) => (stationSelection[option.id] ?? 0) > 0);
+                                const hasStructuredMaterials = selectedMaterials.length > 0;
+                                const legacyText = hasStructuredMaterials ? "" : station.equipment;
+                                return (
+                                  <div className="space-y-2">
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                      <Select value="_add" onValueChange={(value) => {
+                                        if (value === "_add") return;
+                                        addStationMaterial(station, value as MaterialId);
+                                      }}>
+                                        <SelectTrigger className="h-9 flex-1 bg-background">
+                                          <SelectValue placeholder="Materiali della stazione" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="_add">Aggiungi materiale</SelectItem>
+                                          {availableMaterialOptions.map((option) => (
+                                            <SelectItem key={option.id} value={option.id}>
+                                              {option.label}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      {selectedMaterials.length > 0 && (
+                                        <Badge variant="secondary" className="h-8 justify-center">
+                                          {selectedMaterials.length} materiali
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    {selectedMaterials.length > 0 && (
+                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                        {selectedMaterials.map((option) => (
+                                          <div key={option.id} className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5">
+                                            <span className="min-w-0 flex-1 truncate text-xs font-medium">{option.label}</span>
+                                            <Input
+                                              type="number"
+                                              min={1}
+                                              className="h-8 w-16"
+                                              value={stationSelection[option.id] ?? 1}
+                                              onChange={(event) => setStationMaterialQty(station, option.id, event.target.value)}
+                                            />
+                                            <Button
+                                              type="button"
+                                              size="icon"
+                                              variant="ghost"
+                                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                              onClick={() => removeStationMaterial(station, option.id)}
+                                            >
+                                              <X className="h-3.5 w-3.5" />
+                                            </Button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {!hasStructuredMaterials && (
+                                      <Input
+                                        className="h-9 bg-background"
+                                        value={legacyText}
+                                        onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, equipment: e.target.value } : item))}
+                                        placeholder="Oppure scrivi materiali liberi"
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                             <Textarea
                               className="mt-2"
                               rows={2}
