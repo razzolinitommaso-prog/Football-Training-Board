@@ -2803,6 +2803,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       payload.expectedReturn = null;
     }
     if (payload.available && availabilityBlocks.length === 0) {
+      payload.status = "active";
       payload.unavailabilityReason = null;
       payload.expectedReturn = null;
     }
