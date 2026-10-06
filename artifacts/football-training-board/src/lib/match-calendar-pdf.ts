@@ -3003,6 +3003,59 @@ function sideMatchesSociety(sideNorm: string, societyNorm: string): boolean {
   return matchedSpecific.length >= Math.min(2, specific.length);
 }
 
+function societySideMatchScore(sideNorm: string, societyNorm: string): number {
+  if (!societyNorm || !sideNorm) return 0;
+  const societyTokens = societyNorm.split(" ").filter((w) => w.length >= 2);
+  if (societyTokens.length === 0) return 0;
+
+  const sideTokens = sideNorm.split(" ").filter(Boolean);
+  let score = sideNorm.includes(societyNorm) ? 600 : 0;
+  let cursor = 0;
+  for (const token of societyTokens) {
+    const idx = sideTokens.findIndex((sideToken, index) => index >= cursor && sideToken === token);
+    if (idx >= 0) {
+      score += token.length >= 4 || /^\d+$/.test(token) ? 80 : 30;
+      score += Math.max(0, 12 - (idx - cursor) * 2);
+      cursor = idx + 1;
+    } else if (sideNorm.includes(token)) {
+      score += token.length >= 4 || /^\d+$/.test(token) ? 45 : 15;
+    }
+  }
+  return score;
+}
+
+function isSquadSuffixText(raw: string): boolean {
+  return /^sq\.?\s*[a-z0-9]{1,2}$/i.test(raw.trim());
+}
+
+function startsWithSquadSuffix(raw: string): boolean {
+  const t = raw.trim();
+  if (!t) return false;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+  if (isSquadSuffixText(words[0] ?? "")) return true;
+  const firstTwo = words.slice(0, 2).join(" ");
+  return isSquadSuffixText(firstTwo);
+}
+
+function startsWithDanglingSocietyFragment(raw: string, societyNorm: string): boolean {
+  const opponentNorm = normalizeName(raw);
+  if (!opponentNorm || !societyNorm) return false;
+  if (startsWithSquadSuffix(raw)) return true;
+
+  const opponentTokens = opponentNorm.split(" ").filter(Boolean);
+  const societyTokens = societyNorm.split(" ").filter((w) => w.length >= 3 || /^\d+$/.test(w));
+  const generic = new Set(["calcio", "asd", "ssd", "srl", "club", "san", "santo", "santa"]);
+  const distinctive = societyTokens.filter((token) => !generic.has(token));
+  const first = opponentTokens[0] ?? "";
+  const second = opponentTokens[1] ?? "";
+
+  if (!first) return false;
+  if (distinctive.includes(first) && opponentTokens.length >= 2) return true;
+  if (/^\d{3,4}$/.test(first) && societyTokens.includes(first) && opponentTokens.length >= 2) return true;
+  return first === "sq" && Boolean(second);
+}
+
 function opponentLooksPlausible(raw: string): boolean {
   const t = raw.trim();
   if (t.length < 5) return false;
@@ -3051,10 +3104,12 @@ function assignOpponentFromTwoSides(
   const rightM = sideMatchesSociety(rightN, societyNorm);
   if (leftM && !rightM) {
     const opponent = stripOpponentBleed(rightRaw.trim(), leftRaw.trim());
+    if (startsWithDanglingSocietyFragment(opponent, societyNorm)) return null;
     return opponentLooksPlausible(opponent) ? { opponent, homeAway: "home" } : null;
   }
   if (rightM && !leftM) {
     const opponent = stripOpponentBleed(leftRaw.trim(), rightRaw.trim());
+    if (startsWithDanglingSocietyFragment(opponent, societyNorm)) return null;
     return opponentLooksPlausible(opponent) ? { opponent, homeAway: "away" } : null;
   }
   return null;
@@ -3103,7 +3158,7 @@ function splitFederalFixtureLine(
   const words = collapsed.split(/\s+/);
   if (words.length < 2) return null;
 
-  type Cand = { k: number; homeAway: "home" | "away"; opponent: string; score: number };
+  type Cand = { k: number; homeAway: "home" | "away"; opponent: string; ownSide: string; score: number };
   const candidates: Cand[] = [];
 
   for (let k = 0; k < words.length - 1; k++) {
@@ -3117,22 +3172,28 @@ function splitFederalFixtureLine(
       const opponent = right.trim();
       const oppN = normalizeName(opponent);
       if (!opponentLooksPlausible(opponent) || sideMatchesSociety(oppN, societyNorm)) continue;
+      const danglingPenalty = startsWithDanglingSocietyFragment(opponent, societyNorm) ? 100000 : 0;
+      const ownScore = societySideMatchScore(leftN, societyNorm);
       candidates.push({
         k,
         homeAway: "home",
         opponent,
-        score: opponent.length * 100 - Math.abs(k - (words.length - 1) / 2),
+        ownSide: left,
+        score: ownScore * 1000 + left.length * 10 - opponent.length - danglingPenalty - Math.abs(k - (words.length - 1) / 2),
       });
     }
     if (rightM && !leftM) {
       const opponent = left.trim();
       const oppN = normalizeName(opponent);
       if (!opponentLooksPlausible(opponent) || sideMatchesSociety(oppN, societyNorm)) continue;
+      const danglingPenalty = startsWithDanglingSocietyFragment(opponent, societyNorm) ? 100000 : 0;
+      const ownScore = societySideMatchScore(rightN, societyNorm);
       candidates.push({
         k,
         homeAway: "away",
         opponent,
-        score: opponent.length * 100 - Math.abs(k - (words.length - 1) / 2),
+        ownSide: right,
+        score: ownScore * 1000 + right.length * 10 - opponent.length - danglingPenalty - Math.abs(k - (words.length - 1) / 2),
       });
     }
   }
@@ -3140,9 +3201,8 @@ function splitFederalFixtureLine(
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => b.score - a.score);
   const best = candidates[0];
-  const ourWords =
-    best.homeAway === "home" ? words.slice(0, best.k + 1).join(" ") : words.slice(best.k + 1).join(" ");
-  const opponent = stripOpponentBleed(best.opponent, ourWords);
+  const opponent = stripOpponentBleed(best.opponent, best.ownSide);
+  if (startsWithDanglingSocietyFragment(opponent, societyNorm)) return null;
   if (!opponentLooksPlausible(opponent)) return null;
   if (sideMatchesSociety(normalizeName(opponent), societyNorm)) return null;
   return { opponent, homeAway: best.homeAway };
@@ -6451,11 +6511,30 @@ export function parseMatchCalendarTextLines(
   const federal = documentMode !== "tournament" && looksLikeFederalCalendar(fullText) && societyNorm.length >= 2;
 
   if (federal) {
-    const federalResult = parseFederalLines(allPageLines, {
-      sectionNorms,
-      societyNorm,
+    const federalSocieties = [
+      options.societyHint,
+      options.clubName,
       societyDisplay,
-    });
+      options.teamName,
+      ...(options.clubAliases ?? []),
+    ]
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean);
+    const uniqueFederalSocieties = [...new Map(federalSocieties.map((value) => [normalizeName(value), value])).values()].filter(
+      (value) => normalizeName(value).length >= 2,
+    );
+    const federalResults = uniqueFederalSocieties.map((display) =>
+      parseFederalLines(allPageLines, {
+        sectionNorms,
+        societyNorm: normalizeName(display),
+        societyDisplay: display,
+      }),
+    );
+    const federalResult = federalResults.sort((a, b) => b.recognized.length - a.recognized.length)[0] ?? {
+      recognized: [],
+      discarded: 0,
+      totalDateLines: 0,
+    };
     if (federalResult.recognized.length > 0) {
       return federalResult;
     }
