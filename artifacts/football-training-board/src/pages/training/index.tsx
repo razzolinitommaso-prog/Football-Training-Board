@@ -2731,7 +2731,7 @@ function SessionDetailsDialog({
                               />
                             </div>
 
-                            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(150px,220px)_1fr]">
                               <div className="space-y-2">
                                 <Label>Giocatori richiesti nella stazione</Label>
                                 <Input
