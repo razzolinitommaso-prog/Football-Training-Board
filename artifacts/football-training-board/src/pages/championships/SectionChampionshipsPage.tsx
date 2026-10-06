@@ -374,11 +374,23 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
         </div>
       </div>
 
-      <div className="hidden overflow-auto lg:block">
-        <table className="w-full min-w-[600px] text-sm">
+      <div className="hidden overflow-x-hidden lg:block">
+        <table className="w-full table-fixed text-sm">
+        <colgroup>
+          <col className="w-8" />
+          <col />
+          <col className="w-8" />
+          <col className="w-7" />
+          <col className="w-7" />
+          <col className="w-7" />
+          <col className="w-8" />
+          <col className="w-8" />
+          <col className="w-10" />
+          <col className="w-7" />
+        </colgroup>
         <thead>
           <tr className="border-b text-xs uppercase text-muted-foreground">
-            <th className="py-2 pr-2 text-left">#</th>
+            <th className="py-2 pr-1 text-left">#</th>
             <th className="py-2 pr-2 text-left">Squadra</th>
             <th className="py-2 text-right">PG</th>
             <th className="py-2 text-right">V</th>
@@ -395,8 +407,8 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
             const clubRow = isClubTeam(row.team);
             return (
               <tr key={row.team} className={cn("border-b last:border-b-0", clubRow && "bg-emerald-500/5")}>
-                <td className="py-2 pr-2 text-muted-foreground">{index + 1}</td>
-                <td className={cn("py-2 pr-2 font-medium", clubRow && "text-emerald-700 dark:text-emerald-300")}>{row.team}</td>
+                <td className="py-2 pr-1 text-muted-foreground">{index + 1}</td>
+                <td className={cn("truncate py-2 pr-2 font-medium", clubRow && "text-emerald-700 dark:text-emerald-300")} title={row.team}>{row.team}</td>
                 <td className="py-2 text-right tabular-nums">{row.pg}</td>
                 <td className="py-2 text-right tabular-nums">{row.v}</td>
                 <td className="py-2 text-right tabular-nums">{row.n}</td>
