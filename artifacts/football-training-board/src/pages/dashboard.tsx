@@ -777,8 +777,18 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   });
 
   const { data: dashboardMatches = [] } = useQuery<DashboardMatch[]>({
-    queryKey: ["/api/matches", clubIdNum, nr, "dashboard-calendar"],
-    queryFn: () => fetchJsonOrThrow<DashboardMatch[]>("/api/matches"),
+    queryKey: ["/api/matches", clubIdNum, nr, dashboardSectionsKey || "club", "dashboard-calendar"],
+    queryFn: async () => {
+      const urls = dashboardSections.length
+        ? dashboardSections.map((s) => `/api/matches?section=${encodeURIComponent(s)}`)
+        : ["/api/matches"];
+      const results = await Promise.all(urls.map((url) => fetchJsonOrThrow<DashboardMatch[]>(url)));
+      const byId = new Map<number, DashboardMatch>();
+      results.flat().forEach((match) => {
+        if (Number(match?.id) > 0) byId.set(Number(match.id), match);
+      });
+      return Array.from(byId.values());
+    },
     enabled: Boolean(user),
   });
 
