@@ -1873,11 +1873,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const updateMutation = useUpdatePlayer({
     mutation: {
       onSuccess: (updatedPlayer) => {
-        queryClient.setQueryData(["/api/players"], (current: unknown) => {
+        queryClient.setQueriesData({ queryKey: ["/api/players"] }, (current: unknown) => {
           if (!Array.isArray(current)) return current;
           return current.map((player: Player) => player.id === updatedPlayer.id ? { ...player, ...updatedPlayer } : player);
         });
-        queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/players"], exact: false });
         setEditingPlayer(null);
         toast({ title: t.editPlayer });
       },
