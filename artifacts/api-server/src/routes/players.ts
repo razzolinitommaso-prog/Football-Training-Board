@@ -1055,6 +1055,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   const { parentDelegates: incomingParentDelegates, ...parsedUpdateData } = parsed.data as typeof parsed.data & { parentDelegates?: ParentDelegateInput[] };
   const updateData = { ...parsedUpdateData } as Record<string, unknown>;
   const rawUpdateData = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
+  const explicitlyMarkedAvailable = rawUpdateData.available === true;
   normalizeNullablePlayerDates(updateData);
   const [existingPlayer] = await db
     .select()
@@ -1180,7 +1181,8 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     updateData.available = false;
     updateData.unavailabilityReason = "pending_transfer";
   }
-  if (updateData.available === true) {
+  if (explicitlyMarkedAvailable || updateData.available === true) {
+    updateData.available = true;
     updateData.status = "active";
     updateData.unavailabilityReason = null;
     updateData.expectedReturn = null;

@@ -2410,6 +2410,43 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const watchMedicalCertificateEdit = editForm.watch("medicalCertificateExpiry");
   const watchMedicalCertificateCreate = form.watch("medicalCertificateExpiry");
   const editAvailabilityBlocks = getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit);
+  const setEditPlayerAvailable = (available: boolean) => {
+    editForm.setValue("available", available, { shouldDirty: true });
+    if (available) {
+      editForm.setValue("status", "active", { shouldDirty: true });
+      editForm.setValue("unavailabilityReason", undefined, { shouldDirty: true });
+      editForm.setValue("expectedReturn", undefined, { shouldDirty: true });
+      return;
+    }
+    if (editForm.getValues("status") === "active") {
+      editForm.setValue("status", "inactive", { shouldDirty: true });
+    }
+    if (!editForm.getValues("unavailabilityReason")) {
+      editForm.setValue("unavailabilityReason", "other", { shouldDirty: true });
+    }
+  };
+  const setEditPlayerStatus = (status: string) => {
+    editForm.setValue("status", status, { shouldDirty: true });
+    if (status === "active") {
+      editForm.setValue("available", true, { shouldDirty: true });
+      editForm.setValue("unavailabilityReason", undefined, { shouldDirty: true });
+      editForm.setValue("expectedReturn", undefined, { shouldDirty: true });
+      return;
+    }
+    editForm.setValue("available", false, { shouldDirty: true });
+    if (status === "injured") editForm.setValue("unavailabilityReason", "injury", { shouldDirty: true });
+    if (status === "suspended") editForm.setValue("unavailabilityReason", "suspended", { shouldDirty: true });
+    if (status === "pending_transfer") editForm.setValue("unavailabilityReason", "pending_transfer", { shouldDirty: true });
+    if (status === "inactive" && !editForm.getValues("unavailabilityReason")) {
+      editForm.setValue("unavailabilityReason", "other", { shouldDirty: true });
+    }
+  };
+  const setEditPlayerUnavailabilityReason = (reason: string) => {
+    editForm.setValue("unavailabilityReason", reason, { shouldDirty: true });
+    if (reason === "injury") editForm.setValue("status", "injured", { shouldDirty: true });
+    if (reason === "suspended") editForm.setValue("status", "suspended", { shouldDirty: true });
+    if (reason === "pending_transfer") editForm.setValue("status", "pending_transfer", { shouldDirty: true });
+  };
 
   useEffect(() => {
     if (getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit).length > 0) {
@@ -2817,7 +2854,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     const canSubmitAvailabilityOverrideOnly =
       canForceAvailability &&
       availabilityOverrideEnabled &&
-      playerDialogMode === "edit";
+      playerDialogMode === "edit" &&
+      !canManagePlayers;
 
     if (canSubmitAvailabilityOverrideOnly) {
       updateMutation.mutate({ id: editingPlayer.id, data: overridePayload as any });
@@ -4320,7 +4358,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         control={editForm.control}
                         name="status"
                         render={({ field }) => (
-                          <Select onValueChange={field.onChange} value={field.value || "active"} disabled={!canEditFullPlayer}>
+                          <Select onValueChange={setEditPlayerStatus} value={field.value || "active"} disabled={!canEditFullPlayer}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="active">{t.active}</SelectItem>
@@ -4927,7 +4965,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   control={editForm.control}
                   name="status"
                   render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value || "active"} disabled={!canEditFullPlayer}>
+                    <Select onValueChange={setEditPlayerStatus} value={field.value || "active"} disabled={!canEditFullPlayer}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -5077,7 +5115,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                       <Switch
                         id="available"
                         checked={field.value ?? true}
-                        onCheckedChange={field.onChange}
+                        onCheckedChange={setEditPlayerAvailable}
                         disabled={!canEditAvailability || editAvailabilityBlocks.length > 0}
                       />
                     )}
@@ -5144,7 +5182,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                         control={editForm.control}
                         name="unavailabilityReason"
                         render={({ field }) => (
-                          <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditAvailability}>
+                          <Select onValueChange={setEditPlayerUnavailabilityReason} value={field.value || ""} disabled={!canEditAvailability}>
                             <SelectTrigger>
                               <SelectValue placeholder="—" />
                             </SelectTrigger>
