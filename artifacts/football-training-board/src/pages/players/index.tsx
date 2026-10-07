@@ -1082,6 +1082,7 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
   if (reason === "injury") return t.injuryReason;
   if (reason === "vacation") return t.vacationReason;
   if (reason === "payment") return "Autorizzazione societaria";
+  if (reason === "regular") return "Regolare";
   if (reason === "suspended") return "Sospeso";
   if (reason === "pending_transfer") return "In attesa di trasferimento";
   if (reason === "other") return t.otherReason;
@@ -2491,6 +2492,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   };
   const setEditPlayerUnavailabilityReason = (reason: string) => {
     editForm.setValue("unavailabilityReason", reason, { shouldDirty: true });
+    if (reason === "regular") {
+      if (getAvailabilityBlocks(editForm.getValues("registered"), editForm.getValues("medicalCertificateExpiry")).length === 0) {
+        setEditPlayerAvailable(true);
+      } else {
+        editForm.setValue("status", "inactive", { shouldDirty: true });
+        editForm.setValue("available", false, { shouldDirty: true });
+      }
+      return;
+    }
     if (reason === "injury") editForm.setValue("status", "injured", { shouldDirty: true });
     if (reason === "suspended") editForm.setValue("status", "suspended", { shouldDirty: true });
     if (reason === "pending_transfer") editForm.setValue("status", "pending_transfer", { shouldDirty: true });
@@ -2504,7 +2514,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     }
     const status = editForm.getValues("status");
     const reason = editForm.getValues("unavailabilityReason");
-    if (status === "inactive" && (!reason || reason === "other" || reason === "payment")) {
+    if (status === "inactive" && reason === "regular") {
       setEditPlayerAvailable(true);
     }
   }, [watchRegisteredEdit, watchMedicalCertificateEdit, editForm]);
@@ -2874,7 +2884,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       Boolean(data.availabilityOverrideUntil);
     if (availabilityBlocks.length > 0 && !availabilityOverrideEnabled) {
       payload.available = false;
-      payload.unavailabilityReason = "other";
+      if (!payload.unavailabilityReason) {
+        payload.unavailabilityReason = "regular";
+      }
       payload.expectedReturn = null;
     }
     if (payload.status === "injured") {
@@ -2893,6 +2905,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       payload.available = true;
       payload.unavailabilityReason = null;
       payload.expectedReturn = null;
+    }
+    if (payload.status === "inactive" && payload.unavailabilityReason === "regular" && availabilityBlocks.length === 0) {
+      payload.available = true;
     }
     if (payload.available && availabilityBlocks.length === 0) {
       payload.status = "active";
@@ -5319,6 +5334,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                               <SelectItem value="illness">{t.illness}</SelectItem>
                               <SelectItem value="injury">{t.injuryReason}</SelectItem>
                               <SelectItem value="vacation">{t.vacationReason}</SelectItem>
+                              <SelectItem value="regular">Regolare</SelectItem>
                               <SelectItem value="suspended">Sospeso</SelectItem>
                               <SelectItem value="pending_transfer">In attesa di trasferimento</SelectItem>
                               <SelectItem value="other">{t.otherReason}</SelectItem>

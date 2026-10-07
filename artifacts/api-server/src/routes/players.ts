@@ -583,6 +583,9 @@ function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?
     ? (data.medicalCertificateExpiry as string | null | undefined)
     : existing?.medicalCertificateExpiry;
   const incomingStatus = typeof data.status === "string" ? data.status : existing?.status;
+  const incomingReason = typeof data.unavailabilityReason === "string"
+    ? data.unavailabilityReason
+    : existing?.unavailabilityReason;
   const overrideSource = {
     availabilityOverrideActive: "availabilityOverrideActive" in data ? data.availabilityOverrideActive : (existing as PlayerWithAvailabilityOverride | undefined)?.availabilityOverrideActive,
     availabilityOverrideFrom: "availabilityOverrideFrom" in data ? data.availabilityOverrideFrom : (existing as PlayerWithAvailabilityOverride | undefined)?.availabilityOverrideFrom,
@@ -611,6 +614,13 @@ function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?
   }
   const hasRequirements = registered && hasValidMedicalCertificate(certificate);
   if (hasRequirements) {
+    if (incomingStatus === "inactive" && incomingReason !== "regular") {
+      data.status = "inactive";
+      data.available = false;
+      if (!data.unavailabilityReason) data.unavailabilityReason = incomingReason || "other";
+      data.expectedReturn = null;
+      return;
+    }
     data.status = "active";
     data.available = true;
     data.unavailabilityReason = null;

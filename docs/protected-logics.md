@@ -17,6 +17,8 @@ Ambito:
 Regole protette:
 - Se un giocatore viene impostato come disponibile, deve risultare `Disponibile / Attivo`.
 - Se un giocatore viene impostato come `Sospeso`, `Infortunato`, `In attesa trasferimento` o `Inattivo`, deve risultare non disponibile con motivo coerente.
+- Il motivo `Regolare` e' l'unico motivo amministrativo che puo riattivare automaticamente un giocatore quando risultano validi sia `Tesserato` sia il certificato medico.
+- Il motivo `Altro` resta manuale: non deve riportare automaticamente il giocatore a `Disponibile / Attivo`.
 - Il salvataggio della scheda da segreteria o ruoli superiori deve preservare tutti i campi modificabili, inclusa la squadra supplementare.
 - La squadra supplementare deve restare salvata dopo chiusura scheda, refresh pagina, filtro per squadra e cambio sezione.
 - I ruoli non autorizzati non devono poter modificare campi non concessi.
