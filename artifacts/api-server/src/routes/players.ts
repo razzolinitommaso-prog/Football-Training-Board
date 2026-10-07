@@ -1181,6 +1181,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     updateData.unavailabilityReason = "pending_transfer";
   }
   if (updateData.available === true) {
+    updateData.status = "active";
     updateData.unavailabilityReason = null;
     updateData.expectedReturn = null;
   }
