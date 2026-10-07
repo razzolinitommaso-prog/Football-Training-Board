@@ -1278,6 +1278,15 @@ function medicalCertificateDaysToExpiry(value?: string | null): number | null {
   return Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function addMonthsMinusOneDay(dateValue: string, months: number): string {
+  if (!dateValue || months <= 0) return "";
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  date.setMonth(date.getMonth() + months);
+  date.setDate(date.getDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
 function addAutomaticMedicalCertificateWarningNotes(
   thread: PlayerNoteThreadItem[],
   expiryDate: string | null | undefined,
@@ -1456,6 +1465,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [openedFromQuery, setOpenedFromQuery] = useState(false);
   const [formSeasonFilter, setFormSeasonFilter] = useState<string>("all");
   const [formAnnataFilter, setFormAnnataFilter] = useState<string>("all");
+  const [createMedicalCertificateDate, setCreateMedicalCertificateDate] = useState("");
+  const [createMedicalCustomPeriod, setCreateMedicalCustomPeriod] = useState(false);
+  const [createMedicalPeriod, setCreateMedicalPeriod] = useState("12");
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<number[]>([]);
   const [noteDraftText, setNoteDraftText] = useState("");
   const [noteRecipient, setNoteRecipient] = useState<PlayerNoteRecipient>("secretary");
@@ -1734,6 +1746,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         setIsCreateOpen(false);
         setFormSeasonFilter("all");
         setFormAnnataFilter("all");
+        resetCreateMedicalCertificateFields();
         toast({ title: t.addPlayer });
         form.reset();
       }
@@ -2427,6 +2440,24 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const watchMedicalCertificateEdit = editForm.watch("medicalCertificateExpiry");
   const watchMedicalCertificateCreate = form.watch("medicalCertificateExpiry");
   const editAvailabilityBlocks = getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit);
+  const resetCreateMedicalCertificateFields = () => {
+    setCreateMedicalCertificateDate("");
+    setCreateMedicalCustomPeriod(false);
+    setCreateMedicalPeriod("12");
+  };
+  const updateCreateMedicalExpiry = (dateValue: string, periodValue = createMedicalPeriod, customPeriod = createMedicalCustomPeriod) => {
+    if (!dateValue) {
+      form.setValue("medicalCertificateExpiry", null, { shouldDirty: true });
+      return;
+    }
+    if (customPeriod && periodValue === "custom") {
+      form.setValue("medicalCertificateExpiry", null, { shouldDirty: true });
+      return;
+    }
+    const months = Number(customPeriod ? periodValue : "12");
+    const expiry = addMonthsMinusOneDay(dateValue, months);
+    form.setValue("medicalCertificateExpiry", expiry || null, { shouldDirty: true });
+  };
   const setEditPlayerAvailable = (available: boolean) => {
     editForm.setValue("available", available, { shouldDirty: true });
     if (available) {
@@ -3071,7 +3102,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               </Button>
             </>
           )}
-          <Dialog open={isCreateOpen} onOpenChange={(o) => { setIsCreateOpen(o); if (!o) { setFormSeasonFilter("all"); setFormAnnataFilter("all"); form.reset(); } }}>
+          <Dialog open={isCreateOpen} onOpenChange={(o) => { setIsCreateOpen(o); if (!o) { setFormSeasonFilter("all"); setFormAnnataFilter("all"); resetCreateMedicalCertificateFields(); form.reset(); } }}>
           {canManagePlayers && (
           <DialogTrigger asChild>
             <Button className="shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all">
@@ -3318,8 +3349,65 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   <Input id="registrationNumber" {...form.register("registrationNumber")} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="medicalCertificateExpiry">Certificato medico</Label>
-                  <Input id="medicalCertificateExpiry" type="date" {...form.register("medicalCertificateExpiry")} />
+                  <Label htmlFor="medicalCertificateDate">Data certificato</Label>
+                  <Input
+                    id="medicalCertificateDate"
+                    type="date"
+                    value={createMedicalCertificateDate}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setCreateMedicalCertificateDate(value);
+                      updateCreateMedicalExpiry(value);
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+                <div className="flex items-center gap-3">
+                  <Checkbox
+                    id="medicalCustomPeriod"
+                    checked={createMedicalCustomPeriod}
+                    onCheckedChange={(checked) => {
+                      const enabled = checked === true;
+                      setCreateMedicalCustomPeriod(enabled);
+                      const nextPeriod = enabled ? createMedicalPeriod : "12";
+                      setCreateMedicalPeriod(nextPeriod);
+                      updateCreateMedicalExpiry(createMedicalCertificateDate, nextPeriod, enabled);
+                    }}
+                  />
+                  <Label htmlFor="medicalCustomPeriod" className="cursor-pointer">Altro periodo certificato</Label>
+                </div>
+                {createMedicalCustomPeriod && (
+                  <div className="space-y-2">
+                    <Label>Validita certificato</Label>
+                    <Select
+                      value={createMedicalPeriod}
+                      onValueChange={(value) => {
+                        setCreateMedicalPeriod(value);
+                        updateCreateMedicalExpiry(createMedicalCertificateDate, value, true);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleziona periodo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="3">3 mesi</SelectItem>
+                        <SelectItem value="6">6 mesi</SelectItem>
+                        <SelectItem value="12">12 mesi</SelectItem>
+                        <SelectItem value="custom">Altro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="medicalCertificateExpiry">Scadenza certificato</Label>
+                  <Input
+                    id="medicalCertificateExpiry"
+                    type="date"
+                    {...form.register("medicalCertificateExpiry")}
+                    disabled={!(createMedicalCustomPeriod && createMedicalPeriod === "custom")}
+                  />
                 </div>
               </div>
 
