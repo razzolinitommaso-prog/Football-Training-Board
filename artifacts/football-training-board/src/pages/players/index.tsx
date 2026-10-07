@@ -2497,8 +2497,15 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   };
 
   useEffect(() => {
-    if (getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit).length > 0) {
+    const blocks = getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit);
+    if (blocks.length > 0) {
       editForm.setValue("available", false);
+      return;
+    }
+    const status = editForm.getValues("status");
+    const reason = editForm.getValues("unavailabilityReason");
+    if (status === "inactive" && (!reason || reason === "other" || reason === "payment")) {
+      setEditPlayerAvailable(true);
     }
   }, [watchRegisteredEdit, watchMedicalCertificateEdit, editForm]);
 

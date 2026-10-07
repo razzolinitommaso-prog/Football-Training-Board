@@ -609,19 +609,19 @@ function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?
     data.expectedReturn = null;
     return;
   }
-  if (incomingStatus === "inactive") {
-    data.status = "inactive";
-    data.available = false;
-    if (!data.unavailabilityReason) data.unavailabilityReason = "other";
-    data.expectedReturn = null;
-    return;
-  }
-
   const hasRequirements = registered && hasValidMedicalCertificate(certificate);
   if (hasRequirements) {
     data.status = "active";
     data.available = true;
     data.unavailabilityReason = null;
+    data.expectedReturn = null;
+    return;
+  }
+
+  if (incomingStatus === "inactive") {
+    data.status = "inactive";
+    data.available = false;
+    if (!data.unavailabilityReason) data.unavailabilityReason = "other";
     data.expectedReturn = null;
     return;
   }
