@@ -1342,6 +1342,11 @@ function compareTeamsByAnnata(a: TeamWithSeason, b: TeamWithSeason): number {
   return String(a.name ?? "").localeCompare(String(b.name ?? ""), "it", { numeric: true, sensitivity: "base" });
 }
 
+function teamAnnataLabel(team: TeamWithSeason): string {
+  const base = String(team.category || team.ageGroup || team.name || "").trim();
+  return base || "Senza annata";
+}
+
 export default function PlayersList({ section }: PlayersListProps = {}) {
   const { t } = useLanguage();
   const { role, user, club } = useAuth();
@@ -1450,6 +1455,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const [playerDialogMode, setPlayerDialogMode] = useState<"view" | "edit">("view");
   const [openedFromQuery, setOpenedFromQuery] = useState(false);
   const [formSeasonFilter, setFormSeasonFilter] = useState<string>("all");
+  const [formAnnataFilter, setFormAnnataFilter] = useState<string>("all");
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<number[]>([]);
   const [noteDraftText, setNoteDraftText] = useState("");
   const [noteRecipient, setNoteRecipient] = useState<PlayerNoteRecipient>("secretary");
@@ -1700,9 +1706,19 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     ).values()
   );
 
-  const filteredFormTeams = formSeasonFilter === "all"
+  const seasonFilteredFormTeams = formSeasonFilter === "all"
     ? typedTeams
     : typedTeams.filter(t => t.seasonId?.toString() === formSeasonFilter);
+  const uniqueFormAnnate = Array.from(
+    new Map(
+      seasonFilteredFormTeams
+        .map((team) => ({ key: teamAnnataLabel(team), label: teamAnnataLabel(team), rank: teamCategoryRank(teamAnnataLabel(team)), year: teamYearRank(teamAnnataLabel(team)) }))
+        .map((item) => [item.key, item])
+    ).values()
+  ).sort((a, b) => (a.rank - b.rank) || (a.year - b.year) || a.label.localeCompare(b.label, "it", { numeric: true, sensitivity: "base" }));
+  const filteredFormTeams = formAnnataFilter === "all"
+    ? seasonFilteredFormTeams
+    : seasonFilteredFormTeams.filter(t => teamAnnataLabel(t) === formAnnataFilter);
 
   const handleExportPlayers = () => {
     if (!players?.length) return;
@@ -1717,6 +1733,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         queryClient.invalidateQueries({ queryKey: ["/api/players"] });
         setIsCreateOpen(false);
         setFormSeasonFilter("all");
+        setFormAnnataFilter("all");
         toast({ title: t.addPlayer });
         form.reset();
       }
@@ -3054,7 +3071,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               </Button>
             </>
           )}
-          <Dialog open={isCreateOpen} onOpenChange={(o) => { setIsCreateOpen(o); if (!o) { setFormSeasonFilter("all"); form.reset(); } }}>
+          <Dialog open={isCreateOpen} onOpenChange={(o) => { setIsCreateOpen(o); if (!o) { setFormSeasonFilter("all"); setFormAnnataFilter("all"); form.reset(); } }}>
           {canManagePlayers && (
           <DialogTrigger asChild>
             <Button className="shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all">
@@ -3232,18 +3249,18 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 </div>
               </div>
 
-              {/* Annata + Squadra */}
+              {/* Stagione + annata + squadra */}
               <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Assegnazione squadra</p>
                 {uniqueSeasons.length > 0 && (
                   <div className="space-y-1.5">
-                    <Label className="text-sm">Annata di riferimento</Label>
-                    <Select value={formSeasonFilter} onValueChange={(v) => { setFormSeasonFilter(v); form.setValue("teamId", null); }}>
+                    <Label className="text-sm">Stagione di riferimento</Label>
+                    <Select value={formSeasonFilter} onValueChange={(v) => { setFormSeasonFilter(v); setFormAnnataFilter("all"); form.setValue("teamId", null); }}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Tutte le annate" />
+                        <SelectValue placeholder="Tutte le stagioni" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">Tutte le annate</SelectItem>
+                        <SelectItem value="all">Tutte le stagioni</SelectItem>
                         {uniqueSeasons.map(s => (
                           <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
                         ))}
@@ -3252,7 +3269,24 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <Label className="text-sm">{t.assignToTeam}</Label>
+                  <Label className="text-sm">Annata di riferimento</Label>
+                  <Select value={formAnnataFilter} onValueChange={(v) => { setFormAnnataFilter(v); form.setValue("teamId", null); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Tutte le annate" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Tutte le annate</SelectItem>
+                      {uniqueFormAnnate.map((annata) => (
+                        <SelectItem key={annata.key} value={annata.key}>{annata.label}</SelectItem>
+                      ))}
+                      {uniqueFormAnnate.length === 0 && (
+                        <div className="px-2 py-3 text-sm text-muted-foreground text-center">Nessuna annata per questa stagione</div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Squadra assegnata</Label>
                   <Controller
                     control={form.control}
                     name="teamId"
@@ -3269,7 +3303,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                             </SelectItem>
                           ))}
                           {filteredFormTeams.length === 0 && (
-                            <div className="px-2 py-3 text-sm text-muted-foreground text-center">Nessuna squadra per questa annata</div>
+                            <div className="px-2 py-3 text-sm text-muted-foreground text-center">Nessuna squadra per questa selezione</div>
                           )}
                         </SelectContent>
                       </Select>
