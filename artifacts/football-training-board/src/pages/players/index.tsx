@@ -938,6 +938,20 @@ function playerImportRegistrationKey(player: { registrationNumber?: unknown }) {
   return normalizeImportTeamName(String(player.registrationNumber ?? ""));
 }
 
+function playerImportPhoneKey(player: { phone?: unknown }) {
+  return String(player.phone ?? "").replace(/\D+/g, "");
+}
+
+function playerImportDateTeamPhoneKey(player: { dateOfBirth?: unknown; teamId?: unknown; phone?: unknown }) {
+  const phone = playerImportPhoneKey(player);
+  if (!phone) return "";
+  return [
+    normalizeImportDateKey(player.dateOfBirth),
+    Number(player.teamId ?? 0) || "",
+    phone,
+  ].join("|");
+}
+
 function findExistingPlayerForImport(candidates: Player[] | undefined, mappedDate: string, mappedTeamId: number): Player | undefined {
   const list = candidates ?? [];
   if (list.length === 0) return undefined;
@@ -1774,6 +1788,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     const existingByFingerprint = new Map<string, Player>();
     const existingByName = new Map<string, Player[]>();
     const existingByRegistration = new Map<string, Player>();
+    const existingByDateTeamPhone = new Map<string, Player>();
     const existingPlayersForImport = await fetchPlayersForImport(section);
     const existingSource = existingPlayersForImport.length > 0 ? existingPlayersForImport : ((players as Player[] | undefined) ?? []);
     existingSource.forEach((player) => {
@@ -1782,6 +1797,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       existingByName.set(nameKey, [...(existingByName.get(nameKey) ?? []), player]);
       const registrationKey = playerImportRegistrationKey(player);
       if (registrationKey) existingByRegistration.set(registrationKey, player);
+      const dateTeamPhoneKey = playerImportDateTeamPhoneKey(player);
+      if (dateTeamPhoneKey) existingByDateTeamPhone.set(dateTeamPhoneKey, player);
     });
     const fileFingerprints = new Set<string>();
     const failedTeamCreations = new Set<string>();
@@ -1848,8 +1865,10 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         const nameKey = playerImportNameKey(mapped);
         const mappedDate = normalizeImportDateKey(mapped.dateOfBirth);
         const mappedTeamId = Number(mapped.teamId ?? 0);
+        const dateTeamPhoneKey = playerImportDateTeamPhoneKey(mapped);
         const existing =
           (registrationKey ? existingByRegistration.get(registrationKey) : undefined) ??
+          (dateTeamPhoneKey ? existingByDateTeamPhone.get(dateTeamPhoneKey) : undefined) ??
           existingByFingerprint.get(fingerprint) ??
           findExistingPlayerForImport(existingByName.get(nameKey), mappedDate, mappedTeamId);
 

@@ -751,6 +751,13 @@ function cellToOptionalBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
+const ITALIAN_FIRST_NAME_HINTS = new Set([
+  "alessandro", "alex", "andrea", "antonio", "christian", "cosimo", "dario", "diego", "edoardo",
+  "enea", "enrico", "federico", "francesco", "gregorio", "giulio", "lorenzo", "manuel", "martino",
+  "mattia", "mehdi", "mirali", "neri", "niccolo", "niccolò", "noah", "pietro", "riccardo",
+  "samuele", "sebastian", "stiven", "vittorio", "yasser", "yanis",
+]);
+
 function splitNameParts(value: string, order: "last_first" | "first_last") {
   const fullName = value.replace(/\s+/g, " ").trim();
   if (!fullName) return { firstName: "", lastName: "" };
@@ -765,6 +772,17 @@ function splitNameParts(value: string, order: "last_first" | "first_last") {
 
   const parts = fullName.split(" ").filter(Boolean);
   if (parts.length === 1) return { firstName: "", lastName: parts[0] };
+
+  if (order === "last_first" && parts.length >= 3) {
+    const firstToken = parts[0].toLowerCase();
+    const lastToken = parts[parts.length - 1].toLowerCase();
+    if (ITALIAN_FIRST_NAME_HINTS.has(firstToken) && !ITALIAN_FIRST_NAME_HINTS.has(lastToken)) {
+      return {
+        firstName: parts.slice(0, -1).join(" "),
+        lastName: parts[parts.length - 1],
+      };
+    }
+  }
 
   if (order === "first_last") {
     return {
