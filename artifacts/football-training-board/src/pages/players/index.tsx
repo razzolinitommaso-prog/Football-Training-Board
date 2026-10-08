@@ -1840,6 +1840,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
             warnings.push(`Squadra "${rawTeamName}" non creata/assegnata: ${error?.data?.error ?? error?.message ?? "importo i giocatori senza squadra"}`);
           }
         }
+        if (resolvedTeam && !team) {
+          duplicates++;
+          warnings.push(`Riga ${i + 1}: ${resolvedTeam.teamName} risolta dal parser ma non trovata tra le squadre. Riga ignorata per non conservare una squadra errata.`);
+          continue;
+        }
 
         const mapped = mapExcelRowToPlayer(
           {
@@ -2975,10 +2980,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
 
   };
 
-  const handleEditInvalid = () => {
+  const handleEditInvalid = (errors?: Record<string, unknown>) => {
+    const invalidFields = Object.keys(errors ?? {});
     toast({
       title: "Scheda non salvata",
-      description: "Controlla i campi della scheda: alcuni dati non sono in un formato valido.",
+      description: invalidFields.length > 0
+        ? `Controlla questi campi: ${invalidFields.slice(0, 4).join(", ")}.`
+        : "Controlla i campi della scheda: alcuni dati non sono in un formato valido.",
       variant: "destructive",
     });
   };
