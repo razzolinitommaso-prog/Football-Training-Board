@@ -16,11 +16,19 @@ export function cellToTrimmedString(value: unknown): string {
   return String(value).trim();
 }
 
+function dateToLocalIso(value: Date): string {
+  return [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    String(value.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
 export function cellToDateOfBirth(value: unknown): string | undefined {
   if (value == null || value === "") return undefined;
   if (value instanceof Date) {
     if (isNaN(value.getTime())) return undefined;
-    return value.toISOString().slice(0, 10);
+    return dateToLocalIso(value);
   }
   if (typeof value === "string") {
     const t = value.trim();
@@ -42,12 +50,8 @@ export function cellToDateOfBirth(value: unknown): string | undefined {
     }
     const slashMatch = t.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
     if (slashMatch) {
-      const [, a, b, rawYear] = slashMatch;
-      const first = Number(a);
-      const second = Number(b);
-      const month = first > 12 ? second : first;
-      const day = first > 12 ? first : second;
-      return parseDayMonthYear(String(day), String(month), rawYear);
+      const [, day, month, rawYear] = slashMatch;
+      return parseDayMonthYear(day, month, rawYear);
     }
     if (embeddedDateMatch) {
       const [, day, month, rawYear] = embeddedDateMatch;
@@ -249,11 +253,11 @@ export async function parseExcelWorkbook(file: File): Promise<ParsedExcelSheet[]
         name,
         rows: XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
           defval: "",
-          raw: false,
+          raw: true,
         }),
         rawRows: XLSX.utils.sheet_to_json<unknown[]>(ws, {
           defval: "",
-          raw: false,
+          raw: true,
           header: 1,
         }),
       };
