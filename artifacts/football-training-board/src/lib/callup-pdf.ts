@@ -1,5 +1,7 @@
 import { withApi } from "@/lib/api-base";
 
+const APP_TIME_ZONE = "Europe/Rome";
+
 export type CallupPdfMatch = {
   clubName: string;
   teamName?: string | null;
@@ -43,6 +45,7 @@ function formatDateTime(value?: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("it-IT", {
+    timeZone: APP_TIME_ZONE,
     weekday: "long",
     day: "2-digit",
     month: "long",

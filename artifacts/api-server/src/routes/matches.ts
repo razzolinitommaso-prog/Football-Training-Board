@@ -38,6 +38,7 @@ const MATCH_PLAN_VIEW_ROLES = ["coach", "fitness_coach", "athletic_director", "t
 const MATCH_PLAN_MARKER = "[FTB_MATCH_PLAN]";
 const MATCH_SECTION_VALUES = new Set(["scuola_calcio", "settore_giovanile", "prima_squadra"]);
 const DISCIPLINE_CARD_TYPES = new Set(["giallo", "doppio_giallo", "rosso"]);
+const APP_TIME_ZONE = "Europe/Rome";
 
 type CallupPdfMatch = {
   clubName: string;
@@ -80,6 +81,7 @@ function formatPdfDateTime(value?: Date | string | null): string {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("it-IT", {
+    timeZone: APP_TIME_ZONE,
     weekday: "long",
     day: "2-digit",
     month: "long",
