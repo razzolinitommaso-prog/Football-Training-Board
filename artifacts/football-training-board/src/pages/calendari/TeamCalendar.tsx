@@ -1664,6 +1664,7 @@ function MatchCard({
   const [editingSchedule, setEditingSchedule] = useState(false);
   const [newDateDay, setNewDateDay] = useState(() => toDateInputValue(match.date));
   const [newDateTime, setNewDateTime] = useState(() => toTimeInputValue(match.date));
+  const [scheduleLocation, setScheduleLocation] = useState(() => match.location ?? "");
   const [isPostponed, setIsPostponed] = useState(match.isPostponed ?? false);
   const [rescheduleTbd, setRescheduleTbd] = useState(match.rescheduleTbd ?? false);
   const [rescheduleDateDay, setRescheduleDateDay] = useState(() => toDateInputValue(match.rescheduleDate));
@@ -1906,6 +1907,7 @@ function MatchCard({
     }
     patch.mutate({
       date: scheduleIso ?? undefined,
+      location: scheduleLocation.trim() || null,
       isPostponed,
       rescheduleTbd: isPostponed ? rescheduleTbd : false,
       rescheduleDate: isPostponed && !rescheduleTbd ? (rescheduleIso ?? null) : null,
@@ -2423,6 +2425,17 @@ function MatchCard({
                   autoComplete="off"
                 />
               </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Luogo partita</Label>
+              <Input
+                type="text"
+                value={scheduleLocation}
+                onChange={(e) => setScheduleLocation(e.target.value)}
+                className="h-8 text-sm"
+                placeholder="Es. Campo sportivo, indirizzo o localita"
+                autoComplete="off"
+              />
             </div>
             <div className="flex items-center gap-2">
               <Checkbox
