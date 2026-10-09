@@ -24,7 +24,7 @@ import { useLocation } from "wouter";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
-import { mapExcelRowToPlayer, mapExcelRowToPlayerPreview, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString, normalizeImportedTeamDisplayName, prepareAdaptivePlayerImportRows, importSeasonStartYear, resolveImportedPlayerRowTeam } from "@/lib/excel-import";
+import { mapExcelRowToPlayer, mapExcelRowToPlayerPreview, isValidPlayerRow, downloadPlayerTemplate, cellToTrimmedString, normalizeImportedTeamDisplayName, prepareAdaptivePlayerImportRows, importSeasonStartYear, resolveImportedPlayerRowTeam, inferPlayerImportSeasonStartYearFromRows, inferPlayerImportSeasonStartYearFromSheets } from "@/lib/excel-import";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
 import { withApi } from "@/lib/api-base";
 
@@ -1796,6 +1796,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   });
 
   const importPlayersWithTeams = async (rows: Record<string, unknown>[]) => {
+    const rowSeasonStartYear = inferPlayerImportSeasonStartYearFromRows(rows, seasonStartYearForImport);
     const teamByName = new Map<string, { id: number; name: string; category?: string | null; ageGroup?: string | null; clubSection?: ClubSection }>();
     const teamsForImport = ((importTeams as any[] | undefined) ?? []).length > 0
       ? (importTeams as any[])
@@ -1835,9 +1836,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       try {
         const rowWithSheetTeam = {
           ...row,
-          Squadra: row.__derivedTeamName || row["Squadra"] || row.__sheetName || "",
+          Squadra: row["Squadra"] || row.__derivedTeamName || row.__sheetName || "",
         };
-        const resolvedTeam = resolveImportedPlayerRowTeam(rowWithSheetTeam, seasonStartYearForImport);
+        const resolvedTeam = resolveImportedPlayerRowTeam(rowWithSheetTeam, rowSeasonStartYear);
         if (section && resolvedTeam?.clubSection && resolvedTeam.clubSection !== section) {
           duplicates++;
           warnings.push(`Riga ${i + 1}: ${resolvedTeam.teamName} appartiene a ${resolvedTeam.clubSection}, non a ${section}. Riga ignorata.`);
@@ -3144,12 +3145,13 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 onDownloadTemplate={downloadPlayerTemplate}
                 onParseRow={(row) => mapExcelRowToPlayerPreview(row, ((importTeams as any[] | undefined) ?? (teams as any[] | undefined) ?? [])) as Record<string, unknown>}
                 isValidRow={isValidPlayerRow}
-                prepareRows={(sheets) => prepareAdaptivePlayerImportRows(sheets, { seasonStartYear: seasonStartYearForImport })}
+                prepareRows={(sheets) => prepareAdaptivePlayerImportRows(sheets, { seasonStartYear: inferPlayerImportSeasonStartYearFromSheets(sheets, seasonStartYearForImport) })}
                 getPreviewSummary={(rows) => {
+                  const previewSeasonStartYear = inferPlayerImportSeasonStartYearFromRows(rows, seasonStartYearForImport);
                   const buckets = new Map<string, number>();
                   let unresolved = 0;
                   for (const row of rows) {
-                    const resolved = resolveImportedPlayerRowTeam(row, seasonStartYearForImport);
+                    const resolved = resolveImportedPlayerRowTeam(row, previewSeasonStartYear);
                     if (!resolved) {
                       unresolved++;
                       continue;

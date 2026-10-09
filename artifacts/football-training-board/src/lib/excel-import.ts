@@ -229,6 +229,31 @@ export type ParsedExcelSheet = {
   rawRows?: unknown[][];
 };
 
+function importBirthYearsFromSheetLabel(value: unknown): number[] {
+  const text = cellToTrimmedString(value);
+  return Array.from(text.matchAll(/\b(20\d{2})\b/g))
+    .map((match) => Number(match[1]))
+    .filter((year) => Number.isFinite(year) && year >= 2000 && year <= 2100);
+}
+
+export function inferPlayerImportSeasonStartYearFromSheets(sheets: Pick<ParsedExcelSheet, "name">[], fallback = 2026): number {
+  const years = sheets.flatMap((sheet) => importBirthYearsFromSheetLabel(sheet.name));
+  if (years.length === 0) return fallback;
+
+  const maxBirthYear = Math.max(...years);
+  if (maxBirthYear >= 2021) return maxBirthYear + 5;
+  return fallback;
+}
+
+export function inferPlayerImportSeasonStartYearFromRows(rows: Record<string, unknown>[], fallback = 2026): number {
+  const years = rows.flatMap((row) => importBirthYearsFromSheetLabel(row.__sheetName));
+  if (years.length === 0) return fallback;
+
+  const maxBirthYear = Math.max(...years);
+  if (maxBirthYear >= 2021) return maxBirthYear + 5;
+  return fallback;
+}
+
 function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
   if (typeof file.arrayBuffer === "function") return file.arrayBuffer();
   return new Promise((resolve, reject) => {
