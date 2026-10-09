@@ -919,6 +919,24 @@ function importTeamAliases(team: { name?: unknown; category?: unknown; ageGroup?
   return Array.from(aliases).filter(Boolean);
 }
 
+function findTeamForResolvedPlayerImport(
+  teams: { id: number; name: string; category?: string | null; ageGroup?: string | null; clubSection?: ClubSection }[],
+  resolvedTeam: ReturnType<typeof resolveImportedPlayerRowTeam> | null,
+  fallbackName: string,
+) {
+  const targetName = normalizeImportTeamName(resolvedTeam?.teamName ?? fallbackName);
+  const targetCategory = normalizeImportTeamName(resolvedTeam?.category ?? fallbackName);
+  const targetSection = resolvedTeam?.clubSection;
+  const scopedTeams = targetSection ? teams.filter((team) => team.clubSection === targetSection) : teams;
+
+  return (
+    scopedTeams.find((team) => normalizeImportTeamName(team.name) === targetName) ??
+    scopedTeams.find((team) => normalizeImportTeamName(team.category) === targetCategory) ??
+    scopedTeams.find((team) => importTeamAliases(team).includes(targetName)) ??
+    undefined
+  );
+}
+
 function playerImportFingerprint(player: { firstName?: unknown; lastName?: unknown; dateOfBirth?: unknown }) {
   return [
     normalizeImportTeamName(String(player.lastName ?? "")),
@@ -1846,7 +1864,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
         }
         const rawTeamName = resolvedTeam?.teamName ?? normalizeImportedTeamDisplayName(rowWithSheetTeam["Squadra"]);
         const normalizedTeamName = normalizeImportTeamName(rawTeamName);
-        let team = normalizedTeamName ? teamByName.get(normalizedTeamName) : undefined;
+        let team = resolvedTeam
+          ? findTeamForResolvedPlayerImport(Array.from(teamByName.values()), resolvedTeam, rawTeamName)
+          : normalizedTeamName ? teamByName.get(normalizedTeamName) : undefined;
         const sectionForNewTeams = resolvedTeam?.clubSection ?? section ?? "scuola_calcio";
 
         if (!team && rawTeamName && !failedTeamCreations.has(normalizedTeamName)) {
