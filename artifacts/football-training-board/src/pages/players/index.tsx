@@ -1371,6 +1371,20 @@ function teamAnnataLabel(team: TeamWithSeason): string {
   return base || "Senza annata";
 }
 
+function importSeasonStartYearFromTeams(teams: TeamWithSeason[]): number | null {
+  const years = teams
+    .map((team) => importSeasonStartYear(team.seasonName ?? ""))
+    .filter((year) => Number.isFinite(year) && year >= 2020 && year <= 2100);
+
+  if (years.length === 0) return null;
+
+  const counts = new Map<number, number>();
+  years.forEach((year) => counts.set(year, (counts.get(year) ?? 0) + 1));
+
+  return Array.from(counts.entries())
+    .sort((a, b) => (b[1] - a[1]) || (b[0] - a[0]))[0]?.[0] ?? null;
+}
+
 export default function PlayersList({ section }: PlayersListProps = {}) {
   const { t } = useLanguage();
   const { role, user, club } = useAuth();
@@ -1430,7 +1444,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     },
   });
   const activeSeason = seasons.find((season) => season.isActive) ?? seasons[seasons.length - 1] ?? null;
-  const seasonStartYearForImport = importSeasonStartYear(activeSeason?.name ?? activeSeason?.startDate);
+  const importSeasonTeams = section
+    ? (teams as TeamWithSeason[]).filter((team) => team.clubSection === section)
+    : (teams as TeamWithSeason[]);
+  const seasonStartYearForImport = importSeasonStartYearFromTeams(importSeasonTeams)
+    ?? importSeasonStartYear(activeSeason?.name ?? activeSeason?.startDate);
   const { data: playerDocuments = [] } = useQuery<PlayerDocument[]>({
     queryKey: ["/api/player-documents"],
     queryFn: async () => {
