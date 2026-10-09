@@ -1385,6 +1385,14 @@ function importSeasonStartYearFromTeams(teams: TeamWithSeason[]): number | null 
     .sort((a, b) => (b[1] - a[1]) || (b[0] - a[0]))[0]?.[0] ?? null;
 }
 
+function importSeasonStartYearFromSeasons(seasons: SeasonOption[]): number | null {
+  const years = seasons
+    .map((season) => importSeasonStartYear(season.name || season.startDate))
+    .filter((year) => Number.isFinite(year) && year >= 2020 && year <= 2100);
+
+  return years.length > 0 ? Math.max(...years) : null;
+}
+
 export default function PlayersList({ section }: PlayersListProps = {}) {
   const { t } = useLanguage();
   const { role, user, club } = useAuth();
@@ -1448,6 +1456,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     ? (teams as TeamWithSeason[]).filter((team) => team.clubSection === section)
     : (teams as TeamWithSeason[]);
   const seasonStartYearForImport = importSeasonStartYearFromTeams(importSeasonTeams)
+    ?? importSeasonStartYearFromSeasons(seasons)
     ?? importSeasonStartYear(activeSeason?.name ?? activeSeason?.startDate);
   const { data: playerDocuments = [] } = useQuery<PlayerDocument[]>({
     queryKey: ["/api/player-documents"],

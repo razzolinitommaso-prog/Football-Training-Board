@@ -192,10 +192,10 @@ export function resolveImportedPlayerRowTeam(row: Record<string, unknown>, seaso
   const birthDate = cellToDateOfBirth(row["Data di Nascita"]);
   const birthYear = birthDate ? Number(birthDate.slice(0, 4)) : NaN;
   if (Number.isFinite(birthYear)) return resolveImportedPlayerTeam(String(birthYear), seasonStartYear);
-  const sheet = resolveImportedPlayerTeam(row.__sheetName, seasonStartYear);
-  if (sheet) return sheet;
   const explicit = resolveImportedPlayerTeam(row["Squadra"], seasonStartYear);
   if (explicit) return explicit;
+  const sheet = resolveImportedPlayerTeam(row.__sheetName, seasonStartYear);
+  if (sheet) return sheet;
   return null;
 }
 
