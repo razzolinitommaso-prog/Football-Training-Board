@@ -1926,6 +1926,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           findExistingPlayerForImport(existingByName.get(nameKey), mappedDate, mappedTeamId);
 
         const payload = compactImportPayload(mapped, existing);
+        if (team) payload.teamId = team.id;
         if (existing) {
           const response = await fetch(withApi(`/api/players/${existing.id}`), {
             method: "PATCH",
