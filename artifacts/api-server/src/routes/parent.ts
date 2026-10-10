@@ -56,6 +56,34 @@ function validatePersonalAccessCode(value: string): string | null {
   return null;
 }
 
+function parentRosterPlayer(player: typeof playersTable.$inferSelect, parentPlayerId: number | null) {
+  const isOwnChild = parentPlayerId === player.id;
+  return {
+    id: player.id,
+    teamId: player.teamId,
+    firstName: player.firstName,
+    lastName: player.lastName,
+    position: player.position,
+    jerseyNumber: player.jerseyNumber,
+    available: player.available,
+    isOwnChild,
+    ...(isOwnChild
+      ? {
+        dateOfBirth: player.dateOfBirth,
+        status: player.status,
+        unavailabilityReason: player.unavailabilityReason,
+        expectedReturn: player.expectedReturn,
+        medicalCertificateExpiry: player.medicalCertificateExpiry,
+        registrationStatus: player.registrationStatus,
+        registered: player.registered,
+        shuttleService: player.shuttleService,
+        shuttleRoute: player.shuttleRoute,
+        shuttleDirection: player.shuttleDirection,
+      }
+      : {}),
+  };
+}
+
 const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
 const ATTENDANCE_META_PREFIX = "[FTB_ATTENDANCE_META]";
 
@@ -258,16 +286,19 @@ router.get("/parent/children", requireParentSession, async (req, res): Promise<v
       ? await db.select().from(teamsTable).where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.id, player.teamId)))
       : [null];
     if (!team) {
-      res.json([{ id: 0, name: "Senza squadra", players: [player], nextTraining: null, nextMatch: null }]);
+      res.json([{ id: 0, name: "Senza squadra", players: [parentRosterPlayer(player, parentPlayerId)], nextTraining: null, nextMatch: null }]);
       return;
     }
+    const teamPlayers = await db.select().from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), eq(playersTable.teamId, team.id)))
+      .orderBy(asc(playersTable.lastName), asc(playersTable.firstName));
     const nextTraining = await db.select().from(trainingSessionsTable)
       .where(and(eq(trainingSessionsTable.clubId, clubId), eq(trainingSessionsTable.teamId, team.id), gte(trainingSessionsTable.scheduledAt, now)))
       .orderBy(asc(trainingSessionsTable.scheduledAt)).limit(1);
     const nextMatch = await db.select().from(matchesTable)
       .where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, team.id), gte(matchesTable.date, now)))
       .orderBy(asc(matchesTable.date)).limit(1);
-    res.json([{ ...team, players: [player], nextTraining: nextTraining[0] ?? null, nextMatch: nextMatch[0] ?? null }]);
+    res.json([{ ...team, players: teamPlayers.map((item) => parentRosterPlayer(item, parentPlayerId)), nextTraining: nextTraining[0] ?? null, nextMatch: nextMatch[0] ?? null }]);
     return;
   }
 
@@ -286,7 +317,7 @@ router.get("/parent/children", requireParentSession, async (req, res): Promise<v
       .where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, team.id), gte(matchesTable.date, now)))
       .orderBy(asc(matchesTable.date)).limit(1);
 
-    return { ...team, players, nextTraining: nextTraining[0] ?? null, nextMatch: nextMatch[0] ?? null };
+    return { ...team, players: players.map((item) => parentRosterPlayer(item, parentPlayerId)), nextTraining: nextTraining[0] ?? null, nextMatch: nextMatch[0] ?? null };
   }));
 
   res.json(enriched);

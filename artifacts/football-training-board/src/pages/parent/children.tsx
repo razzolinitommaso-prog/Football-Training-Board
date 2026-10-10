@@ -110,23 +110,33 @@ export default function ParentChildren() {
                   <div className="p-4 text-center text-sm text-muted-foreground">Nessun atleta in questa squadra.</div>
                 ) : (
                   <div className="divide-y">
-                    {team.players.map((player: any) => (
-                      <Link key={player.id} href="/parent/player-card">
-                      <div className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-muted/30">
-                        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
-                          {player.jerseyNumber ?? player.firstName[0]}
+                    {team.players.map((player: any) => {
+                      const row = (
+                        <div className={`flex items-center gap-3 px-4 py-3 ${player.isOwnChild ? "cursor-pointer hover:bg-muted/30" : ""}`}>
+                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                            {player.jerseyNumber ?? player.firstName[0]}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-medium text-sm">{player.firstName} {player.lastName}</p>
+                              {player.isOwnChild && <Badge variant="outline" className="text-[10px]">Tuo figlio</Badge>}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {player.position ?? "—"}{!player.isOwnChild ? " · dettaglio riservato" : ""}
+                            </p>
+                          </div>
+                          <Badge variant={player.available ? "default" : "secondary"} className="text-xs">
+                            {player.available ? "Disp." : "N/D"}
+                          </Badge>
+                          {player.isOwnChild && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm">{player.firstName} {player.lastName}</p>
-                          <p className="text-xs text-muted-foreground">{player.position ?? "—"}</p>
-                        </div>
-                        <Badge variant={player.available ? "default" : "secondary"} className="text-xs">
-                          {player.available ? "Disp." : "N/D"}
-                        </Badge>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      </Link>
-                    ))}
+                      );
+                      return player.isOwnChild ? (
+                        <Link key={player.id} href="/parent/player-card">{row}</Link>
+                      ) : (
+                        <div key={player.id}>{row}</div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
