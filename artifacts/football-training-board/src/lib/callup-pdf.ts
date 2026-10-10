@@ -282,10 +282,11 @@ export function downloadGeneratedPdf(url: string, filename: string) {
   link.remove();
 }
 
-export function serverCallupPdfUrls(matchId: number) {
+export function serverCallupPdfUrls(matchId: number, cacheKey = Date.now()) {
   const base = `/api/matches/${matchId}/callups/pdf`;
+  const cacheParam = `v=${encodeURIComponent(String(cacheKey))}`;
   return {
-    inlineUrl: withApi(`${base}?disposition=inline`),
-    downloadUrl: withApi(`${base}?disposition=attachment`),
+    inlineUrl: withApi(`${base}?disposition=inline&${cacheParam}`),
+    downloadUrl: withApi(`${base}?disposition=attachment&${cacheParam}`),
   };
 }

@@ -2220,7 +2220,7 @@ function MatchCard({
     }
     setExportingCallupPdf(true);
     try {
-      const { inlineUrl, downloadUrl } = serverCallupPdfUrls(match.id);
+      const { inlineUrl, downloadUrl } = serverCallupPdfUrls(match.id, Date.now());
       const date = match.date ? new Date(match.date) : null;
       const datePart = date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "data";
       const filename = `${(teamName || "squadra").toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "squadra"}-${datePart}-convocazione.pdf`;
