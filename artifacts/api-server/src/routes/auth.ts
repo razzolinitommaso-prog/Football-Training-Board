@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable, clubsTable, clubMembershipsTable, seasonsTable, subscriptionsTable, playerParentDelegatesTable } from "@workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   RegisterUserBody,
   LoginUserBody,
@@ -33,6 +33,12 @@ function sessionAuthToken(req: any): string {
     section: req.session.section ?? null,
     isSuperAdmin: req.session.isSuperAdmin === true,
   });
+}
+
+async function ensureParentDelegateSecurityColumns() {
+  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_hash TEXT`);
+  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_set_at TIMESTAMPTZ`);
+  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS reset_requested_at TIMESTAMPTZ`);
 }
 
 function membershipSections(membership: { clubSection?: string[] | string | null } | null | undefined): string[] {
@@ -401,7 +407,9 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
     return;
   }
 
-  const [parentDelegate] = await db
+  await ensureParentDelegateSecurityColumns();
+
+  let [parentDelegate] = await db
     .select()
     .from(playerParentDelegatesTable)
     .where(and(
@@ -409,6 +417,35 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
       eq(playerParentDelegatesTable.accessCode, cleanedDelegateCode),
       eq(playerParentDelegatesTable.isActive, true),
     ));
+  let requiresPersonalAccessCode = false;
+  let emergencyResetLogin = false;
+  const hasPersonalCode = Boolean(parentDelegate?.personalAccessCodeHash);
+  if (parentDelegate && hasPersonalCode && !parentDelegate.resetRequestedAt) {
+    res.status(401).json({ error: "Usa la chiave personale impostata dal genitore" });
+    return;
+  }
+  if (parentDelegate && hasPersonalCode && parentDelegate.resetRequestedAt) {
+    requiresPersonalAccessCode = true;
+    emergencyResetLogin = true;
+  }
+  if (!parentDelegate) {
+    const candidates = await db
+      .select()
+      .from(playerParentDelegatesTable)
+      .where(and(
+        eq(playerParentDelegatesTable.clubId, club.id),
+        eq(playerParentDelegatesTable.isActive, true),
+      ));
+    for (const candidate of candidates) {
+      if (!candidate.personalAccessCodeHash) continue;
+      if (await bcrypt.compare(cleanedDelegateCode, candidate.personalAccessCodeHash)) {
+        parentDelegate = candidate;
+        break;
+      }
+    }
+  } else if (!hasPersonalCode) {
+    requiresPersonalAccessCode = true;
+  }
   if (!parentDelegate) {
     res.status(401).json({ error: "Codice delegato non valido" });
     return;
@@ -436,6 +473,8 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
       id: parentDelegate.id,
       playerId: parentDelegate.playerId,
       relation: parentDelegate.relation,
+      requiresPersonalAccessCode,
+      emergencyResetLogin,
     } : null,
     authToken: createAuthToken(authPayload),
   });

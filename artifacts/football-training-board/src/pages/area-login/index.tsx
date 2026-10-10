@@ -417,7 +417,7 @@ export function ParentLoginPage() {
         return;
       }
       queryClient.setQueryData(getGetCurrentUserQueryKey(), verified);
-      setLocation("/parent-dashboard");
+      setLocation((data as any)?.parentDelegate?.requiresPersonalAccessCode ? "/parent/access" : "/parent-dashboard");
     } catch {
       setError("Errore di connessione. Riprova.");
       setLoading(false);

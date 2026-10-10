@@ -2742,7 +2742,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       `${origin}/parent/login`,
       `Codice Club: ${clubCode || "da Credenziali & Accessi"}`,
       `Codice Genitori: ${parentCode || "da Credenziali & Accessi"}`,
-      `Codice Delegato: ${delegate.accessCode || "verra generato al salvataggio"}`,
+      `Codice iniziale/reset delegato: ${delegate.accessCode || "verra generato al salvataggio"}`,
     ].join("\n");
   }
 
@@ -4168,7 +4168,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                 <CollapsibleSectionSummary title="Utenti collegati App Genitori" />
                 <div className="mt-3 space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    Inserisci fino a 3 delegati. Al salvataggio viene generato un codice delegato collegato a questo giocatore.
+                    Inserisci fino a 3 delegati. Al salvataggio viene generato il codice iniziale/reset collegato a questo giocatore.
                   </p>
                   <div className="space-y-3">
                     {parentDelegateRows.map((delegate, index) => (
@@ -4194,7 +4194,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
                               }}
                             >
                               <Copy className="h-4 w-4" />
-                              Copia accesso
+                              Copia accesso iniziale
                             </Button>
                           </div>
                         </div>

@@ -175,6 +175,7 @@ export function AppSidebar() {
     { label: "Pagamenti",          url: "/parent/payments",       icon: Banknote,        roles: ["parent"], group: "parent" },
     { label: "Kit",                url: "/parent/kit",            icon: Package,         roles: ["parent"], group: "parent" },
     { label: "Notifiche",          url: "/parent/notifications",  icon: Bell,            roles: ["parent"], group: "parent" },
+    { label: "Accesso",            url: "/parent/access",         icon: KeyRound,        roles: ["parent"], group: "parent" },
   ];
 
   const visibleNav    = navigation.filter(item => item.roles.includes(role || ""));

@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS player_parent_delegates (
   phone TEXT,
   email TEXT,
   access_code TEXT NOT NULL,
+  personal_access_code_hash TEXT,
+  personal_access_code_set_at TIMESTAMPTZ,
+  reset_requested_at TIMESTAMPTZ,
   delivery_channel TEXT NOT NULL DEFAULT 'manual',
   delivery_status TEXT NOT NULL DEFAULT 'ready',
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -20,3 +23,8 @@ CREATE INDEX IF NOT EXISTS idx_player_parent_delegates_club_player
 
 CREATE INDEX IF NOT EXISTS idx_player_parent_delegates_access_code
   ON player_parent_delegates (access_code);
+
+ALTER TABLE player_parent_delegates
+  ADD COLUMN IF NOT EXISTS personal_access_code_hash TEXT,
+  ADD COLUMN IF NOT EXISTS personal_access_code_set_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS reset_requested_at TIMESTAMPTZ;

@@ -168,7 +168,7 @@ async function listParentDelegates(clubId: number, playerId: number) {
 
 async function replaceParentDelegates(clubId: number, playerId: number, incoming: ParentDelegateInput[]) {
   const existing = await listParentDelegates(clubId, playerId);
-  const existingCodesById = new Map(existing.map((delegate) => [delegate.id, delegate.accessCode]));
+  const existingById = new Map(existing.map((delegate) => [delegate.id, delegate]));
 
   await db
     .delete(playerParentDelegatesTable)
@@ -182,7 +182,10 @@ async function replaceParentDelegates(clubId: number, playerId: number, incoming
     relation: cleanText(delegate.relation) || "Genitore/Tutore",
     phone: cleanText(delegate.phone) || null,
     email: cleanText(delegate.email).toLowerCase() || null,
-    accessCode: delegate.id ? existingCodesById.get(delegate.id) ?? generateParentDelegateCode() : generateParentDelegateCode(),
+    accessCode: delegate.id ? existingById.get(delegate.id)?.accessCode ?? generateParentDelegateCode() : generateParentDelegateCode(),
+    personalAccessCodeHash: delegate.id ? existingById.get(delegate.id)?.personalAccessCodeHash ?? null : null,
+    personalAccessCodeSetAt: delegate.id ? existingById.get(delegate.id)?.personalAccessCodeSetAt ?? null : null,
+    resetRequestedAt: delegate.id ? existingById.get(delegate.id)?.resetRequestedAt ?? null : null,
     deliveryChannel: cleanText(delegate.phone) ? "sms_ready" : cleanText(delegate.email) ? "email_ready" : "manual",
     deliveryStatus: "ready",
     isActive: delegate.isActive !== false,

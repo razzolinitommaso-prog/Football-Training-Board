@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import bcrypt from "bcryptjs";
 import {
   db, clubsTable, playersTable, teamsTable,
   trainingSessionsTable, matchesTable, callUpsTable,
@@ -7,8 +8,9 @@ import {
   platformAnnouncementsTable, parentNotificationsTable,
   calendarExtraEventsTable,
   playerFitnessDataTable,
+  playerParentDelegatesTable,
 } from "@workspace/db";
-import { eq, and, gte, asc, desc, or, inArray } from "drizzle-orm";
+import { eq, and, gte, asc, desc, or, inArray, sql } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -33,8 +35,177 @@ function getParentPlayerId(req: any): number | null {
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
+function getParentDelegateId(req: any): number | null {
+  const id = Number(req.session.parentDelegateId ?? 0);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+async function ensureParentDelegateSecurityColumns() {
+  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_hash TEXT`);
+  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_set_at TIMESTAMPTZ`);
+  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS reset_requested_at TIMESTAMPTZ`);
+}
+
+function normalizeAccessCode(value: unknown): string {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function validatePersonalAccessCode(value: string): string | null {
+  if (value.length < 6 || value.length > 16) return "La chiave personale deve avere da 6 a 16 caratteri.";
+  if (!/^[A-Z0-9]+$/.test(value)) return "Usa solo lettere e numeri.";
+  return null;
+}
+
 const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
 const ATTENDANCE_META_PREFIX = "[FTB_ATTENDANCE_META]";
+
+router.get("/parent/access-code", requireParentSession, async (req, res): Promise<void> => {
+  const clubId = req.session.clubId!;
+  const parentDelegateId = getParentDelegateId(req);
+  if (!parentDelegateId) {
+    res.status(403).json({ error: "Delegato genitore non collegato" });
+    return;
+  }
+  await ensureParentDelegateSecurityColumns();
+  const [delegate] = await db
+    .select()
+    .from(playerParentDelegatesTable)
+    .where(and(
+      eq(playerParentDelegatesTable.clubId, clubId),
+      eq(playerParentDelegatesTable.id, parentDelegateId),
+      eq(playerParentDelegatesTable.isActive, true),
+    ));
+  if (!delegate) {
+    res.status(404).json({ error: "Delegato non trovato" });
+    return;
+  }
+  res.json({
+    hasPersonalAccessCode: Boolean(delegate.personalAccessCodeHash),
+    personalAccessCodeSetAt: delegate.personalAccessCodeSetAt ?? null,
+    resetRequestedAt: delegate.resetRequestedAt ?? null,
+    firstName: delegate.firstName,
+    lastName: delegate.lastName,
+    relation: delegate.relation,
+  });
+});
+
+router.post("/parent/access-code", requireParentSession, async (req, res): Promise<void> => {
+  const clubId = req.session.clubId!;
+  const parentDelegateId = getParentDelegateId(req);
+  if (!parentDelegateId) {
+    res.status(403).json({ error: "Delegato genitore non collegato" });
+    return;
+  }
+  const currentCode = normalizeAccessCode(req.body?.currentCode);
+  const newCode = normalizeAccessCode(req.body?.newCode);
+  const validationError = validatePersonalAccessCode(newCode);
+  if (validationError) {
+    res.status(400).json({ error: validationError });
+    return;
+  }
+  if (currentCode && currentCode === newCode) {
+    res.status(400).json({ error: "La nuova chiave deve essere diversa dalla chiave attuale." });
+    return;
+  }
+  await ensureParentDelegateSecurityColumns();
+  const [delegate] = await db
+    .select()
+    .from(playerParentDelegatesTable)
+    .where(and(
+      eq(playerParentDelegatesTable.clubId, clubId),
+      eq(playerParentDelegatesTable.id, parentDelegateId),
+      eq(playerParentDelegatesTable.isActive, true),
+    ));
+  if (!delegate) {
+    res.status(404).json({ error: "Delegato non trovato" });
+    return;
+  }
+  if (newCode === delegate.accessCode) {
+    res.status(400).json({ error: "La chiave personale deve essere diversa dal codice iniziale/reset." });
+    return;
+  }
+
+  const hasPersonalCode = Boolean(delegate.personalAccessCodeHash);
+  if (hasPersonalCode) {
+    if (!currentCode) {
+      res.status(400).json({ error: "Inserisci la chiave attuale." });
+      return;
+    }
+    const currentMatchesPersonal = await bcrypt.compare(currentCode, delegate.personalAccessCodeHash!);
+    const currentMatchesEmergencyReset = Boolean(delegate.resetRequestedAt) && currentCode === delegate.accessCode;
+    if (!currentMatchesPersonal && !currentMatchesEmergencyReset) {
+      res.status(401).json({ error: "Chiave attuale non valida." });
+      return;
+    }
+  } else if (currentCode && currentCode !== delegate.accessCode) {
+    res.status(401).json({ error: "Codice iniziale non valido." });
+    return;
+  }
+  const clubDelegates = await db
+    .select()
+    .from(playerParentDelegatesTable)
+    .where(and(
+      eq(playerParentDelegatesTable.clubId, clubId),
+      eq(playerParentDelegatesTable.isActive, true),
+    ));
+  for (const clubDelegate of clubDelegates) {
+    if (clubDelegate.id !== delegate.id && clubDelegate.accessCode === newCode) {
+      res.status(400).json({ error: "Questa chiave non e disponibile." });
+      return;
+    }
+    if (clubDelegate.id !== delegate.id && clubDelegate.personalAccessCodeHash) {
+      const duplicatePersonalCode = await bcrypt.compare(newCode, clubDelegate.personalAccessCodeHash);
+      if (duplicatePersonalCode) {
+        res.status(400).json({ error: "Questa chiave non e disponibile." });
+        return;
+      }
+    }
+  }
+
+  const personalAccessCodeHash = await bcrypt.hash(newCode, 10);
+  const [updated] = await db
+    .update(playerParentDelegatesTable)
+    .set({
+      personalAccessCodeHash,
+      personalAccessCodeSetAt: new Date(),
+      resetRequestedAt: null,
+    })
+    .where(and(
+      eq(playerParentDelegatesTable.clubId, clubId),
+      eq(playerParentDelegatesTable.id, parentDelegateId),
+    ))
+    .returning();
+
+  res.json({
+    hasPersonalAccessCode: true,
+    personalAccessCodeSetAt: updated.personalAccessCodeSetAt ?? null,
+    resetRequestedAt: null,
+  });
+});
+
+router.post("/parent/access-code/reset-request", requireParentSession, async (req, res): Promise<void> => {
+  const clubId = req.session.clubId!;
+  const parentDelegateId = getParentDelegateId(req);
+  if (!parentDelegateId) {
+    res.status(403).json({ error: "Delegato genitore non collegato" });
+    return;
+  }
+  await ensureParentDelegateSecurityColumns();
+  const [updated] = await db
+    .update(playerParentDelegatesTable)
+    .set({ resetRequestedAt: new Date() })
+    .where(and(
+      eq(playerParentDelegatesTable.clubId, clubId),
+      eq(playerParentDelegatesTable.id, parentDelegateId),
+      eq(playerParentDelegatesTable.isActive, true),
+    ))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Delegato non trovato" });
+    return;
+  }
+  res.json({ resetRequestedAt: updated.resetRequestedAt });
+});
 
 function stripMetaFromNotes(raw?: string | null): string {
   const full = String(raw ?? "").trim();

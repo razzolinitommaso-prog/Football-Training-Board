@@ -23,6 +23,7 @@ import ParentPayments from "@/pages/parent/payments";
 import ParentKit from "@/pages/parent/kit";
 import ParentPlayerCard from "@/pages/parent/player-card";
 import ParentNotifications from "@/pages/parent/notifications";
+import ParentAccess from "@/pages/parent/access";
 import ParentAdminManagement from "@/pages/parent/admin-management";
 import Dashboard from "@/pages/dashboard";
 import TeamsList from "@/pages/teams/index";
@@ -251,6 +252,9 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/parent/notifications">
           <ProtectedRoute allowedRoles={["parent"]}><ParentNotifications /></ProtectedRoute>
+        </Route>
+        <Route path="/parent/access">
+          <ProtectedRoute allowedRoles={["parent"]}><ParentAccess /></ProtectedRoute>
         </Route>
         <Route path="/admin/parents">
           <ProtectedRoute allowedRoles={["admin"]}><ParentAdminManagement /></ProtectedRoute>
