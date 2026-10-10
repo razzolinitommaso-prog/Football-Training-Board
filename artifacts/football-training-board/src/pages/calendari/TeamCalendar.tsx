@@ -215,6 +215,12 @@ function usesChampionshipSeason(section?: string | null) {
   return section === "settore_giovanile" || section === "prima_squadra";
 }
 
+function normalizeMatchSection(value?: string | null): MatchSection | null {
+  return value === "prima_squadra" || value === "settore_giovanile" || value === "scuola_calcio"
+    ? value
+    : null;
+}
+
 interface Player {
   id: number;
   firstName: string;
@@ -4088,9 +4094,10 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     (["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && isAssignedStaffForTeam);
   const canManageMatchPlan = ["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && isAssignedStaffForTeam;
   const canViewMatchPlan = canManageMatchPlan || role === "technical_director";
-  const currentSection: MatchSection = (section === "prima_squadra" || section === "settore_giovanile" || section === "scuola_calcio")
-    ? section
-    : "scuola_calcio";
+  const currentSection: MatchSection =
+    normalizeMatchSection(team?.clubSection) ??
+    normalizeMatchSection(section) ??
+    "scuola_calcio";
 
   const importMutation = useMutation({
     mutationFn: async (file: File) => {

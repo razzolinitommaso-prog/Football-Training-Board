@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam, useListClubMembers, type ClubMember, type Team } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -1424,7 +1424,9 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const playersUrl = section
     ? `/api/players?section=${encodeURIComponent(section)}`
     : "/api/players";
-  const { data: players, isLoading } = useQuery<Player[]>({
+  const selectedTeamId = Number(teamFilter);
+  const selectedTeamIdForFetch = Number.isFinite(selectedTeamId) && selectedTeamId > 0 ? selectedTeamId : null;
+  const { data: sectionPlayers, isLoading: isPlayersLoading } = useQuery<Player[]>({
     queryKey: ["/api/players", section || "all", nr, "players-page"],
     queryFn: async () => {
       const res = await fetch(withApi(playersUrl), { credentials: "include" });
@@ -1432,6 +1434,22 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return res.json() as Promise<Player[]>;
     },
   });
+  const { data: selectedTeamPlayers = [], isLoading: isSelectedTeamPlayersLoading } = useQuery<Player[]>({
+    queryKey: ["/api/players", "team", selectedTeamIdForFetch, nr, "players-page"],
+    enabled: !!selectedTeamIdForFetch,
+    queryFn: async () => {
+      const res = await fetch(withApi(`/api/players?teamId=${selectedTeamIdForFetch}`), { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<Player[]>;
+    },
+  });
+  const players = useMemo(() => {
+    const byId = new Map<number, Player>();
+    (sectionPlayers ?? []).forEach((player) => byId.set(player.id, player));
+    selectedTeamPlayers.forEach((player) => byId.set(player.id, player));
+    return Array.from(byId.values());
+  }, [sectionPlayers, selectedTeamPlayers]);
+  const isLoading = isPlayersLoading || (!!selectedTeamIdForFetch && isSelectedTeamPlayersLoading && (sectionPlayers?.length ?? 0) === 0);
   const { data: teams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", section || "all"],
     queryFn: async () => {
@@ -3095,6 +3113,16 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   const unassignedPlayers = (playersMatchingFilters ?? [])
     .filter((player) => !player.teamId && !player.supplementalTeamId)
     .sort(comparePlayersBySurname);
+  const teamCountLabel = (team: TeamWithSeason, loadedCount: number) => {
+    const fallbackCount = typeof team.playerCount === "number" ? team.playerCount : null;
+    if (loadedCount > 0) return String(loadedCount);
+    if (isLoading && fallbackCount == null) return "...";
+    if (fallbackCount != null) return String(fallbackCount);
+    return String(loadedCount);
+  };
+  const allPlayersCountLabel = isLoading && (playersMatchingFilters ?? []).length === 0
+    ? "..."
+    : String((playersMatchingFilters ?? []).length);
 
   const statusLabel = (status: string) => {
     if (status === "active") return t.active;
@@ -5673,7 +5701,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
           >
             Tutte
             <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] text-foreground">
-              {(playersMatchingFilters ?? []).length}
+              {allPlayersCountLabel}
             </span>
           </button>
           {teamsByAnnata.map((team) => {
@@ -5692,7 +5720,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
               >
                 <span>{team.name}</span>
                 <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] text-foreground">
-                  {teamPlayers.length}
+                  {teamCountLabel(team as TeamWithSeason, teamPlayers.length)}
                 </span>
               </button>
             );
