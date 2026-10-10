@@ -384,8 +384,9 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 router.post("/auth/parent-login", async (req, res): Promise<void> => {
   const { clubCode, parentCode, delegateCode } = req.body as { clubCode?: string; parentCode?: string; delegateCode?: string };
 
-  if (!clubCode || !parentCode) {
-    res.status(400).json({ error: "Codice club e codice genitori richiesti" });
+  const cleanedDelegateCode = String(delegateCode ?? "").trim().toUpperCase();
+  if (!clubCode || !parentCode || !cleanedDelegateCode) {
+    res.status(400).json({ error: "Codice club, codice genitori e codice delegato richiesti" });
     return;
   }
 
@@ -400,39 +401,27 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
     return;
   }
 
-  let parentDelegate: typeof playerParentDelegatesTable.$inferSelect | null = null;
-  const cleanedDelegateCode = String(delegateCode ?? "").trim().toUpperCase();
-  if (cleanedDelegateCode) {
-    const [delegate] = await db
-      .select()
-      .from(playerParentDelegatesTable)
-      .where(and(
-        eq(playerParentDelegatesTable.clubId, club.id),
-        eq(playerParentDelegatesTable.accessCode, cleanedDelegateCode),
-        eq(playerParentDelegatesTable.isActive, true),
-      ));
-    if (!delegate) {
-      res.status(401).json({ error: "Codice delegato non valido" });
-      return;
-    }
-    parentDelegate = delegate;
+  const [parentDelegate] = await db
+    .select()
+    .from(playerParentDelegatesTable)
+    .where(and(
+      eq(playerParentDelegatesTable.clubId, club.id),
+      eq(playerParentDelegatesTable.accessCode, cleanedDelegateCode),
+      eq(playerParentDelegatesTable.isActive, true),
+    ));
+  if (!parentDelegate) {
+    res.status(401).json({ error: "Codice delegato non valido" });
+    return;
   }
 
   req.session.userId = 0;
   req.session.clubId = club.id;
   req.session.role = "parent";
-  if (parentDelegate) {
-    req.session.parentDelegateId = parentDelegate.id;
-    req.session.parentPlayerId = parentDelegate.playerId;
-  } else {
-    delete req.session.parentDelegateId;
-    delete req.session.parentPlayerId;
-  }
+  req.session.parentDelegateId = parentDelegate.id;
+  req.session.parentPlayerId = parentDelegate.playerId;
   await saveSession(req);
 
-  const authPayload = parentDelegate
-    ? { userId: 0, clubId: club.id, role: "parent", parentDelegateId: parentDelegate.id, parentPlayerId: parentDelegate.playerId }
-    : { userId: 0, clubId: club.id, role: "parent" };
+  const authPayload = { userId: 0, clubId: club.id, role: "parent", parentDelegateId: parentDelegate.id, parentPlayerId: parentDelegate.playerId };
   res.json({
     user: {
       id: 0,

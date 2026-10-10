@@ -15,7 +15,7 @@ import {
   ArrowLeft, Calendar, MapPin, Trophy, FileText,
   CheckCircle, Clock, Pencil, AlertTriangle, RotateCcw,
   ClipboardList, Upload, Download, FileSpreadsheet, Trash2, ChevronDown, Camera, Sparkles,
-  Leaf, Flower2, ListChecks, Search, Files, Filter, Handshake, Plus, ExternalLink, Loader2,
+  Leaf, Flower2, ListChecks, Search, Files, Filter, Handshake, Plus, Loader2,
 } from "lucide-react";
 import {
   downloadMatchCalendarTemplate,
@@ -36,7 +36,7 @@ import {
   isGenericPdfCategoryHint,
   type MatchPdfImportResult,
 } from "@/lib/match-calendar-pdf";
-import { downloadGeneratedPdf, openGeneratedPdf, serverCallupPdfUrls } from "@/lib/callup-pdf";
+import { downloadGeneratedPdf, serverCallupPdfUrls } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
@@ -2515,16 +2515,6 @@ function MatchCard({
                 </Button>
                 {generatedCallupPdf && (
                   <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      className="h-7 gap-1.5 px-2 text-xs"
-                      onClick={() => openGeneratedPdf(generatedCallupPdf.url)}
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Apri PDF
-                    </Button>
                     <Button
                       type="button"
                       size="sm"

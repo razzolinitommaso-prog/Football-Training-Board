@@ -388,7 +388,10 @@ export function ParentLoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!clubCode.trim() || !parentCode.trim()) { setError("Inserisci codice club e codice genitori."); return; }
+    if (!clubCode.trim() || !parentCode.trim() || !delegateCode.trim()) {
+      setError("Inserisci codice club, codice genitori e codice delegato.");
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch(withApi("/api/auth/parent-login"), {
