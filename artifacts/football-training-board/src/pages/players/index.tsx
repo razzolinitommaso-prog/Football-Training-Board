@@ -1426,7 +1426,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
     : "/api/players";
   const selectedTeamId = Number(teamFilter);
   const selectedTeamIdForFetch = Number.isFinite(selectedTeamId) && selectedTeamId > 0 ? selectedTeamId : null;
-  const { data: sectionPlayers, isLoading: isPlayersLoading } = useQuery<Player[]>({
+  const { data: sectionPlayers, isLoading: isPlayersLoading, isError: isPlayersError } = useQuery<Player[]>({
     queryKey: ["/api/players", section || "all", nr, "players-page"],
     queryFn: async () => {
       const res = await fetch(withApi(playersUrl), { credentials: "include" });
@@ -1434,22 +1434,6 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return res.json() as Promise<Player[]>;
     },
   });
-  const { data: selectedTeamPlayers = [], isLoading: isSelectedTeamPlayersLoading } = useQuery<Player[]>({
-    queryKey: ["/api/players", "team", selectedTeamIdForFetch, nr, "players-page"],
-    enabled: !!selectedTeamIdForFetch,
-    queryFn: async () => {
-      const res = await fetch(withApi(`/api/players?teamId=${selectedTeamIdForFetch}`), { credentials: "include" });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json() as Promise<Player[]>;
-    },
-  });
-  const players = useMemo(() => {
-    const byId = new Map<number, Player>();
-    (sectionPlayers ?? []).forEach((player) => byId.set(player.id, player));
-    selectedTeamPlayers.forEach((player) => byId.set(player.id, player));
-    return Array.from(byId.values());
-  }, [sectionPlayers, selectedTeamPlayers]);
-  const isLoading = isPlayersLoading || (!!selectedTeamIdForFetch && isSelectedTeamPlayersLoading && (sectionPlayers?.length ?? 0) === 0);
   const { data: teams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", section || "all"],
     queryFn: async () => {
@@ -1461,6 +1445,57 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       return res.json() as Promise<Team[]>;
     },
   });
+  const teamMemberFallbackEnabled =
+    teams.length > 0 &&
+    (!!selectedTeamIdForFetch || isPlayersError || (!isPlayersLoading && (sectionPlayers?.length ?? 0) === 0));
+  const { data: fallbackPlayers = [], isLoading: isFallbackPlayersLoading } = useQuery<Player[]>({
+    queryKey: [
+      "/api/teams/members-fallback",
+      section || "all",
+      selectedTeamIdForFetch || "all",
+      teams.map((team) => team.id).join("|"),
+      nr,
+      "players-page",
+    ],
+    enabled: teamMemberFallbackEnabled,
+    queryFn: async () => {
+      const targetTeams = selectedTeamIdForFetch
+        ? teams.filter((team) => Number(team.id) === selectedTeamIdForFetch)
+        : teams;
+      const results = await Promise.all(targetTeams.map(async (team) => {
+        const res = await fetch(withApi(`/api/teams/${team.id}/members`), { credentials: "include" });
+        if (!res.ok) throw new Error(await res.text());
+        const rows = await res.json() as Array<Record<string, unknown>>;
+        return rows.map((row): Player => {
+          const primaryTeamId = typeof row.teamId === "number" ? row.teamId : Number(row.teamId ?? team.id);
+          const isSupplemental = row.isSupplemental === true;
+          return {
+            id: Number(row.id),
+            firstName: String(row.firstName ?? row.first_name ?? ""),
+            lastName: String(row.lastName ?? row.last_name ?? ""),
+            teamId: Number.isFinite(primaryTeamId) ? primaryTeamId : Number(team.id),
+            teamName: isSupplemental ? null : team.name,
+            supplementalTeamId: isSupplemental ? Number(team.id) : null,
+            supplementalTeamName: isSupplemental ? team.name : null,
+            position: String(row.position ?? row.role ?? "") || null,
+            jerseyNumber: row.jerseyNumber == null ? null : Number(row.jerseyNumber),
+            status: "active",
+            available: row.available !== false,
+          };
+        });
+      }));
+      return results.flat().filter((player) => Number.isFinite(player.id) && player.id > 0);
+    },
+  });
+  const players = useMemo(() => {
+    const byId = new Map<number, Player>();
+    fallbackPlayers.forEach((player) => byId.set(player.id, player));
+    (sectionPlayers ?? []).forEach((player) => byId.set(player.id, player));
+    return Array.from(byId.values());
+  }, [sectionPlayers, fallbackPlayers]);
+  const isLoading =
+    isPlayersLoading ||
+    (teamMemberFallbackEnabled && isFallbackPlayersLoading && (sectionPlayers?.length ?? 0) === 0);
   const { data: importTeams = [] } = useQuery<Team[]>({
     queryKey: ["/api/teams", "import-scope"],
     queryFn: async () => {

@@ -42,6 +42,7 @@ type DashboardTeam = {
   id: number;
   name: string;
   clubSection?: string | null;
+  playerCount?: number | null;
   seasonTrainingStartDate?: string | null;
   officialTrainingEndDate?: string | null;
   trainingSchedule?: TrainingSlot[] | null;
@@ -1790,10 +1791,12 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   const dashboardPlayerCount = useMemo(() => {
     const fromApi = stats?.totalPlayers ?? 0;
     const n = allPlayers?.length ?? 0;
+    const fromTeams = dashboardTeams.reduce((sum, team) => sum + Number(team.playerCount ?? 0), 0);
+    if (fromTeams > 0 && n === 0) return fromTeams;
     if (!dashboardIsClubWide) return n;
     if (isClubWideTechnicalRole && n > fromApi) return n;
-    return fromApi;
-  }, [stats?.totalPlayers, allPlayers?.length, isClubWideTechnicalRole, dashboardIsClubWide]);
+    return Math.max(fromApi, fromTeams);
+  }, [stats?.totalPlayers, allPlayers?.length, dashboardTeams, isClubWideTechnicalRole, dashboardIsClubWide]);
 
   const dashboardPlayerSummary = useMemo(() => {
     const players = (allPlayers as any[] | undefined) ?? [];
