@@ -158,7 +158,18 @@ function sanitizeParentDelegates(raw: unknown): ParentDelegateInput[] {
     .filter((delegate) => Boolean(delegate.firstName || delegate.lastName || delegate.phone || delegate.email));
 }
 
+let ensuredParentDelegateSecurityColumns = false;
+
+async function ensureParentDelegateSecurityColumns() {
+  if (ensuredParentDelegateSecurityColumns) return;
+  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_hash TEXT`);
+  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_set_at TIMESTAMPTZ`);
+  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS reset_requested_at TIMESTAMPTZ`);
+  ensuredParentDelegateSecurityColumns = true;
+}
+
 async function listParentDelegates(clubId: number, playerId: number) {
+  await ensureParentDelegateSecurityColumns();
   return db
     .select()
     .from(playerParentDelegatesTable)
