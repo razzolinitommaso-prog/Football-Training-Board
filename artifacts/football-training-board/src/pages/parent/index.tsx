@@ -55,7 +55,9 @@ export default function ParentDashboard() {
   const totalPlayers = teams.reduce((sum, t) => sum + (t.players?.length ?? 0), 0);
   const pendingPayments = payments.filter(p => p.status === "pending");
   const linkedPlayers = teams.flatMap((team) => team.players ?? []);
-  const unavailablePlayers = linkedPlayers.filter((player) => player.available === false);
+  const ownPlayers = linkedPlayers.filter((player) => player.isOwnChild);
+  const primaryChild = ownPlayers[0] ?? linkedPlayers[0];
+  const unavailablePlayers = ownPlayers.filter((player) => player.available === false);
   const pendingCallups = callups.filter((item) => item.status === "pending");
   const presentCount = attendance.filter((item) => item.status === "present").length;
   const kitRows = kit.flatMap((item) => {
@@ -68,6 +70,17 @@ export default function ParentDashboard() {
   }).filter((row) => row.listItemId || row.price || row.quantity);
   const now = new Date();
   const unreadNotifications = notifications.filter((n) => !n.isRead);
+  const childStatus = (() => {
+    if (!primaryChild) return { label: "-", tone: "muted" };
+    if (primaryChild.available === false) return { label: "Non disponibile", tone: "danger" };
+    const status = String(primaryChild.status ?? "").toLowerCase();
+    if (status === "injured" || status === "infortunato") return { label: "Infortunato", tone: "danger" };
+    if (status === "inactive" || status === "inattivo") return { label: "Inattivo", tone: "danger" };
+    return { label: "Disponibile", tone: "ok" };
+  })();
+  const childName = primaryChild
+    ? `${primaryChild.firstName ?? ""} ${primaryChild.lastName ?? ""}`.trim()
+    : "";
   const upcomingTraining = training.filter(t => new Date(t.scheduledAt) >= now).slice(0, 1)[0];
   const upcomingMatch = matches.filter(m => new Date(m.date) >= now).slice(0, 1)[0];
   const upcomingExtraEvent = extraEvents
@@ -97,10 +110,11 @@ export default function ParentDashboard() {
           </div>
         </Link>
         <Link href="/parent/player-card">
-          <div className={`border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer ${unavailablePlayers.length > 0 ? "bg-red-500/5 border-red-500/20" : "bg-card"}`}>
-            <User className={`w-6 h-6 mb-2 ${unavailablePlayers.length > 0 ? "text-red-400" : "text-primary"}`} />
-            <div className="text-2xl font-bold">{linkedPlayers.length}</div>
+          <div className={`border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer ${childStatus.tone === "danger" ? "bg-red-500/5 border-red-500/20" : "bg-card"}`}>
+            <User className={`w-6 h-6 mb-2 ${childStatus.tone === "danger" ? "text-red-400" : "text-primary"}`} />
+            <div className={`text-xl font-bold leading-tight ${childStatus.tone === "danger" ? "text-red-600" : ""}`}>{childStatus.label}</div>
             <div className="text-xs text-muted-foreground">Stato figlio</div>
+            {childName && <div className="text-[11px] text-muted-foreground truncate mt-1">{childName}</div>}
           </div>
         </Link>
         <Link href="/parent/callups">
@@ -115,6 +129,13 @@ export default function ParentDashboard() {
             <ClipboardCheck className="w-6 h-6 text-emerald-500 mb-2" />
             <div className="text-2xl font-bold">{presentCount}</div>
             <div className="text-xs text-muted-foreground">Presenze</div>
+          </div>
+        </Link>
+        <Link href="/parent/communications">
+          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
+            <MessageSquare className="w-6 h-6 text-blue-400 mb-2" />
+            <div className="text-2xl font-bold">{unreadNotifications.length}</div>
+            <div className="text-xs text-muted-foreground">Comunicazioni</div>
           </div>
         </Link>
         <Link href="/parent/payments">
@@ -213,13 +234,6 @@ export default function ParentDashboard() {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <Link href="/parent/communications">
-          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer flex items-center gap-3">
-            <MessageSquare className="w-5 h-5 text-blue-400" />
-            <span className="text-sm font-medium">Comunicazioni</span>
-            <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
-          </div>
-        </Link>
         <Link href="/parent/matches">
           <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer flex items-center gap-3">
             <Trophy className="w-5 h-5 text-amber-400" />
