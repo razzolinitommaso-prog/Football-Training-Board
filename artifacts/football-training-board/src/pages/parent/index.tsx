@@ -59,7 +59,6 @@ export default function ParentDashboard() {
   const primaryChild = ownPlayers[0] ?? linkedPlayers[0];
   const unavailablePlayers = ownPlayers.filter((player) => player.available === false);
   const pendingCallups = callups.filter((item) => item.status === "pending");
-  const presentCount = attendance.filter((item) => item.status === "present").length;
   const kitRows = kit.flatMap((item) => {
     try {
       const parsed = JSON.parse(item.trainingKit || "[]");
@@ -126,9 +125,9 @@ export default function ParentDashboard() {
         </Link>
         <Link href="/parent/attendance">
           <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
-            <ClipboardCheck className="w-6 h-6 text-emerald-500 mb-2" />
-            <div className="text-2xl font-bold">{presentCount}</div>
-            <div className="text-xs text-muted-foreground">Presenze</div>
+            <CalendarDays className="w-6 h-6 text-emerald-500 mb-2" />
+            <div className="text-2xl font-bold">{training.length}</div>
+            <div className="text-xs text-muted-foreground">Allenamenti</div>
           </div>
         </Link>
         <Link href="/parent/communications">
@@ -176,7 +175,8 @@ export default function ParentDashboard() {
       )}
 
       {upcomingTraining && (
-        <div className="bg-card border rounded-xl p-4">
+        <Link href="/parent/attendance">
+        <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
           <div className="flex items-center gap-2 mb-3">
             <CalendarDays className="w-4 h-4 text-primary" />
             <span className="font-semibold text-sm">Prossimo Allenamento</span>
@@ -186,7 +186,9 @@ export default function ParentDashboard() {
           <p className="text-sm text-primary mt-1">
             {new Date(upcomingTraining.scheduledAt).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
           </p>
+          <p className="text-xs text-muted-foreground mt-2">Apri per indicare presenza o assenza.</p>
         </div>
+        </Link>
       )}
 
       {upcomingMatch && (
@@ -238,6 +240,13 @@ export default function ParentDashboard() {
           <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer flex items-center gap-3">
             <Trophy className="w-5 h-5 text-amber-400" />
             <span className="text-sm font-medium">Partite</span>
+            <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
+          </div>
+        </Link>
+        <Link href="/parent/attendance">
+          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer flex items-center gap-3">
+            <ClipboardCheck className="w-5 h-5 text-emerald-500" />
+            <span className="text-sm font-medium">Calendario allenamenti</span>
             <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
           </div>
         </Link>

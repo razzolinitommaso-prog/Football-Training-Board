@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, CheckCircle, Clock, Trophy, XCircle } from "lucide-react";
+import { CalendarDays, Clock, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { withApi } from "@/lib/api-base";
 
-async function apiFetch(path: string, options?: RequestInit) {
+async function apiFetch(path: string) {
   const res = await fetch(withApi(`/api${path}`), {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
-    ...options,
   });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
@@ -31,21 +28,13 @@ export default function ParentCallups() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function updateStatus(matchId: number, playerId: number, status: string) {
-    await apiFetch(`/parent/availability/${matchId}/${playerId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
-    });
-    setItems((prev) => prev.map((item) => item.matchId === matchId && item.playerId === playerId ? { ...item, status } : item));
-  }
-
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div>;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Convocazioni</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Partite e convocazioni del figlio collegato.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Convocazioni inserite dal mister. La disponibilita alle partite si indica dalla pagina Partite.</p>
       </div>
 
       {items.length === 0 ? (
@@ -71,16 +60,6 @@ export default function ParentCallups() {
                 <Badge variant={item.status === "available" ? "default" : item.status === "unavailable" ? "destructive" : "secondary"}>
                   {statusLabel(item.status)}
                 </Badge>
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <Button type="button" variant="outline" className="gap-2" onClick={() => updateStatus(item.matchId, item.playerId, "available")}>
-                  <CheckCircle className="h-4 w-4" />
-                  Disponibile
-                </Button>
-                <Button type="button" variant="outline" className="gap-2" onClick={() => updateStatus(item.matchId, item.playerId, "unavailable")}>
-                  <XCircle className="h-4 w-4" />
-                  Non disponibile
-                </Button>
               </div>
               {item.status === "pending" && (
                 <p className="mt-2 flex items-center gap-1 text-xs text-amber-600"><Clock className="h-3.5 w-3.5" /> Conferma richiesta.</p>
