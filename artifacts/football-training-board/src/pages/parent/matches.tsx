@@ -1,12 +1,148 @@
 import { useState, useEffect } from "react";
-import { Trophy, MapPin, CalendarDays, ChevronDown, ChevronUp } from "lucide-react";
+import { Trophy, MapPin, CalendarDays, ChevronDown, ChevronUp, CheckCircle, XCircle, Lock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { withApi } from "@/lib/api-base";
 
-async function apiFetch(path: string) {
-  const res = await fetch(withApi(`/api${path}`), { credentials: "include" });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+async function apiFetch(path: string, options?: RequestInit) {
+  const res = await fetch(withApi(`/api${path}`), {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
+    ...options,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || `API error: ${res.status}`);
+  return data;
+}
+
+const REASON_OPTIONS = [
+  { value: "illness", label: "Malattia" },
+  { value: "catechism", label: "Catechismo" },
+  { value: "family", label: "Motivi familiari" },
+  { value: "other", label: "Altro" },
+];
+
+function availabilityLabel(match: any) {
+  const status = match.parentAvailability?.status;
+  if (status === "available") return "Disponibile";
+  if (status === "unavailable") return "Non disponibile";
+  return "Da indicare";
+}
+
+function availabilityTone(match: any) {
+  const status = match.parentAvailability?.status;
+  if (status === "available") return "text-emerald-700 bg-emerald-50 border-emerald-200";
+  if (status === "unavailable") return "text-red-700 bg-red-50 border-red-200";
+  return "text-amber-700 bg-amber-50 border-amber-200";
+}
+
+function fmtDeadline(d?: string | null) {
+  if (!d) return "";
+  return new Date(d).toLocaleDateString("it-IT", { weekday: "short", day: "2-digit", month: "short" });
+}
+
+function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next: any) => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [reason, setReason] = useState(match.parentAvailability?.reason ?? "illness");
+  const [notes, setNotes] = useState(match.parentAvailability?.notes ?? "");
+  const locked = match.parentAvailabilityLocked === true;
+
+  useEffect(() => {
+    setReason(match.parentAvailability?.reason ?? "illness");
+    setNotes(match.parentAvailability?.notes ?? "");
+  }, [match.id, match.parentAvailability?.reason, match.parentAvailability?.notes]);
+
+  async function save(status: "available" | "unavailable") {
+    setError("");
+    if (locked) return;
+    setSaving(true);
+    try {
+      const updated = await apiFetch(`/parent/availability/${match.id}/${match.parentPlayerId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status,
+          reason: status === "unavailable" ? reason : undefined,
+          notes: status === "unavailable" ? notes : undefined,
+        }),
+      });
+      onUpdated({
+        status: updated.status,
+        reason: updated.parentAvailabilityReason ?? null,
+        reasonLabel: REASON_OPTIONS.find((item) => item.value === updated.parentAvailabilityReason)?.label.toLowerCase() ?? null,
+        notes: updated.parentAvailabilityNotes ?? null,
+        updatedAt: updated.parentAvailabilityUpdatedAt ?? null,
+      });
+    } catch (err: any) {
+      setError(err?.message ?? "Impossibile salvare la disponibilita.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border bg-muted/20 p-3 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Badge variant="outline" className={`border ${availabilityTone(match)}`}>
+          {availabilityLabel(match)}
+        </Badge>
+        <span className="text-[11px] text-muted-foreground">
+          {locked ? (
+            <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3" /> Scaduta</span>
+          ) : (
+            <>Modificabile fino a {fmtDeadline(match.parentAvailabilityDeadline)}</>
+          )}
+        </span>
+      </div>
+
+      {match.parentAvailability?.status === "unavailable" && (
+        <p className="text-xs text-red-600">
+          Motivo: {match.parentAvailability.reasonLabel ?? "non indicato"}
+          {match.parentAvailability.notes ? ` - ${match.parentAvailability.notes}` : ""}
+        </p>
+      )}
+
+      {!locked && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]">
+            <Select value={reason} onValueChange={setReason}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Motivo indisponibilita" />
+              </SelectTrigger>
+              <SelectContent>
+                {REASON_OPTIONS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("available")}>
+              <CheckCircle className="h-4 w-4" />
+              Disponibile
+            </Button>
+            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("unavailable")}>
+              <XCircle className="h-4 w-4" />
+              Non disponibile
+            </Button>
+          </div>
+          {reason === "other" && (
+            <Textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Scrivi il motivo"
+              className="min-h-20 text-sm"
+            />
+          )}
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function applyParentAvailability(match: any, parentAvailability: any) {
+  return { ...match, parentAvailability };
 }
 
 function fmtDate(d: string) {
@@ -58,6 +194,12 @@ export default function ParentMatches() {
 
   function toggle(id: number) { setExpanded(prev => ({ ...prev, [id]: !prev[id] })); }
 
+  function updateMatchAvailability(matchId: number, parentAvailability: any) {
+    setMatches((prev) => prev.map((match) =>
+      match.id === matchId ? applyParentAvailability(match, parentAvailability) : match,
+    ));
+  }
+
   if (groups.length === 0) return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold">Partite</h1>
@@ -105,10 +247,10 @@ export default function ParentMatches() {
                           <CalendarDays className="w-3 h-3" />
                           {fmtDate(match.date)}
                         </div>
-                        {match.venue && (
+                        {(match.location || match.venue) && (
                           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                             <MapPin className="w-3 h-3" />
-                            {match.venue}
+                            {match.location || match.venue}
                           </div>
                         )}
                         {match.status === "played" && match.homeScore != null && match.awayScore != null && (
@@ -117,6 +259,12 @@ export default function ParentMatches() {
                       </div>
                       <StatusBadge status={match.status} />
                     </div>
+                    {match.parentPlayerId && (
+                      <MatchAvailability
+                        match={match}
+                        onUpdated={(parentAvailability) => updateMatchAvailability(match.id, parentAvailability)}
+                      />
+                    )}
                   </div>
                 ))}
               </div>

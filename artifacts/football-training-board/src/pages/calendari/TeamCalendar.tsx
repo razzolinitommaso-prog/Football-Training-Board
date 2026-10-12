@@ -237,7 +237,22 @@ function playerUnavailableLabel(player: Pick<Player, "available" | "unavailabili
   if (player.unavailabilityReason === "requested_by_other_team") return " - richiesto";
   return " - non disponibile";
 }
-interface MatchCallUp { id: number; playerId: number; status: string; playerName?: string | null; }
+
+function parentAvailabilityReasonLabel(reason?: string | null) {
+  if (reason === "illness") return "malattia";
+  if (reason === "catechism") return "catechismo";
+  if (reason === "family") return "motivi familiari";
+  if (reason === "other") return "altro";
+  return "genitore";
+}
+interface MatchCallUp {
+  id: number;
+  playerId: number;
+  status: string;
+  playerName?: string | null;
+  parentAvailabilityReason?: string | null;
+  parentAvailabilityNotes?: string | null;
+}
 interface TrainingSessionLite { id: number; teamId?: number | null; scheduledAt: string; }
 interface AttendanceLite { id: number; playerId: number; status: string; }
 interface MatchWeekTrainingDay { key: string; date: Date; sessionId?: number; }
@@ -1646,6 +1661,20 @@ function MatchCard({
   const sortedTeamPlayers = useMemo(() => {
     return [...teamPlayers].sort(comparePlayersByRole);
   }, [teamPlayers]);
+  const { data: callups = EMPTY_CALLUPS } = useQuery<MatchCallUp[]>({
+    queryKey: ["/api/matches", match.id, "callups"],
+    queryFn: () => apiFetch(`/api/matches/${match.id}/callups`),
+    enabled: canViewMatchPlan,
+  });
+  const parentUnavailableCallupsByPlayer = useMemo(() => {
+    const map = new Map<number, MatchCallUp>();
+    for (const callup of callups) {
+      if (String(callup.status ?? "").toLowerCase() === "unavailable") {
+        map.set(callup.playerId, callup);
+      }
+    }
+    return map;
+  }, [callups]);
   const filteredTeamPlayers = useMemo(() => {
     const needle = callupSearch.trim().toLowerCase();
     if (!needle) return sortedTeamPlayers;
@@ -1656,8 +1685,8 @@ function MatchCard({
     });
   }, [sortedTeamPlayers, callupSearch]);
   const selectableTeamPlayers = useMemo(
-    () => sortedTeamPlayers.filter((p) => p.available !== false),
-    [sortedTeamPlayers],
+    () => sortedTeamPlayers.filter((p) => p.available !== false && !parentUnavailableCallupsByPlayer.has(p.id)),
+    [sortedTeamPlayers, parentUnavailableCallupsByPlayer],
   );
   const selectedPlayersOrdered = useMemo(
     () => selectableTeamPlayers.filter((p) => selectedPlayerIds.has(p.id)).map((p) => p.id),
@@ -1706,12 +1735,6 @@ function MatchCard({
     },
     onError: (err: any) => toast({ title: err?.message ?? "Errore nel salvataggio", variant: "destructive" }),
   });
-  const { data: callups = EMPTY_CALLUPS } = useQuery<MatchCallUp[]>({
-    queryKey: ["/api/matches", match.id, "callups"],
-    queryFn: () => apiFetch(`/api/matches/${match.id}/callups`),
-    enabled: canViewMatchPlan,
-  });
-
   const deleteMatch = useMutation({
     mutationFn: () => apiFetch(`/api/matches/${match.id}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -2041,7 +2064,10 @@ function MatchCard({
     if (!canViewMatchPlan) return;
     const allowedIds = new Set(selectableTeamPlayers.map((p) => p.id));
     const next = new Set<number>();
-    for (const c of callups) if (allowedIds.has(c.playerId)) next.add(c.playerId);
+    for (const c of callups) {
+      if (String(c.status ?? "").toLowerCase() === "unavailable") continue;
+      if (allowedIds.has(c.playerId)) next.add(c.playerId);
+    }
     setSelectedPlayerIds((prev) => {
       if (prev.size !== next.size) return next;
       for (const id of prev) if (!next.has(id)) return next;
@@ -2562,12 +2588,18 @@ function MatchCard({
                     />
                   </div>
                   <div className="max-h-72 overflow-auto rounded border bg-background p-2 grid grid-cols-1 xl:grid-cols-2 gap-1.5">
-                    {filteredTeamPlayers.map((p) => (
-                      <label key={p.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)] gap-2 rounded px-1 py-1.5 text-xs", p.available === false && "opacity-50")}>
+                    {filteredTeamPlayers.map((p) => {
+                      const parentUnavailable = parentUnavailableCallupsByPlayer.get(p.id);
+                      const parentUnavailableLabel = parentUnavailable
+                        ? ` - non disponibile (${parentAvailabilityReasonLabel(parentUnavailable.parentAvailabilityReason)}${parentUnavailable.parentAvailabilityNotes ? `: ${parentUnavailable.parentAvailabilityNotes}` : ""})`
+                        : "";
+                      const disabled = p.available === false || Boolean(parentUnavailable);
+                      return (
+                      <label key={p.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)] gap-2 rounded px-1 py-1.5 text-xs", disabled && "opacity-50")}>
                         <Checkbox
                           className="mt-0.5"
                           checked={selectedPlayerIds.has(p.id)}
-                          disabled={p.available === false}
+                          disabled={disabled}
                           onCheckedChange={(v) =>
                             setSelectedPlayerIds((prev) => {
                               const next = new Set(prev);
@@ -2582,7 +2614,7 @@ function MatchCard({
                             {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
                           </span>
                           <span className="block truncate text-[11px] text-muted-foreground">
-                            {p.position || "Ruolo non indicato"}{playerUnavailableLabel(p)}
+                            {p.position || "Ruolo non indicato"}{parentUnavailable ? parentUnavailableLabel : playerUnavailableLabel(p)}
                           </span>
                           {selectedPlayerIds.has(p.id) && (
                             <span className="flex flex-wrap gap-1">
@@ -2669,7 +2701,7 @@ function MatchCard({
                           )}
                         </span>
                       </label>
-                    ))}
+                    );})}
                     {filteredTeamPlayers.length === 0 && (
                       <p className="col-span-full text-[11px] text-muted-foreground py-1">
                         Nessun giocatore trovato con questo filtro.

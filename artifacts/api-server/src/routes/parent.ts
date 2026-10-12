@@ -56,6 +56,47 @@ function validatePersonalAccessCode(value: string): string | null {
   return null;
 }
 
+let ensuredParentAvailabilityColumns = false;
+
+async function ensureParentAvailabilityColumns() {
+  if (ensuredParentAvailabilityColumns) return;
+  await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_reason TEXT`);
+  await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_notes TEXT`);
+  await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_updated_at TIMESTAMPTZ`);
+  ensuredParentAvailabilityColumns = true;
+}
+
+const PARENT_AVAILABILITY_REASONS = new Set(["illness", "catechism", "family", "other"]);
+
+type ParentAvailabilityMeta = {
+  status: string;
+  parent_availability_reason: string | null;
+  parent_availability_notes: string | null;
+  parent_availability_updated_at: Date | string | null;
+};
+
+function sqlRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  const rows = (result as { rows?: unknown })?.rows;
+  return Array.isArray(rows) ? rows as T[] : [];
+}
+
+function parentAvailabilityReasonLabel(reason?: string | null) {
+  if (reason === "illness") return "malattia";
+  if (reason === "catechism") return "catechismo";
+  if (reason === "family") return "motivi familiari";
+  if (reason === "other") return "altro";
+  return null;
+}
+
+function parentAvailabilityDeadline(matchDate: Date) {
+  const deadline = new Date(matchDate);
+  deadline.setHours(23, 59, 59, 999);
+  const daysSinceWednesday = (deadline.getDay() - 3 + 7) % 7 || 7;
+  deadline.setDate(deadline.getDate() - daysSinceWednesday);
+  return deadline;
+}
+
 function parentRosterPlayer(player: typeof playersTable.$inferSelect, parentPlayerId: number | null) {
   const isOwnChild = parentPlayerId === player.id;
   return {
@@ -403,6 +444,7 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
     .where(and(...matchConditions))
     .orderBy(asc(matchesTable.date)).limit(50);
 
+  await ensureParentAvailabilityColumns();
   const enriched = await Promise.all(matches.map(async (match) => {
     let teamName = null;
     if (match.teamId) {
@@ -415,7 +457,34 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
         .from(playersTable).where(and(eq(playersTable.id, cu.playerId), eq(playersTable.clubId, clubId)));
       return { ...cu, playerName: player ? `${player.firstName} ${player.lastName}` : `#${cu.playerId}` };
     }));
-    return { ...match, teamName, callUps: callUpsWithNames };
+    const ownCallUpRows = parentPlayerId
+      ? sqlRows<ParentAvailabilityMeta>(await db.execute(sql`
+          SELECT status, parent_availability_reason, parent_availability_notes, parent_availability_updated_at
+          FROM call_ups
+          WHERE match_id = ${match.id} AND player_id = ${parentPlayerId}
+          ORDER BY id DESC
+          LIMIT 1
+        `))
+      : [];
+    const ownCallUp = ownCallUpRows[0] ?? null;
+    const deadline = parentAvailabilityDeadline(match.date);
+    return {
+      ...match,
+      teamName,
+      callUps: callUpsWithNames,
+      parentPlayerId,
+      parentAvailability: ownCallUp
+        ? {
+          status: ownCallUp.status,
+          reason: ownCallUp.parent_availability_reason ?? null,
+          reasonLabel: parentAvailabilityReasonLabel(ownCallUp.parent_availability_reason),
+          notes: ownCallUp.parent_availability_notes ?? null,
+          updatedAt: ownCallUp.parent_availability_updated_at ?? null,
+        }
+        : null,
+      parentAvailabilityDeadline: deadline.toISOString(),
+      parentAvailabilityLocked: new Date() > deadline,
+    };
   }));
 
   res.json(enriched);
@@ -494,30 +563,72 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
   const matchId = parseInt(String(req.params.matchId));
   const playerId = parseInt(String(req.params.playerId));
   const { status } = req.body as { status: string };
+  const reason = String(req.body?.reason ?? "").trim();
+  const notes = String(req.body?.notes ?? "").trim();
   const clubId = req.session.clubId!;
+  const parentPlayerId = getParentPlayerId(req);
 
   if (!["available", "unavailable", "pending"].includes(status)) {
     res.status(400).json({ error: "Invalid status" }); return;
+  }
+  if (!parentPlayerId || parentPlayerId !== playerId) {
+    res.status(403).json({ error: "Puoi modificare solo la disponibilita del figlio collegato" }); return;
+  }
+  if (status === "unavailable" && !PARENT_AVAILABILITY_REASONS.has(reason)) {
+    res.status(400).json({ error: "Motivo indisponibilita richiesto" }); return;
+  }
+  if (status === "unavailable" && reason === "other" && notes.length === 0) {
+    res.status(400).json({ error: "Inserisci la motivazione in Altro" }); return;
   }
 
   const [player] = await db.select().from(playersTable)
     .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)));
   if (!player) { res.status(403).json({ error: "Player not in your club" }); return; }
 
-  const [match] = await db.select({ id: matchesTable.id }).from(matchesTable)
+  const [match] = await db.select().from(matchesTable)
     .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)));
   if (!match) { res.status(403).json({ error: "Match not in your club" }); return; }
+  if (player.teamId && match.teamId && player.teamId !== match.teamId) {
+    res.status(403).json({ error: "Partita non collegata alla squadra del figlio" }); return;
+  }
+  const deadline = parentAvailabilityDeadline(match.date);
+  if (new Date() > deadline) {
+    res.status(409).json({ error: "La disponibilita puo essere modificata fino al mercoledi precedente la partita" }); return;
+  }
 
+  await ensureParentAvailabilityColumns();
+  const availabilityReason = status === "unavailable" ? reason : null;
+  const availabilityNotes = status === "unavailable" ? (notes || null) : null;
+  const updatedAt = new Date();
   const [existing] = await db.select().from(callUpsTable)
     .where(and(eq(callUpsTable.matchId, matchId), eq(callUpsTable.playerId, playerId)));
 
   if (existing) {
-    const [updated] = await db.update(callUpsTable).set({ status })
-      .where(and(eq(callUpsTable.matchId, matchId), eq(callUpsTable.playerId, playerId))).returning();
-    res.json(updated);
+    const rows = sqlRows(await db.execute(sql`
+      UPDATE call_ups
+      SET status = ${status},
+          parent_availability_reason = ${availabilityReason},
+          parent_availability_notes = ${availabilityNotes},
+          parent_availability_updated_at = ${updatedAt}
+      WHERE match_id = ${matchId} AND player_id = ${playerId}
+      RETURNING id, match_id AS "matchId", player_id AS "playerId", status,
+        parent_availability_reason AS "parentAvailabilityReason",
+        parent_availability_notes AS "parentAvailabilityNotes",
+        parent_availability_updated_at AS "parentAvailabilityUpdatedAt",
+        created_at AS "createdAt"
+    `));
+    res.json(rows[0]);
   } else {
-    const [created] = await db.insert(callUpsTable).values({ matchId, playerId, status }).returning();
-    res.json(created);
+    const rows = sqlRows(await db.execute(sql`
+      INSERT INTO call_ups (match_id, player_id, status, parent_availability_reason, parent_availability_notes, parent_availability_updated_at)
+      VALUES (${matchId}, ${playerId}, ${status}, ${availabilityReason}, ${availabilityNotes}, ${updatedAt})
+      RETURNING id, match_id AS "matchId", player_id AS "playerId", status,
+        parent_availability_reason AS "parentAvailabilityReason",
+        parent_availability_notes AS "parentAvailabilityNotes",
+        parent_availability_updated_at AS "parentAvailabilityUpdatedAt",
+        created_at AS "createdAt"
+    `));
+    res.json(rows[0]);
   }
 });
 

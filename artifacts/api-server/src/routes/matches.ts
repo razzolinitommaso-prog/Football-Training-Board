@@ -15,6 +15,22 @@ import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
 
+let ensuredParentAvailabilityColumns = false;
+
+async function ensureParentAvailabilityColumns() {
+  if (ensuredParentAvailabilityColumns) return;
+  await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_reason TEXT`);
+  await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_notes TEXT`);
+  await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_updated_at TIMESTAMPTZ`);
+  ensuredParentAvailabilityColumns = true;
+}
+
+function sqlRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  const rows = (result as { rows?: unknown })?.rows;
+  return Array.isArray(rows) ? rows as T[] : [];
+}
+
 const MATCH_CALENDAR_MANAGE_ROLES = [
   "admin",
   "presidente",
@@ -552,10 +568,26 @@ router.get("/matches/:id/callups", requireAuth, async (req, res): Promise<void> 
   if (!match) { res.status(404).json({ error: "Match not found" }); return; }
   const canView = await userCanViewMatchPlan(req.session.userId!, req.session.clubId!, req.session.role ?? "", match.teamId ?? null);
   if (!canView) { res.status(403).json({ error: "Non autorizzato" }); return; }
+  await ensureParentAvailabilityColumns();
   const callups = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId));
+  const metaRows = sqlRows<{
+    id: number;
+    parentAvailabilityReason: string | null;
+    parentAvailabilityNotes: string | null;
+    parentAvailabilityUpdatedAt: Date | string | null;
+  }>(await db.execute(sql`
+    SELECT id,
+      parent_availability_reason AS "parentAvailabilityReason",
+      parent_availability_notes AS "parentAvailabilityNotes",
+      parent_availability_updated_at AS "parentAvailabilityUpdatedAt"
+    FROM call_ups
+    WHERE match_id = ${matchId}
+  `));
+  const metaById = new Map(metaRows.map((row) => [row.id, row]));
   const enriched = await Promise.all(callups.map(async (cu) => {
     const [player] = await db.select().from(playersTable).where(and(eq(playersTable.id, cu.playerId), eq(playersTable.clubId, req.session.clubId!)));
-    return { ...cu, playerName: player ? `${player.firstName} ${player.lastName}` : null };
+    const meta = metaById.get(cu.id);
+    return { ...cu, ...meta, playerName: player ? `${player.firstName} ${player.lastName}` : null };
   }));
   res.json(enriched);
 });
@@ -737,13 +769,22 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
       .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)));
 
     if (desiredPlayerIds.length === 0) {
-      await tx.delete(callUpsTable).where(eq(callUpsTable.matchId, matchId));
+      await tx
+        .delete(callUpsTable)
+        .where(and(
+          eq(callUpsTable.matchId, matchId),
+          sql`lower(${callUpsTable.status}) <> 'unavailable'`,
+        ));
       return;
     }
 
     await tx
       .delete(callUpsTable)
-      .where(and(eq(callUpsTable.matchId, matchId), notInArray(callUpsTable.playerId, desiredPlayerIds)));
+      .where(and(
+        eq(callUpsTable.matchId, matchId),
+        notInArray(callUpsTable.playerId, desiredPlayerIds),
+        sql`lower(${callUpsTable.status}) <> 'unavailable'`,
+      ));
 
     const existingCallups = await tx
       .select({ playerId: callUpsTable.playerId })
