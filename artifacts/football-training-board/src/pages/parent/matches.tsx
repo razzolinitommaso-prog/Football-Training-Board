@@ -69,7 +69,7 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
         }),
       });
       onUpdated({
-        status: updated.status,
+        status: updated.parentAvailabilityStatus ?? updated.status,
         reason: updated.parentAvailabilityReason ?? null,
         reasonLabel: REASON_OPTIONS.find((item) => item.value === updated.parentAvailabilityReason)?.label.toLowerCase() ?? null,
         notes: updated.parentAvailabilityNotes ?? null,

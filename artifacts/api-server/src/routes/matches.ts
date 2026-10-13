@@ -20,6 +20,7 @@ let ensuredParentAvailabilityColumns = false;
 
 async function ensureParentAvailabilityColumns() {
   if (ensuredParentAvailabilityColumns) return;
+  await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_status TEXT`);
   await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_reason TEXT`);
   await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_notes TEXT`);
   await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_updated_at TIMESTAMPTZ`);
@@ -570,14 +571,17 @@ router.get("/matches/:id/callups", requireAuth, async (req, res): Promise<void> 
   const canView = await userCanViewMatchPlan(req.session.userId!, req.session.clubId!, req.session.role ?? "", match.teamId ?? null);
   if (!canView) { res.status(403).json({ error: "Non autorizzato" }); return; }
   await ensureParentAvailabilityColumns();
-  const callups = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId));
+  const callups = (await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId)))
+    .filter((callup) => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(callup.status ?? "").toLowerCase()));
   const metaRows = sqlRows<{
     id: number;
+    parentAvailabilityStatus: string | null;
     parentAvailabilityReason: string | null;
     parentAvailabilityNotes: string | null;
     parentAvailabilityUpdatedAt: Date | string | null;
   }>(await db.execute(sql`
     SELECT id,
+      parent_availability_status AS "parentAvailabilityStatus",
       parent_availability_reason AS "parentAvailabilityReason",
       parent_availability_notes AS "parentAvailabilityNotes",
       parent_availability_updated_at AS "parentAvailabilityUpdatedAt"
@@ -606,7 +610,8 @@ router.get("/matches/:id/callups/pdf", requireAuth, async (req, res): Promise<vo
   const [team] = match.teamId
     ? await db.select({ name: teamsTable.name }).from(teamsTable).where(and(eq(teamsTable.id, match.teamId), eq(teamsTable.clubId, clubId)))
     : [null];
-  const callups = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId));
+  const callups = (await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId)))
+    .filter((callup) => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(callup.status ?? "").toLowerCase()));
   const playerIds = [...new Set(callups.map((callup) => callup.playerId).filter((id): id is number => Number(id) > 0))];
   const players = playerIds.length > 0
     ? await db
@@ -774,7 +779,7 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
         .delete(callUpsTable)
         .where(and(
           eq(callUpsTable.matchId, matchId),
-          sql`lower(${callUpsTable.status}) <> 'unavailable'`,
+          sql`lower(${callUpsTable.status}) NOT IN ('unavailable', 'availability')`,
         ));
       return;
     }
@@ -784,14 +789,23 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
       .where(and(
         eq(callUpsTable.matchId, matchId),
         notInArray(callUpsTable.playerId, desiredPlayerIds),
-        sql`lower(${callUpsTable.status}) <> 'unavailable'`,
+        sql`lower(${callUpsTable.status}) NOT IN ('unavailable', 'availability')`,
       ));
 
     const existingCallups = await tx
-      .select({ playerId: callUpsTable.playerId })
+      .select({ id: callUpsTable.id, playerId: callUpsTable.playerId, status: callUpsTable.status })
       .from(callUpsTable)
       .where(eq(callUpsTable.matchId, matchId));
-    const existingPlayerIds = new Set(existingCallups.map((callup) => callup.playerId));
+    const availabilityOnlyRows = existingCallups.filter((callup) =>
+      desiredPlayerIds.includes(callup.playerId) &&
+      ["available", "unavailable", "availability"].includes(String(callup.status ?? "").toLowerCase()),
+    );
+    for (const row of availabilityOnlyRows) {
+      await tx.update(callUpsTable).set({ status: "called" }).where(eq(callUpsTable.id, row.id));
+    }
+    const existingPlayerIds = new Set(existingCallups
+      .filter((callup) => !["available", "unavailable", "availability"].includes(String(callup.status ?? "").toLowerCase()))
+      .map((callup) => callup.playerId));
     const toInsert = desiredPlayerIds
       .filter((playerId) => !existingPlayerIds.has(playerId))
       .map((playerId) => ({ matchId, playerId, status: "called" }));

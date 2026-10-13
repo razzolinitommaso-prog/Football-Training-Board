@@ -61,6 +61,7 @@ let ensuredParentTrainingAvailabilityTable = false;
 
 async function ensureParentAvailabilityColumns() {
   if (ensuredParentAvailabilityColumns) return;
+  await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_status TEXT`);
   await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_reason TEXT`);
   await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_notes TEXT`);
   await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_updated_at TIMESTAMPTZ`);
@@ -92,6 +93,7 @@ const PARENT_AVAILABILITY_REASONS = new Set(["illness", "catechism", "family", "
 
 type ParentAvailabilityMeta = {
   status: string;
+  parent_availability_status: string | null;
   parent_availability_reason: string | null;
   parent_availability_notes: string | null;
   parent_availability_updated_at: Date | string | null;
@@ -132,7 +134,7 @@ function isParentTrainingAvailabilityRecord(record?: { status?: string | null; n
 
 function isCoachCallupStatus(status?: string | null) {
   const value = String(status ?? "").toLowerCase();
-  return !["available", "unavailable"].includes(value);
+  return !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(value);
 }
 
 const TRAINING_DAY_INDEX: Record<string, number> = {
@@ -661,10 +663,12 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
     }));
     const ownCallUpRows = parentPlayerId
       ? sqlRows<ParentAvailabilityMeta>(await db.execute(sql`
-          SELECT status, parent_availability_reason, parent_availability_notes, parent_availability_updated_at
+          SELECT status, parent_availability_status, parent_availability_reason, parent_availability_notes, parent_availability_updated_at
           FROM call_ups
           WHERE match_id = ${match.id} AND player_id = ${parentPlayerId}
-          ORDER BY id DESC
+          ORDER BY
+            CASE WHEN lower(status) NOT IN ('available', 'unavailable', 'availability', 'absent', 'declined', 'not_called') THEN 0 ELSE 1 END,
+            id DESC
           LIMIT 1
         `))
       : [];
@@ -677,7 +681,7 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
       parentPlayerId,
       parentAvailability: ownCallUp
         ? {
-          status: ownCallUp.status,
+          status: ownCallUp.parent_availability_status ?? (["available", "unavailable"].includes(String(ownCallUp.status).toLowerCase()) ? ownCallUp.status : null),
           reason: ownCallUp.parent_availability_reason ?? null,
           reasonLabel: parentAvailabilityReasonLabel(ownCallUp.parent_availability_reason),
           notes: ownCallUp.parent_availability_notes ?? null,
@@ -808,12 +812,13 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
   if (existing) {
     const rows = sqlRows(await db.execute(sql`
       UPDATE call_ups
-      SET status = ${status},
+      SET parent_availability_status = ${status},
           parent_availability_reason = ${availabilityReason},
           parent_availability_notes = ${availabilityNotes},
           parent_availability_updated_at = ${updatedAt}
       WHERE match_id = ${matchId} AND player_id = ${playerId}
       RETURNING id, match_id AS "matchId", player_id AS "playerId", status,
+        parent_availability_status AS "parentAvailabilityStatus",
         parent_availability_reason AS "parentAvailabilityReason",
         parent_availability_notes AS "parentAvailabilityNotes",
         parent_availability_updated_at AS "parentAvailabilityUpdatedAt",
@@ -822,9 +827,10 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
     res.json(rows[0]);
   } else {
     const rows = sqlRows(await db.execute(sql`
-      INSERT INTO call_ups (match_id, player_id, status, parent_availability_reason, parent_availability_notes, parent_availability_updated_at)
-      VALUES (${matchId}, ${playerId}, ${status}, ${availabilityReason}, ${availabilityNotes}, ${updatedAt})
+      INSERT INTO call_ups (match_id, player_id, status, parent_availability_status, parent_availability_reason, parent_availability_notes, parent_availability_updated_at)
+      VALUES (${matchId}, ${playerId}, 'availability', ${status}, ${availabilityReason}, ${availabilityNotes}, ${updatedAt})
       RETURNING id, match_id AS "matchId", player_id AS "playerId", status,
+        parent_availability_status AS "parentAvailabilityStatus",
         parent_availability_reason AS "parentAvailabilityReason",
         parent_availability_notes AS "parentAvailabilityNotes",
         parent_availability_updated_at AS "parentAvailabilityUpdatedAt",

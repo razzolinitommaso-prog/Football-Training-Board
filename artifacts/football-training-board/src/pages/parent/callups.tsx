@@ -12,6 +12,7 @@ async function apiFetch(path: string) {
 }
 
 function statusLabel(status: string) {
+  if (status === "called") return "Convocato";
   if (status === "available") return "Disponibile";
   if (status === "unavailable") return "Non disponibile";
   return "In attesa";
@@ -57,7 +58,7 @@ export default function ParentCallups() {
                     </p>
                   )}
                 </div>
-                <Badge variant={item.status === "available" ? "default" : item.status === "unavailable" ? "destructive" : "secondary"}>
+                <Badge variant={item.status === "called" || item.status === "available" ? "default" : item.status === "unavailable" ? "destructive" : "secondary"}>
                   {statusLabel(item.status)}
                 </Badge>
               </div>
