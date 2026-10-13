@@ -31,6 +31,7 @@ import { requireAuth } from "../lib/auth";
 import { isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { requireClubAndUserIds } from "../lib/session-context";
 import { assertCanCreateWithinPlan } from "../lib/plan-limits";
+import { sendParentNotificationEmail } from "../lib/parent-email";
 
 /** Il direttore tecnico elenca tutti i giocatori del club; coach/preparatori solo le proprie squadre. */
 const PLAYER_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
@@ -682,6 +683,13 @@ async function notifyParentAvailabilityOverride(clubId: number, player: typeof p
       parentUserId: relation.parentUserId,
       clubId,
       type: "availability_override",
+      title: `Disponibilita temporanea ${fullName}`,
+      message: `La societa ha autorizzato temporaneamente la disponibilita del giocatore fino al ${String(until || "periodo indicato")}.`,
+    });
+    await sendParentNotificationEmail({
+      parentUserId: relation.parentUserId,
+      playerId: player.id,
+      clubId,
       title: `Disponibilita temporanea ${fullName}`,
       message: `La societa ha autorizzato temporaneamente la disponibilita del giocatore fino al ${String(until || "periodo indicato")}.`,
     });

@@ -4,6 +4,7 @@ import { db, parentNotificationsTable, parentPlayerRelationsTable, playersTable,
 import { calendarExtraEventsTable } from "@workspace/db/schema";
 import { requireAuth } from "../lib/auth";
 import { normalizeSessionRole } from "../lib/club-scope";
+import { sendParentNotificationEmail } from "../lib/parent-email";
 
 const router: IRouter = Router();
 
@@ -277,7 +278,7 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
     }
 
     const parentRows = await db
-      .select({ parentUserId: parentPlayerRelationsTable.parentUserId })
+      .select({ parentUserId: parentPlayerRelationsTable.parentUserId, playerId: parentPlayerRelationsTable.playerId })
       .from(parentPlayerRelationsTable)
       .innerJoin(playersTable, eq(parentPlayerRelationsTable.playerId, playersTable.id))
       .where(and(...playerConditions));
@@ -293,6 +294,16 @@ router.post("/calendar-extra-events", requireAuth, async (req, res): Promise<voi
           message,
         })),
       );
+      for (const parentUserId of uniqueParentIds) {
+        const firstPlayer = parentRows.find((row) => row.parentUserId === parentUserId)?.playerId ?? null;
+        await sendParentNotificationEmail({
+          parentUserId,
+          playerId: firstPlayer,
+          clubId: req.session.clubId!,
+          title: `Calendario: ${title}`,
+          message,
+        });
+      }
     }
   }
 

@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, inArray, sql, notInArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
+import { sendParentNotificationEmail } from "../lib/parent-email";
 
 const router: IRouter = Router();
 
@@ -859,6 +860,13 @@ router.post("/matches/:id/callups/publish", requireAuth, async (req, res): Promi
       title,
       message,
       isRead: false,
+    });
+    await sendParentNotificationEmail({
+      parentUserId: rel.parentUserId,
+      playerId: rel.playerId,
+      clubId: req.session.clubId!,
+      title,
+      message,
     });
     notifications++;
   }
