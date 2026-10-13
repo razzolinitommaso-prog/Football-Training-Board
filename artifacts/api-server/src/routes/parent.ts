@@ -57,6 +57,7 @@ function validatePersonalAccessCode(value: string): string | null {
 }
 
 let ensuredParentAvailabilityColumns = false;
+let ensuredParentTrainingAvailabilityTable = false;
 
 async function ensureParentAvailabilityColumns() {
   if (ensuredParentAvailabilityColumns) return;
@@ -64,6 +65,27 @@ async function ensureParentAvailabilityColumns() {
   await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_notes TEXT`);
   await db.execute(sql`ALTER TABLE call_ups ADD COLUMN IF NOT EXISTS parent_availability_updated_at TIMESTAMPTZ`);
   ensuredParentAvailabilityColumns = true;
+}
+
+async function ensureParentTrainingAvailabilityTable() {
+  if (ensuredParentTrainingAvailabilityTable) return;
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS parent_training_availabilities (
+      id SERIAL PRIMARY KEY,
+      club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+      team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+      occurrence_id TEXT NOT NULL,
+      scheduled_at TIMESTAMPTZ NOT NULL,
+      status TEXT NOT NULL,
+      reason TEXT,
+      notes TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (club_id, team_id, player_id, occurrence_id)
+    )
+  `);
+  ensuredParentTrainingAvailabilityTable = true;
 }
 
 const PARENT_AVAILABILITY_REASONS = new Set(["illness", "catechism", "family", "other"]);
@@ -95,6 +117,10 @@ function parentAvailabilityDeadline(matchDate: Date) {
   const daysSinceWednesday = (deadline.getDay() - 3 + 7) % 7 || 7;
   deadline.setDate(deadline.getDate() - daysSinceWednesday);
   return deadline;
+}
+
+function parentTrainingAvailabilityDeadline(scheduledAt: Date) {
+  return scheduledAt;
 }
 
 function isParentTrainingAvailabilityRecord(record?: { status?: string | null; notes?: string | null } | null) {
@@ -458,11 +484,119 @@ router.get("/parent/training", requireParentSession, async (req, res): Promise<v
     return;
   }
 
-  res.json(generateParentTrainingCalendar(team, now));
+  const trainingRows = generateParentTrainingCalendar(team, now);
+  await ensureParentTrainingAvailabilityTable();
+  const availabilityRows = trainingRows.length > 0
+    ? sqlRows<{
+      occurrenceId: string;
+      status: string;
+      reason: string | null;
+      notes: string | null;
+      updatedAt: Date | string | null;
+    }>(await db.execute(sql`
+      SELECT occurrence_id AS "occurrenceId", status, reason, notes, updated_at AS "updatedAt"
+      FROM parent_training_availabilities
+      WHERE club_id = ${clubId}
+        AND team_id = ${team.id}
+        AND player_id = ${parentPlayerId}
+    `))
+    : [];
+  const availabilityByOccurrence = new Map(availabilityRows.map((row) => [row.occurrenceId, row]));
+
+  res.json(trainingRows.map((row) => {
+    const scheduledAt = new Date(String(row.scheduledAt));
+    const deadline = parentTrainingAvailabilityDeadline(scheduledAt);
+    const availability = availabilityByOccurrence.get(String(row.id));
+    return {
+      ...row,
+      parentPlayerId,
+      parentAvailability: availability
+        ? {
+          status: availability.status,
+          reason: availability.reason ?? null,
+          reasonLabel: parentAvailabilityReasonLabel(availability.reason),
+          notes: availability.notes ?? null,
+          updatedAt: availability.updatedAt ?? null,
+        }
+        : null,
+      parentAvailabilityDeadline: deadline.toISOString(),
+      parentAvailabilityLocked: now > deadline,
+    };
+  }));
 });
 
-router.patch("/parent/training-availability/:sessionId/:playerId", requireParentSession, async (_req, res): Promise<void> => {
-  res.status(410).json({ error: "La disponibilita agli allenamenti va gestita sul calendario generale squadra, non sulle sessioni tecniche." });
+router.patch("/parent/training-availability/:sessionId/:playerId", requireParentSession, async (req, res): Promise<void> => {
+  const occurrenceId = String(req.params.sessionId ?? "").trim();
+  const playerId = parseInt(String(req.params.playerId));
+  const { status } = req.body as { status: string };
+  const reason = String(req.body?.reason ?? "").trim();
+  const notes = String(req.body?.notes ?? "").trim();
+  const clubId = req.session.clubId!;
+  const parentPlayerId = getParentPlayerId(req);
+
+  if (!["available", "unavailable", "pending"].includes(status)) {
+    res.status(400).json({ error: "Invalid status" }); return;
+  }
+  if (!parentPlayerId || parentPlayerId !== playerId) {
+    res.status(403).json({ error: "Puoi modificare solo la disponibilita del figlio collegato" }); return;
+  }
+  if (status === "unavailable" && !PARENT_AVAILABILITY_REASONS.has(reason)) {
+    res.status(400).json({ error: "Motivo indisponibilita richiesto" }); return;
+  }
+  if (status === "unavailable" && reason === "other" && notes.length === 0) {
+    res.status(400).json({ error: "Inserisci la motivazione in Altro" }); return;
+  }
+
+  const [player] = await db.select({ teamId: playersTable.teamId }).from(playersTable)
+    .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)));
+  if (!player?.teamId) { res.status(403).json({ error: "Giocatore non collegato a una squadra" }); return; }
+
+  const [team] = await db.select().from(teamsTable)
+    .where(and(eq(teamsTable.id, player.teamId), eq(teamsTable.clubId, clubId)));
+  if (!team) { res.status(403).json({ error: "Squadra non trovata" }); return; }
+
+  const trainingRows = generateParentTrainingCalendar(team, new Date());
+  const occurrence = trainingRows.find((row) => String(row.id) === occurrenceId);
+  if (!occurrence) {
+    res.status(404).json({ error: "Allenamento non trovato nel calendario generale" }); return;
+  }
+
+  const scheduledAt = new Date(String(occurrence.scheduledAt));
+  if (new Date() > parentTrainingAvailabilityDeadline(scheduledAt)) {
+    res.status(409).json({ error: "La disponibilita puo essere modificata fino all'orario dell'allenamento" }); return;
+  }
+
+  await ensureParentTrainingAvailabilityTable();
+  const availabilityReason = status === "unavailable" ? reason : null;
+  const availabilityNotes = status === "unavailable" ? (notes || null) : null;
+  const updatedAt = new Date();
+  const rows = sqlRows<{
+    id: number;
+    occurrenceId: string;
+    playerId: number;
+    status: string;
+    reason: string | null;
+    notes: string | null;
+    updatedAt: Date | string | null;
+  }>(await db.execute(sql`
+    INSERT INTO parent_training_availabilities (
+      club_id, team_id, player_id, occurrence_id, scheduled_at, status, reason, notes, updated_at
+    )
+    VALUES (
+      ${clubId}, ${team.id}, ${playerId}, ${occurrenceId}, ${scheduledAt}, ${status},
+      ${availabilityReason}, ${availabilityNotes}, ${updatedAt}
+    )
+    ON CONFLICT (club_id, team_id, player_id, occurrence_id)
+    DO UPDATE SET
+      scheduled_at = EXCLUDED.scheduled_at,
+      status = EXCLUDED.status,
+      reason = EXCLUDED.reason,
+      notes = EXCLUDED.notes,
+      updated_at = EXCLUDED.updated_at
+    RETURNING id, occurrence_id AS "occurrenceId", player_id AS "playerId", status, reason, notes, updated_at AS "updatedAt"
+  `));
+  const row = rows[0];
+  res.json({ ...row, reasonLabel: parentAvailabilityReasonLabel(row?.reason) });
 });
 
 router.get("/parent/attendance", requireParentSession, async (req, res): Promise<void> => {
