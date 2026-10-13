@@ -186,7 +186,7 @@ export default function ParentDashboard() {
           <p className="text-sm text-primary mt-1">
             {new Date(upcomingTraining.scheduledAt).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
           </p>
-          <p className="text-xs text-muted-foreground mt-2">Apri per indicare presenza o assenza.</p>
+          <p className="text-xs text-muted-foreground mt-2">Apri il calendario generale della squadra.</p>
         </div>
         </Link>
       )}

@@ -79,22 +79,22 @@ export default function ParentTeamInfo() {
                   <CalendarDays className="w-5 h-5 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{session.title}</p>
+                  <p className="font-medium truncate">{session.title ?? "Allenamento"}</p>
                   <p className="text-sm text-primary">
                     {new Date(session.scheduledAt).toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })}
-                    {" · "}
-                    {new Date(session.scheduledAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+                    {session.startTime ? ` · ${session.startTime}` : ""}
+                    {session.endTime ? `-${session.endTime}` : ""}
                   </p>
-                  {session.location && (
+                  {session.campo && (
                     <div className="flex items-center gap-1 mt-0.5">
                       <MapPin className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">{session.location}</span>
+                      <span className="text-xs text-muted-foreground">{session.campo}</span>
                     </div>
                   )}
-                  {session.durationMinutes && (
+                  {session.lockerRoom && (
                     <div className="flex items-center gap-1">
                       <Clock className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">{session.durationMinutes} min</span>
+                      <span className="text-xs text-muted-foreground">Spogliatoio {session.lockerRoom}</span>
                     </div>
                   )}
                 </div>
