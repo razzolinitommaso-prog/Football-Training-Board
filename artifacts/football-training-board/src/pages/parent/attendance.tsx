@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CalendarCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleDotDashed, Lock, MapPin, Shirt, XCircle } from "lucide-react";
+import { AlertCircle, CalendarCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleDotDashed, Lock, MapPin, Shirt, Trophy, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -83,6 +83,23 @@ function buildCalendarDays(monthDate: Date) {
 
 function monthTitle(date: Date) {
   return date.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+}
+
+function matchCallupLabel(match: any) {
+  const ownCallup = Array.isArray(match.callUps)
+    ? match.callUps.find((callup: any) => Number(callup.playerId) === Number(match.parentPlayerId))
+    : null;
+  const status = String(ownCallup?.status ?? "").toLowerCase();
+  if (["called", "pending"].includes(status)) return "Convocato";
+  return "Non convocato";
+}
+
+function matchFilterValue(match: any) {
+  const availability = match.parentAvailability?.status;
+  if (availability === "unavailable") return "unavailable";
+  if (!availability) return "missing";
+  if (matchCallupLabel(match) === "Convocato") return "called";
+  return "not_called";
 }
 
 function TrainingAvailability({ session, onUpdated }: { session: any; onUpdated: (next: any) => void }) {
@@ -183,6 +200,104 @@ function TrainingAvailability({ session, onUpdated }: { session: any; onUpdated:
   );
 }
 
+function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next: any) => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [reason, setReason] = useState(match.parentAvailability?.reason ?? "illness");
+  const [notes, setNotes] = useState(match.parentAvailability?.notes ?? "");
+  const locked = match.parentAvailabilityLocked === true;
+
+  useEffect(() => {
+    setReason(match.parentAvailability?.reason ?? "illness");
+    setNotes(match.parentAvailability?.notes ?? "");
+  }, [match.id, match.parentAvailability?.reason, match.parentAvailability?.notes]);
+
+  async function save(status: "available" | "unavailable") {
+    setError("");
+    if (locked) return;
+    setSaving(true);
+    try {
+      const updated = await apiFetch(`/parent/availability/${match.id}/${match.parentPlayerId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status,
+          reason: status === "unavailable" ? reason : undefined,
+          notes: status === "unavailable" ? notes : undefined,
+        }),
+      });
+      onUpdated({
+        status: updated.parentAvailabilityStatus ?? updated.status,
+        reason: updated.parentAvailabilityReason ?? null,
+        reasonLabel: REASON_OPTIONS.find((item) => item.value === updated.parentAvailabilityReason)?.label.toLowerCase() ?? null,
+        notes: updated.parentAvailabilityNotes ?? null,
+        updatedAt: updated.parentAvailabilityUpdatedAt ?? null,
+      });
+    } catch (err: any) {
+      setError(err?.message ?? "Impossibile salvare la disponibilita.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border bg-muted/20 p-3 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Badge variant="outline" className={`border ${availabilityTone(match)}`}>
+          {availabilityLabel(match)}
+        </Badge>
+        <span className="text-[11px] text-muted-foreground">
+          {locked ? (
+            <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3" /> Scaduta</span>
+          ) : (
+            <>Modificabile fino a {fmtDeadline(match.parentAvailabilityDeadline)}</>
+          )}
+        </span>
+      </div>
+
+      {match.parentAvailability?.status === "unavailable" && (
+        <p className="text-xs text-red-600">
+          Motivo: {match.parentAvailability.reasonLabel ?? "non indicato"}
+          {match.parentAvailability.notes ? ` - ${match.parentAvailability.notes}` : ""}
+        </p>
+      )}
+
+      {!locked && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]">
+            <Select value={reason} onValueChange={setReason}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Motivo indisponibilita" />
+              </SelectTrigger>
+              <SelectContent>
+                {REASON_OPTIONS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("available")}>
+              <CheckCircle2 className="h-4 w-4" />
+              Disponibile
+            </Button>
+            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("unavailable")}>
+              <XCircle className="h-4 w-4" />
+              Non disponibile
+            </Button>
+          </div>
+          {reason === "other" && (
+            <Textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Scrivi il motivo"
+              className="min-h-20 text-sm"
+            />
+          )}
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrainingScheduleCard({ session, onUpdated }: { session: any; onUpdated: (next: any) => void }) {
   return (
     <div className="rounded-2xl border bg-card p-4">
@@ -222,9 +337,44 @@ function TrainingScheduleCard({ session, onUpdated }: { session: any; onUpdated:
   );
 }
 
+function MatchScheduleCard({ match, onUpdated }: { match: any; onUpdated: (next: any) => void }) {
+  return (
+    <div className="rounded-2xl border bg-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold">vs {match.opponent ?? "Avversario"}</p>
+          <p className="text-xs text-muted-foreground">{match.teamName ?? "Squadra"}</p>
+          {match.date && (
+            <p className="text-xs text-amber-600">
+              {new Date(match.date).toLocaleString("it-IT", { weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" })}
+            </p>
+          )}
+          {(match.location || match.venue) && (
+            <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+              <MapPin className="h-3.5 w-3.5" />
+              {match.location || match.venue}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Partita</Badge>
+          <Badge variant={matchCallupLabel(match) === "Convocato" ? "default" : "secondary"}>
+            {matchCallupLabel(match)}
+          </Badge>
+        </div>
+      </div>
+      {match.parentPlayerId && (
+        <MatchAvailability match={match} onUpdated={onUpdated} />
+      )}
+    </div>
+  );
+}
+
 export default function ParentAttendance() {
   const [items, setItems] = useState<any[]>([]);
   const [training, setTraining] = useState<any[]>([]);
+  const [matches, setMatches] = useState<any[]>([]);
+  const [matchFilter, setMatchFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [selectedDateKey, setSelectedDateKey] = useState(dateKey(new Date()));
   const [visibleMonth, setVisibleMonth] = useState(startOfMonth(new Date()));
@@ -238,6 +388,17 @@ export default function ParentAttendance() {
     return acc;
   }, {});
   const selectedTraining = trainingByDay[selectedDateKey] ?? [];
+  const matchesByDay = matches.reduce<Record<string, any[]>>((acc, match) => {
+    const key = dateKey(match.date);
+    if (!key) return acc;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(match);
+    return acc;
+  }, {});
+  const selectedMatches = (matchesByDay[selectedDateKey] ?? []).filter((match) => {
+    if (matchFilter === "all") return true;
+    return matchFilterValue(match) === matchFilter;
+  });
 
   function updateTrainingAvailability(sessionId: string, parentAvailability: any) {
     setTraining((prev) => prev.map((session) =>
@@ -245,14 +406,22 @@ export default function ParentAttendance() {
     ));
   }
 
+  function updateMatchAvailability(matchId: number, parentAvailability: any) {
+    setMatches((prev) => prev.map((match) =>
+      match.id === matchId ? { ...match, parentAvailability } : match,
+    ));
+  }
+
   useEffect(() => {
     Promise.all([
       apiFetch("/parent/training"),
       apiFetch("/parent/attendance"),
+      apiFetch("/parent/matches"),
     ])
-      .then(([trainingRows, attendanceRows]) => {
+      .then(([trainingRows, attendanceRows, matchRows]) => {
         setTraining(trainingRows);
         setItems(attendanceRows);
+        setMatches(matchRows);
       })
       .catch((error) => { if (import.meta.env.DEV) console.error(error); })
       .finally(() => setLoading(false));
@@ -264,7 +433,7 @@ export default function ParentAttendance() {
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Calendario allenamenti</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Programma generale della squadra con giorni, orari, campo e spogliatoio.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Programma generale della squadra con allenamenti e partite.</p>
       </div>
 
       <div className="rounded-2xl border bg-card p-4">
@@ -274,7 +443,7 @@ export default function ParentAttendance() {
           </Button>
           <div className="text-center">
             <h2 className="text-base font-semibold capitalize">{monthTitle(visibleMonth)}</h2>
-            <p className="text-xs text-muted-foreground">Tocca una data per vedere gli allenamenti del calendario generale.</p>
+            <p className="text-xs text-muted-foreground">Tocca una data per vedere allenamenti e partite.</p>
           </div>
           <Button type="button" variant="outline" size="icon" onClick={() => setVisibleMonth((current) => addMonths(current, 1))}>
             <ChevronRight className="h-4 w-4" />
@@ -289,9 +458,11 @@ export default function ParentAttendance() {
           {calendarDays.map((day) => {
             const key = dateKey(day);
             const sessions = trainingByDay[key] ?? [];
+            const dayMatches = matchesByDay[key] ?? [];
             const isSelected = key === selectedDateKey;
             const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
             const hasTraining = sessions.length > 0;
+            const hasMatch = dayMatches.length > 0;
 
             return (
               <button
@@ -305,12 +476,17 @@ export default function ParentAttendance() {
                 ].join(" ")}
               >
                 <span className="block text-xs font-semibold">{day.getDate()}</span>
-                {hasTraining && (
-                  <span className="mt-2 block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                )}
+                <span className="mt-2 flex gap-1">
+                  {hasTraining && <span className="block h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+                  {hasMatch && <span className="block h-1.5 w-1.5 rounded-full bg-amber-500" />}
+                </span>
               </button>
             );
           })}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Allenamento</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Partita</span>
         </div>
       </div>
 
@@ -319,7 +495,7 @@ export default function ParentAttendance() {
           <h2 className="text-base font-semibold">
             {new Date(`${selectedDateKey}T12:00:00`).toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "long" })}
           </h2>
-          <p className="text-xs text-muted-foreground">Sono mostrati solo gli allenamenti del calendario generale, non le sessioni tecniche del mister.</p>
+          <p className="text-xs text-muted-foreground">Sono mostrati calendario generale e partite della squadra.</p>
         </div>
         {selectedTraining.length === 0 ? (
           <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">Nessun allenamento fisso in questa data.</div>
@@ -329,6 +505,38 @@ export default function ParentAttendance() {
               key={session.id}
               session={session}
               onUpdated={(parentAvailability) => updateTrainingAvailability(session.id, parentAvailability)}
+            />
+          ))
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold"><Trophy className="h-4 w-4 text-amber-500" /> Partite</h2>
+            <p className="text-xs text-muted-foreground">Filtra le partite del giorno selezionato.</p>
+          </div>
+          <Select value={matchFilter} onValueChange={setMatchFilter}>
+            <SelectTrigger className="h-9 sm:w-56">
+              <SelectValue placeholder="Filtro partite" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tutte</SelectItem>
+              <SelectItem value="called">Convocato</SelectItem>
+              <SelectItem value="not_called">Non convocato</SelectItem>
+              <SelectItem value="missing">Disponibilita da indicare</SelectItem>
+              <SelectItem value="unavailable">Non disponibile</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {selectedMatches.length === 0 ? (
+          <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">Nessuna partita con questo filtro in questa data.</div>
+        ) : (
+          selectedMatches.map((match) => (
+            <MatchScheduleCard
+              key={match.id}
+              match={match}
+              onUpdated={(parentAvailability) => updateMatchAvailability(match.id, parentAvailability)}
             />
           ))
         )}
