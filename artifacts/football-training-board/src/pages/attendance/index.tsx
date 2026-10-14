@@ -29,6 +29,7 @@ interface Player {
   lastName: string;
   teamId?: number | null;
   teamName?: string | null;
+  supplementalTeamId?: number | null;
   status?: string | null;
   available?: boolean | null;
   unavailabilityReason?: string | null;
@@ -383,7 +384,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const filteredPlayers = useMemo(() => {
     if (!selectedSession) return players;
     if (selectedSession.teamId != null) {
-      return players.filter((p) => p.teamId === selectedSession.teamId);
+      return players.filter((p) => p.teamId === selectedSession.teamId || p.supplementalTeamId === selectedSession.teamId);
     }
     if (sessionAnnata) {
       return players.filter((p) => (p.teamName ?? "").toLowerCase().includes(sessionAnnata));

@@ -11,6 +11,24 @@ type PlayerAvailabilityOverrideFields = {
   availabilityOverrideFrom?: string | null;
   availabilityOverrideUntil?: string | null;
 };
+const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
+
+function extractSupplementalTeamId(notes?: string | null): number | null {
+  const full = String(notes ?? "").trim();
+  if (!full.startsWith(PLAYER_META_MARKER)) return null;
+  const metaStart = PLAYER_META_MARKER.length;
+  const nextNewLineIdx = full.indexOf("\n");
+  const encodedMeta = nextNewLineIdx >= 0
+    ? full.slice(metaStart, nextNewLineIdx).trim()
+    : full.slice(metaStart).trim();
+  try {
+    const parsed = JSON.parse(encodedMeta) as { supplementalTeamId?: unknown };
+    const id = Number(parsed?.supplementalTeamId);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
 
 async function getSessionForAttendance(sessionId: number, clubId: number) {
   const [session] = await db
@@ -49,15 +67,14 @@ async function userCanManageAttendanceForSession(userId: number, clubId: number,
 async function playerIsValidForSession(playerId: number, clubId: number, sessionId: number): Promise<boolean> {
   const session = await getSessionForAttendance(sessionId, clubId);
   if (!session) return false;
-  const conditions = [
-    eq(playersTable.id, playerId),
-    eq(playersTable.clubId, clubId),
-  ];
-  if (session.teamId) {
-    conditions.push(eq(playersTable.teamId, session.teamId));
-  }
-  const [player] = await db.select({ id: playersTable.id }).from(playersTable).where(and(...conditions)).limit(1);
-  return !!player;
+  const [player] = await db
+    .select({ id: playersTable.id, teamId: playersTable.teamId, notes: playersTable.notes })
+    .from(playersTable)
+    .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)))
+    .limit(1);
+  if (!player) return false;
+  if (!session.teamId) return true;
+  return player.teamId === session.teamId || extractSupplementalTeamId(player.notes) === session.teamId;
 }
 
 function playerHasActiveAvailabilityOverride(player: typeof playersTable.$inferSelect): boolean {
@@ -117,13 +134,13 @@ router.get("/attendance-summary", requireAuth, async (req, res): Promise<void> =
     const session = await getSessionForAttendance(sessionId, req.session.clubId!);
     if (!session) continue;
 
-    const playerConditions = [eq(playersTable.clubId, req.session.clubId!)];
-    if (session.teamId) playerConditions.push(eq(playersTable.teamId, session.teamId));
     const players = await db
-      .select({ id: playersTable.id })
+      .select({ id: playersTable.id, teamId: playersTable.teamId, notes: playersTable.notes })
       .from(playersTable)
-      .where(and(...playerConditions));
-    const total = players.length;
+      .where(eq(playersTable.clubId, req.session.clubId!));
+    const total = session.teamId
+      ? players.filter((player) => player.teamId === session.teamId || extractSupplementalTeamId(player.notes) === session.teamId).length
+      : players.length;
 
     const records = await db
       .select({ status: trainingAttendancesTable.status })

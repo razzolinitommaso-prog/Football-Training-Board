@@ -1681,9 +1681,11 @@ function MatchCard({
     () => (isFriendlyMatch && autoReserveRuleEnabled ? nextFriendlyFormat(matchFormat) : null),
     [isFriendlyMatch, autoReserveRuleEnabled, matchFormat],
   );
+  const { players: matchAwareTeamPlayers = [] } = useTeamPlayers(match.teamId ?? null, match.id);
+  const rosterForMatch = matchAwareTeamPlayers.length > 0 ? matchAwareTeamPlayers : teamPlayers;
   const sortedTeamPlayers = useMemo(() => {
-    return [...teamPlayers].sort(comparePlayersByRole);
-  }, [teamPlayers]);
+    return [...rosterForMatch].sort(comparePlayersByRole);
+  }, [rosterForMatch]);
   const { data: callups = EMPTY_CALLUPS } = useQuery<MatchCallUp[]>({
     queryKey: ["/api/matches", match.id, "callups"],
     queryFn: () => apiFetch(`/api/matches/${match.id}/callups`),
