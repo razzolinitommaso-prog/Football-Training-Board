@@ -347,6 +347,14 @@ function matchFormatForTeam(section: MatchSection, teamName: string, teamCategor
   return "11v11";
 }
 
+function inferMatchSectionFromTeam(teamName?: string | null, teamCategory?: string | null): MatchSection | null {
+  const n = `${teamName ?? ""} ${teamCategory ?? ""}`.toLowerCase();
+  if (/\b(prima\s+squadra|serie|dilettanti)\b/.test(n)) return "prima_squadra";
+  if (/\b(juniores|allievi|giovanissimi)\b/.test(n)) return "settore_giovanile";
+  if (/\b(piccoli\s+amici|primi\s+calci|pulcini|esordienti)\b/.test(n)) return "scuola_calcio";
+  return null;
+}
+
 function moduleOptionsForFormat(format: MatchFormat): string[] {
   if (format === "3v3") return ["1-1-1", "2-1"];
   if (format === "5v5") return ["2-2", "1-2-1", "2-1-1"];
@@ -1040,10 +1048,12 @@ function detectFormatByModule(moduleValue: string): MatchFormat | null {
 }
 
 function startersLimitForPeriod(period: MatchPlanPeriodRuntime, format: MatchFormat): number {
-  const defaultLimit = playerLimitForFormat(period.format ?? format);
+  const effectiveFormat = format === "11v11" ? "11v11" : period.format ?? format;
+  const defaultLimit = playerLimitForFormat(effectiveFormat);
   const raw = (period.module ?? "").trim();
   if (!raw) return defaultLimit;
   const byKnownModule = detectFormatByModule(raw);
+  if (byKnownModule && format === "11v11" && byKnownModule !== "11v11") return defaultLimit;
   if (byKnownModule) return playerLimitForFormat(byKnownModule);
   const nums = raw
     .split("-")
@@ -1428,10 +1438,23 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
 
 function normalizePlanPeriodsForSection(plan: MatchPlanData, section: MatchSection): MatchPlanData {
   if (section === "scuola_calcio") return plan;
+  const defaultFormat: MatchFormat = "11v11";
+  const validModules = moduleOptionsForFormat(defaultFormat);
   return {
     ...plan,
     fourthTime: false,
-    periods: plan.periods.filter((period) => period.key === "t1" || period.key === "t2").slice(0, 2),
+    periods: plan.periods
+      .filter((period) => period.key === "t1" || period.key === "t2")
+      .slice(0, 2)
+      .map((period) => ({
+        ...period,
+        format: undefined,
+        module: validModules.includes(period.module ?? "") ? period.module : "",
+        lineupDetectedModule:
+          period.lineupDetectedModule && validModules.includes(period.lineupDetectedModule)
+            ? period.lineupDetectedModule
+            : null,
+      })),
   };
 }
 
@@ -4126,7 +4149,9 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
     (["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && isAssignedStaffForTeam);
   const canManageMatchPlan = ["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && isAssignedStaffForTeam;
   const canViewMatchPlan = canManageMatchPlan || role === "technical_director";
+  const inferredTeamSection = inferMatchSectionFromTeam(team?.name, team?.category);
   const currentSection: MatchSection =
+    inferredTeamSection ??
     normalizeMatchSection(team?.clubSection) ??
     normalizeMatchSection(section) ??
     "scuola_calcio";
