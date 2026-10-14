@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CalendarCheck, CheckCircle2, CircleDotDashed, Lock, MapPin, Shirt, XCircle } from "lucide-react";
+import { AlertCircle, CalendarCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleDotDashed, Lock, MapPin, Shirt, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,6 +48,41 @@ function availabilityTone(session: any) {
 function fmtDeadline(d?: string | null) {
   if (!d) return "";
   return new Date(d).toLocaleString("it-IT", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function dateKey(value?: string | Date | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, amount: number) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
+}
+
+function buildCalendarDays(monthDate: Date) {
+  const first = startOfMonth(monthDate);
+  const mondayOffset = (first.getDay() + 6) % 7;
+  const gridStart = new Date(first);
+  gridStart.setDate(first.getDate() - mondayOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(gridStart);
+    day.setDate(gridStart.getDate() + index);
+    return day;
+  });
+}
+
+function monthTitle(date: Date) {
+  return date.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
 }
 
 function TrainingAvailability({ session, onUpdated }: { session: any; onUpdated: (next: any) => void }) {
@@ -191,7 +226,18 @@ export default function ParentAttendance() {
   const [items, setItems] = useState<any[]>([]);
   const [training, setTraining] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDateKey, setSelectedDateKey] = useState(dateKey(new Date()));
+  const [visibleMonth, setVisibleMonth] = useState(startOfMonth(new Date()));
   const historyItems = items.filter((item) => !item.scheduledAt || new Date(item.scheduledAt) < new Date());
+  const calendarDays = buildCalendarDays(visibleMonth);
+  const trainingByDay = training.reduce<Record<string, any[]>>((acc, session) => {
+    const key = dateKey(session.scheduledAt);
+    if (!key) return acc;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(session);
+    return acc;
+  }, {});
+  const selectedTraining = trainingByDay[selectedDateKey] ?? [];
 
   function updateTrainingAvailability(sessionId: string, parentAvailability: any) {
     setTraining((prev) => prev.map((session) =>
@@ -215,21 +261,70 @@ export default function ParentAttendance() {
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div>;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Calendario allenamenti</h1>
         <p className="mt-1 text-sm text-muted-foreground">Programma generale della squadra con giorni, orari, campo e spogliatoio.</p>
       </div>
 
+      <div className="rounded-2xl border bg-card p-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <Button type="button" variant="outline" size="icon" onClick={() => setVisibleMonth((current) => addMonths(current, -1))}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div className="text-center">
+            <h2 className="text-base font-semibold capitalize">{monthTitle(visibleMonth)}</h2>
+            <p className="text-xs text-muted-foreground">Tocca una data per vedere gli allenamenti del calendario generale.</p>
+          </div>
+          <Button type="button" variant="outline" size="icon" onClick={() => setVisibleMonth((current) => addMonths(current, 1))}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase text-muted-foreground">
+          {["L", "M", "M", "G", "V", "S", "D"].map((day) => <div key={day}>{day}</div>)}
+        </div>
+
+        <div className="mt-2 grid grid-cols-7 gap-1">
+          {calendarDays.map((day) => {
+            const key = dateKey(day);
+            const sessions = trainingByDay[key] ?? [];
+            const isSelected = key === selectedDateKey;
+            const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
+            const hasTraining = sessions.length > 0;
+
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => setSelectedDateKey(key)}
+                className={[
+                  "min-h-14 rounded-xl border p-1 text-left transition-colors",
+                  isSelected ? "border-primary bg-primary/10" : "border-transparent bg-muted/30 hover:border-primary/40",
+                  isCurrentMonth ? "opacity-100" : "opacity-40",
+                ].join(" ")}
+              >
+                <span className="block text-xs font-semibold">{day.getDate()}</span>
+                {hasTraining && (
+                  <span className="mt-2 block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="space-y-3">
         <div>
-          <h2 className="text-base font-semibold">Prossimi allenamenti</h2>
+          <h2 className="text-base font-semibold">
+            {new Date(`${selectedDateKey}T12:00:00`).toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "long" })}
+          </h2>
           <p className="text-xs text-muted-foreground">Sono mostrati solo gli allenamenti del calendario generale, non le sessioni tecniche del mister.</p>
         </div>
-        {training.length === 0 ? (
-          <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">Nessun allenamento fisso configurato per la squadra.</div>
+        {selectedTraining.length === 0 ? (
+          <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">Nessun allenamento fisso in questa data.</div>
         ) : (
-          training.map((session) => (
+          selectedTraining.map((session) => (
             <TrainingScheduleCard
               key={session.id}
               session={session}
