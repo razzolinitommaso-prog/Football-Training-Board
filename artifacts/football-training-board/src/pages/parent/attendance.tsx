@@ -108,6 +108,7 @@ function TrainingAvailability({ session, onUpdated }: { session: any; onUpdated:
   const [reason, setReason] = useState(session.parentAvailability?.reason ?? "illness");
   const [notes, setNotes] = useState(session.parentAvailability?.notes ?? "");
   const locked = session.parentAvailabilityLocked === true;
+  const selectedStatus = session.parentAvailability?.status;
 
   useEffect(() => {
     setReason(session.parentAvailability?.reason ?? "illness");
@@ -176,11 +177,23 @@ function TrainingAvailability({ session, onUpdated }: { session: any; onUpdated:
                 ))}
               </SelectContent>
             </Select>
-            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("available")}>
+            <Button
+              type="button"
+              variant="outline"
+              className={`gap-2 ${selectedStatus === "available" ? "border-emerald-500 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white" : ""}`}
+              disabled={saving}
+              onClick={() => void save("available")}
+            >
               <CheckCircle2 className="h-4 w-4" />
               Disponibile
             </Button>
-            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("unavailable")}>
+            <Button
+              type="button"
+              variant="outline"
+              className={`gap-2 ${selectedStatus === "unavailable" ? "border-red-500 bg-red-600 text-white hover:bg-red-700 hover:text-white" : ""}`}
+              disabled={saving}
+              onClick={() => void save("unavailable")}
+            >
               <XCircle className="h-4 w-4" />
               Non disponibile
             </Button>
@@ -206,6 +219,7 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
   const [reason, setReason] = useState(match.parentAvailability?.reason ?? "illness");
   const [notes, setNotes] = useState(match.parentAvailability?.notes ?? "");
   const locked = match.parentAvailabilityLocked === true;
+  const selectedStatus = match.parentAvailability?.status;
 
   useEffect(() => {
     setReason(match.parentAvailability?.reason ?? "illness");
@@ -274,11 +288,23 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
                 ))}
               </SelectContent>
             </Select>
-            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("available")}>
+            <Button
+              type="button"
+              variant="outline"
+              className={`gap-2 ${selectedStatus === "available" ? "border-emerald-500 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white" : ""}`}
+              disabled={saving}
+              onClick={() => void save("available")}
+            >
               <CheckCircle2 className="h-4 w-4" />
               Disponibile
             </Button>
-            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("unavailable")}>
+            <Button
+              type="button"
+              variant="outline"
+              className={`gap-2 ${selectedStatus === "unavailable" ? "border-red-500 bg-red-600 text-white hover:bg-red-700 hover:text-white" : ""}`}
+              disabled={saving}
+              onClick={() => void save("unavailable")}
+            >
               <XCircle className="h-4 w-4" />
               Non disponibile
             </Button>
