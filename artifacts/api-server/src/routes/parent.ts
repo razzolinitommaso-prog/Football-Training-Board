@@ -819,7 +819,15 @@ router.get("/parent/callups", requireParentSession, async (req, res): Promise<vo
         .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.id, match.teamId)));
       teamName = team?.name ?? null;
     }
-    return { ...callUp, match, teamName };
+    const plan = match.matchPlan;
+    return { id: callUp.id, status: callUp.status, teamName, match: {
+      id: match.id, opponent: match.opponent, date: match.date, homeAway: match.homeAway,
+      competition: match.competition, location: match.location,
+      notes: match.notes, preMatchNotes: match.preMatchNotes,
+      isPostponed: match.isPostponed, rescheduleDate: match.rescheduleDate, rescheduleTbd: match.rescheduleTbd,
+      convocationAt: typeof plan?.convocationAt === "string" ? plan.convocationAt : null,
+      convocationPlace: typeof plan?.convocationPlace === "string" ? plan.convocationPlace : null,
+    } };
   }));
 
   res.json(enriched.filter(Boolean));
