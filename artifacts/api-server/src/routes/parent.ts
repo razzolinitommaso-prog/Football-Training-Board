@@ -10,7 +10,8 @@ import {
   playerFitnessDataTable,
   playerParentDelegatesTable,
 } from "@workspace/db";
-import { eq, and, gte, asc, desc, or, inArray, sql } from "drizzle-orm";
+import { eq, and, gte, lte, asc, desc, or, inArray, sql } from "drizzle-orm";
+import { parentPlayedMinutes, parentTrainingOccurrence, parentTrainingType, type ParentActivity, type ParentTrainingActivity } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -601,6 +602,60 @@ router.patch("/parent/training-availability/:sessionId/:playerId", requireParent
   res.json({ ...row, reasonLabel: parentAvailabilityReasonLabel(row?.reason) });
 });
 
+router.get("/parent/activity", requireParentSession, async (req, res): Promise<void> => {
+  const clubId = req.session.clubId!;
+  const playerId = getParentPlayerId(req);
+  const empty: ParentActivity = { playerName: null, trainings: [], matches: [] };
+  if (!playerId) { res.json(empty); return; }
+  const [player] = await db.select({ firstName: playersTable.firstName, lastName: playersTable.lastName }).from(playersTable)
+    .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, playerId)));
+  if (!player) { res.json(empty); return; }
+  const now = new Date();
+  await ensureParentTrainingAvailabilityTable();
+  const [attendance, availabilities, playedMatches] = await Promise.all([
+    db.select({ id: trainingAttendancesTable.id, status: trainingAttendancesTable.status, notes: trainingAttendancesTable.notes,
+      teamId: trainingSessionsTable.teamId, scheduledAt: trainingSessionsTable.scheduledAt,
+      objectives: trainingSessionsTable.objectives, teamName: teamsTable.name })
+      .from(trainingAttendancesTable)
+      .innerJoin(trainingSessionsTable, and(eq(trainingSessionsTable.id, trainingAttendancesTable.trainingSessionId), eq(trainingSessionsTable.clubId, clubId)))
+      .leftJoin(teamsTable, and(eq(teamsTable.id, trainingSessionsTable.teamId), eq(teamsTable.clubId, clubId)))
+      .where(and(eq(trainingAttendancesTable.clubId, clubId), eq(trainingAttendancesTable.playerId, playerId),
+        lte(trainingSessionsTable.scheduledAt, now), sql`${trainingSessionsTable.status} <> 'cancelled'`, sql`${trainingSessionsTable.sessionKind} <> 'tipo'`))
+      .orderBy(desc(trainingAttendancesTable.createdAt)),
+    db.execute(sql`SELECT a.occurrence_id AS "occurrenceId", a.scheduled_at AS "scheduledAt", a.status, a.reason, t.name AS "teamName"
+      FROM parent_training_availabilities a JOIN teams t ON t.id = a.team_id AND t.club_id = ${clubId}
+      WHERE a.club_id = ${clubId} AND a.player_id = ${playerId} AND a.scheduled_at <= ${now.toISOString()}`),
+    db.select({ id: matchesTable.id, date: matchesTable.date, opponent: matchesTable.opponent, plan: matchesTable.matchPlan })
+      .from(callUpsTable).innerJoin(matchesTable, and(eq(matchesTable.id, callUpsTable.matchId), eq(matchesTable.clubId, clubId)))
+      .where(and(eq(callUpsTable.playerId, playerId), lte(matchesTable.date, now),
+        sql`lower(${callUpsTable.status}) NOT IN ('available','unavailable','availability','absent','declined','not_called')`))
+      .orderBy(desc(matchesTable.date)),
+  ]);
+  const history = new Map<string, ParentTrainingActivity>();
+  for (const row of sqlRows<{ occurrenceId: string; scheduledAt: Date | string; status: string; reason: string | null; teamName: string }>(availabilities)) {
+    history.set(row.occurrenceId, { id: row.occurrenceId, scheduledAt: new Date(row.scheduledAt).toISOString(), teamName: row.teamName,
+      trainingType: null, attendance: null, conduct: null, availability: row.status, availabilityReason: parentAvailabilityReasonLabel(row.reason) });
+  }
+  const seen = new Set<string>();
+  for (const row of attendance) {
+    const key = row.teamId ? parentTrainingOccurrence(row.teamId, row.scheduledAt) : `attendance-${row.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const availability = history.get(key);
+    history.set(key, { id: key, scheduledAt: row.scheduledAt.toISOString(), teamName: row.teamName ?? "Squadra",
+      trainingType: parentTrainingType(row.objectives), attendance: row.status, conduct: parseAttendanceConduct(row.notes),
+      availability: availability?.availability ?? null, availabilityReason: availability?.availabilityReason ?? null });
+  }
+  const uniqueMatches = [...new Map(playedMatches.map(match => [match.id, match])).values()];
+  const response: ParentActivity = {
+    playerName: `${player.firstName} ${player.lastName}`,
+    trainings: [...history.values()].sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt)),
+    matches: uniqueMatches.map(match => ({ id: match.id, date: match.date.toISOString(), opponent: match.opponent,
+      minutes: parentPlayedMinutes(match.plan, playerId) })),
+  };
+  res.json(response);
+});
+
 router.get("/parent/attendance", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
   const parentPlayerId = getParentPlayerId(req);
@@ -622,10 +677,15 @@ router.get("/parent/attendance", requireParentSession, async (req, res): Promise
         .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.id, session.teamId)));
       teamName = team?.name ?? null;
     }
-    return { ...row, sessionTitle: session?.title ?? "Allenamento", scheduledAt: session?.scheduledAt ?? null, teamName };
+    if (!session || session.status === "cancelled" || session.sessionKind === "tipo") return null;
+    // Legacy endpoint remains compatible, but never sends internal attendance
+    // notes, technical session titles or session identifiers to parents.
+    return { id: row.id, playerId: row.playerId, status: row.status, notes: null,
+      sessionTitle: parentTrainingType(session.objectives) ?? "Allenamento", conduct: parseAttendanceConduct(row.notes),
+      scheduledAt: session.scheduledAt, teamName };
   }));
 
-  res.json(enriched);
+  res.json(enriched.filter(Boolean));
 });
 
 router.get("/parent/matches", requireParentSession, async (req, res): Promise<void> => {

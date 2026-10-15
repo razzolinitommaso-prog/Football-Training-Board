@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Users, Trophy, CalendarDays, Bell, ChevronRight, Banknote, MessageSquare, ClipboardCheck, FileText, Package, User, UserCheck } from "lucide-react";
+import { Users, Trophy, CalendarDays, Bell, ChevronRight, Banknote, MessageSquare, FileText, Package, User, UserCheck } from "lucide-react";
 import { withApi } from "@/lib/api-base";
+import type { ParentActivity } from "@workspace/api-zod";
 
 async function apiFetch(path: string) {
   const res = await fetch(withApi(`/api${path}`), { credentials: "include" });
@@ -17,7 +18,7 @@ export default function ParentDashboard() {
   const [matches, setMatches] = useState<any[]>([]);
   const [extraEvents, setExtraEvents] = useState<any[]>([]);
   const [callups, setCallups] = useState<any[]>([]);
-  const [attendance, setAttendance] = useState<any[]>([]);
+  const [activity, setActivity] = useState<ParentActivity | null>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
   const [kit, setKit] = useState<any[]>([]);
@@ -31,7 +32,7 @@ export default function ParentDashboard() {
       apiFetch("/parent/matches"),
       apiFetch("/parent/calendar-extra-events"),
       apiFetch("/parent/callups"),
-      apiFetch("/parent/attendance"),
+      apiFetch("/parent/activity").catch(() => null),
       apiFetch("/parent/payments"),
       apiFetch("/parent/documents"),
       apiFetch("/parent/kit"),
@@ -42,7 +43,7 @@ export default function ParentDashboard() {
       setMatches(m);
       setExtraEvents(e);
       setCallups(c);
-      setAttendance(a);
+      setActivity(a);
       setPayments(p);
       setDocuments(Array.isArray(d) ? d : [...(d.clubDocs ?? []), ...(d.uploads ?? [])]);
       setKit(k);
@@ -123,11 +124,28 @@ export default function ParentDashboard() {
             <div className="text-xs text-muted-foreground">Convocazioni</div>
           </div>
         </Link>
-        <Link href="/parent/attendance">
+        <Link href="/parent/activity">
           <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
             <CalendarDays className="w-6 h-6 text-emerald-500 mb-2" />
-            <div className="text-2xl font-bold">{training.length}</div>
+            <div className="text-2xl font-bold">{activity?.trainings.length ?? "—"}</div>
             <div className="text-xs text-muted-foreground">Allenamenti</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">Storico di tuo figlio</div>
+          </div>
+        </Link>
+        <Link href="/parent/attendance">
+          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
+            <CalendarDays className="w-6 h-6 text-primary mb-2" />
+            <div className="text-lg font-bold">Calendario generale</div>
+            <div className="text-xs text-muted-foreground">Appuntamenti e disponibilità</div>
+          </div>
+        </Link>
+        <Link href="/parent/activity#minutaggio">
+          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
+            <Trophy className="w-6 h-6 text-amber-500 mb-2" />
+            <div className="text-2xl font-bold">{activity?.matches.some(match => match.minutes !== null)
+              ? `${activity.matches.reduce((sum, match) => sum + (match.minutes ?? 0), 0)}′` : "—"}</div>
+            <div className="text-xs text-muted-foreground">Minuti effettivi di gioco</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">{activity ? "Da resoconti post partita" : "Dati non disponibili"}</div>
           </div>
         </Link>
         <Link href="/parent/communications">
@@ -240,13 +258,6 @@ export default function ParentDashboard() {
           <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer flex items-center gap-3">
             <Trophy className="w-5 h-5 text-amber-400" />
             <span className="text-sm font-medium">Partite</span>
-            <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
-          </div>
-        </Link>
-        <Link href="/parent/attendance">
-          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer flex items-center gap-3">
-            <ClipboardCheck className="w-5 h-5 text-emerald-500" />
-            <span className="text-sm font-medium">Calendario allenamenti</span>
             <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
           </div>
         </Link>

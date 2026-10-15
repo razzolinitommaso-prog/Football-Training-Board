@@ -17,6 +17,7 @@ import ParentTeamInfo from "@/pages/parent/team";
 import ParentCommunications from "@/pages/parent/communications";
 import ParentCallups from "@/pages/parent/callups";
 import ParentAttendance from "@/pages/parent/attendance";
+import ParentActivityPage from "@/pages/parent/activity";
 import ParentMatches from "@/pages/parent/matches";
 import ParentDocuments from "@/pages/parent/documents";
 import ParentPayments from "@/pages/parent/payments";
@@ -237,6 +238,9 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/parent/attendance">
           <ProtectedRoute allowedRoles={["parent"]}><ParentAttendance /></ProtectedRoute>
+        </Route>
+        <Route path="/parent/activity">
+          <ProtectedRoute allowedRoles={["parent"]}><ParentActivityPage /></ProtectedRoute>
         </Route>
         <Route path="/parent/matches">
           <ProtectedRoute allowedRoles={["parent"]}><ParentMatches /></ProtectedRoute>

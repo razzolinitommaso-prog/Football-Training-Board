@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, CalendarCheck, CheckCircle2, ChevronLeft, ChevronRight, CircleDotDashed, Lock, MapPin, Shirt, Trophy, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Lock, MapPin, Shirt, Trophy, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,13 +16,6 @@ async function apiFetch(path: string, options?: RequestInit) {
   if (!res.ok) throw new Error(data?.error || `API error: ${res.status}`);
   return data;
 }
-
-const STATUS = {
-  present: { label: "Presente", icon: CheckCircle2, variant: "default" as const },
-  absent: { label: "Assente", icon: XCircle, variant: "destructive" as const },
-  requested: { label: "Richiesta", icon: CircleDotDashed, variant: "secondary" as const },
-  injured: { label: "Infortunato", icon: AlertCircle, variant: "secondary" as const },
-};
 
 const REASON_OPTIONS = [
   { value: "illness", label: "Malattia" },
@@ -397,14 +390,12 @@ function MatchScheduleCard({ match, onUpdated }: { match: any; onUpdated: (next:
 }
 
 export default function ParentAttendance() {
-  const [items, setItems] = useState<any[]>([]);
   const [training, setTraining] = useState<any[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
   const [matchFilter, setMatchFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [selectedDateKey, setSelectedDateKey] = useState(dateKey(new Date()));
   const [visibleMonth, setVisibleMonth] = useState(startOfMonth(new Date()));
-  const historyItems = items.filter((item) => !item.scheduledAt || new Date(item.scheduledAt) < new Date());
   const calendarDays = buildCalendarDays(visibleMonth);
   const trainingByDay = training.reduce<Record<string, any[]>>((acc, session) => {
     const key = dateKey(session.scheduledAt);
@@ -441,12 +432,10 @@ export default function ParentAttendance() {
   useEffect(() => {
     Promise.all([
       apiFetch("/parent/training"),
-      apiFetch("/parent/attendance"),
       apiFetch("/parent/matches"),
     ])
-      .then(([trainingRows, attendanceRows, matchRows]) => {
+      .then(([trainingRows, matchRows]) => {
         setTraining(trainingRows);
-        setItems(attendanceRows);
         setMatches(matchRows);
       })
       .catch((error) => { if (import.meta.env.DEV) console.error(error); })
@@ -458,7 +447,7 @@ export default function ParentAttendance() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Calendario allenamenti</h1>
+        <h1 className="text-2xl font-bold">Calendario generale</h1>
         <p className="mt-1 text-sm text-muted-foreground">Programma generale della squadra con allenamenti e partite.</p>
       </div>
 
@@ -568,36 +557,6 @@ export default function ParentAttendance() {
         )}
       </div>
 
-      <div className="space-y-3">
-        <h2 className="text-base font-semibold">Storico</h2>
-      {historyItems.length === 0 ? (
-        <div className="py-12 text-center text-muted-foreground">
-          <CalendarCheck className="mx-auto mb-4 h-14 w-14 opacity-25" />
-          <p className="font-semibold">Nessuna presenza registrata</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {historyItems.map((item) => {
-            const info = STATUS[item.status as keyof typeof STATUS] ?? STATUS.present;
-            const Icon = info.icon;
-            return (
-              <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border bg-card p-4">
-                <div className="min-w-0">
-                  <p className="font-semibold">{item.sessionTitle ?? "Allenamento"}</p>
-                  <p className="text-xs text-muted-foreground">{item.teamName ?? "Squadra"}</p>
-                  {item.scheduledAt && <p className="text-xs text-primary">{new Date(item.scheduledAt).toLocaleString("it-IT")}</p>}
-                  {item.notes && <p className="mt-1 text-xs text-muted-foreground">{item.notes}</p>}
-                </div>
-                <Badge variant={info.variant} className="gap-1">
-                  <Icon className="h-3.5 w-3.5" />
-                  {info.label}
-                </Badge>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      </div>
     </div>
   );
 }
