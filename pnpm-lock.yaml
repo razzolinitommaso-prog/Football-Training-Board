@@ -513,6 +513,9 @@ importers:
       '@tanstack/query-core':
         specifier: ^5.100.8
         version: 5.100.8
+      '@workspace/api-zod':
+        specifier: workspace:*
+        version: link:../../lib/api-zod
       d3:
         specifier: ^7.9.0
         version: 7.9.0

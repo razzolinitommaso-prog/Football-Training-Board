@@ -38,6 +38,8 @@ import {
 } from "@/lib/match-calendar-pdf";
 import { downloadGeneratedPdf, serverCallupPdfUrls } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
+import { analyseMatchReport, matchReportSchema, type MatchReport } from "@workspace/api-zod";
+import { MatchReportEditor, MatchReportSummary, type ReportPlayer } from "./MatchReportEditor";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
   EMPTY_SCHEDULE_FILTER,
@@ -301,6 +303,7 @@ type MatchDisciplineCard = {
   suspensionGames?: number | null;
 };
 type MatchPlanData = {
+  postMatchReport?: MatchReport;
   boardLink?: string;
   fourthTime?: boolean;
   convocationAt?: string;
@@ -1412,6 +1415,7 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
   const map = new Map((base?.periods ?? []).map((p) => [p.key, p]));
   return {
     boardLink: base?.boardLink ?? "",
+    postMatchReport: base?.postMatchReport,
     fourthTime: !!base?.fourthTime,
     convocationAt: base?.convocationAt ?? "",
     convocationPlace: base?.convocationPlace ?? "",
@@ -1642,6 +1646,7 @@ function MatchCard({
   const clubLabel = myClub?.name?.trim() || CLUB_NAME;
 
   const [postMenuOpen, setPostMenuOpen] = useState(false);
+  const [postReportDraft, setPostReportDraft] = useState<MatchReport | null>(null);
   const [postNoteValue, setPostNoteValue] = useState(() => splitPostNotesAndAttachments(match.postMatchNotes).note);
   const [postOwnGoalsValue, setPostOwnGoalsValue] = useState(() => {
     const parsed = splitMatchResult(match.result);
@@ -1861,9 +1866,15 @@ function MatchCard({
   }, [matchWeekAttendance]);
 
   const homeLabel = isHome ? clubLabel : match.opponent;
+  const reportPlayers: ReportPlayer[] = callups.map(callup => {
+    const player = sortedTeamPlayers.find(player => player.id === callup.playerId);
+    return { id: callup.playerId, name: player ? `${player.lastName} ${player.firstName}` : callup.playerName || `Giocatore #${callup.playerId}` };
+  });
+  const savedReport = matchReportSchema.safeParse(match.matchPlan?.postMatchReport);
+  const reportPlayerLimits = planDraft.periods.map(period => playerLimitForFormat(period.format ?? matchFormat));
   const awayLabel = isHome ? match.opponent : clubLabel;
   const postView = splitPostNotesAndAttachments(match.postMatchNotes);
-  const hasPostNotes = postView.note.length > 0 || postView.attachments.length > 0;
+  const hasPostNotes = postView.note.length > 0 || postView.attachments.length > 0 || savedReport.success;
 
   const statusColor = isPostponedOriginalView
     ? "border-l-muted-foreground/40 bg-muted/30 opacity-75"
@@ -1882,6 +1893,7 @@ function MatchCard({
     setPostAttachments(parsed.attachments);
     setPostOwnGoalsValue(match.homeAway === "home" ? parsedResult.home : parsedResult.away);
     setPostOpponentGoalsValue(match.homeAway === "home" ? parsedResult.away : parsedResult.home);
+    setPostReportDraft(savedReport.success ? savedReport.data : null);
     setPostMenuOpen(true);
   }
 
@@ -1897,6 +1909,19 @@ function MatchCard({
   }
 
   function savePostNotes() {
+    if (canManageMatchPlan && postReportDraft) {
+      const parsedReport = matchReportSchema.safeParse(postReportDraft);
+      const error = !parsedReport.success ? "Completa giocatori, tempi e minuti degli eventi."
+        : analyseMatchReport(parsedReport.data, reportPlayers.map(player => player.id), reportPlayerLimits).errors[0];
+      if (error) {
+        toast({ title: "Resoconto da correggere", description: error, variant: "destructive" });
+        return;
+      }
+      if (postOwnGoalsValue.trim() && postReportDraft.goals.length > Number(postOwnGoalsValue)) {
+        toast({ title: "Marcatori non coerenti", description: "I gol registrati superano il risultato della tua squadra.", variant: "destructive" });
+        return;
+      }
+    }
     const result = match.homeAway === "home"
       ? composeMatchResult(postOwnGoalsValue, postOpponentGoalsValue)
       : composeMatchResult(postOpponentGoalsValue, postOwnGoalsValue);
@@ -1911,9 +1936,8 @@ function MatchCard({
     patch.mutate({
       postMatchNotes: composePostNotes(postNoteValue, postAttachments),
       result,
-      ...(canManageMatchPlan ? { matchPlan: planDraft } : {}),
-    });
-    setPostMenuOpen(false);
+      ...(canManageMatchPlan ? { matchPlan: { ...planDraft, ...(postReportDraft ? { postMatchReport: postReportDraft } : {}) } } : {}),
+    }, { onSuccess: () => setPostMenuOpen(false) });
   }
 
   function savePreNotes() {
@@ -3261,7 +3285,7 @@ function MatchCard({
                       {hasPostNotes ? "Modifica" : "Aggiungi"}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent align="end" className="w-[360px] p-3 space-y-3">
+                  <PopoverContent align="end" className="w-[min(640px,calc(100vw-24px))] max-h-[85dvh] overflow-y-auto p-3 space-y-3">
                     <p className="text-xs font-semibold text-muted-foreground">Menu note post-partita</p>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -3349,6 +3373,17 @@ function MatchCard({
                         </div>
                       </div>
                     </div>
+                    {canManageMatchPlan && (
+                      postReportDraft ? <MatchReportEditor value={postReportDraft} onChange={setPostReportDraft}
+                        players={reportPlayers} limit={reportPlayerLimits} /> :
+                      <Button type="button" variant="outline" size="sm" disabled={reportPlayers.length === 0} onClick={() => {
+                        const called = new Set(reportPlayers.map(player => player.id));
+                        setPostReportDraft({ version: 1, goals: [], substitutions: [], periods: planDraft.periods.map(period => ({
+                          minutes: Number.parseFloat(period.minutes) || 40,
+                          starters: (period.lineupPlayerIds ?? []).filter(id => called.has(id)),
+                        })) });
+                      }}>Inserisci marcatori, minutaggio e sostituzioni</Button>
+                    )}
                     {canManageMatchPlan && usesChampionshipSeason(matchSection) && (
                       <div className="rounded-md border border-border/60 bg-muted/20 p-2 space-y-2">
                         <div className="flex items-center justify-between gap-2">
@@ -3486,6 +3521,10 @@ function MatchCard({
               <p className="text-[11px] text-muted-foreground mt-1">
                 Allegati: {postView.attachments.join(", ")}
               </p>
+            )}
+            {canViewMatchPlan && savedReport.success && (
+              <div className="mt-2 rounded-md border p-3"><MatchReportSummary report={savedReport.data}
+                players={reportPlayers} limit={reportPlayerLimits} /></div>
             )}
           </div>
         )}

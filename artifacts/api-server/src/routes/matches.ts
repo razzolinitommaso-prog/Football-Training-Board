@@ -13,6 +13,7 @@ import {
 import { eq, and, desc, inArray, sql, notInArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { sendParentNotificationEmail } from "../lib/parent-email";
+import { analyseMatchReport, matchReportSchema } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -263,6 +264,23 @@ function normalizeMatchPlan(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function preserveMatchReport(next: Record<string, unknown> | null, previous: unknown) {
+  const old = normalizeMatchPlan(previous);
+  if (next && next.postMatchReport === undefined && old?.postMatchReport !== undefined) {
+    next.postMatchReport = old.postMatchReport;
+  }
+  return next;
+}
+
+function validateMatchReport(plan: Record<string, unknown> | null, called: number[]): string | null {
+  if (plan?.postMatchReport === undefined) return null;
+  const parsed = matchReportSchema.safeParse(plan.postMatchReport);
+  if (!parsed.success) return "Resoconto post-partita non valido: controlla giocatori, tempi e minuti.";
+  const periods = Array.isArray(plan.periods) ? plan.periods : [];
+  if (parsed.data.periods.length !== periods.length) return "I tempi del resoconto devono coincidere con quelli della partita.";
+  return analyseMatchReport(parsed.data, called).errors[0] ?? null;
 }
 
 function uniqueNumericIds(value: unknown): number[] {
@@ -530,8 +548,24 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   if (postMatchNotes !== undefined) updates.postMatchNotes = postMatchNotes;
   if (matchPlan !== undefined) {
     const parsed = splitPublicNotesAndPlan(existing.notes ?? null);
+    const nextPlan = preserveMatchReport(normalizeMatchPlan(matchPlan), existing.matchPlan ?? parsed.plan);
+    if (!nextPlan && normalizeMatchPlan(existing.matchPlan ?? parsed.plan)?.postMatchReport !== undefined) {
+      res.status(400).json({ error: "Non puoi cancellare un piano con un resoconto post-partita." }); return;
+    }
+    if (nextPlan?.postMatchReport !== undefined) {
+      const called = (await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, id)))
+        .filter(row => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(row.status).toLowerCase()));
+      const error = validateMatchReport(nextPlan, called.map(row => row.playerId));
+      if (error) { res.status(400).json({ error }); return; }
+      const scores = String(result !== undefined ? result ?? "" : existing.result ?? "").match(/^(\d+)\s*[-:]\s*(\d+)$/);
+      const report = matchReportSchema.parse(nextPlan.postMatchReport);
+      const own = existing.homeAway === "home" ? 1 : 2;
+      if (scores && report.goals.length > Number(scores[own])) {
+        res.status(400).json({ error: "I marcatori superano i gol della squadra nel risultato." }); return;
+      }
+    }
     updates.notes = parsed.publicNotes;
-    updates.matchPlan = normalizeMatchPlan(matchPlan);
+    updates.matchPlan = nextPlan;
   }
   if (req.body.isPostponed !== undefined) updates.isPostponed = req.body.isPostponed;
   if (req.body.rescheduleDate !== undefined) updates.rescheduleDate = req.body.rescheduleDate ? new Date(req.body.rescheduleDate) : null;
@@ -741,6 +775,10 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
     res.status(403).json({ error: "Non autorizzato a modificare convocazioni/schieramenti di questa squadra" });
     return;
   }
+
+  preserveMatchReport(matchPlan, existingMatch.matchPlan ?? splitPublicNotesAndPlan(existingMatch.notes ?? null).plan);
+  const reportError = validateMatchReport(matchPlan, desiredPlayerIds);
+  if (reportError) { res.status(400).json({ error: reportError }); return; }
 
   if (desiredPlayerIds.length > 0) {
     const validPlayers = await db
