@@ -979,7 +979,7 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
         .from(trainingSessionsTable)
         .where(and(eq(trainingSessionsTable.clubId, clubId), eq(trainingSessionsTable.teamId, player.teamId)))
         .orderBy(desc(trainingSessionsTable.scheduledAt)))
-        .filter((session) => new Date(session.scheduledAt).getTime() <= now.getTime() && session.status !== "cancelled")
+        .filter((session) => new Date(session.scheduledAt).getTime() <= now.getTime() && session.status !== "cancelled" && session.sessionKind !== "tipo")
     : [];
   const trainingSessionIds = trainingSessions.map((session) => session.id);
   const trainingAttendanceRows = trainingSessionIds.length > 0
@@ -1017,7 +1017,10 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
         .from(callUpsTable)
         .where(and(eq(callUpsTable.playerId, player.id), inArray(callUpsTable.matchId, matchIds)))
     : [];
-  const matchAppearances = callups.filter((callup) => !["absent", "unavailable", "not_called"].includes(String(callup.status ?? "").toLowerCase())).length;
+  const calledMatchIds = new Set(callups.filter(callup => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(callup.status ?? "").toLowerCase())).map(callup => callup.matchId));
+  const recordedMinutes = matches.filter(match => calledMatchIds.has(match.id))
+    .map(match => parentPlayedMinutes(match.matchPlan, player.id)).filter((minutes): minutes is number => minutes !== null);
+  const matchAppearances = recordedMinutes.filter(minutes => minutes > 0).length;
   const disciplineCards = matches.flatMap((match) =>
     normalizeDisciplineCards(match.matchPlan)
       .filter((card) => card.playerId === player.id)
@@ -1056,8 +1059,8 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
     team,
     activitySummary: {
       conduct: {
-        status: conductCounts.insufficiente > 0 ? "Da monitorare" : player.available === false ? "Da monitorare" : "Regolare",
-        reason: player.available === false ? player.unavailabilityReason ?? "non_disponibile" : null,
+        status: conductCounts.insufficiente > 0 ? "Da monitorare" : Object.values(conductCounts).some(count => count > 0) ? "Regolare" : "Non registrata",
+        reason: null,
         training: conductCounts,
         notes: stripMetaFromNotes(player.notes),
       },
@@ -1071,9 +1074,11 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
       },
       matchAttendance: {
         totalPastMatches: matches.length,
-        callups: callups.length,
+        callups: calledMatchIds.size,
+        recorded: recordedMinutes.length,
+        unrecorded: calledMatchIds.size - recordedMinutes.length,
         appearances: matchAppearances,
-        percentage: matches.length > 0 ? Math.round((matchAppearances / matches.length) * 100) : null,
+        percentage: recordedMinutes.length > 0 ? Math.round((matchAppearances / recordedMinutes.length) * 100) : null,
       },
       fitnessTests: fitnessData.slice(0, 5).map((entry) => ({
         id: entry.id,

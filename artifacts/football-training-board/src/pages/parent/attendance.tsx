@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import type { ParentTrainingActivity } from "@workspace/api-zod";
+import { Link } from "wouter";
 import { CheckCircle2, ChevronLeft, ChevronRight, Lock, MapPin, Shirt, Trophy, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -391,6 +393,8 @@ function MatchScheduleCard({ match, onUpdated }: { match: any; onUpdated: (next:
 
 export default function ParentAttendance() {
   const [training, setTraining] = useState<any[]>([]);
+  const [history, setHistory] = useState<ParentTrainingActivity[]>([]);
+  const [historyError, setHistoryError] = useState(false);
   const [matches, setMatches] = useState<any[]>([]);
   const [matchFilter, setMatchFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -405,6 +409,8 @@ export default function ParentAttendance() {
     return acc;
   }, {});
   const selectedTraining = trainingByDay[selectedDateKey] ?? [];
+  const selectedHistory = history.filter(item => dateKey(item.scheduledAt) === selectedDateKey);
+  const isPastDay = selectedDateKey < dateKey(new Date());
   const matchesByDay = matches.reduce<Record<string, any[]>>((acc, match) => {
     const key = dateKey(match.date);
     if (!key) return acc;
@@ -433,10 +439,12 @@ export default function ParentAttendance() {
     Promise.all([
       apiFetch("/parent/training"),
       apiFetch("/parent/matches"),
+      apiFetch("/parent/activity").catch(() => { setHistoryError(true); return null; }),
     ])
-      .then(([trainingRows, matchRows]) => {
+      .then(([trainingRows, matchRows, activity]) => {
         setTraining(trainingRows);
         setMatches(matchRows);
+        setHistory(activity?.trainings ?? []);
       })
       .catch((error) => { if (import.meta.env.DEV) console.error(error); })
       .finally(() => setLoading(false));
@@ -466,7 +474,7 @@ export default function ParentAttendance() {
         </div>
 
         <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase text-muted-foreground">
-          {["L", "M", "M", "G", "V", "S", "D"].map((day) => <div key={day}>{day}</div>)}
+          {["L", "M", "M", "G", "V", "S", "D"].map((day, index) => <div key={index}>{day}</div>)}
         </div>
 
         <div className="mt-2 grid grid-cols-7 gap-1">
@@ -476,7 +484,7 @@ export default function ParentAttendance() {
             const dayMatches = matchesByDay[key] ?? [];
             const isSelected = key === selectedDateKey;
             const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
-            const hasTraining = sessions.length > 0;
+            const hasTraining = sessions.length > 0 || history.some(item => dateKey(item.scheduledAt) === key);
             const hasMatch = dayMatches.length > 0;
 
             return (
@@ -512,8 +520,18 @@ export default function ParentAttendance() {
           </h2>
           <p className="text-xs text-muted-foreground">Sono mostrati calendario generale e partite della squadra.</p>
         </div>
-        {selectedTraining.length === 0 ? (
-          <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">Nessun allenamento fisso in questa data.</div>
+        {selectedHistory.map(item => <div key={item.id} className="rounded-2xl border bg-card p-4 text-sm space-y-2">
+          <p className="font-semibold">Allenamento · {item.teamName}</p>
+          <p>{new Date(item.scheduledAt).toLocaleString("it-IT")}</p>
+          <p>Tipologia: {item.trainingType ?? "Non indicata dallo staff"}</p>
+          <p>Disponibilità comunicata: {item.availability === "available" ? "Disponibile" : item.availability === "unavailable" ? "Non disponibile" : "Non comunicata"}{item.availabilityReason && ` · ${item.availabilityReason}`}</p>
+          <p>Presenza effettiva: {item.attendance === "present" ? "Presente" : item.attendance === "absent" ? "Assente" : item.attendance === "injured" ? "Assente per infortunio" : item.attendance === "requested" ? "Richiesto da altra squadra" : "Non ancora registrata dallo staff"}</p>
+          <p>Condotta: {item.conduct === "ottima" ? "Ottima" : item.conduct === "buona" ? "Buona" : item.conduct === "insufficiente" ? "Insufficiente" : "Non registrata"}</p>
+          <Link className="text-primary underline" href="/parent/activity">Apri lo storico di tuo figlio</Link>
+        </div>)}
+        {historyError && <p role="alert" className="text-sm text-destructive">Lo storico degli allenamenti non è disponibile. Riprova aggiornando la pagina.</p>}
+        {selectedTraining.length === 0 && selectedHistory.length === 0 ? (
+          <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{isPastDay ? "Nessun riepilogo registrato per questa data." : "Nessun allenamento programmato disponibile per questa data."}</div>
         ) : (
           selectedTraining.map((session) => (
             <TrainingScheduleCard

@@ -26,6 +26,8 @@ export default function ParentDocuments() {
   const [data, setData] = useState<{ clubDocs: any[]; uploads: any[] }>({ clubDocs: [], uploads: [] });
   const [children, setChildren] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [uploadSupported, setUploadSupported] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [selectedChild, setSelectedChild] = useState("");
   const [notes, setNotes] = useState("");
@@ -34,8 +36,16 @@ export default function ParentDocuments() {
 
   useEffect(() => {
     Promise.all([apiFetch("/parent/documents"), apiFetch("/parent/children")])
-      .then(([d, c]) => { setData(d); setChildren(c); if (c.length === 1) setSelectedChild(String(c[0].id)); })
+      .then(([d, c]) => {
+        setUploadSupported(!Array.isArray(d) && d?.uploadSupported === true);
+        setData(Array.isArray(d) ? { clubDocs: d, uploads: [] } : {
+          clubDocs: Array.isArray(d?.clubDocs) ? d.clubDocs : [],
+          uploads: Array.isArray(d?.uploads) ? d.uploads : [],
+        });
+        setChildren(c); if (c.length === 1) setSelectedChild(String(c[0].id));
+      })
       .catch((error) => {
+        setLoadError(true);
         if (import.meta.env.DEV) console.error(error);
       })
       .finally(() => setLoading(false));
@@ -78,6 +88,8 @@ export default function ParentDocuments() {
 
   const statusColor: Record<string, string> = { valid: "default", expired: "destructive", expiring_soon: "secondary" };
 
+  if (loadError) return <p role="alert">Non è stato possibile caricare i documenti. Riprova aggiornando la pagina.</p>;
+
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div>
@@ -85,7 +97,7 @@ export default function ParentDocuments() {
         <p className="text-muted-foreground text-sm mt-1">Documenti e certificati dei tuoi figli</p>
       </div>
 
-      <div className="bg-card border rounded-2xl p-5">
+      {uploadSupported && <div className="bg-card border rounded-2xl p-5">
         <h2 className="font-semibold mb-4">Carica Documento</h2>
         <form onSubmit={handleUpload} className="space-y-3">
           {children.length > 1 && (
@@ -110,7 +122,7 @@ export default function ParentDocuments() {
             {uploading ? "Caricamento..." : "Carica Documento"}
           </Button>
         </form>
-      </div>
+      </div>}
 
       {data.clubDocs.length > 0 && (
         <div className="space-y-3">

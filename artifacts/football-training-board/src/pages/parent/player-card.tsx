@@ -39,7 +39,8 @@ function ParentActivitySummary({ data, isYouthSection }: { data: any; isYouthSec
             </div>
             <div className="mt-2 text-2xl font-bold">{percentLabel(data.matchAttendance?.percentage)}</div>
             <p className="text-xs text-muted-foreground">
-              {data.matchAttendance?.appearances ?? 0}/{data.matchAttendance?.totalPastMatches ?? 0} partite - {data.matchAttendance?.callups ?? 0} convocazioni
+              {data.matchAttendance?.appearances ?? 0}/{data.matchAttendance?.recorded ?? 0} resoconti con ingresso in campo · {data.matchAttendance?.callups ?? 0} convocazioni trascorse
+              {(data.matchAttendance?.unrecorded ?? 0) > 0 ? ` · ${data.matchAttendance.unrecorded} senza minutaggio registrato` : ""}
             </p>
           </div>
         </div>
@@ -71,7 +72,7 @@ function ParentActivitySummary({ data, isYouthSection }: { data: any; isYouthSec
             <ShieldAlert className="h-4 w-4 text-primary" />
             Condotta
           </div>
-          <p className="mt-2 text-sm">{data.conduct?.status ?? "Regolare"}</p>
+          <p className="mt-2 text-sm">{data.conduct?.status ?? "Non registrata"}</p>
           {data.conduct?.reason ? <p className="text-xs text-muted-foreground">Motivo: {data.conduct.reason}</p> : null}
           <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
             <span className="rounded border bg-background px-2 py-0.5">Ottima: {data.conduct?.training?.ottima ?? 0}</span>

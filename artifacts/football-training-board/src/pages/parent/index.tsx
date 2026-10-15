@@ -151,7 +151,7 @@ export default function ParentDashboard() {
         <Link href="/parent/communications">
           <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
             <MessageSquare className="w-6 h-6 text-blue-400 mb-2" />
-            <div className="text-2xl font-bold">{unreadNotifications.length}</div>
+              <div className="text-lg font-bold">Apri</div>
             <div className="text-xs text-muted-foreground">Comunicazioni</div>
           </div>
         </Link>
