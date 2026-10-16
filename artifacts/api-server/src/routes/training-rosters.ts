@@ -3,7 +3,7 @@ import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db, teamsTable, playersTable, teamStaffAssignmentsTable, trainingRosterGroupsTable as groups, trainingRosterGroupTeamsTable as links, trainingRosterGroupPlayersTable as members } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
-import { playerBirthYear, rosterMembers } from "../lib/training-roster-policy";
+import { playerBirthYear, rosterMembers, supplementalTrainingRole } from "../lib/training-roster-policy";
 
 const router = Router();
 let schemaReady: Promise<unknown> | undefined;
@@ -60,7 +60,7 @@ async function roster(config: Awaited<ReturnType<typeof configuration>>, teamId:
   const teamIds = group?.teamIds ?? [teamId];
   const clubPlayers = await db.select().from(playersTable).where(eq(playersTable.clubId, config.clubId));
   const players = rosterMembers(clubPlayers, teamIds);
-  return { group, teamIds, teamPlayerIds: rosterMembers(clubPlayers, [teamId]).map(player => player.id), players: players.map(player => ({ id: player.id, firstName: player.firstName, lastName: player.lastName, dateOfBirth: player.dateOfBirth, teamId: player.teamId, teamName: config.teams.find(team => team.id === player.teamId)?.name ?? null, position: player.position, jerseyNumber: player.jerseyNumber, available: player.available })) };
+  return { group, teamIds, teamPlayerIds: rosterMembers(clubPlayers, [teamId]).map(player => player.id), players: players.map(player => ({ id: player.id, firstName: player.firstName, lastName: player.lastName, dateOfBirth: player.dateOfBirth, teamId: player.teamId, teamName: config.teams.find(team => team.id === player.teamId)?.name ?? null, position: teamIds.includes(player.teamId ?? -1) ? player.position : supplementalTrainingRole(player.notes) ?? player.position, jerseyNumber: player.jerseyNumber, available: player.available })) };
 }
 router.use("/training-rosters", requireAuth, async (_req, _res, next) => { try { await ensureSchema(); next(); } catch (error) { next(error); } });
 router.get("/training-rosters/config", async (req, res) => {
@@ -100,7 +100,8 @@ async function saveGroup(req: Request, res: import("express").Response) {
   try {
     const result = await db.transaction(async tx => {
       const values = { clubId: config.clubId, seasonId: teams[0].seasonId, name, kind, anchorTeamId, criterion, birthYear };
-      const [group] = id ? await tx.update(groups).set(values).where(and(eq(groups.id, id), eq(groups.clubId, config.clubId))).returning() : await tx.insert(groups).values(values).returning();
+      const [group] = id ? await tx.update(groups).set(values).where(and(eq(groups.id, id), eq(groups.clubId, config.clubId), eq(groups.archived, false))).returning() : await tx.insert(groups).values(values).returning();
+      if (!group) throw Object.assign(new Error("Il gruppo è stato disattivato. Ricarica la lista."), { code: "GROUP_CHANGED" });
       await tx.delete(links).where(eq(links.groupId, group.id));
       await tx.delete(members).where(eq(members.groupId, group.id));
       if (kind === "shared") await tx.insert(links).values(teamIds.map(teamId => ({ groupId: group.id, teamId })));
@@ -109,6 +110,7 @@ async function saveGroup(req: Request, res: import("express").Response) {
     });
     res.json(result);
   } catch (error) {
+    if ((error as { code?: string }).code === "GROUP_CHANGED") { res.status(409).json({ error: (error as Error).message }); return; }
     if ((error as { cause?: { code?: string }; code?: string }).code === "23505" || (error as { cause?: { code?: string } }).cause?.code === "23505") { res.status(409).json({ error: "Una squadra appartiene già a un gruppo condiviso. Modifica o disattiva prima quel gruppo." }); return; }
     throw error;
   }

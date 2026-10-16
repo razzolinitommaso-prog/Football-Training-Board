@@ -16,3 +16,13 @@ export function rosterMembers<T extends { id: number; teamId: number | null; not
   const teams = new Set(teamIds);
   return Array.from(new Map(players.filter(player => teams.has(player.teamId ?? -1) || teams.has(supplementalTrainingTeam(player.notes) ?? -1)).map(player => [player.id, player])).values());
 }
+
+export function supplementalTrainingRole(notes: string | null): string | null {
+  const full = notes?.trim();
+  if (!full?.startsWith("[FTB_PLAYER_META]")) return null;
+  try {
+    const meta = JSON.parse(full.slice("[FTB_PLAYER_META]".length).split("\n")[0].trim());
+    const role = typeof meta.supplementalSpecificRole === "string" ? meta.supplementalSpecificRole.trim() : "";
+    return role || null;
+  } catch { return null; }
+}

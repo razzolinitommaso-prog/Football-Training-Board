@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { TrainingRosterManager } from "@/components/training-roster-groups";
 import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam, useListClubMembers, type ClubMember, type Team } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -5591,6 +5592,7 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
       </Dialog>
 
       {/* Filter bar */}
+      <TrainingRosterManager kind="work" />
       <div className="max-w-full space-y-2">
         <div className="flex min-w-0 flex-col gap-2 rounded-xl border bg-card p-2 shadow-sm sm:flex-row">
           <div className="relative min-w-0 flex-1">

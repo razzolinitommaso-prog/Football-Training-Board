@@ -7,7 +7,7 @@ const tables = {};
 for (const name of ['teamsTable','playersTable','teamStaffAssignmentsTable','trainingRosterGroupsTable','trainingRosterGroupTeamsTable','trainingRosterGroupPlayersTable']) tables[name]=new Proxy({tableName:name},{get:(obj,key)=>key in obj?obj[key]:String(key)});
 let rows={
   teamsTable:[{id:1,clubId:1,coachId:10,seasonId:1,clubSection:'scuola_calcio',name:'Piccoli Amici'},{id:2,clubId:1,coachId:10,seasonId:1,clubSection:'scuola_calcio',name:'Primi Calci'},{id:3,clubId:2,coachId:20,seasonId:1,clubSection:'scuola_calcio',name:'Altro club'},{id:4,clubId:1,coachId:10,seasonId:2,clubSection:'scuola_calcio',name:'Altra stagione'},{id:5,clubId:1,coachId:10,seasonId:1,clubSection:'settore_giovanile',name:'Altro settore'}],
-  playersTable:[{id:1,clubId:1,teamId:1,firstName:'Uno',lastName:'Test',dateOfBirth:'2019-02-01',available:true,notes:'[FTB_PLAYER_META]{"supplementalTeamId":2}\nNote'},{id:2,clubId:1,teamId:2,firstName:'Due',lastName:'Test',dateOfBirth:'02/03/2020',available:true,notes:null},{id:3,clubId:2,teamId:3,firstName:'Riservato',lastName:'Test',dateOfBirth:'2019-01-01',notes:null},{id:4,clubId:1,teamId:2,firstName:'Quattro',lastName:'Test',dateOfBirth:'2019-05-01',available:false,notes:null}],
+  playersTable:[{id:1,clubId:1,teamId:1,firstName:'Uno',lastName:'Test',dateOfBirth:'2019-02-01',available:true,notes:'[FTB_PLAYER_META]{"supplementalTeamId":2,"supplementalSpecificRole":"Portiere"}\nNote'},{id:2,clubId:1,teamId:2,firstName:'Due',lastName:'Test',dateOfBirth:'02/03/2020',available:true,notes:null},{id:3,clubId:2,teamId:3,firstName:'Riservato',lastName:'Test',dateOfBirth:'2019-01-01',notes:null},{id:4,clubId:1,teamId:2,firstName:'Quattro',lastName:'Test',dateOfBirth:'2019-05-01',available:false,notes:null}],
   teamStaffAssignmentsTable:[],trainingRosterGroupsTable:[],trainingRosterGroupTeamsTable:[],trainingRosterGroupPlayersTable:[],
 };
 const orm={eq:(key,value)=>row=>row[key]===value,inArray:(key,values)=>row=>values.includes(row[key]),and:(...conditions)=>row=>conditions.every(fn=>fn(row)),sql:()=>null};
@@ -27,7 +27,7 @@ const app=express();app.use(express.json());let session={clubId:1,userId:10,role
 try{
   let response=await call('/groups','POST',{kind:'shared',name:'Allenamento comune',teamIds:[1,2]});assert.equal(response.status,200);const sharedId=response.data.id;
   response=await call('/1?scope=shared');assert.deepEqual(response.data.players.map(p=>p.id),[1,2,4]);assert.deepEqual(response.data.teamPlayerIds,[1]);assert.equal(response.data.players.some(p=>p.notes),false);
-  response=await call('/2?scope=team');assert.deepEqual(response.data.players.map(p=>p.id),[1,2,4]);
+  response=await call('/2?scope=team');assert.deepEqual(response.data.players.map(p=>p.id),[1,2,4]);assert.equal(response.data.players.find(p=>p.id===1).position,'Portiere');
   assert.equal((await call('/3?scope=shared')).status,403);
   assert.equal((await call('/groups','POST',{kind:'shared',name:'Intrusione',teamIds:[1,3]})).status,400);
   assert.equal((await call('/groups','POST',{kind:'shared',name:'Stagioni',teamIds:[1,4]})).status,400);
