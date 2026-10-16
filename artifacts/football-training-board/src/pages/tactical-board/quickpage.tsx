@@ -3728,6 +3728,21 @@ const QuickPage = () => {
               onContextMenu={(e) => e.preventDefault()}
               onPointerDown={(e: React.PointerEvent<HTMLDivElement>) => {
                 if (e.target !== e.currentTarget) return;
+                // A fresh empty-field gesture must not inherit a suppressed click
+                // from dragging an element or from a cancelled touch gesture.
+                skipNextPitchClickRef.current = false;
+                if (selectedElementIndex !== null || selectedElementIndexes.length > 0) {
+                  e.preventDefault();
+                  setSelectedElementIndex(null);
+                  setSelectedElementIndexes([]);
+                  setFieldElementMenuOpen(false);
+                  setMarkerPanel(null);
+                  closeToolPopovers();
+                  // Consume the click belonging to this same pointer gesture too:
+                  // it only dismisses selection, never inserts a marker or a dot.
+                  skipNextPitchClickRef.current = true;
+                  return;
+                }
                 if (!["draw", "movement", "zones", "measure"].includes(activeTool)) return;
 
                 const pitch = pitchRef.current;
