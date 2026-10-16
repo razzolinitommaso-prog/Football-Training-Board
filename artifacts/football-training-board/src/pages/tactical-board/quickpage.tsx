@@ -3236,11 +3236,15 @@ const QuickPage = () => {
     e.currentTarget.setPointerCapture?.(e.pointerId);
 
     const pointerId = e.pointerId;
-    selectElementAndOpenMenu(indexToDrag, e);
+    // The mobile menu is above the pitch: changing its height during a touch
+    // shifts the pitch and can turn a stationary tap into a drag.
+    if (!isMobileViewport) selectElementAndOpenMenu(indexToDrag, e);
     skipNextPitchClickRef.current = true;
     let moved = false;
 
     const rect = pitchRef.current;
+    const startRect = rect?.getBoundingClientRect();
+    const startClient = { x: e.clientX, y: e.clientY };
     const selectedGroup = selectedElementIndexes.includes(indexToDrag) && selectedElementIndexes.length > 1
       ? selectedElementIndexes
       : [indexToDrag];
@@ -3257,12 +3261,14 @@ const QuickPage = () => {
       const pitch = pitchRef.current;
       if (!pitch) return;
       const { x, y } = getPitchPoint(ev, pitch);
-      const dx = x - startPoint.x;
-      const dy = y - startPoint.y;
+      const dx = isMobileViewport && startRect?.width
+        ? ((ev.clientX - startClient.x) / startRect.width) * 100 : x - startPoint.x;
+      const dy = isMobileViewport && startRect?.height
+        ? ((ev.clientY - startClient.y) / startRect.height) * 100 : y - startPoint.y;
       if (!moved && Math.hypot(dx, dy) < 0.65) return;
       if (!moved) {
         moved = true;
-        setFieldElementMenuOpen(false);
+        if (!isMobileViewport) setFieldElementMenuOpen(false);
         isDraggingRef.current = true;
         setSaveState("Unsaved");
       }
@@ -3286,6 +3292,11 @@ const QuickPage = () => {
 
     const handleUp = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
+      if (isMobileViewport && ev.type !== "pointercancel") {
+        selectElement(indexToDrag, e);
+        setMarkerPanel(null);
+        setFieldElementMenuOpen(!moved);
+      }
       isDraggingRef.current = false;
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
