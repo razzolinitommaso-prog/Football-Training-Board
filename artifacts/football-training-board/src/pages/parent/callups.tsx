@@ -98,7 +98,7 @@ export default function ParentCallups() {
               <section className="min-w-0 space-y-3 border-t pt-4">
                 <h3 className="font-semibold">Atleti convocati · {item.calledPlayers?.length ?? 0}</h3>
                 {item.calledPlayers?.length ? <ul className="space-y-2 text-sm">{item.calledPlayers.map((player: { firstName: string; lastName: string; isOwnChild?: boolean }, index: number) =>
-                  <li key={index} className={`break-words rounded-lg px-3 py-2 ${player.isOwnChild ? "border border-emerald-300 bg-emerald-50 font-semibold text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-muted/40"}`}>{player.firstName} {player.lastName}{player.isOwnChild && <span className="ml-2 text-xs">Tuo figlio/a</span>}</li>)}</ul>
+                  <li key={index} className={`break-words rounded-lg bg-muted/40 px-3 py-2 ${player.isOwnChild ? "text-emerald-700 dark:text-emerald-400" : ""}`}>{player.firstName} {player.lastName}</li>)}</ul>
                   : <p className="text-sm text-muted-foreground">Elenco convocati non disponibile.</p>}
               </section>
               </DialogContent>
