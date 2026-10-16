@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ParentTrainingActivity } from "@workspace/api-zod";
-import { Link } from "wouter";
+import type { ParentActivity, ParentTrainingActivity } from "@workspace/api-zod";
 import { CheckCircle2, ChevronLeft, ChevronRight, Lock, MapPin, Shirt, Trophy, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,7 +83,7 @@ function matchCallupLabel(match: any) {
   const ownCallup = Array.isArray(match.callUps)
     ? match.callUps.find((callup: any) => Number(callup.playerId) === Number(match.parentPlayerId))
     : null;
-  const status = String(ownCallup?.status ?? "").toLowerCase();
+  const status = String(ownCallup?.status ?? match.ownCallupStatus ?? "").toLowerCase();
   if (["called", "pending"].includes(status)) return "Convocato";
   return "Non convocato";
 }
@@ -358,7 +357,7 @@ function TrainingScheduleCard({ session, onUpdated }: { session: any; onUpdated:
   );
 }
 
-function MatchScheduleCard({ match, onUpdated }: { match: any; onUpdated: (next: any) => void }) {
+function MatchScheduleCard({ match, onUpdated, minutes, callup }: { match: any; onUpdated: (next: any) => void; minutes?: number | null; callup?: any }) {
   return (
     <div className="rounded-2xl border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
@@ -384,6 +383,12 @@ function MatchScheduleCard({ match, onUpdated }: { match: any; onUpdated: (next:
           </Badge>
         </div>
       </div>
+      {callup && <div className="mt-3 space-y-2 border-t pt-3 text-sm break-words">
+        <p>Ritrovo: {callup.match?.convocationAt ? new Date(callup.match.convocationAt).toLocaleString("it-IT") : "Non indicato"}</p>
+        <p>Luogo di ritrovo: {callup.match?.convocationPlace || "Non indicato"}</p>
+        {callup.match?.preMatchNotes && <p className="whitespace-pre-wrap">Indicazioni: {callup.match.preMatchNotes}</p>}
+      </div>}
+      {new Date(match.date).getTime() <= Date.now() && <p className="mt-3 text-sm font-semibold">Minuti effettivamente giocati: {minutes == null ? "Non registrato" : `${minutes}′`}</p>}
       {match.parentPlayerId && (
         <MatchAvailability match={match} onUpdated={onUpdated} />
       )}
@@ -395,6 +400,9 @@ export default function ParentAttendance() {
   const [training, setTraining] = useState<any[]>([]);
   const [history, setHistory] = useState<ParentTrainingActivity[]>([]);
   const [historyError, setHistoryError] = useState(false);
+  const [activity, setActivity] = useState<ParentActivity | null>(null);
+  const [callups, setCallups] = useState<any[]>([]);
+  const [callupError, setCallupError] = useState(false);
   const [matches, setMatches] = useState<any[]>([]);
   const [matchFilter, setMatchFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -440,24 +448,39 @@ export default function ParentAttendance() {
       apiFetch("/parent/training"),
       apiFetch("/parent/matches"),
       apiFetch("/parent/activity").catch(() => { setHistoryError(true); return null; }),
+      apiFetch("/parent/callups").catch(() => { setCallupError(true); return []; }),
     ])
-      .then(([trainingRows, matchRows, activity]) => {
+      .then(([trainingRows, matchRows, activity, callupRows]) => {
         setTraining(trainingRows);
         setMatches(matchRows);
         setHistory(activity?.trainings ?? []);
+        setActivity(activity);
+        setCallups(callupRows);
+        if (activity) setMatches([...matchRows, ...activity.matches
+          .filter((item: { id: number }) => !matchRows.some((match: { id: number }) => match.id === item.id))
+          .map((item: { id: number }) => {
+            const callup = callupRows.find((row: any) => row.match?.id === item.id);
+            return { ...item, ...callup?.match, teamName: callup?.teamName, ownCallupStatus: callup?.status ?? "called" };
+          })]);
       })
       .catch((error) => { if (import.meta.env.DEV) console.error(error); })
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div>;
+  const recordedMatches = activity?.matches.filter(match => match.minutes !== null) ?? [];
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Calendario generale</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Programma generale della squadra con allenamenti e partite.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Allenamenti, partite, disponibilità e riepiloghi di tuo figlio in un solo calendario.</p>
       </div>
+      <section id="minutaggio" className="rounded-2xl border bg-card p-4 text-sm space-y-2">
+        <h2 className="font-semibold">Minuti effettivi di gioco · partite</h2>
+        <p>{historyError ? "Riepilogo non disponibile." : recordedMatches.length ? `${recordedMatches.reduce((sum, match) => sum + (match.minutes ?? 0), 0)} minuti su ${recordedMatches.length} ${recordedMatches.length === 1 ? "partita" : "partite"} con resoconto.` : "Nessun minutaggio ancora registrato."}</p>
+        <p className="text-xs text-muted-foreground">Apri il giorno della partita per il dettaglio. La convocazione non prova l'ingresso in campo; i dati mancanti non valgono zero.</p>
+      </section>
 
       <div className="rounded-2xl border bg-card p-4">
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -527,11 +550,10 @@ export default function ParentAttendance() {
           <p>Disponibilità comunicata: {item.availability === "available" ? "Disponibile" : item.availability === "unavailable" ? "Non disponibile" : "Non comunicata"}{item.availabilityReason && ` · ${item.availabilityReason}`}</p>
           <p>Presenza effettiva: {item.attendance === "present" ? "Presente" : item.attendance === "absent" ? "Assente" : item.attendance === "injured" ? "Assente per infortunio" : item.attendance === "requested" ? "Richiesto da altra squadra" : "Non ancora registrata dallo staff"}</p>
           <p>Condotta: {item.conduct === "ottima" ? "Ottima" : item.conduct === "buona" ? "Buona" : item.conduct === "insufficiente" ? "Insufficiente" : "Non registrata"}</p>
-          <Link className="text-primary underline" href="/parent/activity">Apri lo storico di tuo figlio</Link>
         </div>)}
         {historyError && <p role="alert" className="text-sm text-destructive">Lo storico degli allenamenti non è disponibile. Riprova aggiornando la pagina.</p>}
         {selectedTraining.length === 0 && selectedHistory.length === 0 ? (
-          <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{isPastDay ? "Nessun riepilogo registrato per questa data." : "Nessun allenamento programmato disponibile per questa data."}</div>
+          <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">{isPastDay ? "Nessun riepilogo allenamento registrato per questa data." : "Nessun allenamento programmato disponibile per questa data."}</div>
         ) : (
           selectedTraining.map((session) => (
             <TrainingScheduleCard
@@ -569,11 +591,14 @@ export default function ParentAttendance() {
             <MatchScheduleCard
               key={match.id}
               match={match}
+              minutes={activity?.matches.find(item => item.id === match.id)?.minutes}
+              callup={callups.find(item => item.match?.id === match.id)}
               onUpdated={(parentAvailability) => updateMatchAvailability(match.id, parentAvailability)}
             />
           ))
         )}
       </div>
+      {callupError && <p role="alert" className="text-sm text-destructive">Dettagli del ritrovo non disponibili. Riprova aggiornando la pagina.</p>}
 
     </div>
   );

@@ -169,7 +169,6 @@ export function AppSidebar() {
     { label: "Scheda figlio",      url: "/parent/player-card",    icon: User,            roles: ["parent"], group: "parent" },
     { label: "Comunicazioni",      url: "/parent/communications", icon: MessageSquare,   roles: ["parent"], group: "parent" },
     { label: "Convocazioni",       url: "/parent/callups",        icon: UsersRound,      roles: ["parent"], group: "parent" },
-    { label: "Allenamenti e minuti", url: "/parent/activity",     icon: ClipboardCheck,  roles: ["parent"], group: "parent" },
     { label: "Calendario generale", url: "/parent/attendance",    icon: CalendarDays,    roles: ["parent"], group: "parent" },
     { label: "Partite",            url: "/parent/matches",        icon: Trophy,          roles: ["parent"], group: "parent" },
     { label: "Documenti",          url: "/parent/documents",      icon: FileText,        roles: ["parent"], group: "parent" },
