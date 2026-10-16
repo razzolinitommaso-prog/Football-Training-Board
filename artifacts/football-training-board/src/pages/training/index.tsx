@@ -1,3 +1,4 @@
+import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -66,6 +67,7 @@ interface LinkedExercise {
   trainingSession?: string | null;
   trainingPhase?: string | null;
   principio?: string | null;
+  statoLavagnaJson?: string | null;
   drawingData?: string | null;
   drawingElementsJson?: string | null;
   voiceNoteData?: string | null;
@@ -114,6 +116,7 @@ type ExerciseFormState = {
   principio: string;
   playersRequiredMode: "manual" | "all" | "selected";
   selectedPlayerIdsJson: string;
+  statoLavagnaJson: string;
   drawingData: string;
   drawingElementsJson: string;
   voiceNoteData: string;
@@ -397,6 +400,7 @@ function emptyExerciseFormFromSession(session: TrainingSession, existingCount: n
     principio: normalizePrincipio(session.objectives),
     playersRequiredMode: "manual",
     selectedPlayerIdsJson: "",
+    statoLavagnaJson: "",
     drawingData: "",
     drawingElementsJson: "",
     voiceNoteData: "",
@@ -427,6 +431,7 @@ function formFromLinkedExercise(link: SessionExerciseLink): ExerciseFormState {
     principio: link.exercise?.principio ?? "",
     playersRequiredMode: link.exercise?.playersRequiredMode ?? inferredMode,
     selectedPlayerIdsJson: link.exercise?.selectedPlayerIdsJson ?? "",
+    statoLavagnaJson: link.exercise?.statoLavagnaJson ?? "",
     drawingData: link.exercise?.drawingData ?? "",
     drawingElementsJson: link.exercise?.drawingElementsJson ?? "",
     voiceNoteData: link.exercise?.voiceNoteData ?? "",
@@ -1886,6 +1891,7 @@ function SessionDetailsDialog({
           trainingSession: form.trainingSession || null,
           trainingPhase: form.trainingPhase || null,
           principio: form.principio || null,
+          statoLavagnaJson: form.statoLavagnaJson || null,
           drawingData: form.drawingData || null,
           drawingElementsJson: form.drawingElementsJson || null,
           voiceNoteData: form.voiceNoteData || null,
@@ -1938,6 +1944,7 @@ function SessionDetailsDialog({
           trainingSession: form.trainingSession || null,
           trainingPhase: form.trainingPhase || null,
           principio: form.principio || null,
+          statoLavagnaJson: form.statoLavagnaJson || null,
           drawingData: form.drawingData || null,
           drawingElementsJson: form.drawingElementsJson || null,
           voiceNoteData: form.voiceNoteData || null,
@@ -2038,7 +2045,7 @@ function SessionDetailsDialog({
       return;
     }
     const sourceId = editingLink.exercise ? (editingLink.exercise.sourceExerciseId ?? editingLink.exercise.id) : null;
-    createAndLinkExerciseMutation.mutate({ form: exerciseForm, sourceExerciseId: sourceId });
+    createAndLinkExerciseMutation.mutate({ form: { ...exerciseForm, statoLavagnaJson: detachExerciseBoard(exerciseForm.statoLavagnaJson) || "" }, sourceExerciseId: sourceId });
   }
 
   const exerciseSaving = createAndLinkExerciseMutation.isPending || updateExerciseMutation.isPending;
@@ -2909,19 +2916,13 @@ function SessionDetailsDialog({
                       <p className="text-sm font-medium">Lavagna esercitazione</p>
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
-                    <Button type="button" variant="outline" size="sm" asChild>
-                      <a
-                        href={`/tactical-board?source=exercise${session.teamId ? `&teamId=${session.teamId}` : ""}&exerciseTitle=${encodeURIComponent(exerciseForm.title || "Esercitazione")}`}
-                      >
-                        Apri lavagna tattica
-                      </a>
-                    </Button>
+                    <ExerciseTacticalBoard title={exerciseForm.title || "Esercitazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} onSave={result => setExerciseForm(prev => ({ ...prev, ...result }))} />
                   </div>
-                  <ExerciseDrawingBoard
+                  {exerciseForm.statoLavagnaJson && exerciseForm.drawingData ? <img src={exerciseForm.drawingData} alt="Anteprima lavagna esercitazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
                     value={exerciseForm.drawingData || null}
                     onChange={(data) => setExerciseForm((prev) => ({ ...prev, drawingData: data ?? "" }))}
                     onChangeElements={(els) => setExerciseForm((prev) => ({ ...prev, drawingElementsJson: els ? JSON.stringify(els) : "" }))}
-                  />
+                  />}
                 </TabsContent>
 
                 <TabsContent value="voice" className="pt-4 space-y-3">

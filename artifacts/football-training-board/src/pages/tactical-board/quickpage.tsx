@@ -1,3 +1,4 @@
+import { capturePitch } from "./capture-pitch";
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@/hooks/use-auth";
@@ -1277,10 +1278,19 @@ function ElementMenuPlacement({ dock, children }: { dock: HTMLElement | null; ch
 
 const QuickPage = () => {
   const isMobileViewport = useIsMobile();
+  const [viewportReady, setViewportReady] = useState(false);
+  React.useEffect(() => { setViewportReady(true); }, []);
   const { club, user } = useAuth();
   const { data: allTeams } = useListTeams();
   const { data: allPlayersData } = useListPlayers();
   const [assignmentTeamId, setAssignmentTeamId] = useState<string>("");
+  const draftToken = React.useMemo(() => new URLSearchParams(window.location.search).get("draftToken"), []);
+  const draftPayload = React.useMemo(() => {
+    if (!draftToken || window.parent === window) return null;
+    try { return JSON.parse(sessionStorage.getItem(`ftb-exercise-board:${draftToken}`) || "null"); } catch { return null; }
+  }, [draftToken]);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const initialTeamIdFromQuery = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return parseNumericId(params.get("teamId"));
@@ -1355,7 +1365,13 @@ const QuickPage = () => {
     return null;
   }, []);
   const goBackFromBoard = () => {
+    if (draftToken && window.parent !== window) {
+      if (saveState !== "Saved" && !window.confirm("Uscire senza salvare le modifiche alla lavagna?")) return;
+      window.parent.postMessage({ type: "ftb-exercise-board-close", token: draftToken }, window.location.origin);
+      return;
+    }
     if (returnToMatchUrl) {
+      if (saveState === "Unsaved" && !window.confirm("Tornare alla partita senza salvare le modifiche alla lavagna?")) return;
       window.location.href = returnToMatchUrl;
       return;
     }
@@ -1579,6 +1595,9 @@ const QuickPage = () => {
       setSelectedPreset(data.preset ?? null);
       setActiveTool(data.activeTool ?? "player");
       setFocusMode(data.focusMode ?? false);
+      setFieldViewMode(FIELD_VIEW_OPTIONS.some(option => option.value === data.fieldViewMode) ? data.fieldViewMode as FieldViewMode : "full");
+      setShowMetricGrid(data.showMetricGrid !== false);
+      setShowFieldMarkings(data.showFieldMarkings !== false);
       const ap = data.arrowToolPreset;
       if (
         ap &&
@@ -1607,6 +1626,18 @@ const QuickPage = () => {
     [club, initialTeamIdFromQuery, isMobileViewport, setBoardIdInUrl]
   );
 
+  React.useEffect(() => {
+    if (!viewportReady || !draftPayload || didHydrateBoardFromUrlRef.current) return;
+    if (draftPayload.board?.data) {
+      applyBoardState({ id: draftPayload.board.boardId, title: draftPayload.title, data: draftPayload.board.data });
+    } else {
+      setBoardTitle(draftPayload.title || "Esercitazione");
+      setBoardType("Exercise");
+      setBoardNotes("");
+      setSaveState("Unsaved");
+    }
+    didHydrateBoardFromUrlRef.current = true;
+  }, [viewportReady, draftPayload, applyBoardState]);
   const loadBoards = async () => {
     try {
       if (import.meta.env.DEV) console.log("[tactical-board] request GET /api/boards");
@@ -1723,6 +1754,7 @@ const QuickPage = () => {
   }, [arrowMenuOpen, closeToolPopovers, drawMenuOpen, freeMenuOpen, goalMenuOpen, measureMenuOpen, textMenuOpen, zoneMenuOpen]);
 
   React.useEffect(() => {
+    if (!viewportReady) return;
     if (didHydrateBoardFromUrlRef.current) return;
     if (!initialBoardIdFromQuery) return;
     if (!boards.length) return;
@@ -1732,7 +1764,7 @@ const QuickPage = () => {
 
     applyBoardState(boardFromUrl);
     didHydrateBoardFromUrlRef.current = true;
-  }, [applyBoardState, boards, initialBoardIdFromQuery]);
+  }, [viewportReady, applyBoardState, boards, initialBoardIdFromQuery]);
 
   React.useEffect(() => {
     setBoardClubId(parseNumericId((club as any)?.id));
@@ -1764,7 +1796,7 @@ const QuickPage = () => {
   }, [boardMode, isMatchPlanBoard, teamPlayers]);
 
   React.useEffect(() => {
-    if (!initialPresetFromQuery) return;
+    if (!initialPresetFromQuery || initialBoardIdFromQuery || draftPayload?.board?.data) return;
     applyPreset(initialPresetFromQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boardFormat]);
@@ -2769,10 +2801,10 @@ const QuickPage = () => {
   const linkSavedBoardToMatchPeriod = async (savedBoardId: number | null, savedBoardTitle: string) => {
     if (!savedBoardId || !selectedMatchId || !boardTeamId) return;
     const matchesRes = await fetch(withApi(`/api/matches?teamId=${boardTeamId}`), { credentials: "include" });
-    if (!matchesRes.ok) return;
+    if (!matchesRes.ok) throw new Error("Impossibile leggere la partita da collegare");
     const matches = await matchesRes.json();
     const match = Array.isArray(matches) ? matches.find((item) => parseNumericId(item?.id) === selectedMatchId) : null;
-    if (!match) return;
+    if (!match) throw new Error("Partita da collegare non trovata");
     const existingPlan = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
     const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
     const periodLabels: Record<typeof matchPeriodKey, string> = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" };
@@ -3320,6 +3352,9 @@ const QuickPage = () => {
     preset: selectedPreset,
     activeTool,
     focusMode,
+    fieldViewMode,
+    showMetricGrid,
+    showFieldMarkings,
     arrowToolPreset,
     elements,
     coordinateSpace: isMobileViewport ? "mobile-portrait" : "desktop-landscape",
@@ -3344,6 +3379,7 @@ const QuickPage = () => {
       body: JSON.stringify({
         statoLavagnaJson: JSON.stringify(exerciseBoardPayload),
         drawingElementsJson: JSON.stringify(boardData.elements ?? []),
+        drawingData: pitchRef.current ? await capturePitch(pitchRef.current) : undefined,
       }),
     });
     if (!response.ok) throw new Error("Errore collegamento lavagna esercitazione");
@@ -3364,6 +3400,10 @@ const QuickPage = () => {
   };
 
   const shareBoard = async () => {
+    if (!currentBoardId || saveState === "Unsaved" || saveState === "New") {
+      window.alert("Salva prima la lavagna per condividere il lavoro aggiornato.");
+      return;
+    }
     const shareUrl = currentBoardId
       ? `${window.location.origin}${window.location.pathname}?boardId=${currentBoardId}`
       : window.location.href;
@@ -3390,7 +3430,7 @@ const QuickPage = () => {
     <div className="min-h-screen bg-[#0B1220] text-white flex flex-col">
       {/* HEADER */}
       <header className="h-14 border-b border-white/10 bg-[#0F172A]/90 backdrop-blur flex items-center justify-between gap-2 px-2 md:h-16 md:px-6">
-        <div className="flex min-w-0 items-center gap-2 md:gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2 md:flex-none md:gap-3">
           <button
             type="button"
             onClick={goBackFromBoard}
@@ -3400,8 +3440,8 @@ const QuickPage = () => {
           >
             <ArrowLeft size={18} />
           </button>
-          <div className="min-w-0">
-          <h1 className="truncate text-sm font-semibold tracking-wide sm:text-lg">Lavagna Tattica</h1>
+          <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-semibold tracking-wide text-white sm:text-lg">Lavagna Tattica</h1>
           <p className="hidden text-xs text-white/50 sm:block">Allenamento / Match Plan</p>
           </div>
           {returnToMatchUrl && (
@@ -3419,7 +3459,7 @@ const QuickPage = () => {
         <div className="hidden min-w-0 flex-1 flex-col items-center px-3 md:flex">
         <input
   value={boardTitle}
-  onChange={(e) => setBoardTitle(e.target.value)}
+  onChange={(e) => { setBoardTitle(e.target.value); setSaveState("Unsaved"); }}
   title={boardTitle}
   className="w-full max-w-[58rem] truncate bg-transparent text-center text-sm font-semibold outline-none md:text-base"
 />
@@ -3427,14 +3467,17 @@ const QuickPage = () => {
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          <button type="button" title="Annulla ultimo elemento" aria-label="Annulla ultimo elemento" onClick={undoLastElement} disabled={elements.length === 0} className="p-2 rounded-xl hover:bg-white/10 disabled:opacity-35 md:hidden"><RotateCcw size={18} /></button>
           <button
             onClick={() => setFocusMode(!focusMode)}
-            className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm"
+            className="hidden"
           >
             <Maximize2 size={16} />
             Focus mode
           </button>
+          <div className="relative">
+            <button type="button" aria-label="Altre azioni" aria-expanded={moreActionsOpen} className="p-2 md:hidden" onClick={() => setMoreActionsOpen(open => !open)}>•••</button>
+            <div className={moreActionsOpen ? "absolute right-0 top-full z-50 flex min-w-44 flex-col rounded-xl border border-white/20 bg-[#0F172A] p-2 shadow-xl md:static md:min-w-0 md:flex-row md:border-0 md:p-0" : "hidden md:flex"}>
+          <button type="button" onClick={undoLastElement} disabled={!elements.length} className="flex items-center gap-2 rounded-xl p-2 text-xs disabled:opacity-35 md:hidden"><RotateCcw size={18} />Rimuovi ultimo elemento</button>
           <button
             type="button"
             onClick={() => void copyBoardSnapshot()}
@@ -3443,6 +3486,7 @@ const QuickPage = () => {
             aria-label="Copia dati lavagna"
           >
             <Copy size={18} />
+            <span className="ml-2 text-xs md:hidden">Copia dati</span>
           </button>
           <button
             type="button"
@@ -3452,10 +3496,12 @@ const QuickPage = () => {
             aria-label="Condividi lavagna"
           >
             <Share2 size={18} />
+            <span className="ml-2 text-xs md:hidden">Condividi</span>
           </button>
 
 <button
   onClick={() => {
+    if (elements.length && !window.confirm("Creare una nuova lavagna? Le modifiche non salvate andranno perse.")) return;
     setCurrentBoardId(null);
     setBoardIdInUrl(null);
     setBoardTitle("Nuova lavagna");
@@ -3484,11 +3530,16 @@ const QuickPage = () => {
   aria-label="Nuova lavagna"
 >
   <Plus size={16} />
-  <span className="hidden sm:inline">Nuova</span>
+  <span>Nuova</span>
 </button>
 
+            </div>
+          </div>
+
 <button
+  disabled={saveState === "Saving..."}
   onClick={async () => {      
+    setSaveError(null);
     setSaveState("Saving...");
 
     const data = buildBoardSnapshot();
@@ -3522,10 +3573,18 @@ const QuickPage = () => {
 
       const savedBoard = await response.json();
       const savedBoardId = parseNumericId(savedBoard?.id);
+      if (!savedBoardId) throw new Error("Il server non ha restituito il riferimento della lavagna");
       setCurrentBoardId(savedBoardId);
       setBoardIdInUrl(savedBoardId);
       await linkSavedBoardToMatchPeriod(savedBoardId, boardTitle);
-      await linkSavedBoardToExercise(savedBoardId, boardTitle, data);
+      if (draftToken && window.parent !== window) {
+        if (!pitchRef.current) throw new Error("Campo non disponibile");
+        const drawingData = await capturePitch(pitchRef.current);
+        window.parent.postMessage({ type: "ftb-exercise-board-saved", token: draftToken, drawingData,
+          board: { source: "tactical-board", boardId: savedBoardId, boardTitle, data } }, window.location.origin);
+      } else {
+        await linkSavedBoardToExercise(savedBoardId, boardTitle, data);
+      }
       
       if (import.meta.env.DEV) console.log("Board salvata:", savedBoard);
       
@@ -3533,6 +3592,7 @@ const QuickPage = () => {
       setSaveState("Saved");  
     } catch (error) {
       if (import.meta.env.DEV) console.error("Errore salvataggio board:", error);
+      setSaveError(error instanceof Error ? error.message : "Salvataggio non completato. Riprova prima di uscire.");
       setSaveState("Error");
     }
   }}
@@ -3545,8 +3605,9 @@ const QuickPage = () => {
           </button>
         </div>
       </header>
+      {saveError && <p role="alert" className="border-b border-red-400/30 bg-red-950 px-3 py-2 text-sm text-white">{saveError}</p>}
       <div className="flex min-w-0 items-center gap-2 border-b border-white/10 px-3 py-2 md:hidden">
-        <input aria-label="Titolo lavagna" value={boardTitle} onChange={event => setBoardTitle(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" />
+        <input aria-label="Titolo lavagna" value={boardTitle} onChange={event => { setBoardTitle(event.target.value); setSaveState("Unsaved"); }} className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" />
         <span className="shrink-0 text-xs text-emerald-400">{saveStateLabelMap[saveState] ?? saveState}</span>
       </div>
       {boardsError && (
@@ -3670,7 +3731,7 @@ const QuickPage = () => {
                   type="button"
                   onClick={undoLastElement}
                   disabled={!elements.length}
-                  title="Indietro"
+                  title="Rimuovi ultimo elemento"
                   className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/75 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   <RotateCcw size={16} />
@@ -4386,6 +4447,7 @@ const QuickPage = () => {
               {selectedElementIndex !== null && selectedElement && selectedElementMenuStyle && fieldElementMenuOpen && (
                 <ElementMenuPlacement dock={isMobileViewport ? mobileElementDock : null}>
                 <div
+                  data-board-editor="true"
                   className={isMobileViewport ? "relative min-w-0 rounded-xl border border-white/10 bg-[#0F172A] p-2" : `absolute z-30 transition-[left,top,transform] duration-150 ease-out ${selectedElementMenuClass} ${
                     useCompactElementMenu
                       ? "w-auto rounded-xl border border-transparent bg-transparent p-0 shadow-none"
@@ -5246,6 +5308,15 @@ const QuickPage = () => {
                         Seleziona un&apos;azione qui sopra. «Prepara partita» si richiude con un secondo clic.
                       </div>
                     )}
+                    {activeBoardAction === "load" && (
+                      <div className="grid max-h-48 gap-2 overflow-y-auto">
+                        {boards.map(board => <button key={board.id} type="button" className="rounded border border-white/10 p-2 text-left text-xs" onClick={() => {
+                          if (saveState === "Unsaved" && !window.confirm("Caricare un'altra lavagna e perdere le modifiche non salvate?")) return;
+                          applyBoardState(board);
+                        }}>{board.title}</button>)}
+                        {!boards.length && <p className="text-xs text-white/60">Nessuna lavagna salvata</p>}
+                      </div>
+                    )}
                     {activeBoardAction === "create" && (
                       <div className="grid gap-2">
                         <button
@@ -5264,7 +5335,7 @@ const QuickPage = () => {
                           }}
                           className="rounded-lg bg-white/10 px-2 py-2 text-left text-[11px] font-semibold text-white/85 transition hover:bg-white/15"
                         >
-                          Nuova sessione vuota
+                          Nuova lavagna vuota
                         </button>
                         <button
                           type="button"
@@ -5275,7 +5346,7 @@ const QuickPage = () => {
                           }}
                           className="rounded-lg bg-white/10 px-2 py-2 text-left text-[11px] font-semibold text-white/85 transition hover:bg-white/15"
                         >
-                          Crea sessione da questa lavagna
+                          Imposta tipo Allenamento
                         </button>
                       </div>
                     )}
@@ -5291,7 +5362,7 @@ const QuickPage = () => {
                           }}
                           className="rounded-lg bg-white/10 px-2 py-2 text-left text-[11px] font-semibold text-white/85 transition hover:bg-white/15"
                         >
-                          Esercitazione libera
+                          Imposta tipo Esercitazione
                         </button>
                         <button
                           type="button"
@@ -5301,7 +5372,7 @@ const QuickPage = () => {
                           }}
                           className="rounded-lg bg-white/10 px-2 py-2 text-left text-[11px] font-semibold text-white/85 transition hover:bg-white/15"
                         >
-                          Associa a sessione esistente
+                          Sfoglia lavagne salvate
                         </button>
                       </div>
                     )}
@@ -5479,7 +5550,7 @@ const QuickPage = () => {
                           disabled={!selectedMatchId || !boardTeamId}
                           className="rounded-lg bg-emerald-600 px-2 py-2 text-left text-[11px] font-bold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          Salva partita (convocati e formazione)
+                          Salva solo convocati e formazione
                         </button>
                         {matchSheetSaveHint && (
                           <p className="text-[10px] leading-snug text-white/70">{matchSheetSaveHint}</p>
@@ -6085,7 +6156,7 @@ const QuickPage = () => {
                       />
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {filteredBoards.slice(0, 4).map((board) => (
+                      {filteredBoards.map((board) => (
                         <button
                           key={`bottom-board-${board.id}`}
                           onClick={() => applyBoardState(board)}
@@ -6117,6 +6188,7 @@ const QuickPage = () => {
                       {filteredFolders.map((folder) => (
                         <button
                           key={`bottom-folder-${folder}`}
+                          disabled title="Cartella non ancora disponibile"
                           className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs"
                         >
                           <Folder size={14} />

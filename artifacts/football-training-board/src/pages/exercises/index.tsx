@@ -1,3 +1,4 @@
+import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/lib/i18n";
@@ -29,7 +30,7 @@ interface Exercise {
   id: number; title: string; category?: string | null; description?: string | null;
   createdAt?: string | null;
   durationMinutes?: number | null; playersRequired?: number | null; equipment?: string | null;
-  drawingData?: string | null; drawingElementsJson?: string | null; voiceNoteData?: string | null; videoNoteData?: string | null;
+  statoLavagnaJson?: string | null; drawingData?: string | null; drawingElementsJson?: string | null; voiceNoteData?: string | null; videoNoteData?: string | null;
   caricaRosaIntera?: boolean;
   scegliGiocatori?: boolean;
   selectedPlayerIdsJson?: string | null;
@@ -251,6 +252,7 @@ function emptyForm(): Omit<Exercise, "id"> {
     durationMinutes: null,
     playersRequired: null,
     equipment: null,
+    statoLavagnaJson: null,
     drawingData: null,
     drawingElementsJson: null,
     voiceNoteData: null,
@@ -463,6 +465,7 @@ export default function ExercisesPage() {
     setForm({
       ...emptyForm(),
       ...ex,
+      statoLavagnaJson: asDuplicate ? detachExerciseBoard(ex.statoLavagnaJson) : ex.statoLavagnaJson,
       trainingDay: isLegacySessionInTrainingDay ? null : (ex.trainingDay ?? null),
       trainingSession: ex.trainingSession ?? (isLegacySessionInTrainingDay ? ex.trainingDay : null),
       caricaRosaIntera: !!ex.caricaRosaIntera,
@@ -571,6 +574,7 @@ export default function ExercisesPage() {
       durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : null,
       playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
       equipment: form.equipment || null,
+      statoLavagnaJson: form.statoLavagnaJson ?? null,
       drawingData: form.drawingData ?? null,
       drawingElementsJson: form.drawingElementsJson ?? null,
       voiceNoteData: form.voiceNoteData ?? null,
@@ -616,6 +620,7 @@ export default function ExercisesPage() {
       durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : null,
       playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
       equipment: form.equipment || null,
+      statoLavagnaJson: detachExerciseBoard(form.statoLavagnaJson),
       drawingData: form.drawingData ?? null,
       drawingElementsJson: form.drawingElementsJson ?? null,
       voiceNoteData: form.voiceNoteData ?? null,
@@ -1288,20 +1293,14 @@ export default function ExercisesPage() {
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" size="sm" asChild>
-                        <a
-                          href={`/tactical-board?source=exercise${editingEx?.id ? `&exerciseId=${editingEx.id}` : ""}${form.teamId ? `&teamId=${form.teamId}` : ""}&exerciseTitle=${encodeURIComponent(form.title || "Esercitazione")}`}
-                        >
-                          Apri lavagna tattica
-                        </a>
-                      </Button>
+                      <ExerciseTacticalBoard title={form.title || "Esercitazione"} teamId={form.teamId} value={form.statoLavagnaJson} onSave={result => setForm(prev => ({ ...prev, ...result }))} />
                     </div>
                   </div>
-                  <ExerciseDrawingBoard
+                  {form.statoLavagnaJson && form.drawingData ? <img src={form.drawingData} alt="Anteprima lavagna esercitazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
                     value={form.drawingData}
                     onChange={data => setForm(f => ({ ...f, drawingData: data }))}
                     onChangeElements={els => setForm(f => ({ ...f, drawingElementsJson: els ? JSON.stringify(els) : null }))}
-                  />
+                  />}
                 </TabsContent>
 
                 {/* Voice note tab */}

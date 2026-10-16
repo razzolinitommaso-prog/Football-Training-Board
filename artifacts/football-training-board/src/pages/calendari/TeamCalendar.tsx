@@ -2003,7 +2003,8 @@ function MatchCard({
   const boardTitleForMatch = `${matchKindLabel} ${homeLabel} vs ${awayLabel} schieramenti e tattiche`;
   const returnToMatchUrl = `/calendari/${match.teamId ?? ""}?openMatchId=${match.id}&phase=${matchPhase(match)}`;
   const tacticalBaseUrl = `/tactical-board?teamId=${match.teamId ?? ""}&matchId=${match.id}&source=match-plan&phase=${matchPhase(match)}&preset=${encodeURIComponent(tacticalPreset)}&convocati=${encodeURIComponent(Array.from(selectedPlayerIds).join(","))}&matchTitle=${encodeURIComponent(boardTitleForMatch)}&returnTo=${encodeURIComponent(returnToMatchUrl)}`;
-  const tacticalUrl = `${tacticalBaseUrl}&periodKey=t1`;
+  const savedFirstPeriodBoardId = planDraft.periods[0]?.boardId;
+  const tacticalUrl = `${tacticalBaseUrl}&periodKey=t1${savedFirstPeriodBoardId ? `&boardId=${savedFirstPeriodBoardId}` : ""}`;
   const canOpenBoard =
     selectedPlayerIds.size > 0 &&
     !!tacticalPreset &&
