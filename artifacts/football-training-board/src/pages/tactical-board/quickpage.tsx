@@ -1551,7 +1551,7 @@ const QuickPage = () => {
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const [elements, setElements] = useState<TacticalBoardElement[]>([]);
   const effectiveTeamId = boardMode === "assigned" ? boardTeamId : null;
-  const { players: fetchedTeamPlayers } = useTeamPlayers(effectiveTeamId, selectedMatchId);
+  const { players: fetchedTeamPlayers } = useTeamPlayers(effectiveTeamId, selectedMatchId, isExerciseBoard);
   const [teamPlayers, setTeamPlayers] = useState<TeamPlayer[]>([]);
   const [freeRosterPlayers, setFreeRosterPlayers] = useState<TeamPlayer[]>([]);
   const didHydrateBoardFromUrlRef = React.useRef(false);
@@ -1785,8 +1785,8 @@ const QuickPage = () => {
   }, [allTeams, boardMode, boardTeamId]);
 
   React.useEffect(() => {
-    setTeamPlayers([...fetchedTeamPlayers].sort(compareTeamPlayersByRole));
-  }, [fetchedTeamPlayers]);
+    setTeamPlayers(fetchedTeamPlayers.filter(player => !isExerciseBoard || !Array.isArray(draftPayload?.rosterPlayerIds) || draftPayload.rosterPlayerIds.includes(player.id)).sort(compareTeamPlayersByRole));
+  }, [fetchedTeamPlayers, isExerciseBoard, draftPayload]);
 
   React.useEffect(() => {
     if (boardMode === "free") return;

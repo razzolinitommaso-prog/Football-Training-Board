@@ -1,3 +1,4 @@
+import { TrainingRosterManager } from "@/components/training-roster-groups";
 import { useState, useEffect } from "react";
 import { useListTeams, useCreateTeam, useDeleteTeam, useUpdateTeam, useCreatePlayer } from "@workspace/api-client-react";
 import type { Team, TrainingSlot } from "@workspace/api-client-react";
@@ -564,6 +565,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      <TrainingRosterManager kind="shared" />
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-display font-bold tracking-tight">{t.teams}</h1>

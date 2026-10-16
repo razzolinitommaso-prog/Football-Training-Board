@@ -49,7 +49,7 @@ function normalizePlayer(raw: any): TeamPlayer | null {
   };
 }
 
-export function useTeamPlayers(teamId: number | null, matchId?: number | null) {
+export function useTeamPlayers(teamId: number | null, matchId?: number | null, training = false) {
   const [players, setPlayers] = useState<TeamPlayer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -66,12 +66,13 @@ export function useTeamPlayers(teamId: number | null, matchId?: number | null) {
       setIsLoading(true);
       try {
         const [playersRes, membersRes] = await Promise.all([
-          fetch(withApi(`/api/players?teamId=${teamId}${matchId ? `&matchId=${matchId}` : ""}`), { credentials: "include" }),
-          fetch(withApi(`/api/teams/${teamId}/members`), { credentials: "include" }),
+          fetch(withApi(training && !matchId ? `/api/training-rosters/${teamId}?scope=shared` : `/api/players?teamId=${teamId}${matchId ? `&matchId=${matchId}` : ""}`), { credentials: "include" }),
+          training && !matchId ? Promise.resolve(null) : fetch(withApi(`/api/teams/${teamId}/members`), { credentials: "include" }),
         ]);
 
-        const playersData = playersRes.ok ? ((await playersRes.json()) as unknown[]) : [];
-        const membersData = membersRes.ok ? ((await membersRes.json()) as TeamMembersApiPlayer[]) : [];
+        const payload = playersRes.ok ? await playersRes.json() : [];
+        const playersData = training && !matchId ? payload.players ?? [] : payload;
+        const membersData = membersRes?.ok ? ((await membersRes.json()) as TeamMembersApiPlayer[]) : [];
 
         const merged = new Map<number, TeamPlayer>();
         (Array.isArray(playersData) ? playersData : []).forEach((entry) => {
@@ -121,7 +122,7 @@ export function useTeamPlayers(teamId: number | null, matchId?: number | null) {
     return () => {
       cancelled = true;
     };
-  }, [teamId, matchId]);
+  }, [teamId, matchId, training]);
 
   return {
     players,

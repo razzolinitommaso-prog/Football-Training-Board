@@ -1,3 +1,4 @@
+import { TrainingRosterOptions } from "@/components/training-roster-groups";
 import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1861,9 +1862,9 @@ function SessionDetailsDialog({
     enabled: !!session?.id,
   });
   const selectablePlayersQuery = useQuery<PlayerOption[]>({
-    queryKey: ["/api/players", "training-session-exercise-selection", exerciseForm.teamId || "all", exerciseFormOpen, exerciseForm.playersRequiredMode],
-    queryFn: () => apiFetch(exerciseForm.teamId ? `/api/players?teamId=${exerciseForm.teamId}` : "/api/players"),
-    enabled: exerciseFormOpen && exerciseForm.playersRequiredMode === "selected",
+    queryKey: ["training-rosters", "training-session-exercise-selection", exerciseForm.teamId || "all", exerciseFormOpen, exerciseForm.playersRequiredMode],
+    queryFn: async () => exerciseForm.teamId ? (await apiFetch(`/api/training-rosters/${exerciseForm.teamId}?scope=shared`)).players : apiFetch("/api/players"),
+    enabled: exerciseFormOpen,
   });
 
   const linkedExercises = [...(linkedExercisesQuery.data ?? [])]
@@ -1897,10 +1898,10 @@ function SessionDetailsDialog({
           voiceNoteData: form.voiceNoteData || null,
           videoNoteData: form.videoNoteData || null,
           isDraft: form.isDraft,
-          caricaRosaIntera: form.playersRequiredMode === "all",
-          scegliGiocatori: form.playersRequiredMode === "selected",
-          selectedPlayerIdsJson: form.playersRequiredMode === "selected" ? (form.selectedPlayerIdsJson || null) : null,
-          playersRequiredMode: form.playersRequiredMode,
+          caricaRosaIntera: false,
+          scegliGiocatori: form.playersRequiredMode !== "manual",
+          selectedPlayerIdsJson: form.playersRequiredMode === "all" ? JSON.stringify(selectablePlayers.map(player => player.id)) : form.playersRequiredMode === "selected" ? (form.selectedPlayerIdsJson || null) : null,
+          playersRequiredMode: form.playersRequiredMode === "all" ? "selected" : form.playersRequiredMode,
           sourceExerciseId: sourceExerciseId ?? null,
         }),
       });
@@ -1950,10 +1951,10 @@ function SessionDetailsDialog({
           voiceNoteData: form.voiceNoteData || null,
           videoNoteData: form.videoNoteData || null,
           isDraft: form.isDraft,
-          caricaRosaIntera: form.playersRequiredMode === "all",
-          scegliGiocatori: form.playersRequiredMode === "selected",
-          selectedPlayerIdsJson: form.playersRequiredMode === "selected" ? (form.selectedPlayerIdsJson || null) : null,
-          playersRequiredMode: form.playersRequiredMode,
+          caricaRosaIntera: false,
+          scegliGiocatori: form.playersRequiredMode !== "manual",
+          selectedPlayerIdsJson: form.playersRequiredMode === "all" ? JSON.stringify(selectablePlayers.map(player => player.id)) : form.playersRequiredMode === "selected" ? (form.selectedPlayerIdsJson || null) : null,
+          playersRequiredMode: form.playersRequiredMode === "all" ? "selected" : form.playersRequiredMode,
         }),
       });
     },
@@ -1999,6 +2000,9 @@ function SessionDetailsDialog({
       toast({ title: "Titolo esercitazione obbligatorio", variant: "destructive" });
       return;
     }
+    if (exerciseForm.playersRequiredMode === "all" && (selectablePlayersQuery.isFetching || selectablePlayersQuery.error || !selectablePlayers.length)) {
+      toast({ title: "Attendi il caricamento di una rosa valida", variant: "destructive" }); return;
+    }
     if (exerciseForm.playersRequiredMode === "selected" && selectedPlayersCount === 0) {
       toast({
         title: "Seleziona i giocatori",
@@ -2027,6 +2031,9 @@ function SessionDetailsDialog({
     if (!exerciseForm.title.trim()) {
       toast({ title: "Titolo esercitazione obbligatorio", variant: "destructive" });
       return;
+    }
+    if (exerciseForm.playersRequiredMode === "all" && (selectablePlayersQuery.isFetching || selectablePlayersQuery.error || !selectablePlayers.length)) {
+      toast({ title: "Attendi il caricamento di una rosa valida", variant: "destructive" }); return;
     }
     if (exerciseForm.playersRequiredMode === "selected" && selectedPlayersCount === 0) {
       toast({
@@ -2578,7 +2585,7 @@ function SessionDetailsDialog({
                     </div>
                     <div className="space-y-2">
                       <Label className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Squadra</Label>
-                      <Select value={exerciseForm.teamId || "_none"} onValueChange={(v) => setExerciseForm((prev) => ({ ...prev, teamId: v === "_none" ? "" : v }))}>
+                      <Select value={exerciseForm.teamId || "_none"} onValueChange={(v) => setExerciseForm((prev) => ({ ...prev, teamId: v === "_none" ? "" : v, selectedPlayerIdsJson: "" }))}>
                         <SelectTrigger><SelectValue placeholder="Seleziona squadra" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">Nessuna</SelectItem>
@@ -2617,6 +2624,7 @@ function SessionDetailsDialog({
                       </div>
                     </div>
 
+                    <TrainingRosterOptions key={exerciseForm.teamId || "all"} teamId={exerciseForm.teamId} onSelect={ids => setExerciseForm(prev => ({ ...prev, playersRequiredMode: "selected", selectedPlayerIdsJson: JSON.stringify(ids) }))} />
                     {exerciseForm.playersRequiredMode === "manual" && (
                       <div className="space-y-2">
                         <Label>Inserisci numero</Label>
@@ -2916,7 +2924,7 @@ function SessionDetailsDialog({
                       <p className="text-sm font-medium">Lavagna esercitazione</p>
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
-                    <ExerciseTacticalBoard title={exerciseForm.title || "Esercitazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} onSave={result => setExerciseForm(prev => ({ ...prev, ...result }))} />
+                    <ExerciseTacticalBoard title={exerciseForm.title || "Esercitazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds : exerciseForm.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setExerciseForm(prev => ({ ...prev, ...result }))} />
                   </div>
                   {exerciseForm.statoLavagnaJson && exerciseForm.drawingData ? <img src={exerciseForm.drawingData} alt="Anteprima lavagna esercitazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
                     value={exerciseForm.drawingData || null}

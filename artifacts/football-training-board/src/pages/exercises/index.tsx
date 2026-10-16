@@ -1,3 +1,4 @@
+import { TrainingRosterOptions } from "@/components/training-roster-groups";
 import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -406,9 +407,9 @@ export default function ExercisesPage() {
     queryFn: () => apiFetch("/api/exercises/my-teams"),
   });
 
-  const { data: selectablePlayers = [] } = useQuery<PlayerOption[]>({
-    queryKey: ["/api/players", "exercise-selection", form.teamId ?? "all", dialogOpen, form.playersRequiredMode],
-    queryFn: () => apiFetch(form.teamId ? `/api/players?teamId=${form.teamId}` : "/api/players"),
+  const { data: selectablePlayers = [], isFetching: rosterLoading, error: rosterError } = useQuery<PlayerOption[]>({
+    queryKey: ["training-rosters", "exercise-selection", form.teamId ?? "all", dialogOpen, form.playersRequiredMode],
+    queryFn: async () => form.teamId ? (await apiFetch(`/api/training-rosters/${form.teamId}?scope=shared`)).players : apiFetch("/api/players"),
     enabled: dialogOpen,
   });
 
@@ -566,7 +567,10 @@ export default function ExercisesPage() {
       return;
     }
 
-    const normalizedMode = (form.playersRequiredMode ?? "manual") as PlayersRequiredMode;
+    if (form.playersRequiredMode === "all" && (rosterLoading || rosterError || !selectablePlayers.length)) {
+      toast({ title: "Attendi il caricamento di una rosa valida", variant: "destructive" }); return;
+    }
+    const normalizedMode = (form.playersRequiredMode === "all" ? "selected" : form.playersRequiredMode ?? "manual") as PlayersRequiredMode;
     const payload = {
       title: form.title,
       category: form.category || null,
@@ -581,7 +585,7 @@ export default function ExercisesPage() {
       videoNoteData: form.videoNoteData ?? null,
       caricaRosaIntera: normalizedMode === "all",
       scegliGiocatori: normalizedMode === "selected",
-      selectedPlayerIdsJson: normalizedMode === "selected" ? (form.selectedPlayerIdsJson ?? null) : null,
+      selectedPlayerIdsJson: form.playersRequiredMode === "all" ? JSON.stringify(selectablePlayers.map(player => player.id)) : normalizedMode === "selected" ? (form.selectedPlayerIdsJson ?? null) : null,
       playersRequiredMode: normalizedMode,
       isDraft: form.isDraft ?? false,
       teamId: form.teamId ?? null,
@@ -612,7 +616,10 @@ export default function ExercisesPage() {
       });
       return;
     }
-    const normalizedMode = (form.playersRequiredMode ?? "manual") as PlayersRequiredMode;
+    if (form.playersRequiredMode === "all" && (rosterLoading || rosterError || !selectablePlayers.length)) {
+      toast({ title: "Attendi il caricamento di una rosa valida", variant: "destructive" }); return;
+    }
+    const normalizedMode = (form.playersRequiredMode === "all" ? "selected" : form.playersRequiredMode ?? "manual") as PlayersRequiredMode;
     createEx.mutate({
       title: form.title,
       category: form.category || null,
@@ -627,7 +634,7 @@ export default function ExercisesPage() {
       videoNoteData: form.videoNoteData ?? null,
       caricaRosaIntera: normalizedMode === "all",
       scegliGiocatori: normalizedMode === "selected",
-      selectedPlayerIdsJson: normalizedMode === "selected" ? (form.selectedPlayerIdsJson ?? null) : null,
+      selectedPlayerIdsJson: form.playersRequiredMode === "all" ? JSON.stringify(selectablePlayers.map(player => player.id)) : normalizedMode === "selected" ? (form.selectedPlayerIdsJson ?? null) : null,
       playersRequiredMode: normalizedMode,
       isDraft: form.isDraft ?? false,
       teamId: form.teamId ?? null,
@@ -1096,7 +1103,7 @@ export default function ExercisesPage() {
                     </div>
                     <div className="space-y-2">
                       <Label className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Squadra</Label>
-                      <Select value={form.teamId?.toString() ?? "_none"} onValueChange={v => setForm(f => ({ ...f, teamId: v === "_none" ? null : Number(v) }))}>
+                      <Select value={form.teamId?.toString() ?? "_none"} onValueChange={v => setForm(f => ({ ...f, teamId: v === "_none" ? null : Number(v), selectedPlayerIdsJson: null }))}>
                         <SelectTrigger><SelectValue placeholder="Seleziona squadra" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">Nessuna</SelectItem>
@@ -1146,6 +1153,8 @@ export default function ExercisesPage() {
                       </div>
                     </div>
 
+                    <TrainingRosterOptions key={form.teamId ?? "all"} teamId={form.teamId} onSelect={ids => setForm(prev => ({ ...prev, playersRequiredMode: "selected", selectedPlayerIdsJson: JSON.stringify(ids) }))} />
+                    {rosterError && <p role="alert" className="text-sm text-red-600">Impossibile caricare la rosa allenamento.</p>}
                     {form.playersRequiredMode === "manual" ? (
                       <div className="space-y-2">
                         <Label>Inserisci numero</Label>
@@ -1161,7 +1170,7 @@ export default function ExercisesPage() {
                     {form.playersRequiredMode === "selected" ? (
                       <div className="space-y-2 rounded-md border bg-background p-3">
                         <div className="text-xs text-muted-foreground">
-                          {form.teamId ? "Seleziona giocatori della squadra scelta" : "Seleziona giocatori dalle squadre assegnate all'allenatore"}
+                          {form.teamId ? "Seleziona giocatori della rosa allenamento (incluse le squadre collegate)" : "Seleziona giocatori dalle squadre assegnate all'allenatore"}
                         </div>
                         {selectablePlayers.length === 0 ? (
                           <p className="text-sm text-muted-foreground italic">Nessun giocatore disponibile per la selezione.</p>
@@ -1293,7 +1302,7 @@ export default function ExercisesPage() {
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <ExerciseTacticalBoard title={form.title || "Esercitazione"} teamId={form.teamId} value={form.statoLavagnaJson} onSave={result => setForm(prev => ({ ...prev, ...result }))} />
+                      <ExerciseTacticalBoard title={form.title || "Esercitazione"} teamId={form.teamId} value={form.statoLavagnaJson} rosterPlayerIds={form.playersRequiredMode === "selected" ? selectedPlayerIds : form.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setForm(prev => ({ ...prev, ...result }))} />
                     </div>
                   </div>
                   {form.statoLavagnaJson && form.drawingData ? <img src={form.drawingData} alt="Anteprima lavagna esercitazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard

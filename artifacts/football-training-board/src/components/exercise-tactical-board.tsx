@@ -6,8 +6,8 @@ export function detachExerciseBoard(value?: string | null): string | null {
   try { return JSON.stringify({ ...JSON.parse(value), boardId: null }); } catch { return value; }
 }
 
-export function ExerciseTacticalBoard({ title, teamId, value, onSave }: {
-  title: string; teamId?: string | number | null; value?: string | null;
+export function ExerciseTacticalBoard({ title, teamId, value, rosterPlayerIds, onSave }: {
+  title: string; teamId?: string | number | null; value?: string | null; rosterPlayerIds?: number[];
   onSave: (result: { statoLavagnaJson: string; drawingData: string; drawingElementsJson: string }) => void;
 }) {
   const [token, setToken] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export function ExerciseTacticalBoard({ title, teamId, value, onSave }: {
       const key = crypto.randomUUID();
       let board = null;
       try { board = value ? JSON.parse(value) : null; } catch { /* older drawings stay in their existing editor */ }
-      sessionStorage.setItem(`ftb-exercise-board:${key}`, JSON.stringify({ title, board }));
+      sessionStorage.setItem(`ftb-exercise-board:${key}`, JSON.stringify({ title, board, rosterPlayerIds }));
       setToken(key);
     }}>Apri lavagna tattica</button>
     <p className="text-xs text-muted-foreground">Salva la lavagna per riportarla qui, poi salva la scheda esercitazione.</p>
