@@ -820,7 +820,14 @@ router.get("/parent/callups", requireParentSession, async (req, res): Promise<vo
       teamName = team?.name ?? null;
     }
     const plan = match.matchPlan;
-    return { id: callUp.id, status: callUp.status, teamName, match: {
+    const rosterRows = await db.select({ playerId: playersTable.id, firstName: playersTable.firstName,
+      lastName: playersTable.lastName, status: callUpsTable.status }).from(callUpsTable)
+      .innerJoin(playersTable, and(eq(playersTable.id, callUpsTable.playerId), eq(playersTable.clubId, clubId)))
+      .where(eq(callUpsTable.matchId, match.id));
+    const calledPlayers = [...new Map(rosterRows.filter(row => isCoachCallupStatus(row.status))
+      .map(row => [row.playerId, { firstName: row.firstName, lastName: row.lastName }])).values()]
+      .sort((a, b) => a.lastName.localeCompare(b.lastName, "it") || a.firstName.localeCompare(b.firstName, "it"));
+    return { id: callUp.id, status: callUp.status, teamName, calledPlayers, match: {
       id: match.id, opponent: match.opponent, date: match.date, homeAway: match.homeAway,
       competition: match.competition, location: match.location,
       notes: match.notes, preMatchNotes: match.preMatchNotes,

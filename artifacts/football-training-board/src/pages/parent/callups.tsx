@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, ChevronDown, Clock, Trophy } from "lucide-react";
+import { CalendarDays, Clock, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { withApi } from "@/lib/api-base";
 
 async function apiFetch(path: string) {
@@ -57,8 +59,7 @@ export default function ParentCallups() {
       ) : (
         <div className="space-y-3">
           {items.map((item) => (
-            <details key={item.id} className="group rounded-2xl border bg-card p-4">
-              <summary className="cursor-pointer list-none rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden">
+            <div key={item.id} className="rounded-2xl border bg-card p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold">vs {item.match?.opponent ?? "Avversario"}</p>
@@ -74,8 +75,13 @@ export default function ParentCallups() {
                   {statusLabel(item.status)}
                 </Badge>
               </div>
-              <span className="mt-3 flex items-center gap-2 text-xs text-primary"><ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />Dettagli convocazione</span>
-              </summary>
+              <Dialog>
+              <DialogTrigger asChild><Button variant="outline" className="mt-3 w-full sm:w-auto">Visualizza convocazione</Button></DialogTrigger>
+              <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-xl">
+              <DialogHeader className="pr-6">
+                <DialogTitle className="break-words">Convocazione · vs {item.match?.opponent ?? "Avversario"}</DialogTitle>
+                <DialogDescription>{item.teamName ?? "Squadra"} · {formatDate(item.match?.date)}</DialogDescription>
+              </DialogHeader>
               <dl className="mt-4 grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2">
                 <CallupDetail label="Squadra">{item.teamName}</CallupDetail>
                 <CallupDetail label="Avversario">{item.match?.opponent}</CallupDetail>
@@ -89,10 +95,18 @@ export default function ParentCallups() {
                 <div className="sm:col-span-2"><CallupDetail label="Indicazioni pre-partita">{item.match?.preMatchNotes}</CallupDetail></div>
                 {item.match?.notes && <div className="sm:col-span-2"><CallupDetail label="Altre indicazioni">{item.match.notes}</CallupDetail></div>}
               </dl>
+              <section className="min-w-0 space-y-3 border-t pt-4">
+                <h3 className="font-semibold">Atleti convocati · {item.calledPlayers?.length ?? 0}</h3>
+                {item.calledPlayers?.length ? <ul className="space-y-2 text-sm">{item.calledPlayers.map((player: { firstName: string; lastName: string }, index: number) =>
+                  <li key={index} className="break-words rounded-lg bg-muted/40 px-3 py-2">{player.firstName} {player.lastName}</li>)}</ul>
+                  : <p className="text-sm text-muted-foreground">Elenco convocati non disponibile.</p>}
+              </section>
+              </DialogContent>
+              </Dialog>
               {item.status === "pending" && (
                 <p className="mt-2 flex items-center gap-1 text-xs text-amber-600"><Clock className="h-3.5 w-3.5" /> Conferma richiesta.</p>
               )}
-            </details>
+            </div>
           ))}
         </div>
       )}
