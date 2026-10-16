@@ -825,7 +825,7 @@ router.get("/parent/callups", requireParentSession, async (req, res): Promise<vo
       .innerJoin(playersTable, and(eq(playersTable.id, callUpsTable.playerId), eq(playersTable.clubId, clubId)))
       .where(eq(callUpsTable.matchId, match.id));
     const calledPlayers = [...new Map(rosterRows.filter(row => isCoachCallupStatus(row.status))
-      .map(row => [row.playerId, { firstName: row.firstName, lastName: row.lastName }])).values()]
+      .map(row => [row.playerId, { firstName: row.firstName, lastName: row.lastName, isOwnChild: row.playerId === parentPlayerId }])).values()]
       .sort((a, b) => a.lastName.localeCompare(b.lastName, "it") || a.firstName.localeCompare(b.firstName, "it"));
     return { id: callUp.id, status: callUp.status, teamName, calledPlayers, match: {
       id: match.id, opponent: match.opponent, date: match.date, homeAway: match.homeAway,
