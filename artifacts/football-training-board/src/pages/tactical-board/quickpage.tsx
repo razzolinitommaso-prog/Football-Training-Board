@@ -40,6 +40,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { FORMATIONS, isFormationPresetId, type FormationPresetId } from "./formations";
 import type { ArrowToolPreset, TacticalBoardData, TacticalBoardElement, TacticalBoardFormat } from "./board-types";
 import { useTeamPlayers, type TeamPlayer } from "./use-team-players";
+import { PlayerAssignmentSelect } from "./player-assignment-select";
 import { assignPlayersToElements, isGoalkeeperPlayer } from "./player-mapping";
 
 type FieldElementPanel = "assign" | "text" | "number" | "color" | "rotate" | "line" | "arrow" | "shape" | "format" | "font" | "measure";
@@ -1270,6 +1271,10 @@ function DrawingToolGlyph({ type }: { type: string }) {
   return <PencilLine size={20} />;
 }
 
+function ElementMenuPlacement({ dock, children }: { dock: HTMLElement | null; children: React.ReactNode }) {
+  return dock ? createPortal(children, dock) : <>{children}</>;
+}
+
 const QuickPage = () => {
   const isMobileViewport = useIsMobile();
   const { club, user } = useAuth();
@@ -1784,6 +1789,16 @@ const QuickPage = () => {
   }, [boardFormat, selectedPreset]);
 
   const pitchRef = React.useRef<HTMLDivElement | null>(null);
+  const [mobileElementDock, setMobileElementDock] = useState<HTMLDivElement | null>(null);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
+  const [pitchDisplayWidth, setPitchDisplayWidth] = useState(0);
+  React.useEffect(() => {
+    const pitch = pitchRef.current;
+    if (!pitch) return;
+    const observer = new ResizeObserver(entries => setPitchDisplayWidth(entries[0]?.contentRect.width ?? pitch.clientWidth));
+    observer.observe(pitch);
+    return () => observer.disconnect();
+  }, []);
   const isDraggingRef = React.useRef(false);
   const skipNextPitchClickRef = React.useRef(false);
 
@@ -2061,6 +2076,10 @@ const QuickPage = () => {
         width: renderPitchMeasurement.length,
       }
     : renderPitchMeasurement;
+  // Rendering only: preserve saved scale/coordinates and desktop appearance.
+  const mobileElementScale = isMobileViewport && pitchDisplayWidth > 0
+    ? Math.max(0.45, Math.min(1, (pitchDisplayWidth / displayPitchMeasurement.canvasLength) / (800 / pitchMeasurement.canvasLength)))
+    : 1;
   const hasRenderableElements = elements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
   const selectedElement =
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
@@ -3397,6 +3416,7 @@ const QuickPage = () => {
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <button type="button" title="Annulla ultimo elemento" aria-label="Annulla ultimo elemento" onClick={undoLastElement} disabled={elements.length === 0} className="p-2 rounded-xl hover:bg-white/10 disabled:opacity-35 md:hidden"><RotateCcw size={18} /></button>
           <button
             onClick={() => setFocusMode(!focusMode)}
             className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-sm"
@@ -3514,6 +3534,10 @@ const QuickPage = () => {
           </button>
         </div>
       </header>
+      <div className="flex min-w-0 items-center gap-2 border-b border-white/10 px-3 py-2 md:hidden">
+        <input aria-label="Titolo lavagna" value={boardTitle} onChange={event => setBoardTitle(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" />
+        <span className="shrink-0 text-xs text-emerald-400">{saveStateLabelMap[saveState] ?? saveState}</span>
+      </div>
       {boardsError && (
         <div className="px-4 md:px-6 py-2 text-sm bg-red-50 text-red-700 border-b border-red-200">
           {boardsError}
@@ -3525,6 +3549,8 @@ const QuickPage = () => {
         {/* CENTER AREA */}
         <main className="flex-1 flex flex-col bg-[#0B1220]">
           {/* CANVAS TOP BAR */}
+          <details open={!isMobileViewport} className="border-b border-white/10">
+          <summary className="cursor-pointer px-3 py-3 text-sm font-semibold md:hidden">Campo e modulo · {boardFormat}</summary>
           <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-white/10 bg-[#0B1220] md:px-6 md:py-3">
             <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <select
@@ -3679,10 +3705,12 @@ const QuickPage = () => {
             </div>
           </div>
 
+          </details>
+
           {/* CANVAS */}
           <div className="relative flex-1 overflow-auto px-1 py-2 sm:px-4 md:py-5">
-            <div className="grid w-full grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex w-full flex-col gap-3 xl:grid xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
+              <div className="order-2 flex min-w-0 flex-1 flex-col gap-2 xl:order-1">
             <div className="mb-2 flex w-full flex-wrap items-center justify-between gap-2 text-xs text-white/60">
               <div className="font-medium text-white/75">
                 Tavola metrica: {displayPitchMeasurement.canvasLength}m x {displayPitchMeasurement.canvasWidth}m
@@ -4193,7 +4221,8 @@ const QuickPage = () => {
                   const commonStyle = {
                     left: `${el.x ?? 50}%`,
                     top: `${el.y ?? 50}%`,
-                    transform: `translate(-50%, -50%) rotate(${Number(el.rotation ?? 0)}deg) scale(${Number(el.scale ?? 1)})`,
+                    transform: `translate(-50%, -50%) rotate(${Number(el.rotation ?? 0)}deg) scale(${Number(el.scale ?? 1) * mobileElementScale})`,
+                    "--board-hit-slop": `${isMobileViewport ? Math.max(0, (44 / mobileElementScale - 32) / 2) : 0}px`,
                   } as const;
 
                   const linkedPlayer = el.playerId
@@ -4255,6 +4284,8 @@ const QuickPage = () => {
                     if (goalVariant) {
                       const fieldGoalStyle = {
                         ...commonStyle,
+                        // Goals are already sized in field metres, not fixed pixels.
+                        transform: `translate(-50%, -50%) rotate(${Number(el.rotation ?? 0)}deg) scale(${Number(el.scale ?? 1)})`,
                         width: `${(goalVariant.depthMeters / renderPitchMeasurement.canvasLength) * 100}%`,
                         height: `${(goalVariant.widthMeters / renderPitchMeasurement.canvasWidth) * 100}%`,
                         minWidth: goalVariant.id === "goalMini" ? "8px" : "12px",
@@ -4275,7 +4306,7 @@ const QuickPage = () => {
                     return (
                       <div
                         key={String(el.id ?? `el-${i}`)}
-                        className={`absolute z-[4] flex cursor-grab touch-none select-none items-center justify-center rounded-2xl p-1 transition active:cursor-grabbing ${isSelected ? "ring-2 ring-[#FACC15] ring-offset-2 ring-offset-[#145f38]" : ""}`}
+                        className={`absolute z-[4] flex cursor-grab touch-none select-none items-center justify-center rounded-2xl p-1 transition active:cursor-grabbing before:absolute before:[inset:calc(-1*var(--board-hit-slop,0px))] before:content-[''] ${isSelected ? "ring-2 ring-[#FACC15] ring-offset-2 ring-offset-[#145f38]" : ""}`}
                         style={commonStyle}
                         onPointerDown={(e) => dragElement(e, i)}
                         title={String(el.type)}
@@ -4318,7 +4349,7 @@ const QuickPage = () => {
                   return (
                     <div key={String(el.id ?? `el-${i}`)}>
                       <div
-                        className={playerClassName}
+                        className={`${playerClassName} before:absolute before:[inset:calc(-1*var(--board-hit-slop,0px))] before:content-['']`}
                         style={markerStyle}
                         onPointerDown={(e) => dragElement(e, i)}
                       >
@@ -4327,7 +4358,7 @@ const QuickPage = () => {
                       {playerSurname && (
                         <div
                           className="pointer-events-none absolute z-[6] max-w-28 truncate px-0.5 text-center text-[12px] font-semibold leading-none text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.95)]"
-                          style={{ left: `${el.x ?? 50}%`, top: `calc(${el.y ?? 50}% + 22px)`, transform: "translateX(-50%)" }}
+                          style={{ left: `${el.x ?? 50}%`, top: `calc(${el.y ?? 50}% + ${22 * mobileElementScale}px)`, transform: `translateX(-50%) scale(${mobileElementScale})`, transformOrigin: "top center" }}
                         >
                           {playerSurname}
                         </div>
@@ -4342,13 +4373,14 @@ const QuickPage = () => {
               )}
 
               {selectedElementIndex !== null && selectedElement && selectedElementMenuStyle && fieldElementMenuOpen && (
+                <ElementMenuPlacement dock={isMobileViewport ? mobileElementDock : null}>
                 <div
-                  className={`absolute z-30 transition-[left,top,transform] duration-150 ease-out ${selectedElementMenuClass} ${
+                  className={isMobileViewport ? "relative min-w-0 rounded-xl border border-white/10 bg-[#0F172A] p-2" : `absolute z-30 transition-[left,top,transform] duration-150 ease-out ${selectedElementMenuClass} ${
                     useCompactElementMenu
                       ? "w-auto rounded-xl border border-transparent bg-transparent p-0 shadow-none"
                       : "w-64 rounded-2xl border border-white/10 bg-[#0F172A]/95 p-3 shadow-2xl backdrop-blur"
                   }`}
-                  style={selectedElementMenuStyle}
+                  style={isMobileViewport ? undefined : selectedElementMenuStyle}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -4371,8 +4403,8 @@ const QuickPage = () => {
                   )}
 
                   {useCompactElementMenu && (
-                    <div className={`flex items-start gap-1.5 ${markerMenuSide === "left" ? "flex-row-reverse" : ""}`}>
-                      <div className="flex flex-col gap-0.5 rounded-lg border border-white/10 bg-[#0B1220]/45 p-1 shadow-lg backdrop-blur-md">
+                    <div className={`flex items-start gap-1.5 ${isMobileViewport ? "flex-col" : markerMenuSide === "left" ? "flex-row-reverse" : ""}`}>
+                      <div className={`flex gap-0.5 rounded-lg border border-white/10 bg-[#0B1220]/45 p-1 shadow-lg backdrop-blur-md ${isMobileViewport ? "flex-row flex-wrap" : "flex-col"}`}>
                         {compactElementToolItems.map((item) => {
                           const Icon = item.icon;
                           const active = markerPanel === item.id;
@@ -4402,7 +4434,7 @@ const QuickPage = () => {
                         </button>
                       </div>
                       {markerPanel && (
-                      <div className={`min-w-0 ${markerPanelWidthClass} ${markerPanelOffsetClass}`}>
+                      <div className={isMobileViewport ? "w-full min-w-0" : `min-w-0 ${markerPanelWidthClass} ${markerPanelOffsetClass}`}>
                       {markerPanel === "assign" && (
                         <div className="rounded-lg border border-white/10 bg-[#0B1220]/55 p-1.5 shadow-lg backdrop-blur-md">
 {playerAssignmentOptions.length > 0 ? (
@@ -4429,8 +4461,11 @@ const QuickPage = () => {
                           )}
 
                           {visiblePlayerAssignmentOptions.length > 0 ? (
-                            <Select
+                            <PlayerAssignmentSelect
                         value={selectedElement?.playerId ? String(selectedElement.playerId) : "_none"}
+                        options={[{ value: "_none", label: "Marker generico (nessun player)" }, ...visiblePlayerAssignmentOptions.map(p => ({
+                          value: String(p.id), label: [p.jerseyNumber ?? "-", `${p.firstName} ${p.lastName}`.trim(), shouldChooseAssignmentTeam ? null : p.teamName].filter(Boolean).join(" · "),
+                        }))]}
                         onValueChange={(value) => {
                           if (value === "_none") {
                             clearPlayerAssignmentForSelectedElement();
@@ -4438,23 +4473,7 @@ const QuickPage = () => {
                           }
                           assignPlayerToSelectedElement(value);
                         }}
-                      >
-                        <SelectTrigger className="h-8 bg-white/5 border-white/20 text-xs text-white">
-                          <SelectValue placeholder="Seleziona giocatore" />
-                        </SelectTrigger>
-                        <SelectContent className="max-w-[calc(100vw-2rem)]">
-                          <SelectItem value="_none">Marker generico (nessun player)</SelectItem>
-                          {visiblePlayerAssignmentOptions.map((p) => (
-                            <SelectItem key={p.id} value={String(p.id)}>
-                              {[
-                                p.jerseyNumber ?? "-",
-                                `${p.firstName} ${p.lastName}`.trim(),
-                                shouldChooseAssignmentTeam ? null : p.teamName,
-                              ].filter(Boolean).join(" · ")}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      />
                           ) : (
                             <div className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-xs text-white/50">
                               Nessun giocatore in questa squadra
@@ -5074,6 +5093,7 @@ const QuickPage = () => {
                   </div>
                   )}
                 </div>
+                </ElementMenuPlacement>
               )}
 
             </div>
@@ -5166,7 +5186,11 @@ const QuickPage = () => {
             ) : null}
 
               </div>
-              <aside className="w-full shrink-0 overflow-y-auto rounded-2xl border border-white/10 bg-[#08142b]/90 px-3 py-3 shadow-xl backdrop-blur-md max-xl:max-h-[34dvh] sm:px-4 xl:sticky xl:top-4 xl:max-h-none">
+              <aside className="sticky top-0 z-40 order-1 w-full min-w-0 shrink-0 rounded-2xl border border-white/10 bg-[#08142b]/95 px-3 py-3 shadow-xl backdrop-blur-md sm:px-4 xl:order-2 xl:top-4 xl:z-auto">
+                <button type="button" aria-expanded={mobileToolsOpen} onClick={() => setMobileToolsOpen(value => !value)} className="flex min-h-11 w-full items-center justify-between gap-2 text-left text-sm font-semibold xl:hidden">
+                  <span>Strumenti · {activeToolLabelMap[activeTool] ?? activeTool}</span><ChevronDown className={`h-4 w-4 shrink-0 ${mobileToolsOpen ? "rotate-180" : ""}`} />
+                </button>
+                <div className={mobileToolsOpen ? "mt-3 max-h-[40dvh] overflow-y-auto overscroll-contain xl:mt-0 xl:max-h-none xl:overflow-visible" : "hidden xl:block"}>
                 <div className="mb-4 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                   {boardActionTools.map((tool) => {
@@ -6091,6 +6115,8 @@ const QuickPage = () => {
                     </div>
                   </div>
                 )}
+                </div>
+                <div ref={setMobileElementDock} className="mt-2 space-y-2 md:hidden" />
               </aside>
             </div>
           </div>
