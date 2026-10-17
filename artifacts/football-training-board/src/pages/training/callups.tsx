@@ -83,15 +83,16 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
   const [exportingMatchId, setExportingMatchId] = useState<number | null>(null);
   const [generatedPdf, setGeneratedPdf] = useState<{ matchId: number; filename: string; url: string; downloadUrl: string } | null>(null);
   const scopeLabel = section ? SECTION_LABELS[section] : "Tutte le sezioni abilitate";
+  const sectionQuery = section ? `?section=${section}` : "";
 
   const { data: matches = [], isLoading: matchesLoading } = useQuery<Match[]>({
-    queryKey: ["/api/matches", "callup-summary"],
-    queryFn: () => apiFetch<Match[]>("/api/matches"),
+    queryKey: ["/api/matches", "callup-summary", section ?? "session"],
+    queryFn: () => apiFetch<Match[]>(`/api/matches${sectionQuery}`),
   });
 
   const { data: teams = [] } = useQuery<Team[]>({
-    queryKey: ["/api/teams", "callup-summary"],
-    queryFn: () => apiFetch<Team[]>("/api/teams"),
+    queryKey: ["/api/teams", "callup-summary", section ?? "session"],
+    queryFn: () => apiFetch<Team[]>(`/api/teams${sectionQuery}`),
   });
 
   const allowedTeamIds = useMemo(() => {
