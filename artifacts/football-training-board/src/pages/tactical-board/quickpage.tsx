@@ -135,6 +135,7 @@ type MatchPlanPeriodLite = {
   module?: string;
   format?: TacticalBoardFormat;
   lineupPlayerIds?: number[];
+  lineupPositions?: Record<string, { x: number; y: number }>;
   lineupDetectedModule?: string | null;
 };
 
@@ -1796,7 +1797,7 @@ const QuickPage = () => {
   }, [boardMode, isMatchPlanBoard, teamPlayers]);
 
   React.useEffect(() => {
-    if (!initialPresetFromQuery || initialBoardIdFromQuery || draftPayload?.board?.data) return;
+    if (!initialPresetFromQuery || initialBoardIdFromQuery || draftPayload?.board?.data || isMatchPlanBoard) return;
     applyPreset(initialPresetFromQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boardFormat]);
@@ -2323,7 +2324,7 @@ const QuickPage = () => {
   );
 
   const rebuildMatchPlanLayout = React.useCallback(
-    (prev: TacticalBoardElement[], formationPresetOverride?: string | null): TacticalBoardElement[] => {
+    (prev: TacticalBoardElement[], formationPresetOverride?: string | null, restoreSavedPlacement = false): TacticalBoardElement[] => {
       if (!isMatchPreparationUi) return prev;
 
       const tryPreset = formationPresetOverride ?? selectedPreset;
@@ -2384,8 +2385,16 @@ const QuickPage = () => {
 
       const maxOnFormation = Math.min(formation.slots.length, officialStarters.length);
       const startersForAssign = officialStarters.slice(0, maxOnFormation);
-      const filled =
-        startersForAssign.length > 0
+      const filled = restoreSavedPlacement
+        ? startersForAssign.map((player, index) => {
+            const savedPoint = activeMatchPlanPeriod?.lineupPositions?.[String(player.id)];
+            const slot = formation.slots[index];
+            const point = savedPoint && Number.isFinite(savedPoint.x) && Number.isFinite(savedPoint.y) ? savedPoint : slot;
+            const displayPoint = isMobileViewport ? formationPointToPortrait(point) : point;
+            return { type: isGoalkeeperPlayer(player) ? "goalkeeper" : "player", ...buildPlayerAssignment(player),
+              x: displayPoint.x, y: displayPoint.y } as TacticalBoardElement;
+          })
+        : startersForAssign.length > 0
           ? assignPlayersToElements(presetElements, startersForAssign)
           : presetElements.map((p) => ({ ...p }));
 
@@ -2643,6 +2652,8 @@ const QuickPage = () => {
 
   React.useEffect(() => {
     if (!isMatchPreparationUi || boardMode !== "assigned" || !selectedMatchId) return;
+    // The saved period must arrive before deciding starters, reserves and coordinates.
+    if (isMatchPlanBoard && (!selectedMatchOption || initialBoardIdFromQuery || typeof isMobileViewport !== "boolean")) return;
     setElements((prev) => {
       const alreadyHasMatchPlayers = prev.some((item) => isPlayerType(item.type) && item.type !== "opponent" && item.playerId);
       if (alreadyHasMatchPlayers) return prev;
@@ -2669,7 +2680,7 @@ const QuickPage = () => {
           ...buildPlayerAssignment(player),
         } as TacticalBoardElement;
       });
-      const next = rebuildMatchPlanLayout([...keep, ...stubs]);
+      const next = rebuildMatchPlanLayout([...keep, ...stubs], undefined, isMatchPlanBoard);
       const prevKey = prev.map((item) => `${item.type}:${item.playerId ?? ""}:${Math.round(Number(item.x ?? 0) * 10) / 10}:${Math.round(Number(item.y ?? 0) * 10) / 10}`).join("|");
       const nextKey = next.map((item) => `${item.type}:${item.playerId ?? ""}:${Math.round(Number(item.x ?? 0) * 10) / 10}:${Math.round(Number(item.y ?? 0) * 10) / 10}`).join("|");
       return prevKey === nextKey ? prev : next;
@@ -2683,6 +2694,10 @@ const QuickPage = () => {
     rebuildMatchPlanLayout,
     selectedMatchId,
     selectedPreset,
+    selectedMatchOption,
+    isMatchPlanBoard,
+    initialBoardIdFromQuery,
+    isMobileViewport,
   ]);
 
   const replaceMatchPlanPlayer = async (elementIndex: number, playerIdRaw: string) => {
