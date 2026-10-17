@@ -1686,12 +1686,12 @@ function MatchCard({
     () => (isFriendlyMatch && autoReserveRuleEnabled ? nextFriendlyFormat(matchFormat) : null),
     [isFriendlyMatch, autoReserveRuleEnabled, matchFormat],
   );
-  const { players: matchAwareTeamPlayers = [] } = useTeamPlayers(match.teamId ?? null, match.id);
+  const { players: matchAwareTeamPlayers = [], isLoading: matchRosterLoading } = useTeamPlayers(match.teamId ?? null, match.id);
   const rosterForMatch = matchAwareTeamPlayers.length > 0 ? matchAwareTeamPlayers : teamPlayers;
   const sortedTeamPlayers = useMemo(() => {
     return [...rosterForMatch].sort(comparePlayersByRole);
   }, [rosterForMatch]);
-  const { data: callups = EMPTY_CALLUPS } = useQuery<MatchCallUp[]>({
+  const { data: callups = EMPTY_CALLUPS, isSuccess: callupsLoaded } = useQuery<MatchCallUp[]>({
     queryKey: ["/api/matches", match.id, "callups"],
     queryFn: () => apiFetch(`/api/matches/${match.id}/callups`),
     enabled: canViewMatchPlan,
@@ -1718,6 +1718,12 @@ function MatchCard({
     () => sortedTeamPlayers.filter((p) => p.available !== false && !parentUnavailableCallupsByPlayer.has(p.id)),
     [sortedTeamPlayers, parentUnavailableCallupsByPlayer],
   );
+  const [selectionSource, setSelectionSource] = useState<{
+    callups: MatchCallUp[];
+    players: typeof selectableTeamPlayers;
+  } | null>(null);
+  const selectionReady = canViewMatchPlan && callupsLoaded && !matchRosterLoading
+    && selectionSource?.callups === callups && selectionSource?.players === selectableTeamPlayers;
   const selectedPlayersOrdered = useMemo(
     () => selectableTeamPlayers.filter((p) => selectedPlayerIds.has(p.id)).map((p) => p.id),
     [selectableTeamPlayers, selectedPlayerIds],
@@ -2111,7 +2117,7 @@ function MatchCard({
   }
 
   useEffect(() => {
-    if (!canViewMatchPlan) return;
+    if (!canViewMatchPlan || !callupsLoaded || matchRosterLoading) return;
     const allowedIds = new Set(selectableTeamPlayers.map((p) => p.id));
     const next = new Set<number>();
     for (const c of callups) {
@@ -2123,7 +2129,8 @@ function MatchCard({
       for (const id of prev) if (!next.has(id)) return next;
       return prev;
     });
-  }, [callups, canViewMatchPlan, selectableTeamPlayers]);
+    setSelectionSource({ callups, players: selectableTeamPlayers });
+  }, [callups, callupsLoaded, canViewMatchPlan, matchRosterLoading, selectableTeamPlayers]);
 
   useEffect(() => {
     const next = normalizePlanPeriodsForSection(
@@ -2153,6 +2160,9 @@ function MatchCard({
   }, [match.matchPlan, matchSection, teamName, teamCategory]);
 
   useEffect(() => {
+    // A pending roster/callup response is not an empty user selection. Wait for
+    // the selection derived from these exact inputs before touching saved order.
+    if (!selectionReady) return;
     setPlanDraft((prev) => {
       const nextPeriods: MatchPlanPeriodRuntime[] = prev.periods.map((period, idx) => {
         let lineup = (period.lineupPlayerIds ?? []).filter((id) => selectedPlayerIds.has(id));
@@ -2189,7 +2199,7 @@ function MatchCard({
       });
       return changed ? { ...prev, periods: nextPeriods } : prev;
     });
-  }, [selectedPlayersOrdered, selectedPlayerIds, autoReserveRuleEnabled, matchFormat]);
+  }, [selectionReady, selectedPlayersOrdered, selectedPlayerIds, autoReserveRuleEnabled, matchFormat]);
 
   async function saveMatchPlanAndCallups() {
     if (!canManageMatchPlan) return;
