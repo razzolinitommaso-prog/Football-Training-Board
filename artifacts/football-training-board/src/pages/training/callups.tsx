@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, Download, ExternalLink, FileDown, Loader2, MapPin, Trophy, UsersRound } from "lucide-react";
 import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -28,12 +28,6 @@ type Match = {
   teamId?: number | null;
   teamName?: string | null;
   matchPlan?: MatchPlanData | null;
-};
-
-type Team = {
-  id: number;
-  name: string;
-  clubSection?: ClubSection | null;
 };
 
 type MatchCallup = {
@@ -85,49 +79,11 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
   const scopeLabel = section ? SECTION_LABELS[section] : "Tutte le sezioni abilitate";
   const sectionQuery = section ? `?section=${section}` : "";
 
-  const { data: matches = [], isLoading: matchesLoading } = useQuery<Match[]>({
+  const { data: rows = [], isLoading, isError } = useQuery<Array<{ match: Match; callups: MatchCallup[] }>>({
     queryKey: ["/api/matches", "callup-summary", section ?? "session"],
-    queryFn: () => apiFetch<Match[]>(`/api/matches${sectionQuery}`),
+    queryFn: () => apiFetch<Array<{ match: Match; callups: MatchCallup[] }>>(`/api/match-callup-summary${sectionQuery}`),
+    staleTime: 30_000,
   });
-
-  const { data: teams = [] } = useQuery<Team[]>({
-    queryKey: ["/api/teams", "callup-summary", section ?? "session"],
-    queryFn: () => apiFetch<Team[]>(`/api/teams${sectionQuery}`),
-  });
-
-  const allowedTeamIds = useMemo(() => {
-    if (!section) return null;
-    return new Set(teams.filter((team) => team.clubSection === section).map((team) => team.id));
-  }, [section, teams]);
-
-  const candidateMatches = useMemo(() => {
-    return matches
-      .filter((match) => {
-        if (allowedTeamIds && (!match.teamId || !allowedTeamIds.has(match.teamId))) return false;
-        return Boolean(match.matchPlan?.convocationAt || match.matchPlan?.convocationPlace || match.teamId);
-      })
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [allowedTeamIds, matches]);
-
-  const callupQueries = useQueries({
-    queries: candidateMatches.map((match) => ({
-      queryKey: ["/api/matches", match.id, "callups", "summary"],
-      queryFn: () => apiFetch<MatchCallup[]>(`/api/matches/${match.id}/callups`),
-      staleTime: 30_000,
-    })),
-  });
-
-  const rows = useMemo(() => {
-    return candidateMatches
-      .map((match, index) => ({
-        match,
-        callups: callupQueries[index]?.data ?? [],
-        loading: callupQueries[index]?.isLoading ?? false,
-      }))
-      .filter((row) => row.loading || row.callups.length > 0);
-  }, [candidateMatches, callupQueries]);
-
-  const isLoading = matchesLoading || callupQueries.some((query) => query.isLoading);
   const totalCallups = rows.reduce((sum, row) => sum + row.callups.length, 0);
 
   async function exportPdf(match: Match, callups: MatchCallup[]) {
@@ -205,6 +161,10 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
         <CardContent className="space-y-3">
           {isLoading ? (
             <div className="rounded-md border bg-muted/20 px-3 py-6 text-sm text-muted-foreground">Caricamento convocazioni...</div>
+          ) : isError ? (
+            <div role="alert" className="rounded-md border px-3 py-6 text-sm text-destructive">
+              Impossibile caricare le convocazioni. Riprova aggiornando la pagina.
+            </div>
           ) : rows.length === 0 ? (
             <div className="rounded-md border bg-muted/20 px-3 py-6 text-sm text-muted-foreground">
               Nessuna convocazione partita trovata. Salva la rosa in “Preparazione partita” per farla comparire qui.

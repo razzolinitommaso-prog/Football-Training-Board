@@ -10,7 +10,8 @@ import {
   parentPlayerRelationsTable,
   parentNotificationsTable,
 } from "@workspace/db";
-import { eq, and, desc, inArray, sql, notInArray } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, sql, notInArray } from "drizzle-orm";
+import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { requireAuth } from "../lib/auth";
 import { sendParentNotificationEmail } from "../lib/parent-email";
 import { analyseMatchReport, matchReportSchema } from "@workspace/api-zod";
@@ -451,6 +452,71 @@ async function enrichMatch(match: typeof matchesTable.$inferSelect) {
     postMatchNotes: match.postMatchNotes ?? null,
   };
 }
+
+router.get("/match-callup-summary", requireAuth, async (req, res): Promise<void> => {
+  const clubId = req.session.clubId;
+  const userId = req.session.userId;
+  const role = normalizeSessionRole(req.session.role);
+  const clubWide = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"].includes(role);
+  if (!clubId || !userId || (!clubWide && !MATCH_PLAN_VIEW_ROLES.includes(role))) {
+    res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+  const requestedSection = req.query.section;
+  if (requestedSection !== undefined && (typeof requestedSection !== "string" || !MATCH_SECTION_VALUES.has(requestedSection))) {
+    res.status(400).json({ error: "Sezione non valida" });
+    return;
+  }
+  const section = typeof requestedSection === "string" ? requestedSection : normalizeMatchSection(req.session.section);
+  const sections = await resolveAllowedClubSections(req, section);
+  if (sections?.length === 0) { res.json([]); return; }
+  const conditions = [
+    eq(matchesTable.clubId, clubId),
+    sql`lower(coalesce(${callUpsTable.status}, '')) NOT IN ('available', 'unavailable', 'availability', 'absent', 'declined', 'not_called')`,
+  ];
+  if (sections) conditions.push(inArray(teamsTable.clubSection, sections));
+  if (!clubWide) conditions.push(sql`EXISTS (
+    SELECT 1 FROM ${teamStaffAssignmentsTable}
+    WHERE ${teamStaffAssignmentsTable.teamId} = ${matchesTable.teamId}
+      AND ${teamStaffAssignmentsTable.clubId} = ${clubId}
+      AND ${teamStaffAssignmentsTable.userId} = ${userId}
+  )`);
+  const records = await db.select({
+    match: matchesTable,
+    teamName: teamsTable.name,
+    callupId: callUpsTable.id,
+    playerId: callUpsTable.playerId,
+    status: callUpsTable.status,
+    firstName: playersTable.firstName,
+    lastName: playersTable.lastName,
+  }).from(matchesTable)
+    .innerJoin(teamsTable, and(eq(teamsTable.id, matchesTable.teamId), eq(teamsTable.clubId, clubId)))
+    .innerJoin(callUpsTable, eq(callUpsTable.matchId, matchesTable.id))
+    .leftJoin(playersTable, and(eq(playersTable.id, callUpsTable.playerId), eq(playersTable.clubId, clubId)))
+    .where(and(...conditions))
+    .orderBy(asc(matchesTable.date), asc(matchesTable.id), asc(callUpsTable.id));
+  const grouped = new Map<number, { match: Record<string, unknown>; callups: Array<{ id: number; playerId: number; status: string | null; playerName: string | null }> }>();
+  for (const record of records) {
+    let row = grouped.get(record.match.id);
+    if (!row) {
+      const split = splitPublicNotesAndPlan(record.match.notes ?? null);
+      const plan = normalizeMatchPlan(record.match.matchPlan) ?? normalizeMatchPlan(split.plan);
+      row = {
+        match: {
+          id: record.match.id, teamId: record.match.teamId, teamName: record.teamName,
+          opponent: record.match.opponent, date: record.match.date,
+          competition: record.match.competition, location: record.match.location, homeAway: record.match.homeAway,
+          matchPlan: plan ? { convocationAt: plan.convocationAt ?? null, convocationPlace: plan.convocationPlace ?? null } : null,
+        },
+        callups: [],
+      };
+      grouped.set(record.match.id, row);
+    }
+    row.callups.push({ id: record.callupId, playerId: record.playerId, status: record.status,
+      playerName: record.firstName != null ? `${record.firstName} ${record.lastName ?? ""}`.trim() : null });
+  }
+  res.json([...grouped.values()]);
+});
 
 router.get("/matches", requireAuth, async (req, res): Promise<void> => {
   const teamId = req.query.teamId ? parseInt(req.query.teamId as string) : null;
