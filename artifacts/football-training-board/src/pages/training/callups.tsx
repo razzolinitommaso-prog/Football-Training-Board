@@ -211,13 +211,13 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
             </div>
           ) : (
             rows.map(({ match, callups }) => (
-              <div key={match.id} className="rounded-md border bg-background px-3 py-3">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <details key={match.id} className="group/callup rounded-md border bg-background">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-base font-bold">{match.teamName || "Squadra"}</p>
+                      <span className="break-words text-base font-bold">{match.teamName || "Squadra"}</span>
                       <span className="text-sm text-muted-foreground">vs</span>
-                      <p className="text-base font-bold">{match.opponent}</p>
+                      <span className="break-words text-base font-bold">{match.opponent}</span>
                       <Badge variant={match.homeAway === "away" ? "secondary" : "default"}>
                         {match.homeAway === "away" ? "Trasferta" : "Casa"}
                       </Badge>
@@ -227,6 +227,17 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
                         <CalendarDays className="h-3.5 w-3.5" />
                         Gara: {formatDateTime(match.date)}
                       </span>
+                      <span>{callups.length} convocati</span>
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xs font-semibold text-primary">
+                    <span className="group-open/callup:hidden">Apri dettaglio</span>
+                    <span className="hidden group-open/callup:inline">Chiudi dettaglio</span>
+                  </span>
+                </summary>
+                <div className="flex flex-col gap-3 border-t p-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       {match.location && (
                         <span className="flex items-center gap-1">
                           <MapPin className="h-3.5 w-3.5" />
@@ -294,7 +305,7 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
                     </Button>
                   </div>
                 </div>
-              </div>
+              </details>
             ))
           )}
         </CardContent>
