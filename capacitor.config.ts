@@ -4,6 +4,9 @@ const config: CapacitorConfig = {
   appId: "com.footballtrainingboard.app",
   appName: "Football Training Board",
   webDir: "artifacts/football-training-board/dist/public",
+  android: {
+    zoomEnabled: true,
+  },
   server: {
     url: "https://football-training-board.onrender.com",
     cleartext: false,
