@@ -2,7 +2,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import { useGetMyClub } from "@workspace/api-client-react";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import { championshipMatchPath, championshipNameKey, resolveChampionshipMatch, type ChampionshipTeam } from "@/lib/championship-match-links";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { type ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trophy, CalendarDays, BarChart3, Clock, CheckCircle2, RefreshCw, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -444,6 +444,18 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
   );
 }
 
+function CollapsibleChampionshipCard({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
+  return <Card className="shadow-sm">
+    <details open className="group/panel">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-6 outline-offset-2 group-open/panel:pb-3 [&::-webkit-details-marker]:hidden">
+        <h3 className="flex items-center gap-2 text-base font-semibold">{icon}{title}</h3>
+        <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/panel:rotate-180" />
+      </summary>
+      {children}
+    </details>
+  </Card>;
+}
+
 function ChampionshipView({ championship, group }: { championship: Championship; group: ChampionshipGroup }) {
   const rounds = useMemo(() => groupFixturesByRound(group.fixtures), [group.fixtures]);
   const defaultOpenRounds = useMemo(() => new Set(defaultOpenRoundKeys(rounds)), [rounds]);
@@ -485,13 +497,7 @@ function ChampionshipView({ championship, group }: { championship: Championship;
       )}
 
       <div className="space-y-4">
-        <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <CheckCircle2 className="h-4 w-4 text-primary" />
-                Ultimi Risultati
-              </CardTitle>
-            </CardHeader>
+        <CollapsibleChampionshipCard title="Ultimi Risultati" icon={<CheckCircle2 className="h-4 w-4 text-primary" />}>
             <CardContent>
               {latestResults.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nessun risultato inserito.</p>
@@ -501,7 +507,7 @@ function ChampionshipView({ championship, group }: { championship: Championship;
                 </div>
               )}
             </CardContent>
-          </Card>
+          </CollapsibleChampionshipCard>
 
         <Card className="shadow-sm">
             <CardHeader className="pb-3">
@@ -515,13 +521,7 @@ function ChampionshipView({ championship, group }: { championship: Championship;
             </CardContent>
           </Card>
 
-        <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Clock className="h-4 w-4 text-primary" />
-                Prossima Giornata
-              </CardTitle>
-            </CardHeader>
+        <CollapsibleChampionshipCard title="Prossima Giornata" icon={<Clock className="h-4 w-4 text-primary" />}>
             <CardContent>
               {upcomingFixtures.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nessuna gara futura da mostrare.</p>
@@ -531,15 +531,9 @@ function ChampionshipView({ championship, group }: { championship: Championship;
                 </div>
               )}
             </CardContent>
-          </Card>
+          </CollapsibleChampionshipCard>
 
-        <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <CalendarDays className="h-4 w-4 text-primary" />
-              Calendario Girone
-            </CardTitle>
-          </CardHeader>
+        <CollapsibleChampionshipCard title="Calendario Girone" icon={<CalendarDays className="h-4 w-4 text-primary" />}>
           <CardContent className="space-y-4">
             {rounds.length === 0 ? (
               <p className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">Nessuna gara inserita nel girone.</p>
@@ -547,7 +541,7 @@ function ChampionshipView({ championship, group }: { championship: Championship;
               rounds.map((round) => <RoundAccordion key={round.key} round={round} defaultOpen={defaultOpenRounds.has(round.key)} />)
             )}
           </CardContent>
-        </Card>
+        </CollapsibleChampionshipCard>
       </div>
     </div>
   );
