@@ -2168,7 +2168,9 @@ function MatchCard({
       ? "Amichevole"
       : (match.competition ?? "").trim() || "Partita";
   const boardTitleForMatch = `${matchKindLabel} ${homeLabel} vs ${awayLabel} schieramenti e tattiche`;
-  const returnToMatchUrl = `/calendari/${match.teamId ?? ""}?openMatchId=${match.id}&phase=${matchPhase(match)}`;
+  const returnToMatchUrl = window.location.pathname.endsWith("/campionati")
+    ? `${window.location.pathname}${window.location.search}`
+    : `/calendari/${match.teamId ?? ""}?openMatchId=${match.id}&phase=${matchPhase(match)}`;
   const tacticalBaseUrl = `/tactical-board?teamId=${match.teamId ?? ""}&matchId=${match.id}&source=match-plan&phase=${matchPhase(match)}&preset=${encodeURIComponent(tacticalPreset)}&convocati=${encodeURIComponent(Array.from(selectedPlayerIds).join(","))}&matchTitle=${encodeURIComponent(boardTitleForMatch)}&returnTo=${encodeURIComponent(returnToMatchUrl)}`;
   const savedFirstPeriodBoardId = planDraft.periods[0]?.boardId;
   const tacticalUrl = `${tacticalBaseUrl}&periodKey=t1${savedFirstPeriodBoardId ? `&boardId=${savedFirstPeriodBoardId}` : ""}`;
@@ -4272,9 +4274,9 @@ function MatchCard({
   );
 }
 
-interface TeamCalendarProps { overrideTeamId?: number; }
+interface TeamCalendarProps { overrideTeamId?: number; detailMatchId?: number; }
 
-export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {}) {
+export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCalendarProps = {}) {
   const [, legacyParams] = useRoute("/calendari/:teamId");
   const [, scuolaCalcioParams] = useRoute("/scuola-calcio/calendari/:teamId");
   const [, settoreGiovanileParams] = useRoute("/settore-giovanile/calendari/:teamId");
@@ -6083,6 +6085,16 @@ export default function TeamCalendar({ overrideTeamId }: TeamCalendarProps = {})
   }, [phaseTab, campionatoFiltered, autunnaleFiltered, primaverileFiltered, torneiFiltered, amichevoliFiltered, campionato.length, autunnale.length, primaverile.length, tornei.length, amichevoli.length]);
 
   if (!teamId) return <div className="p-6 text-muted-foreground">Squadra non trovata.</div>;
+  if (detailMatchId) {
+    const match = matches.find(item => item.id === detailMatchId && item.teamId === teamId);
+    if (isLoading || !team) return <p role="status" className="p-4 text-sm text-muted-foreground">Caricamento scheda partita...</p>;
+    if (!match) return <p role="alert" className="p-4 text-sm text-destructive">Scheda partita non disponibile per questa squadra.</p>;
+    return <MatchCard key={match.id} match={match} canEditPreNotes={canEditPreNotes} canEditPostNotes={canEditPostNotes}
+      canEditSchedule={canEditSchedule} canDeleteMatch={false} canManageMatchPlan={canManageMatchPlan} canViewMatchPlan={canViewMatchPlan}
+      teamPlayers={teamPlayers} teamTrainingSchedule={team.trainingSchedule ?? null} matchSection={currentSection}
+      teamName={team.name} teamCategory={team.category ?? undefined} bulkSelectEnabled={false} bulkSelected={false} onBulkToggle={() => {}} />;
+  }
+
 
   return (
     <div className="relative min-w-0 w-full overflow-x-clip">

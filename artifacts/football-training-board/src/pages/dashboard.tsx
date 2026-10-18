@@ -1,3 +1,4 @@
+import { championshipMatchPath } from "@/lib/championship-match-links";
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboardStats } from "@workspace/api-client-react";
@@ -684,6 +685,10 @@ function sectionSlugFromClubSection(value?: string | null) {
 function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | null, query = "") {
   const teamId = Number(team?.id ?? 0);
   if (!teamId) return `/calendari/${team?.id ?? ""}${query}`;
+  const params = new URLSearchParams(query);
+  if (team?.clubSection === "settore_giovanile" && !params.has("importPdf") && !["tornei", "amichevoli"].includes(params.get("phase") ?? "")) {
+    return championshipMatchPath("settore_giovanile", teamId, Number(params.get("openMatchId")) || undefined);
+  }
   return `/${sectionSlugFromClubSection(team?.clubSection)}/calendari/${teamId}${query}`;
 }
 

@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useSearch } from "wouter";
+import { useGetMyClub } from "@workspace/api-client-react";
+import TeamCalendar from "@/pages/calendari/TeamCalendar";
+import { championshipMatchPath, championshipNameKey, resolveChampionshipMatch, type ChampionshipTeam } from "@/lib/championship-match-links";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trophy, CalendarDays, BarChart3, Clock, CheckCircle2, RefreshCw, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +19,10 @@ type SectionKey = "settore_giovanile" | "prima_squadra";
 
 type ChampionshipFixture = {
   id: number;
+  matchId?: number | null;
+  matchHref?: string;
+  linkedMatchId?: number;
+  linkedTeamId?: number;
   round?: number | null;
   leg?: string | null;
   homeTeam: string;
@@ -46,6 +54,7 @@ type ChampionshipGroup = {
 
 type Championship = {
   id: number;
+  teamId?: number | null;
   title: string;
   category?: string | null;
   section: string;
@@ -65,6 +74,7 @@ type LndPreview = {
 
 type SectionMatch = {
   id: number;
+  notes?: string | null;
   opponent: string;
   date: string;
   homeAway?: string | null;
@@ -131,9 +141,10 @@ function normalize(value: string) {
     .trim();
 }
 
-function isClubTeam(teamName: string) {
-  const value = normalize(teamName);
-  return value.includes("fortis") || value.includes("juventus 1909");
+const ChampionshipClubNames = createContext<string[]>([]);
+function useClubTeamMatcher() {
+  const names = useContext(ChampionshipClubNames);
+  return (team: string) => names.some(name => championshipNameKey(name) === championshipNameKey(team));
 }
 
 function fixtureDateValue(fixture: ChampionshipFixture) {
@@ -226,6 +237,7 @@ function buildFallbackChampionships(matches: SectionMatch[], section: SectionKey
       const isHome = homeAway === "home" || homeAway === "casa";
       return {
         id: -Math.abs(match.id || fixtureIndex + 1),
+        matchId: match.id,
         round: fixtureIndex + 1,
         leg: fixtureIndex < Math.ceil(rows.length / 2) ? "andata" : "ritorno",
         homeTeam: isHome ? teamName : match.opponent,
@@ -239,6 +251,7 @@ function buildFallbackChampionships(matches: SectionMatch[], section: SectionKey
 
     return {
       id: -(index + 1),
+      teamId: first.teamId,
       title,
       category: "Vista provvisoria da calendario squadra",
       section,
@@ -255,8 +268,9 @@ function buildFallbackChampionships(matches: SectionMatch[], section: SectionKey
 }
 
 function FixtureRow({ fixture }: { fixture: ChampionshipFixture }) {
-  const clubInvolved = isClubTeam(fixture.homeTeam) || isClubTeam(fixture.awayTeam);
-  return (
+  const isClubTeam = useClubTeamMatcher();
+  const clubInvolved = Boolean(fixture.matchHref) || isClubTeam(fixture.homeTeam) || isClubTeam(fixture.awayTeam);
+  const content = (
     <div
       className={cn(
         "grid gap-2 border-b py-3 text-sm last:border-b-0 sm:grid-cols-[140px_minmax(0,1fr)_70px]",
@@ -274,11 +288,12 @@ function FixtureRow({ fixture }: { fixture: ChampionshipFixture }) {
             {fixture.awayTeam}
           </span>
         </div>
-        {clubInvolved && <p className="mt-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">Squadra del club</p>}
+        {clubInvolved && <p className="mt-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">{fixture.matchHref ? "Apri scheda partita · convocazioni e preparazione" : "Squadra del club · scheda non collegata"}</p>}
       </div>
       <div className="text-left font-semibold tabular-nums sm:text-right">{scoreLabel(fixture)}</div>
     </div>
   );
+  return fixture.matchHref ? <Link href={fixture.matchHref} className="block rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary hover:bg-muted/30" aria-label={`Apri scheda partita ${fixture.homeTeam} - ${fixture.awayTeam}`}>{content}</Link> : content;
 }
 
 function RoundAccordion({
@@ -288,6 +303,7 @@ function RoundAccordion({
   round: { key: string; label: string; fixtures: ChampionshipFixture[] };
   defaultOpen: boolean;
 }) {
+  const isClubTeam = useClubTeamMatcher();
   const [open, setOpen] = useState(defaultOpen);
   const clubFixtureCount = round.fixtures.filter((fixture) => isClubTeam(fixture.homeTeam) || isClubTeam(fixture.awayTeam)).length;
   const playedCount = round.fixtures.filter(fixtureHasResult).length;
@@ -324,6 +340,7 @@ function RoundAccordion({
 }
 
 function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
+  const isClubTeam = useClubTeamMatcher();
   if (standings.length === 0) {
     return <p className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">Classifica non ancora disponibile.</p>;
   }
@@ -450,6 +467,7 @@ function ChampionshipView({ championship, group }: { championship: Championship;
         <div className="flex flex-wrap items-center gap-2">
           {championship.id < 0 && <Badge variant="secondary">Da calendario squadra</Badge>}
           {championship.sourceProvider === "lnd" && <Badge variant="secondary">Fonte LND salvata</Badge>}
+          {championship.id > 0 && championship.sourceProvider !== "lnd" && <Badge variant="secondary">Calendario interno</Badge>}
           <Badge variant="outline">{group.fixtures.length} partite</Badge>
         </div>
       </div>
@@ -668,6 +686,17 @@ function LndSyncDialog({
 }
 
 export default function SectionChampionshipsPage({ section }: { section: SectionKey }) {
+  const search = useSearch();
+  const [, setLocation] = useLocation();
+  const params = new URLSearchParams(search);
+  const requestedTeamId = Number(params.get("teamId")) || null;
+  const requestedMatchId = Number(params.get("openMatchId")) || null;
+  const { data: club, isLoading: isClubLoading } = useGetMyClub();
+  const { data: allTeams = [], isLoading: isTeamsLoading, error: teamsError } = useQuery<ChampionshipTeam[]>({ queryKey: ["/api/teams"], queryFn: () => apiFetch("/api/teams") });
+  const teams = allTeams.filter(team => team.clubSection === section);
+  const requestedTeam = teams.find(team => team.id === requestedTeamId);
+  const clubNames = [club?.name, (club as { legalName?: string } | undefined)?.legalName, ...teams.map(team => team.name)].filter((name): name is string => Boolean(name));
+
   const [selectedKey, setSelectedKey] = useState("");
   const [syncOpen, setSyncOpen] = useState(false);
   const { data: championships = [], isLoading, error } = useQuery<Championship[], Error>({
@@ -675,27 +704,44 @@ export default function SectionChampionshipsPage({ section }: { section: Section
     queryFn: () => apiFetch(`/api/championships?section=${section}`),
     retry: 1,
   });
-  const { data: sectionMatches = [], isLoading: isMatchesLoading } = useQuery<SectionMatch[], Error>({
+  const { data: sectionMatches = [], isLoading: isMatchesLoading, error: matchesError } = useQuery<SectionMatch[], Error>({
     queryKey: ["/api/matches", section, "championship-fallback"],
     queryFn: () => apiFetch(`/api/matches?section=${section}`),
-    enabled: !isLoading && !error && championships.length === 0,
+    enabled: !isLoading && !error && (section === "settore_giovanile" || championships.length === 0),
     retry: 1,
   });
 
-  const fallbackChampionships = useMemo(
-    () => championships.length > 0 ? [] : buildFallbackChampionships(sectionMatches, section),
-    [championships.length, sectionMatches, section],
-  );
-  const displayedChampionships = championships.length > 0 ? championships : fallbackChampionships;
+  const displayedChampionships = useMemo(() => {
+    const teamScopeCache = new Map<number, number[]>();
+    const enrich = (championship: Championship): Championship => ({ ...championship, groups: championship.groups.map(group => ({ ...group, fixtures: group.fixtures.map(fixture => {
+      const match = section === "settore_giovanile" ? resolveChampionshipMatch(fixture, championship, championships, sectionMatches, teams, clubNames, teamScopeCache) : null;
+      return { ...fixture, linkedMatchId: match?.id, linkedTeamId: match?.teamId ?? undefined, matchHref: match?.teamId ? championshipMatchPath(section, match.teamId, match.id, championship.id, group.id) : undefined };
+    }) })) });
+    const official = championships.map(enrich);
+    const coveredIds = new Set(official.flatMap(item => item.groups.flatMap(group => group.fixtures.filter(fixture => fixture.matchHref).map(fixture => fixture.linkedMatchId!))));
+    const fallback = section === "settore_giovanile" || championships.length === 0
+      ? buildFallbackChampionships(sectionMatches.filter(match => !coveredIds.has(match.id)), section).map(enrich) : [];
+    // Prefer the LND view where it covers the same imported match sheets completely.
+    const lndLinks = new Set(official.filter(item => item.sourceProvider === "lnd").flatMap(item => item.groups.flatMap(group => group.fixtures.map(fixture => fixture.linkedMatchId).filter(Boolean))));
+    return [...official.filter(item => item.sourceProvider === "lnd" || !item.groups.length || !item.groups.every(group => group.fixtures.length > 0 && group.fixtures.filter(fixture => fixture.matchHref).length > 0 && group.fixtures.filter(fixture => fixture.matchHref).every(fixture => lndLinks.has(fixture.linkedMatchId)))), ...fallback];
+  }, [championships, sectionMatches, allTeams, club, section]);
 
-  const groupOptions = useMemo(
-    () => displayedChampionships.flatMap((championship) => championship.groups.map((group) => ({ championship, group, key: `${championship.id}:${group.id}` }))),
-    [displayedChampionships],
-  );
-  const activeOption = groupOptions.find((option) => option.key === selectedKey) ?? groupOptions[0] ?? null;
+  const groupOptions = displayedChampionships.flatMap(championship => championship.groups.map(group => ({ championship, group, key: `${championship.id}:${group.id}` })))
+    .filter(option => !requestedTeamId || option.championship.teamId === requestedTeamId
+      || requestedTeam && Boolean(option.championship.category) && [requestedTeam.name, requestedTeam.category ?? ""].some(name => championshipNameKey(name) === championshipNameKey(option.championship.category!))
+      || option.group.fixtures.some(fixture => fixture.linkedTeamId === requestedTeamId));
+  const queryKey = params.has("championshipId") && params.has("groupId") ? `${params.get("championshipId")}:${params.get("groupId")}` : "";
+  const activeOption = groupOptions.find(option => option.key === (queryKey || selectedKey)) ?? groupOptions[0] ?? null;
+  const selectedMatch = sectionMatches.find(match => match.id === requestedMatchId && (!requestedTeamId || match.teamId === requestedTeamId) && teams.some(team => team.id === match.teamId));
+  const basePath = `/${section.replace(/_/g, "-")}/campionati`;
+  useEffect(() => {
+    if (requestedMatchId && selectedMatch) document.getElementById("championship-match-sheet")?.scrollIntoView({ block: "start" });
+  }, [requestedMatchId, selectedMatch?.id]);
+
 
   return (
-    <div className="space-y-5">
+    <ChampionshipClubNames.Provider value={clubNames}>
+    <div className="min-w-0 space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-2">
@@ -711,6 +757,17 @@ export default function SectionChampionshipsPage({ section }: { section: Section
         </Button>
       </div>
 
+      {section === "settore_giovanile" && <div className="flex flex-wrap items-center gap-2">
+        {requestedTeamId && <Link href={basePath} className="rounded border px-3 py-2 text-sm">Tutti i campionati</Link>}
+        <Link href={requestedTeam ? `/settore-giovanile/calendari/${requestedTeam.id}?phase=tornei` : "/settore-giovanile/matches"} className="rounded border px-3 py-2 text-sm">Tornei, amichevoli e importazioni</Link>
+        {requestedTeam && <Badge variant="outline">{requestedTeam.name}</Badge>}
+      </div>}
+      {(matchesError || teamsError) && <p role="alert" className="rounded border p-3 text-sm text-destructive">Impossibile caricare le schede interne. Il calendario del girone resta consultabile; riprova prima di aprire una scheda.</p>}
+      {requestedMatchId && !isMatchesLoading && !isTeamsLoading && !matchesError && !teamsError && <section id="championship-match-sheet" aria-label="Scheda partita del campionato" className="min-w-0 space-y-2">
+        <Button type="button" variant="outline" onClick={() => { const next = new URLSearchParams(search); next.delete("openMatchId"); setLocation(`${basePath}?${next}`); }}>Chiudi scheda partita</Button>
+        {selectedMatch?.teamId ? <TeamCalendar key={selectedMatch.id} overrideTeamId={selectedMatch.teamId} detailMatchId={selectedMatch.id} />
+          : <p role="alert" className="rounded border p-3 text-sm text-destructive">Scheda non disponibile per la squadra e il settore selezionati.</p>}
+      </section>}
       <LndSyncDialog
         section={section}
         open={syncOpen}
@@ -718,7 +775,7 @@ export default function SectionChampionshipsPage({ section }: { section: Section
         initialUrl={activeOption?.championship.sourceUrl}
       />
 
-      {isLoading || isMatchesLoading ? (
+      {isLoading || isMatchesLoading || isTeamsLoading || isClubLoading ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">Caricamento campionati...</CardContent>
         </Card>
@@ -753,7 +810,7 @@ export default function SectionChampionshipsPage({ section }: { section: Section
                   type="button"
                   size="sm"
                   variant={option.key === activeOption.key ? "default" : "outline"}
-                  onClick={() => setSelectedKey(option.key)}
+                  onClick={() => { setSelectedKey(option.key); const next = new URLSearchParams(search); next.set("championshipId", String(option.championship.id)); next.set("groupId", String(option.group.id)); setLocation(`${basePath}?${next}`); }}
                   className="shrink-0"
                 >
                   {option.championship.title} · {option.group.name}
@@ -765,5 +822,6 @@ export default function SectionChampionshipsPage({ section }: { section: Section
         </>
       )}
     </div>
+    </ChampionshipClubNames.Provider>
   );
 }

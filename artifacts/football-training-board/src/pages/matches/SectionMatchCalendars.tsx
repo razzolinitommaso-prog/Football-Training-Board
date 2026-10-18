@@ -1,3 +1,4 @@
+import { championshipMatchPath } from "@/lib/championship-match-links";
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -49,6 +50,7 @@ function sectionSlugFromClubSection(value?: string | null) {
 }
 
 function teamCalendarPath(team: Pick<Team, "id" | "clubSection">) {
+  if (team.clubSection === "settore_giovanile") return championshipMatchPath("settore_giovanile", team.id);
   return `/${sectionSlugFromClubSection(team.clubSection)}/calendari/${team.id}`;
 }
 
