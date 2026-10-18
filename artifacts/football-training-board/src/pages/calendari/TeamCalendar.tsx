@@ -2700,7 +2700,7 @@ function MatchCard({
                       placeholder="Ricerca rapida giocatore (cognome o nome)"
                     />
                   </div>
-                  <div className="min-w-0 divide-y rounded border bg-background px-2">
+                  <div className="@container min-w-0 divide-y rounded border bg-background px-2">
                     {filteredTeamPlayers.map((p) => {
                       const parentUnavailable = parentUnavailableCallupsByPlayer.get(p.id);
                       const parentUnavailableLabel = parentUnavailable
@@ -2708,9 +2708,9 @@ function MatchCard({
                         : "";
                       const disabled = p.available === false || Boolean(parentUnavailable);
                       return (
-                      <div key={p.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2 px-1 py-3 text-xs", disabled && "opacity-50")}>
+                      <div key={p.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5 px-1 py-1.5 text-xs", disabled && "opacity-50")}>
                         <Checkbox
-                          className="mt-1"
+                          className="my-1"
                           aria-label={`Convoca ${p.firstName} ${p.lastName}`}
                           checked={selectedPlayerIds.has(p.id)}
                           disabled={disabled}
@@ -2723,17 +2723,17 @@ function MatchCard({
                             })
                           }
                         />
-                        <span className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                          <span className="min-w-0">
-                          <span className="block break-words font-medium text-foreground">
+                        <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 @min-[34rem]:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+                          <span className="contents">
+                          <span className="col-start-1 row-start-1 min-w-0 break-words font-medium leading-tight text-foreground">
                             {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
                           </span>
-                          <span className="block break-words text-[11px] text-muted-foreground">
+                          <span className="col-start-1 row-start-2 min-w-0 break-words text-[11px] leading-tight text-muted-foreground @min-[34rem]:col-start-2 @min-[34rem]:row-start-1 @min-[34rem]:max-w-28">
                             {p.position || "Ruolo non indicato"}{parentUnavailable ? parentUnavailableLabel : playerUnavailableLabel(p)}
                           </span>
                           </span>
                           {selectedPlayerIds.has(p.id) && (
-                            <span className="flex flex-wrap gap-1">
+                            <span className="col-start-2 row-start-1 flex items-center gap-1 @min-[34rem]:col-start-3">
                               {(() => {
                                 const firstPeriod = previewPeriod;
                                 const limit = firstPeriod ? startersLimitForPeriod(firstPeriod, matchFormat) : 0;
@@ -2746,7 +2746,7 @@ function MatchCard({
                                       type="button"
                                       aria-pressed={playerIndex >= 0 && !isReserve}
                                       className={cn(
-                                        "min-h-9 rounded border px-2 py-1 text-[11px] font-semibold",
+                                        "min-h-9 rounded border px-1.5 py-1 text-[11px] font-semibold",
                                         playerIndex >= 0 && !isReserve
                                           ? "border-emerald-300 bg-emerald-50 text-emerald-700"
                                           : "border-border bg-background text-muted-foreground",
@@ -2763,7 +2763,7 @@ function MatchCard({
                                       type="button"
                                       aria-pressed={isReserve}
                                       className={cn(
-                                        "min-h-9 rounded border px-2 py-1 text-[11px] font-semibold",
+                                        "min-h-9 rounded border px-1.5 py-1 text-[11px] font-semibold",
                                         isReserve
                                           ? "border-amber-300 bg-amber-50 text-amber-700"
                                           : "border-border bg-background text-muted-foreground",
@@ -2782,7 +2782,7 @@ function MatchCard({
                             </span>
                           )}
                           {matchWeekTrainingDays.length > 0 && (
-                            <span className="flex min-w-0 flex-wrap items-center gap-1 sm:col-span-2" aria-label="Presenze allenamenti settimana partita">
+                            <span className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center justify-end gap-0.5 @min-[34rem]:col-start-4 @min-[34rem]:row-start-1" aria-label="Presenze allenamenti settimana partita">
                               {matchWeekTrainingDays.map((day) => {
                                 const status = day.sessionId ? matchWeekAttendanceByPlayer.get(`${p.id}:${day.sessionId}`) : null;
                                 const tone = trainingAttendanceTone(status);
