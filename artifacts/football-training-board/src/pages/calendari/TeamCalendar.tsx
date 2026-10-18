@@ -287,6 +287,7 @@ type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   lineupPlayerIds?: number[];
   lineupPositions?: LineupPositionMap;
   lineupDrawings?: LineupDrawing[];
+  lineupAlternatives?: MatchLineupAlternative[];
   lineupDetectedModule?: string | null;
   boardId?: number | null;
   boardTitle?: string | null;
@@ -294,6 +295,34 @@ type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   boardSnapshotAt?: string | null;
   boardConfirmed?: boolean | null;
 };
+type MatchLineupAlternative = {
+  id: string;
+  title: string;
+  module: string;
+  lineupPlayerIds: number[];
+  lineupPositions: LineupPositionMap;
+  lineupDrawings: LineupDrawing[];
+};
+
+function copyLineupAlternative(period: Pick<MatchPlanPeriodRuntime, "module" | "lineupPlayerIds" | "lineupPositions" | "lineupDrawings">, id: string, title: string): MatchLineupAlternative {
+  return {
+    id, title, module: period.module ?? "",
+    lineupPlayerIds: [...(period.lineupPlayerIds ?? [])],
+    lineupPositions: Object.fromEntries(Object.entries(period.lineupPositions ?? {}).map(([key, point]) => [key, { ...point }])),
+    lineupDrawings: (period.lineupDrawings ?? []).map(drawing => ({ ...drawing, points: drawing.points.map(point => ({ ...point })) })),
+  };
+}
+
+function applyLineupAlternative(period: MatchPlanPeriodRuntime, alternative: MatchLineupAlternative): MatchPlanPeriodRuntime {
+  const layout = copyLineupAlternative(alternative, alternative.id, alternative.title);
+  return {
+    ...period, module: layout.module, lineupPlayerIds: layout.lineupPlayerIds,
+    lineupPositions: layout.lineupPositions, lineupDrawings: layout.lineupDrawings,
+    lineupDetectedModule: null, boardConfirmed: false,
+    boardId: null, boardUrl: null, boardTitle: null, boardSnapshotAt: null,
+  };
+}
+
 type MatchDisciplineCard = {
   id: string;
   playerId: number;
@@ -1428,6 +1457,7 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
       lineupPlayerIds: Array.isArray(map.get(d.key)?.lineupPlayerIds) ? map.get(d.key)!.lineupPlayerIds : [],
       lineupPositions: map.get(d.key)?.lineupPositions && typeof map.get(d.key)?.lineupPositions === "object" ? map.get(d.key)!.lineupPositions : {},
       lineupDrawings: Array.isArray(map.get(d.key)?.lineupDrawings) ? map.get(d.key)!.lineupDrawings : [],
+      lineupAlternatives: Array.isArray(map.get(d.key)?.lineupAlternatives) ? map.get(d.key)!.lineupAlternatives!.map(alternative => copyLineupAlternative(alternative, alternative.id, alternative.title)) : [],
       lineupDetectedModule: map.get(d.key)?.lineupDetectedModule ?? null,
       boardId: map.get(d.key)?.boardId ?? null,
       boardTitle: map.get(d.key)?.boardTitle ?? null,
@@ -1454,6 +1484,7 @@ function normalizePlanPeriodsForSection(plan: MatchPlanData, section: MatchSecti
         ...period,
         format: undefined,
         module: validModules.includes(period.module ?? "") ? period.module : "",
+        lineupAlternatives: (period.lineupAlternatives ?? []).map(alternative => ({ ...alternative, module: validModules.includes(alternative.module) ? alternative.module : "" })),
         lineupDetectedModule:
           period.lineupDetectedModule && validModules.includes(period.lineupDetectedModule)
             ? period.lineupDetectedModule
@@ -1607,18 +1638,46 @@ function isNoopMatchUpdateError(err: unknown): boolean {
   return message.includes("Nessun campo da aggiornare");
 }
 
-function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById }: {
+function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById, onChange, editorLabel = period.label }: {
   period: MatchPlanPeriodRuntime;
   matchFormat: MatchFormat;
   selectedIds: Set<number>;
   playersById: Map<number, Player>;
+  onChange?: (changes: Partial<MatchPlanPeriodRuntime>) => void;
+  editorLabel?: string;
 }) {
+  const fieldRef = useRef<HTMLDivElement | null>(null);
+  const pointerRef = useRef<{ id: number; pointerId: number; x: number; y: number; start: LineupPoint; width: number; height: number; moved: boolean } | null>(null);
+  const [movingPoint, setMovingPoint] = useState<{ id: number; point: LineupPoint } | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const limit = startersLimitForPeriod(period, matchFormat);
   const ids = (period.lineupPlayerIds ?? []).filter(id => selectedIds.has(id));
   const slots = formationSlotsForLineup(period.module, period.format ?? matchFormat, limit);
-  return <div className="space-y-2" aria-label={`Schieramento ${period.label}`}>
+  const positionAt = (id: number, index: number) => period.lineupPositions?.[String(id)] ?? slots[index] ?? { x: 50, y: 50 };
+  const pointerPoint = (clientX: number, clientY: number) => {
+    const pointer = pointerRef.current;
+    if (!pointer) return null;
+    const dx = clientX - pointer.x, dy = clientY - pointer.y;
+    if (Math.hypot(dx, dy) >= 4) pointer.moved = true;
+    return { x: Math.max(4, Math.min(96, pointer.start.x + dx / pointer.width * 100)), y: Math.max(4, Math.min(96, pointer.start.y + dy / pointer.height * 100)) };
+  };
+  return <div className="space-y-2" aria-label={`Schieramento ${editorLabel}`}>
+    {onChange && <>
+      <label className="block text-xs font-medium">Modulo
+        <select aria-label={`Modulo ${editorLabel}`} className="mt-1 min-h-9 w-full rounded-md border bg-background px-2 text-xs" value={period.module ?? ""} onChange={event => {
+          const module = event.target.value;
+          const ordered = normalizeLineupGoalkeepers(ids, playersById, limit);
+          const nextSlots = formationSlotsForLineup(module, period.format ?? matchFormat, limit);
+          onChange({ module, lineupPlayerIds: ordered, lineupPositions: Object.fromEntries(ordered.slice(0, limit).map((id, index) => [String(id), { x: nextSlots[index]?.x ?? 50, y: nextSlots[index]?.y ?? 50 }])) });
+        }}>
+          <option value="">Modulo base ({period.format ?? matchFormat})</option>
+          {moduleOptionsForFormat(period.format ?? matchFormat).map(module => <option key={module} value={module}>{module}</option>)}
+        </select>
+      </label>
+      <p className="text-[11px] text-muted-foreground">Trascina i giocatori sul campo. Tocca un nome per scambiarlo; da tastiera usa le frecce.</p>
+    </>}
     <p className="text-xs text-muted-foreground">Titolari {Math.min(ids.length, limit)}/{limit} · Riserve {Math.max(0, ids.length - limit)}</p>
-    <div className="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-lg border-4 border-emerald-300 bg-green-700" role="img" aria-label={`Campo ${period.label}: ${ids.slice(0, limit).map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : id; }).join(", ") || "nessun titolare"}`}>
+    <div ref={fieldRef} className="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-lg border-4 border-emerald-300 bg-green-700" role={onChange ? "group" : "img"} aria-label={`Campo ${editorLabel}: ${ids.slice(0, limit).map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : id; }).join(", ") || "nessun titolare"}`}>
       <div className="pointer-events-none absolute inset-[5%] border border-white/60" />
       <div className="pointer-events-none absolute inset-x-[5%] top-1/2 border-t border-white/60" />
       <div className="pointer-events-none absolute left-[35%] top-[39%] h-[22%] w-[30%] rounded-full border border-white/60" />
@@ -1639,17 +1698,57 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
       </svg>
       {ids.slice(0, limit).map((id, index) => {
         const player = playersById.get(id);
-        const slot = slots[index] ?? { x: 50, y: 50, role: "player" };
-        const position = period.lineupPositions?.[String(id)] ?? slot;
-        const display = lineupPointToPortrait(position);
-        return <div key={id} className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center" style={{ left: `${display.x}%`, top: `${display.y}%` }}>
+        const position = positionAt(id, index);
+        const display = movingPoint?.id === id ? movingPoint.point : lineupPointToPortrait(position);
+        return <button key={id} type="button" disabled={!onChange} aria-label={`Sposta ${player ? `${player.firstName} ${player.lastName}` : id} — ${editorLabel}`} aria-pressed={onChange ? selectedId === id : undefined}
+          className={cn("absolute flex min-h-11 min-w-11 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded disabled:opacity-100", onChange && "touch-none cursor-grab focus-visible:outline focus-visible:outline-2 focus-visible:outline-white active:cursor-grabbing")}
+          style={{ left: `${display.x}%`, top: `${display.y}%` }}
+          onPointerDown={event => {
+            if (!onChange || !event.isPrimary || event.button !== 0) return;
+            const rect = fieldRef.current?.getBoundingClientRect();
+            if (!rect?.width || !rect.height) return;
+            event.stopPropagation(); setSelectedId(id);
+            pointerRef.current = { id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, start: lineupPointToPortrait(position), width: rect.width, height: rect.height, moved: false };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={event => { if (pointerRef.current?.pointerId !== event.pointerId) return; const point = pointerPoint(event.clientX, event.clientY); if (point && pointerRef.current?.moved) setMovingPoint({ id, point }); }}
+          onPointerUp={event => {
+            if (pointerRef.current?.pointerId !== event.pointerId) return;
+            const point = pointerPoint(event.clientX, event.clientY);
+            if (onChange && point && pointerRef.current?.moved) onChange({ lineupPositions: { ...period.lineupPositions, [String(id)]: lineupPointFromPortrait(point) } });
+            pointerRef.current = null; setMovingPoint(null);
+          }}
+          onPointerCancel={() => { pointerRef.current = null; setMovingPoint(null); }}
+          onClick={() => onChange && setSelectedId(id)}
+          onKeyDown={event => {
+            if (!onChange || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+            event.preventDefault(); const point = lineupPointToPortrait(position);
+            const x = Math.max(4, Math.min(96, point.x + (event.key === "ArrowRight" ? 2 : event.key === "ArrowLeft" ? -2 : 0)));
+            const y = Math.max(4, Math.min(96, point.y + (event.key === "ArrowDown" ? 2 : event.key === "ArrowUp" ? -2 : 0)));
+            onChange({ lineupPositions: { ...period.lineupPositions, [String(id)]: lineupPointFromPortrait({ x, y }) } });
+          }}
+        >
           <span className={cn("flex h-7 w-7 items-center justify-center rounded-full border border-white text-[10px] font-bold text-white", player && isGoalkeeperPlayer(player) ? "bg-yellow-600" : "bg-blue-500")}>{player?.jerseyNumber ?? (player && isGoalkeeperPlayer(player) ? "GK" : index + 1)}</span>
           <span className="max-w-20 truncate rounded bg-black/60 px-1 text-[9px] text-white">{player ? shortPlayerLabel(player) : id}</span>
-        </div>;
+        </button>;
       })}
     </div>
     {ids.length > limit && <p className="text-xs"><span className="font-semibold">Riserve: </span>{ids.slice(limit).map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : String(id); }).join(", ")}</p>}
+    {onChange && selectedId != null && ids.includes(selectedId) && <label className="block text-xs font-medium">Scambia giocatore
+      <select aria-label={`Scambia giocatore ${editorLabel}`} className="mt-1 min-h-9 w-full rounded-md border bg-background px-2 text-xs" value={selectedId} onChange={event => {
+        const nextId = Number(event.target.value), index = ids.indexOf(selectedId), other = ids.indexOf(nextId);
+        if (nextId === selectedId || index < 0 || !selectedIds.has(nextId)) return;
+        const lineupPlayerIds = [...ids]; lineupPlayerIds[index] = nextId;
+        if (other >= 0) lineupPlayerIds[other] = selectedId;
+        const lineupPositions = { ...period.lineupPositions, [String(nextId)]: { ...positionAt(selectedId, index) } };
+        if (other >= 0 && other < limit) lineupPositions[String(selectedId)] = { ...positionAt(nextId, other) };
+        onChange({ lineupPlayerIds, lineupPositions }); setSelectedId(nextId);
+      }}>
+        {[...playersById.values()].filter(player => selectedIds.has(player.id)).map(player => <option key={player.id} value={player.id}>{player.firstName} {player.lastName}</option>)}
+      </select>
+    </label>}
     {ids.length === 0 && <p className="text-xs text-muted-foreground">Seleziona i convocati o caricali nel tempo per visualizzare lo schieramento.</p>}
+    {onChange && ids.length === 0 && selectedIds.size > 0 && <Button type="button" size="sm" variant="outline" onClick={() => onChange({ lineupPlayerIds: normalizeLineupGoalkeepers([...selectedIds], playersById, limit), lineupPositions: {} })}>Carica convocati sul campo</Button>}
   </div>;
 }
 
@@ -1711,7 +1810,8 @@ function MatchCard({
   const [planOpen, setPlanOpen] = useState(shouldOpenPlanFromQuery);
   const [previewBoard, setPreviewBoard] = useState<MatchPlanPeriodRuntime | null>(null);
   const [lineupDialog, setLineupDialog] = useState<LineupDialogState | null>(null);
-  const [previewPeriodKey, setPreviewPeriodKey] = useState<string>("t1");
+  const [openAlternativePeriods, setOpenAlternativePeriods] = useState<Set<string>>(new Set());
+  const [activeAlternative, setActiveAlternative] = useState<Record<string, string>>({});
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set());
   const [callupSearch, setCallupSearch] = useState("");
   const [exportingCallupPdf, setExportingCallupPdf] = useState(false);
@@ -2139,8 +2239,38 @@ function MatchCard({
     setLineupDialog(null);
   }
 
-  const previewPeriodIndex = Math.max(0, planDraft.periods.findIndex(period => period.key === previewPeriodKey));
-  const previewPeriod = planDraft.periods[previewPeriodIndex];
+  function updateInlinePeriod(periodIndex: number, changes: Partial<MatchPlanPeriodRuntime>, alternativeId?: string) {
+    setPlanDraft(previous => {
+      const periods = previous.periods.map((period, index) => {
+        if (index !== periodIndex) return period;
+        if (alternativeId) return { ...period, lineupAlternatives: (period.lineupAlternatives ?? []).map(alternative => alternative.id === alternativeId ? { ...alternative, ...changes } : alternative) };
+        return { ...period, ...changes, lineupDetectedModule: null, boardConfirmed: false };
+      });
+      return { ...previous, periods: !alternativeId && autoReserveRuleEnabled && periodIndex === 0 ? applyScuolaCalcioSecondPeriodAuto(periods, selectedPlayerIds, matchFormat) : periods };
+    });
+  }
+
+  function addLineupAlternatives(periodIndex: number, minimum = false) {
+    const stamp = Date.now();
+    setPlanDraft(previous => ({ ...previous, periods: previous.periods.map((period, index) => {
+      if (index !== periodIndex) return period;
+      const alternatives = [...(period.lineupAlternatives ?? [])];
+      const target = minimum ? Math.max(2, alternatives.length) : alternatives.length + 1;
+      while (alternatives.length < target) alternatives.push(copyLineupAlternative(period, `${period.key}-${stamp}-${alternatives.length + 1}`, `Alternativa ${alternatives.length + 1}`));
+      return { ...period, lineupAlternatives: alternatives };
+    }) }));
+  }
+
+  function useLineupAlternative(periodIndex: number, alternativeId: string) {
+    setPlanDraft(previous => {
+      const periods = previous.periods.map((period, index) => {
+        if (index !== periodIndex) return period;
+        const alternative = period.lineupAlternatives?.find(item => item.id === alternativeId);
+        return alternative ? applyLineupAlternative(period, alternative) : period;
+      });
+      return { ...previous, periods: autoReserveRuleEnabled && periodIndex === 0 ? applyScuolaCalcioSecondPeriodAuto(periods, selectedPlayerIds, matchFormat) : periods };
+    });
+  }
 
   function setPeriodPlayerReserveStatus(playerId: number, reserve: boolean, periodIndex: number) {
     setPlanDraft((prev) => {
@@ -2272,6 +2402,11 @@ function MatchCard({
             ...p,
             lineupPlayerIds,
             lineupPositions,
+            lineupAlternatives: (p.lineupAlternatives ?? []).map(alternative => ({
+              ...copyLineupAlternative(alternative, alternative.id, alternative.title),
+              lineupPlayerIds: normalizeLineupGoalkeepers(alternative.lineupPlayerIds.filter(id => selected.has(id)), convokedById, startersLimitForPeriod(p, matchFormat)),
+              lineupPositions: Object.fromEntries(Object.entries(alternative.lineupPositions ?? {}).filter(([id]) => selectedKeys.has(id))),
+            })),
             lineupDetectedModule: detectLineupModuleLabel(
               lineupPlayerIds,
               lineupPositions,
@@ -2687,6 +2822,9 @@ function MatchCard({
             </div>
             {planOpen && canManageMatchPlan && (
               <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
+                {planDraft.periods.map((previewPeriod, previewPeriodIndex) => (
+                  <details key={previewPeriod.key} open={previewPeriodIndex === 0} className="rounded-lg border bg-background/50 p-2 sm:p-3">
+                    <summary className="cursor-pointer py-2 text-sm font-semibold">{previewPeriod.label} · {previewPeriod.minutes} min — apri/chiudi preparazione</summary>
                 <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.65fr)]">
                 <div className="min-w-0 space-y-2">
                   <Label className="text-xs text-muted-foreground">Convocazione (rosa utilizzata)</Label>
@@ -2723,13 +2861,14 @@ function MatchCard({
                             })
                           }
                         />
-                        <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_7rem] items-center gap-x-2 gap-y-0.5 @min-[34rem]:grid-cols-[minmax(0,1fr)_6rem_7rem_10rem]">
+                        <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_7rem] items-center gap-x-3 gap-y-0.5 @min-[34rem]:grid-cols-[minmax(0,1fr)_6rem_7rem_10rem]">
                           <span className="contents">
                           <span className="col-start-1 row-start-1 min-w-0 break-words font-medium leading-tight text-foreground">
                             {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
                           </span>
                           <span className="col-start-1 row-start-2 min-w-0 break-words text-[11px] leading-tight text-muted-foreground @min-[34rem]:col-start-2 @min-[34rem]:row-start-1 @min-[34rem]:max-w-28">
-                            {p.position || "Ruolo non indicato"}{parentUnavailable ? parentUnavailableLabel : playerUnavailableLabel(p)}
+                            <span className="block">{p.position || "Ruolo non indicato"}</span>
+                            {(parentUnavailable ? parentUnavailableLabel : playerUnavailableLabel(p)) && <span className="block">{(parentUnavailable ? parentUnavailableLabel : playerUnavailableLabel(p)).replace(/^\s*-\s*/, "")}</span>}
                           </span>
                           </span>
                           {selectedPlayerIds.has(p.id) && (
@@ -2830,19 +2969,37 @@ function MatchCard({
                   <p className="text-[11px] text-muted-foreground">Presenze allenamenti: ✓ presente · − assente · G giustificato · I infortunato · · non registrato.</p>
                 </div>
                 <aside className="min-w-0 self-start space-y-3 rounded-lg border bg-background p-3 lg:sticky lg:top-20">
-                  <h4 className="text-sm font-semibold">Anteprima schieramento</h4>
-                  <div className="flex flex-wrap gap-1" aria-label="Tempo visualizzato">
-                    {planDraft.periods.map((period, index) => (
-                      <Button key={period.key} type="button" size="sm" variant={index === previewPeriodIndex ? "default" : "outline"} aria-pressed={index === previewPeriodIndex} onClick={() => setPreviewPeriodKey(period.key)}>{period.label}</Button>
-                    ))}
-                  </div>
-                  {previewPeriod && <>
-                    <MatchDraftLineupPreview period={previewPeriod} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} />
-                    <Button type="button" variant="outline" className="w-full" onClick={() => openLineupDialog(previewPeriodIndex, "view")}>Ingrandisci anteprima</Button>
-                    <Button type="button" variant="secondary" className="w-full" onClick={() => openLineupDialog(previewPeriodIndex, "edit")}>Prepara schieramento</Button>
-                  </>}
+                  <h4 className="text-sm font-semibold">Schieramento attuale — {previewPeriod.label}</h4>
+                  <MatchDraftLineupPreview period={previewPeriod} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={`Attuale ${previewPeriod.label}`} onChange={changes => updateInlinePeriod(previewPeriodIndex, changes)} />
+                  <Button type="button" variant="outline" className="w-full" onClick={() => openLineupDialog(previewPeriodIndex, "view")}>Ingrandisci anteprima</Button>
+                  <Button type="button" variant="ghost" className="w-full" onClick={() => openLineupDialog(previewPeriodIndex, "edit")}>Strumenti avanzati</Button>
+                  <Button type="button" className="w-full" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button>
                 </aside>
                 </div>
+                <Button type="button" variant="outline" className="mt-3 min-h-10 w-full whitespace-normal" aria-expanded={openAlternativePeriods.has(previewPeriod.key)} onClick={() => {
+                  if (!openAlternativePeriods.has(previewPeriod.key)) addLineupAlternatives(previewPeriodIndex, true);
+                  setOpenAlternativePeriods(previous => { const next = new Set(previous); if (next.has(previewPeriod.key)) next.delete(previewPeriod.key); else next.add(previewPeriod.key); return next; });
+                }}>Lavora sui possibili schieramenti — {previewPeriod.label}</Button>
+                {openAlternativePeriods.has(previewPeriod.key) && <section className="mt-3 space-y-3" aria-label={`Possibili schieramenti ${previewPeriod.label}`}>
+                  <p className="text-xs text-muted-foreground">Le alternative non cambiano lo schieramento attuale. Usa questo schieramento per applicarne una; Salva piano partita conserva attuale e alternative.</p>
+                  <div className="flex flex-wrap gap-1 lg:hidden" aria-label={`Scegli alternativa ${previewPeriod.label}`}>
+                    {[{ id: "current", title: "Attuale" }, ...(previewPeriod.lineupAlternatives ?? [])].map(item => <Button key={item.id} type="button" size="sm" variant={(activeAlternative[previewPeriod.key] ?? "current") === item.id ? "default" : "outline"} onClick={() => setActiveAlternative(previous => ({ ...previous, [previewPeriod.key]: item.id }))}>{item.title}</Button>)}
+                  </div>
+                  <div className="grid min-w-0 gap-3 lg:grid-cols-3">
+                    <div className={cn("min-w-0 rounded-lg border bg-background p-2", (activeAlternative[previewPeriod.key] ?? "current") !== "current" && "hidden lg:block")}>
+                      <h5 className="mb-2 text-sm font-semibold">Attuale — {previewPeriod.label}</h5>
+                      <MatchDraftLineupPreview period={previewPeriod} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={`Confronto attuale ${previewPeriod.label}`} onChange={changes => updateInlinePeriod(previewPeriodIndex, changes)} />
+                    </div>
+                    {(previewPeriod.lineupAlternatives ?? []).map(alternative => <div key={alternative.id} className={cn("min-w-0 rounded-lg border bg-background p-2", activeAlternative[previewPeriod.key] !== alternative.id && "hidden lg:block")}>
+                      <h5 className="mb-2 text-sm font-semibold">{alternative.title} — {previewPeriod.label}</h5>
+                      <MatchDraftLineupPreview period={{ ...previewPeriod, ...alternative }} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={`${alternative.title} ${previewPeriod.label}`} onChange={changes => updateInlinePeriod(previewPeriodIndex, changes, alternative.id)} />
+                      <Button type="button" variant="outline" className="mt-2 w-full" onClick={() => useLineupAlternative(previewPeriodIndex, alternative.id)}>Usa questo schieramento</Button>
+                    </div>)}
+                  </div>
+                  <Button type="button" variant="outline" className="min-h-10 gap-2" onClick={() => addLineupAlternatives(previewPeriodIndex)}><Plus className="h-4 w-4" />Aggiungi alternativa</Button>
+                </section>}
+                  </details>
+                ))}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Orario convocazione</Label>
@@ -3011,7 +3168,8 @@ function MatchCard({
                     <Label className="text-xs cursor-pointer">Abilita 4° tempo</Label>
                   </div>
                 )}
-                <div className="space-y-2">
+                <details className="space-y-2 rounded border p-2">
+                  <summary className="cursor-pointer py-1 text-xs font-semibold">Opzioni avanzate dei tempi: formato e ordinamento</summary>
                   {planDraft.periods.map((p, i) => {
                     const periodFormat = p.format ?? matchFormat;
                     const periodBoardUrl = p.boardUrl || (p.boardId ? `/tactical-board?boardId=${p.boardId}&teamId=${match.teamId ?? ""}&matchId=${match.id}&periodKey=${p.key}&returnTo=${encodeURIComponent(returnToMatchUrl)}` : "");
@@ -3039,7 +3197,7 @@ function MatchCard({
                                         if (ix !== i) return x;
                                         const valid = moduleOptionsForFormat(nextFormat);
                                         const currentModule = valid.includes(x.module ?? "") ? x.module ?? "" : "";
-                                        return { ...x, format: nextFormat, module: currentModule, boardConfirmed: false };
+                                        return { ...x, format: nextFormat, module: currentModule, lineupAlternatives: (x.lineupAlternatives ?? []).map(alternative => ({ ...alternative, module: valid.includes(alternative.module) ? alternative.module : "" })), boardConfirmed: false };
                                       });
                                       const adjusted =
                                         autoReserveRuleEnabled && i === 0
@@ -3285,7 +3443,7 @@ function MatchCard({
                       </div>
                     );
                   })}
-                </div>
+                </details>
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button type="button" size="sm" variant="outline" className="h-8 text-xs" disabled={!canOpenBoard} asChild>
                     <a href={tacticalUrl}>Apri lavagna con prefill</a>

@@ -272,6 +272,17 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
   if (next && next.postMatchReport === undefined && old?.postMatchReport !== undefined) {
     next.postMatchReport = old.postMatchReport;
   }
+  // Older clients do not know about alternatives: omission must not erase them.
+  if (next && Array.isArray(next.periods) && Array.isArray(old?.periods)) {
+    const previousPeriods = new Map(old.periods.filter((period): period is Record<string, unknown> => Boolean(period) && typeof period === "object").map(period => [period.key, period]));
+    for (const period of next.periods) {
+      if (!period || typeof period !== "object" || Array.isArray(period)) continue;
+      const previousPeriod = previousPeriods.get(period.key);
+      if (!Object.prototype.hasOwnProperty.call(period, "lineupAlternatives") && Array.isArray(previousPeriod?.lineupAlternatives)) {
+        period.lineupAlternatives = previousPeriod.lineupAlternatives;
+      }
+    }
+  }
   return next;
 }
 
