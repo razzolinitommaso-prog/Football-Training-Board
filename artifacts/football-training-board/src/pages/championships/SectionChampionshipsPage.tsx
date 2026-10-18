@@ -1,5 +1,6 @@
 import { Link, useLocation, useSearch } from "wouter";
 import { useGetMyClub } from "@workspace/api-client-react";
+import SectionMatchCalendars from "@/pages/matches/SectionMatchCalendars";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import { championshipMatchPath, championshipNameKey, resolveChampionshipMatch, type ChampionshipTeam } from "@/lib/championship-match-links";
 import { type ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
@@ -681,6 +682,7 @@ export default function SectionChampionshipsPage({ section }: { section: Section
   const search = useSearch();
   const [, setLocation] = useLocation();
   const params = new URLSearchParams(search);
+  const managementOpen = section === "settore_giovanile" && params.get("manage") === "1";
   const requestedTeamId = Number(params.get("teamId")) || null;
   const requestedMatchId = Number(params.get("openMatchId")) || null;
   const { data: club, isLoading: isClubLoading } = useGetMyClub();
@@ -751,11 +753,15 @@ export default function SectionChampionshipsPage({ section }: { section: Section
 
       {section === "settore_giovanile" && <div className="flex flex-wrap items-center gap-2">
         {requestedTeamId && <Link href={basePath} className="rounded border px-3 py-2 text-sm">Tutti i campionati</Link>}
-        <Link href={requestedTeam ? `/settore-giovanile/calendari/${requestedTeam.id}?phase=tornei` : "/settore-giovanile/matches"} className="rounded border px-3 py-2 text-sm">Tornei, amichevoli e importazioni</Link>
+        <Button type="button" variant="outline" onClick={() => { const next = new URLSearchParams(search); if (managementOpen) next.delete("manage"); else next.set("manage", "1"); setLocation(`${basePath}?${next}`); }}>{managementOpen ? "Torna al campionato" : "Gestione"}</Button>
+        {requestedTeam && !managementOpen && <>
+          <Link href={`/settore-giovanile/calendari/${requestedTeam.id}?phase=tornei`} className="rounded border px-3 py-2 text-sm">Tornei</Link>
+          <Link href={`/settore-giovanile/calendari/${requestedTeam.id}?phase=amichevoli`} className="rounded border px-3 py-2 text-sm">Amichevoli</Link>
+        </>}
         {requestedTeam && <Badge variant="outline">{requestedTeam.name}</Badge>}
       </div>}
       {(matchesError || teamsError) && <p role="alert" className="rounded border p-3 text-sm text-destructive">Impossibile caricare le schede interne. Il calendario del girone resta consultabile; riprova prima di aprire una scheda.</p>}
-      {requestedMatchId && !isMatchesLoading && !isTeamsLoading && !matchesError && !teamsError && <section id="championship-match-sheet" aria-label="Scheda partita del campionato" className="min-w-0 space-y-2">
+      {!managementOpen && requestedMatchId && !isMatchesLoading && !isTeamsLoading && !matchesError && !teamsError && <section id="championship-match-sheet" aria-label="Scheda partita del campionato" className="min-w-0 space-y-2">
         <Button type="button" variant="outline" onClick={() => { const next = new URLSearchParams(search); next.delete("openMatchId"); setLocation(`${basePath}?${next}`); }}>Chiudi scheda partita</Button>
         {selectedMatch?.teamId ? <TeamCalendar key={selectedMatch.id} overrideTeamId={selectedMatch.teamId} detailMatchId={selectedMatch.id} />
           : <p role="alert" className="rounded border p-3 text-sm text-destructive">Scheda non disponibile per la squadra e il settore selezionati.</p>}
@@ -767,7 +773,7 @@ export default function SectionChampionshipsPage({ section }: { section: Section
         initialUrl={activeOption?.championship.sourceUrl}
       />
 
-      {isLoading || isMatchesLoading || isTeamsLoading || isClubLoading ? (
+      {managementOpen ? <SectionMatchCalendars section={section} managementOnly /> : isLoading || isMatchesLoading || isTeamsLoading || isClubLoading ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">Caricamento campionati...</CardContent>
         </Card>
@@ -776,12 +782,12 @@ export default function SectionChampionshipsPage({ section }: { section: Section
           <CardContent className="space-y-3 py-10 text-center">
             <p className="font-medium text-destructive">Errore nel caricamento dei campionati.</p>
             <p className="mx-auto max-w-2xl text-sm text-muted-foreground">
-              La pagina e pronta, ma la rotta API dei campionati non ha restituito dati validi. Puoi continuare a usare la pagina Partite mentre sistemiamo il collegamento dati.
+              Impossibile recuperare i campionati. Riprova oppure apri la gestione delle partite.
             </p>
             <p className="mx-auto max-w-2xl rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
               {error.message.slice(0, 240)}
             </p>
-            <Button type="button" variant="outline" onClick={() => { window.location.href = section === "settore_giovanile" ? "/settore-giovanile/matches" : "/prima-squadra/matches"; }}>
+            <Button type="button" variant="outline" onClick={() => { window.location.href = section === "settore_giovanile" ? `${basePath}?manage=1` : "/prima-squadra/matches"; }}>
               Apri gestione partite
             </Button>
           </CardContent>
@@ -789,7 +795,7 @@ export default function SectionChampionshipsPage({ section }: { section: Section
       ) : !activeOption ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
-            Nessun campionato disponibile. Puoi importarli o crearli dalla pagina Partite della sezione.
+            {section === "settore_giovanile" ? "Nessun campionato disponibile. Apri Gestione per importarlo o crearlo." : "Nessun campionato disponibile. Puoi importarli o crearli dalla pagina Partite della sezione."}
           </CardContent>
         </Card>
       ) : (

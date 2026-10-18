@@ -220,7 +220,7 @@ export function AppSidebar() {
     const subItems = [
       { label: "Cruscotto", url: `${basePath}/dashboard`, icon: LayoutDashboard },
       ...SEZIONE_SUB_ITEMS
-      .filter(s => s.roles.includes(role || ""))
+      .filter(s => s.roles.includes(role || "") && !(sectionKey === "settore-giovanile" && s.url === "matches"))
       .map(s => ({ ...s, url: `${basePath}/${s.url}` })),
       ...(sectionKey !== "scuola-calcio" && CHAMPIONSHIP_SUB_ITEM.roles.includes(role || "")
         ? [{ ...CHAMPIONSHIP_SUB_ITEM, url: `${basePath}/${CHAMPIONSHIP_SUB_ITEM.url}` }]
