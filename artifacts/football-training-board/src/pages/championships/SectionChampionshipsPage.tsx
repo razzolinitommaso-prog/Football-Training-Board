@@ -484,25 +484,26 @@ function ChampionshipView({ championship, group }: { championship: Championship;
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.8fr)]">
+      <div className="space-y-4">
         <Card className="shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <CalendarDays className="h-4 w-4 text-primary" />
-              Calendario Girone
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {rounds.length === 0 ? (
-              <p className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">Nessuna gara inserita nel girone.</p>
-            ) : (
-              rounds.map((round) => <RoundAccordion key={round.key} round={round} defaultOpen={defaultOpenRounds.has(round.key)} />)
-            )}
-          </CardContent>
-        </Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <CheckCircle2 className="h-4 w-4 text-primary" />
+                Ultimi Risultati
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {latestResults.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nessun risultato inserito.</p>
+              ) : (
+                <div className="space-y-2">
+                  {latestResults.map((fixture) => <FixtureRow key={fixture.id} fixture={fixture} />)}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-        <div className="space-y-4">
-          <Card className="shadow-sm">
+        <Card className="shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <BarChart3 className="h-4 w-4 text-primary" />
@@ -514,7 +515,7 @@ function ChampionshipView({ championship, group }: { championship: Championship;
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm">
+        <Card className="shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Clock className="h-4 w-4 text-primary" />
@@ -532,24 +533,21 @@ function ChampionshipView({ championship, group }: { championship: Championship;
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <CheckCircle2 className="h-4 w-4 text-primary" />
-                Ultimi Risultati
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {latestResults.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nessun risultato inserito.</p>
-              ) : (
-                <div className="space-y-2">
-                  {latestResults.map((fixture) => <FixtureRow key={fixture.id} fixture={fixture} />)}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarDays className="h-4 w-4 text-primary" />
+              Calendario Girone
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {rounds.length === 0 ? (
+              <p className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">Nessuna gara inserita nel girone.</p>
+            ) : (
+              rounds.map((round) => <RoundAccordion key={round.key} round={round} defaultOpen={defaultOpenRounds.has(round.key)} />)
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
