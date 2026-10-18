@@ -1,3 +1,4 @@
+import { splitMatchLineup, changeMatchLineupStatus } from "@/lib/match-lineup";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
@@ -266,6 +267,7 @@ type LineupDialogState = {
   mode: "view" | "edit";
   module: string;
   lineupPlayerIds: number[];
+  lineupStarterCount?: number;
   positions: LineupPositionMap;
   drawings: LineupDrawing[];
   tool: "select" | "pen" | "arrow";
@@ -285,6 +287,7 @@ type MatchPlanPeriod = { key: string; label: string; minutes: string; formation?
 type MatchFormat = "3v3" | "5v5" | "7v7" | "9v9" | "11v11";
 type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   lineupPlayerIds?: number[];
+  lineupStarterCount?: number;
   lineupPositions?: LineupPositionMap;
   lineupDrawings?: LineupDrawing[];
   lineupAlternatives?: MatchLineupAlternative[];
@@ -300,14 +303,16 @@ type MatchLineupAlternative = {
   title: string;
   module: string;
   lineupPlayerIds: number[];
+  lineupStarterCount?: number;
   lineupPositions: LineupPositionMap;
   lineupDrawings: LineupDrawing[];
 };
 
-function copyLineupAlternative(period: Pick<MatchPlanPeriodRuntime, "module" | "lineupPlayerIds" | "lineupPositions" | "lineupDrawings">, id: string, title: string): MatchLineupAlternative {
+function copyLineupAlternative(period: Pick<MatchPlanPeriodRuntime, "module" | "lineupPlayerIds" | "lineupStarterCount" | "lineupPositions" | "lineupDrawings">, id: string, title: string): MatchLineupAlternative {
   return {
     id, title, module: period.module ?? "",
     lineupPlayerIds: [...(period.lineupPlayerIds ?? [])],
+    lineupStarterCount: period.lineupStarterCount,
     lineupPositions: Object.fromEntries(Object.entries(period.lineupPositions ?? {}).map(([key, point]) => [key, { ...point }])),
     lineupDrawings: (period.lineupDrawings ?? []).map(drawing => ({ ...drawing, points: drawing.points.map(point => ({ ...point })) })),
   };
@@ -316,7 +321,7 @@ function copyLineupAlternative(period: Pick<MatchPlanPeriodRuntime, "module" | "
 function applyLineupAlternative(period: MatchPlanPeriodRuntime, alternative: MatchLineupAlternative): MatchPlanPeriodRuntime {
   const layout = copyLineupAlternative(alternative, alternative.id, alternative.title);
   return {
-    ...period, module: layout.module, lineupPlayerIds: layout.lineupPlayerIds,
+    ...period, module: layout.module, lineupPlayerIds: layout.lineupPlayerIds, lineupStarterCount: layout.lineupStarterCount,
     lineupPositions: layout.lineupPositions, lineupDrawings: layout.lineupDrawings,
     lineupDetectedModule: null, boardConfirmed: false,
     boardId: null, boardUrl: null, boardTitle: null, boardSnapshotAt: null,
@@ -1118,15 +1123,14 @@ function applyScuolaCalcioSecondPeriodAuto(
   if (periods.length < 2) return periods;
   const first = periods[0];
   const second = periods[1];
-  const firstLineup = (first.lineupPlayerIds ?? []).filter((id) => selectedIds.has(id));
   const startersLimit = startersLimitForPeriod(first, defaultFormat);
-  const firstReserves = firstLineup.slice(startersLimit);
+  const firstReserves = splitMatchLineup(first, startersLimit, selectedIds).reserves;
   const secondCurrent = second.lineupPlayerIds ?? [];
-  if (secondCurrent.length === firstReserves.length && secondCurrent.every((id, idx) => id === firstReserves[idx])) {
+  if (second.lineupStarterCount === Math.min(firstReserves.length, startersLimitForPeriod(second, defaultFormat)) && secondCurrent.length === firstReserves.length && secondCurrent.every((id, idx) => id === firstReserves[idx])) {
     return periods;
   }
   const next = [...periods];
-  next[1] = { ...second, lineupPlayerIds: [...firstReserves] };
+  next[1] = { ...second, lineupPlayerIds: [...firstReserves], lineupStarterCount: Math.min(firstReserves.length, startersLimitForPeriod(second, defaultFormat)) };
   return next;
 }
 
@@ -1141,7 +1145,7 @@ function movePlayerBetweenPeriods(
   return periods.map((period, idx) => {
     const current = [...(period.lineupPlayerIds ?? [])];
     if (idx === sourceIndex) {
-      return { ...period, lineupPlayerIds: current.filter((id) => id !== draggedId) };
+      return { ...period, lineupPlayerIds: current.filter((id) => id !== draggedId), lineupStarterCount: period.lineupStarterCount == null ? undefined : Math.max(0, period.lineupStarterCount - (current.indexOf(draggedId) >= 0 && current.indexOf(draggedId) < period.lineupStarterCount ? 1 : 0)) };
     }
     if (idx === targetIndex) {
       const withoutDragged = current.filter((id) => id !== draggedId);
@@ -1152,7 +1156,7 @@ function movePlayerBetweenPeriods(
       if (targetPos < 0) return { ...period, lineupPlayerIds: [...withoutDragged, draggedId] };
       const next = [...withoutDragged];
       next.splice(targetPos, 0, draggedId);
-      return { ...period, lineupPlayerIds: next };
+      return { ...period, lineupPlayerIds: next, lineupStarterCount: period.lineupStarterCount == null ? undefined : period.lineupStarterCount + (targetPos < period.lineupStarterCount && !current.includes(draggedId) ? 1 : 0) };
     }
     return period;
   });
@@ -1227,6 +1231,13 @@ function buildAutomaticLineup(players: Player[], limit: number): number[] {
   const starterIds = new Set(starters.map((player) => player.id));
   const reserves = players.filter((player) => !starterIds.has(player.id));
   return [...starters, ...reserves].map((player) => player.id);
+}
+
+function normalizePeriodLineup(period: Pick<MatchPlanPeriodRuntime, "lineupPlayerIds" | "lineupStarterCount">, players: Map<number, Player>, limit: number, selected?: Set<number>) {
+  if (period.lineupStarterCount == null) return { lineupPlayerIds: normalizeLineupGoalkeepers((period.lineupPlayerIds ?? []).filter(id => !selected || selected.has(id)), players, limit) };
+  const groups = splitMatchLineup(period, limit, selected);
+  // Explicit bench choices must never be filled automatically, including goalkeepers.
+  return { lineupPlayerIds: [...groups.starters, ...groups.reserves].filter(id => players.has(id)), lineupStarterCount: groups.starters.filter(id => players.has(id)).length };
 }
 
 function shortPlayerLabel(player: Player): string {
@@ -1455,6 +1466,7 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
       module: map.get(d.key)?.module ?? "",
       format: map.get(d.key)?.format ?? undefined,
       lineupPlayerIds: Array.isArray(map.get(d.key)?.lineupPlayerIds) ? map.get(d.key)!.lineupPlayerIds : [],
+      lineupStarterCount: map.get(d.key)?.lineupStarterCount,
       lineupPositions: map.get(d.key)?.lineupPositions && typeof map.get(d.key)?.lineupPositions === "object" ? map.get(d.key)!.lineupPositions : {},
       lineupDrawings: Array.isArray(map.get(d.key)?.lineupDrawings) ? map.get(d.key)!.lineupDrawings : [],
       lineupAlternatives: Array.isArray(map.get(d.key)?.lineupAlternatives) ? map.get(d.key)!.lineupAlternatives!.map(alternative => copyLineupAlternative(alternative, alternative.id, alternative.title)) : [],
@@ -1651,7 +1663,9 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
   const [movingPoint, setMovingPoint] = useState<{ id: number; point: LineupPoint } | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const limit = startersLimitForPeriod(period, matchFormat);
-  const ids = (period.lineupPlayerIds ?? []).filter(id => selectedIds.has(id));
+  const groups = splitMatchLineup(period, limit, selectedIds);
+  const ids = groups.lineupPlayerIds;
+  const starterCount = groups.starters.length;
   const slots = formationSlotsForLineup(period.module, period.format ?? matchFormat, limit);
   const positionAt = (id: number, index: number) => period.lineupPositions?.[String(id)] ?? slots[index] ?? { x: 50, y: 50 };
   const pointerPoint = (clientX: number, clientY: number) => {
@@ -1666,9 +1680,9 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
       <label className="block text-xs font-medium">Modulo
         <select aria-label={`Modulo ${editorLabel}`} className="mt-1 min-h-9 w-full rounded-md border bg-background px-2 text-xs" value={period.module ?? ""} onChange={event => {
           const module = event.target.value;
-          const ordered = normalizeLineupGoalkeepers(ids, playersById, limit);
+          const ordered = normalizePeriodLineup({ ...period, lineupPlayerIds: ids }, playersById, limit).lineupPlayerIds;
           const nextSlots = formationSlotsForLineup(module, period.format ?? matchFormat, limit);
-          onChange({ module, lineupPlayerIds: ordered, lineupPositions: Object.fromEntries(ordered.slice(0, limit).map((id, index) => [String(id), { x: nextSlots[index]?.x ?? 50, y: nextSlots[index]?.y ?? 50 }])) });
+          onChange({ module, lineupPlayerIds: ordered, lineupStarterCount: starterCount, lineupPositions: Object.fromEntries(ordered.slice(0, starterCount).map((id, index) => [String(id), { x: nextSlots[index]?.x ?? 50, y: nextSlots[index]?.y ?? 50 }])) });
         }}>
           <option value="">Modulo base ({period.format ?? matchFormat})</option>
           {moduleOptionsForFormat(period.format ?? matchFormat).map(module => <option key={module} value={module}>{module}</option>)}
@@ -1676,8 +1690,8 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
       </label>
       <p className="text-[11px] text-muted-foreground">Trascina i giocatori sul campo. Tocca un nome per scambiarlo; da tastiera usa le frecce.</p>
     </>}
-    <p className="text-xs text-muted-foreground">Titolari {Math.min(ids.length, limit)}/{limit} · Riserve {Math.max(0, ids.length - limit)}</p>
-    <div ref={fieldRef} className="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-lg border-4 border-emerald-300 bg-green-700" role={onChange ? "group" : "img"} aria-label={`Campo ${editorLabel}: ${ids.slice(0, limit).map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : id; }).join(", ") || "nessun titolare"}`}>
+    <p className="text-xs text-muted-foreground">Titolari {starterCount}/{limit} · Riserve {groups.reserves.length}</p>
+    <div ref={fieldRef} className="relative mx-auto aspect-[3/4] w-full max-w-none sm:max-w-sm overflow-hidden rounded-lg border-4 border-emerald-300 bg-green-700" role={onChange ? "group" : "img"} aria-label={`Campo ${editorLabel}: ${ids.slice(0, starterCount).map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : id; }).join(", ") || "nessun titolare"}`}>
       <div className="pointer-events-none absolute inset-[5%] border border-white/60" />
       <div className="pointer-events-none absolute inset-x-[5%] top-1/2 border-t border-white/60" />
       <div className="pointer-events-none absolute left-[35%] top-[39%] h-[22%] w-[30%] rounded-full border border-white/60" />
@@ -1696,7 +1710,7 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
           </g>;
         })}
       </svg>
-      {ids.slice(0, limit).map((id, index) => {
+      {ids.slice(0, starterCount).map((id, index) => {
         const player = playersById.get(id);
         const position = positionAt(id, index);
         const display = movingPoint?.id === id ? movingPoint.point : lineupPointToPortrait(position);
@@ -1733,7 +1747,7 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
         </button>;
       })}
     </div>
-    {ids.length > limit && <p className="text-xs"><span className="font-semibold">Riserve: </span>{ids.slice(limit).map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : String(id); }).join(", ")}</p>}
+    {groups.reserves.length > 0 && <p className="text-xs"><span className="font-semibold">Riserve: </span>{groups.reserves.map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : String(id); }).join(", ")}</p>}
     {onChange && selectedId != null && ids.includes(selectedId) && <label className="block text-xs font-medium">Scambia giocatore
       <select aria-label={`Scambia giocatore ${editorLabel}`} className="mt-1 min-h-9 w-full rounded-md border bg-background px-2 text-xs" value={selectedId} onChange={event => {
         const nextId = Number(event.target.value), index = ids.indexOf(selectedId), other = ids.indexOf(nextId);
@@ -1741,14 +1755,14 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
         const lineupPlayerIds = [...ids]; lineupPlayerIds[index] = nextId;
         if (other >= 0) lineupPlayerIds[other] = selectedId;
         const lineupPositions = { ...period.lineupPositions, [String(nextId)]: { ...positionAt(selectedId, index) } };
-        if (other >= 0 && other < limit) lineupPositions[String(selectedId)] = { ...positionAt(nextId, other) };
-        onChange({ lineupPlayerIds, lineupPositions }); setSelectedId(nextId);
+        if (other >= 0 && other < starterCount) lineupPositions[String(selectedId)] = { ...positionAt(nextId, other) };
+        onChange({ lineupPlayerIds, lineupPositions, lineupStarterCount: starterCount }); setSelectedId(nextId);
       }}>
         {[...playersById.values()].filter(player => selectedIds.has(player.id)).map(player => <option key={player.id} value={player.id}>{player.firstName} {player.lastName}</option>)}
       </select>
     </label>}
     {ids.length === 0 && <p className="text-xs text-muted-foreground">Seleziona i convocati o caricali nel tempo per visualizzare lo schieramento.</p>}
-    {onChange && ids.length === 0 && selectedIds.size > 0 && <Button type="button" size="sm" variant="outline" onClick={() => onChange({ lineupPlayerIds: normalizeLineupGoalkeepers([...selectedIds], playersById, limit), lineupPositions: {} })}>Carica convocati sul campo</Button>}
+    {onChange && ids.length === 0 && selectedIds.size > 0 && <Button type="button" size="sm" variant="outline" onClick={() => onChange({ lineupPlayerIds: normalizeLineupGoalkeepers([...selectedIds], playersById, limit), lineupStarterCount: Math.min(selectedIds.size, limit), lineupPositions: {} })}>Carica convocati sul campo</Button>}
   </div>;
 }
 
@@ -2174,13 +2188,14 @@ function MatchCard({
     const recentModule = readRecentLineupModule(match.teamId, periodFormat);
     const periodLimit = startersLimitForPeriod(period, matchFormat);
     const initialLineup = existing.length > 0
-      ? normalizeLineupGoalkeepers(existing, convokedById, periodLimit)
+      ? normalizePeriodLineup(period, convokedById, periodLimit, selected).lineupPlayerIds
       : buildAutomaticLineup(convokedPlayers, periodLimit);
     setLineupDialog({
       periodIndex,
       mode,
       module: periodModule || recentModule || moduleOptionsForFormat(periodFormat)[0] || "",
       lineupPlayerIds: initialLineup,
+      lineupStarterCount: period.lineupStarterCount,
       positions: { ...(period.lineupPositions ?? {}) },
       drawings: [...(period.lineupDrawings ?? [])],
       tool: "select",
@@ -2206,14 +2221,12 @@ function MatchCard({
         idx === lineupDialog.periodIndex
           ? (() => {
               const limit = startersLimitForPeriod({ ...period, module: lineupDialog.module }, matchFormat);
-              const lineupPlayerIds = normalizeLineupGoalkeepers(
-                lineupDialog.lineupPlayerIds.filter((id) => selectedPlayerIds.has(id)),
-                convokedById,
-                limit,
-              );
+              const normalized = normalizePeriodLineup(lineupDialog, convokedById, limit, selectedPlayerIds);
+              const { lineupPlayerIds } = normalized;
               return {
               ...period,
               module: lineupDialog.module,
+              ...normalized,
               lineupPlayerIds,
               lineupPositions: lineupDialog.positions,
               lineupDrawings: lineupDialog.drawings,
@@ -2278,16 +2291,11 @@ function MatchCard({
       if (!first) return prev;
       const selected = new Set(selectedPlayerIds);
       const limit = startersLimitForPeriod(first, matchFormat);
-      const current = (first.lineupPlayerIds ?? selectedPlayersOrdered).filter((id) => selected.has(id));
-      const withoutPlayer = current.filter((id) => id !== playerId);
-      const starters = withoutPlayer.slice(0, limit);
-      const reserves = withoutPlayer.slice(limit);
-      if (!reserve && starters.length >= limit && limit > 0) reserves.unshift(starters.pop()!);
-      const lineupPlayerIds = reserve
-        ? [...starters, ...reserves, playerId]
-        : [...starters, playerId, ...reserves];
+      const { lineupPlayerIds, lineupStarterCount } = changeMatchLineupStatus(
+        { ...first, lineupPlayerIds: first.lineupPlayerIds ?? selectedPlayersOrdered }, limit, playerId, reserve, selected,
+      );
       const nextPeriods = prev.periods.map((period, index) =>
-        index === periodIndex ? { ...period, lineupPlayerIds, boardConfirmed: false } : period,
+        index === periodIndex ? { ...period, lineupPlayerIds, lineupStarterCount, boardConfirmed: false } : period,
       );
       const adjusted =
         autoReserveRuleEnabled && periodIndex === 0
@@ -2346,7 +2354,8 @@ function MatchCard({
     if (!selectionReady) return;
     setPlanDraft((prev) => {
       const nextPeriods: MatchPlanPeriodRuntime[] = prev.periods.map((period, idx) => {
-        let lineup = (period.lineupPlayerIds ?? []).filter((id) => selectedPlayerIds.has(id));
+        const groups = splitMatchLineup(period, startersLimitForPeriod(period, matchFormat), selectedPlayerIds);
+        let lineup = groups.lineupPlayerIds;
         // 1st period: keep manual order, but ensure all convocated players are present.
         if (idx === 0 && selectedPlayersOrdered.length > 0) {
           if (lineup.length === 0) {
@@ -2360,7 +2369,8 @@ function MatchCard({
         const prevLineup = period.lineupPlayerIds ?? [];
         const lineupChanged =
           prevLineup.length !== lineup.length || prevLineup.some((id, ix) => id !== lineup[ix]);
-        return lineupChanged ? { ...period, lineupPlayerIds: lineup, boardConfirmed: false } : { ...period, lineupPlayerIds: lineup };
+        const count = period.lineupStarterCount == null ? undefined : groups.lineupStarterCount;
+        return { ...period, lineupPlayerIds: lineup, lineupStarterCount: count, ...(lineupChanged ? { boardConfirmed: false } : {}) };
       });
 
       // 2nd period starters auto-populate from 1st period reserves (except 11v11 flows).
@@ -2372,7 +2382,7 @@ function MatchCard({
       const changed = nextPeriods.some((period, idx) => {
         const prevLineup = prev.periods[idx]?.lineupPlayerIds ?? [];
         const nextLineup = period.lineupPlayerIds ?? [];
-        if (prevLineup.length !== nextLineup.length) return true;
+        if (prev.periods[idx]?.lineupStarterCount !== period.lineupStarterCount || prevLineup.length !== nextLineup.length) return true;
         for (let i = 0; i < prevLineup.length; i += 1) {
           if (prevLineup[i] !== nextLineup[i]) return true;
         }
@@ -2390,21 +2400,19 @@ function MatchCard({
       const normalizedPlan: MatchPlanData = {
         ...planDraft,
         periods: planDraft.periods.map((p) => {
-          const lineupPlayerIds = normalizeLineupGoalkeepers(
-            (p.lineupPlayerIds ?? []).filter((id) => selected.has(id)),
-            convokedById,
-            startersLimitForPeriod(p, matchFormat),
-          );
+          const normalized = normalizePeriodLineup(p, convokedById, startersLimitForPeriod(p, matchFormat), selected);
+          const { lineupPlayerIds } = normalized;
           const lineupPositions = Object.fromEntries(
             Object.entries(p.lineupPositions ?? {}).filter(([id]) => selectedKeys.has(id)),
           );
           return {
             ...p,
+            ...normalized,
             lineupPlayerIds,
             lineupPositions,
             lineupAlternatives: (p.lineupAlternatives ?? []).map(alternative => ({
               ...copyLineupAlternative(alternative, alternative.id, alternative.title),
-              lineupPlayerIds: normalizeLineupGoalkeepers(alternative.lineupPlayerIds.filter(id => selected.has(id)), convokedById, startersLimitForPeriod(p, matchFormat)),
+              ...normalizePeriodLineup(alternative, convokedById, startersLimitForPeriod({ ...p, ...alternative }, matchFormat), selected),
               lineupPositions: Object.fromEntries(Object.entries(alternative.lineupPositions ?? {}).filter(([id]) => selectedKeys.has(id))),
             })),
             lineupDetectedModule: detectLineupModuleLabel(
@@ -2412,7 +2420,7 @@ function MatchCard({
               lineupPositions,
               p.module,
               p.format ?? matchFormat,
-              startersLimitForPeriod(p, matchFormat),
+              splitMatchLineup(normalized, startersLimitForPeriod(p, matchFormat)).starters.length,
               convokedById,
             ),
           };
@@ -2518,8 +2526,9 @@ function MatchCard({
   const lineupFormat = lineupPeriod ? lineupPeriod.format ?? matchFormat : matchFormat;
   const lineupLimit = lineupPeriod ? startersLimitForPeriod({ ...lineupPeriod, module: lineupDialog?.module ?? lineupPeriod.module }, matchFormat) : 0;
   const lineupSlots = lineupDialog ? formationSlotsForLineup(lineupDialog.module, lineupFormat, lineupLimit) : [];
-  const lineupStarters = lineupDialog ? lineupDialog.lineupPlayerIds.slice(0, lineupLimit) : [];
-  const lineupReserves = lineupDialog ? lineupDialog.lineupPlayerIds.slice(lineupLimit) : [];
+  const dialogGroups = splitMatchLineup(lineupDialog, lineupLimit);
+  const lineupStarters = dialogGroups.starters;
+  const lineupReserves = dialogGroups.reserves;
   const lineupSelected = new Set(lineupDialog?.lineupPlayerIds ?? []);
   const lineupHasStarterGoalkeeper = lineupStarters.some((id) => {
     const player = convokedById.get(id);
@@ -2530,7 +2539,7 @@ function MatchCard({
   const lineupModuleOptions = moduleOptionsForFormat(lineupFormat);
   const lineupReadOnly = lineupDialog?.mode === "view";
   const lineupDetectedModule = lineupDialog
-    ? detectLineupModuleLabel(lineupDialog.lineupPlayerIds, lineupDialog.positions, lineupDialog.module, lineupFormat, lineupLimit, convokedById)
+    ? detectLineupModuleLabel(lineupDialog.lineupPlayerIds, lineupDialog.positions, lineupDialog.module, lineupFormat, lineupStarters.length, convokedById)
     : "";
   const lineupColors = ["#facc15", "#ffffff", "#38bdf8", "#22c55e", "#ef4444", "#111827"];
   const lineupPitchPoint = (event: { currentTarget: EventTarget & Element; clientX: number; clientY: number }) => {
@@ -2554,7 +2563,7 @@ function MatchCard({
         bulkSelectEnabled && bulkSelected && "ring-2 ring-primary/50 ring-offset-2 ring-offset-background",
       )}
     >
-      <CardContent className="py-4 px-5 space-y-3">
+      <CardContent className="py-4 px-2 sm:px-5 space-y-3">
 
         {/* Match header */}
         <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -2821,9 +2830,9 @@ function MatchCard({
               </a>
             </div>
             {planOpen && canManageMatchPlan && (
-              <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
+              <div className="rounded-md border border-border/60 bg-muted/20 p-1 sm:p-3 space-y-3">
                 {planDraft.periods.map((previewPeriod, previewPeriodIndex) => (
-                  <details key={previewPeriod.key} open={previewPeriodIndex === 0} className="rounded-lg border bg-background/50 p-2 sm:p-3">
+                  <details key={previewPeriod.key} open={previewPeriodIndex === 0} className="rounded-lg border bg-background/50 p-1 sm:p-3">
                     <summary className="cursor-pointer py-2 text-sm font-semibold">{previewPeriod.label} · {previewPeriod.minutes} min — apri/chiudi preparazione</summary>
                 <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.65fr)]">
                 <div className="min-w-0 space-y-2">
@@ -2876,9 +2885,10 @@ function MatchCard({
                               {(() => {
                                 const firstPeriod = previewPeriod;
                                 const limit = firstPeriod ? startersLimitForPeriod(firstPeriod, matchFormat) : 0;
-                                const firstLineup = (firstPeriod?.lineupPlayerIds ?? selectedPlayersOrdered).filter((id) => selectedPlayerIds.has(id));
+                                const groups = splitMatchLineup(firstPeriod ?? { lineupPlayerIds: selectedPlayersOrdered }, limit, selectedPlayerIds);
+                                const firstLineup = groups.lineupPlayerIds;
                                 const playerIndex = firstLineup.indexOf(p.id);
-                                const isReserve = playerIndex >= limit;
+                                const isReserve = groups.reserves.includes(p.id);
                                 return (
                                   <>
                                     <button
@@ -2968,7 +2978,7 @@ function MatchCard({
                   </div>
                   <p className="text-[11px] text-muted-foreground">Presenze allenamenti: ✓ presente · − assente · G giustificato · I infortunato · · non registrato.</p>
                 </div>
-                <aside className="min-w-0 self-start space-y-3 rounded-lg border bg-background p-3 lg:sticky lg:top-20">
+                <aside className="min-w-0 self-start space-y-3 rounded-lg border bg-background p-1 sm:p-3 lg:sticky lg:top-20">
                   <h4 className="text-sm font-semibold">Schieramento attuale — {previewPeriod.label}</h4>
                   <MatchDraftLineupPreview period={previewPeriod} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={`Attuale ${previewPeriod.label}`} onChange={changes => updateInlinePeriod(previewPeriodIndex, changes)} />
                   <Button type="button" variant="outline" className="w-full" onClick={() => openLineupDialog(previewPeriodIndex, "view")}>Ingrandisci anteprima</Button>
@@ -3176,10 +3186,10 @@ function MatchCard({
                     const lineupIds = (p.lineupPlayerIds ?? [])
                       .filter((id) => selectedPlayerIds.has(id));
                     const startersLimit = startersLimitForPeriod(p, matchFormat);
-                    const starters = lineupIds.slice(0, startersLimit).length;
+                    const starters = splitMatchLineup(p, startersLimit, selectedPlayerIds).starters.length;
                     const hasLineup = lineupIds.length > 0;
                     const detectedPeriodModule = hasLineup
-                      ? detectLineupModuleLabel(lineupIds, p.lineupPositions, p.module, periodFormat, startersLimit, convokedById)
+                      ? detectLineupModuleLabel(lineupIds, p.lineupPositions, p.module, periodFormat, starters, convokedById)
                       : "";
                     return (
                       <div key={p.key} className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">
@@ -3227,7 +3237,7 @@ function MatchCard({
                               onClick={() =>
                                 setPlanDraft((prev) => {
                                   const nextPeriods = prev.periods.map((x, ix) =>
-                                    ix === i ? { ...x, lineupPlayerIds: [...selectedPlayersOrdered], boardConfirmed: false } : x,
+                                    ix === i ? { ...x, lineupPlayerIds: [...selectedPlayersOrdered], lineupStarterCount: Math.min(selectedPlayersOrdered.length, startersLimit), boardConfirmed: false } : x,
                                   );
                                   const adjusted =
                                     autoReserveRuleEnabled && i === 0
@@ -3281,7 +3291,7 @@ function MatchCard({
                             {lineupIds.map((playerId, idx) => {
                               const player = convokedById.get(playerId);
                               if (!player) return null;
-                              const isReserve = idx >= startersLimit;
+                              const isReserve = idx >= starters;
                               return (
                                 <div
                                   key={`${p.key}-${playerId}`}
@@ -3626,7 +3636,7 @@ function MatchCard({
                         const called = new Set(reportPlayers.map(player => player.id));
                         setPostReportDraft({ version: 1, goals: [], substitutions: [], periods: planDraft.periods.map(period => ({
                           minutes: Number.parseFloat(period.minutes) || 40,
-                          starters: (period.lineupPlayerIds ?? []).filter(id => called.has(id)),
+                          starters: splitMatchLineup(period, startersLimitForPeriod(period, matchFormat), called).starters,
                         })) });
                       }}>Inserisci marcatori, minutaggio e sostituzioni</Button>
                     )}
@@ -4128,6 +4138,7 @@ function MatchCard({
                                   ...prev,
                                   selectedPlayerId: nextId,
                                   lineupPlayerIds: replaceLineupPlayerAtSlot(prev.lineupPlayerIds, Math.max(0, dataIndex), playerId, nextId),
+                                  lineupStarterCount: prev.lineupStarterCount == null || playerId ? prev.lineupStarterCount : Math.min(lineupLimit, prev.lineupStarterCount + 1),
                                 };
                               });
                             }}
@@ -4147,6 +4158,7 @@ function MatchCard({
                               ...prev,
                               selectedPlayerId: null,
                               lineupPlayerIds: replaceLineupPlayerAtSlot(prev.lineupPlayerIds, Math.max(0, dataIndex), playerId, null),
+                              lineupStarterCount: prev.lineupStarterCount == null ? undefined : Math.max(0, prev.lineupStarterCount - 1),
                             } : prev)}
                           >
                             Rimuovi dallo slot

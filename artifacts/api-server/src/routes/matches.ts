@@ -278,6 +278,11 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
     for (const period of next.periods) {
       if (!period || typeof period !== "object" || Array.isArray(period)) continue;
       const previousPeriod = previousPeriods.get(period.key);
+      // Keep an explicit bench boundary when an older client resaves the same lineup.
+      if (period.lineupStarterCount === undefined && typeof previousPeriod?.lineupStarterCount === "number"
+        && JSON.stringify(period.lineupPlayerIds) === JSON.stringify(previousPeriod.lineupPlayerIds)) {
+        period.lineupStarterCount = previousPeriod.lineupStarterCount;
+      }
       if (!Object.prototype.hasOwnProperty.call(period, "lineupAlternatives") && Array.isArray(previousPeriod?.lineupAlternatives)) {
         period.lineupAlternatives = previousPeriod.lineupAlternatives;
       }

@@ -1,3 +1,4 @@
+import { splitMatchLineup } from "@/lib/match-lineup";
 import { capturePitch } from "./capture-pitch";
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -135,6 +136,7 @@ type MatchPlanPeriodLite = {
   module?: string;
   format?: TacticalBoardFormat;
   lineupPlayerIds?: number[];
+  lineupStarterCount?: number;
   lineupPositions?: Record<string, { x: number; y: number }>;
   lineupDetectedModule?: string | null;
 };
@@ -2363,7 +2365,7 @@ const QuickPage = () => {
       if (!roster.length) return prev;
 
       const orderedAll = orderMatchPlanRosterPlayers(roster, activeMatchPlanPeriod);
-      const startersCap = matchPlanStartersLimit;
+      const startersCap = activeMatchPlanPeriod?.lineupStarterCount == null ? matchPlanStartersLimit : splitMatchLineup(activeMatchPlanPeriod, matchPlanStartersLimit).starters.length;
       const officialStarters = orderedAll.slice(0, startersCap);
       const officialReserves = orderedAll.slice(startersCap);
 
@@ -2397,12 +2399,13 @@ const QuickPage = () => {
       const startersNotOnFormation = officialStarters.filter((p) => !placed.has(String(p.id)));
       const benchPlayers = [...startersNotOnFormation, ...officialReserves];
       const benchEls: TacticalBoardElement[] = benchPlayers.map((p, idx) => {
-        const pos = benchSpotForReserve(idx);
+        const benchPoint = benchSpotForReserve(idx);
+        const pos = isMobileViewport ? formationPointToPortrait(benchPoint) : benchPoint;
         const isGk = isGoalkeeperPlayer(p);
         return {
           type: isGk ? "goalkeeper" : "player",
           x: pos.x,
-          y: 50,
+          y: pos.y,
           playerId: String(p.id),
           name: fullPlayerName(p),
           displayName: formatRosterLastName(p),
@@ -2452,7 +2455,7 @@ const QuickPage = () => {
     ];
     const reserveIds = new Set<string>();
     const ordered: MatchPlanFieldRow[] = orderedEntries.map((entry, idx) => {
-      const isReserve = idx >= limit;
+      const isReserve = idx >= (activeMatchPlanPeriod?.lineupStarterCount == null ? limit : splitMatchLineup(activeMatchPlanPeriod, limit).starters.length);
       if (isReserve) reserveIds.add(String(entry.player.id));
       return { player: entry.player, index: entry.index, isReserve };
     });
@@ -2571,7 +2574,7 @@ const QuickPage = () => {
         })
         .filter((entry): entry is [string, { x: number; y: number }] => Boolean(entry)),
     );
-    return { lineupPlayerIds: orderedIds, lineupPositions };
+    return { lineupPlayerIds: orderedIds, lineupPositions, lineupStarterCount: orderedIds.filter(id => !reserveIds.has(String(id))).length };
   }, [boardFormat, boardMode, elements, isMatchPreparationUi, isMobileViewport, matchPlanPitchPlacement, selectedPreset, teamPlayers]);
 
   const getLineupPlayerIdsForMatchPlan = React.useCallback(() => {
@@ -2819,7 +2822,7 @@ const QuickPage = () => {
     const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
     const periodLabels: Record<typeof matchPeriodKey, string> = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" };
     const boardUrl = `/tactical-board?boardId=${savedBoardId}&teamId=${boardTeamId}&matchId=${selectedMatchId}&periodKey=${matchPeriodKey}&returnTo=${encodeURIComponent(`/calendari/${boardTeamId}?openMatchId=${selectedMatchId}`)}`;
-    const { lineupPlayerIds, lineupPositions } = getMatchPlanLineupSnapshot();
+    const { lineupPlayerIds, lineupPositions, lineupStarterCount } = getMatchPlanLineupSnapshot();
     const playerIds = Array.from(new Set([
       ...matchCallups.map((callup) => callup.playerId),
       ...lineupPlayerIds,
@@ -2830,6 +2833,7 @@ const QuickPage = () => {
         ? {
             ...period,
             lineupPlayerIds,
+            lineupStarterCount,
             lineupPositions,
             lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null,
             boardId: savedBoardId,
@@ -2864,7 +2868,7 @@ const QuickPage = () => {
       if (!match) throw new Error("match");
       const existingPlan = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
       const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
-      const { lineupPlayerIds, lineupPositions } = getMatchPlanLineupSnapshot();
+      const { lineupPlayerIds, lineupPositions, lineupStarterCount } = getMatchPlanLineupSnapshot();
       const playerIds = Array.from(new Set([
         ...matchCallups.map((callup) => callup.playerId),
         ...lineupPlayerIds,
@@ -2873,7 +2877,7 @@ const QuickPage = () => {
       const hasPeriod = currentPeriods.some((period: any) => period?.key === matchPeriodKey);
       const periods = (hasPeriod ? currentPeriods : [...currentPeriods, { key: matchPeriodKey, label: periodLabels[matchPeriodKey], minutes: "" }]).map((period: any) =>
         period?.key === matchPeriodKey
-          ? { ...period, lineupPlayerIds, lineupPositions, lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null, boardConfirmed: false }
+          ? { ...period, lineupPlayerIds, lineupStarterCount, lineupPositions, lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null, boardConfirmed: false }
           : period
       );
       const patchRes = await fetch(withApi(`/api/matches/${selectedMatchId}/plan`), {
