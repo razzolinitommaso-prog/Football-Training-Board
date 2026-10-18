@@ -1273,10 +1273,6 @@ function DrawingToolGlyph({ type }: { type: string }) {
   return <PencilLine size={20} />;
 }
 
-function ElementMenuPlacement({ dock, children }: { dock: HTMLElement | null; children: React.ReactNode }) {
-  return dock ? createPortal(children, dock) : <>{children}</>;
-}
-
 const QuickPage = () => {
   const isMobileViewport = useIsMobile();
   const [viewportReady, setViewportReady] = useState(false);
@@ -1822,7 +1818,6 @@ const QuickPage = () => {
   }, [boardFormat, selectedPreset]);
 
   const pitchRef = React.useRef<HTMLDivElement | null>(null);
-  const [mobileElementDock, setMobileElementDock] = useState<HTMLDivElement | null>(null);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [pitchDisplayWidth, setPitchDisplayWidth] = useState(0);
   React.useEffect(() => {
@@ -4460,15 +4455,14 @@ const QuickPage = () => {
               )}
 
               {selectedElementIndex !== null && selectedElement && selectedElementMenuStyle && fieldElementMenuOpen && (
-                <ElementMenuPlacement dock={isMobileViewport ? mobileElementDock : null}>
                 <div
                   data-board-editor="true"
-                  className={isMobileViewport ? "relative min-w-0 rounded-xl border border-white/10 bg-[#0F172A] p-2" : `absolute z-30 transition-[left,top,transform] duration-150 ease-out ${selectedElementMenuClass} ${
+                  className={`absolute z-30 transition-[left,top,transform] duration-150 ease-out ${selectedElementMenuClass} ${
                     useCompactElementMenu
-                      ? "w-auto rounded-xl border border-transparent bg-transparent p-0 shadow-none"
+                      ? `${isMobileViewport ? "w-[calc(100%-1rem)] max-w-72" : "w-auto"} rounded-xl border border-transparent bg-transparent p-0 shadow-none`
                       : "w-64 rounded-2xl border border-white/10 bg-[#0F172A]/95 p-3 shadow-2xl backdrop-blur"
                   }`}
-                  style={isMobileViewport ? undefined : selectedElementMenuStyle}
+                  style={selectedElementMenuStyle}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -5181,7 +5175,6 @@ const QuickPage = () => {
                   </div>
                   )}
                 </div>
-                </ElementMenuPlacement>
               )}
 
             </div>
@@ -6214,7 +6207,6 @@ const QuickPage = () => {
                   </div>
                 )}
                 </div>
-                <div ref={setMobileElementDock} className="mt-2 space-y-2 md:hidden" />
               </aside>
             </div>
           </div>
