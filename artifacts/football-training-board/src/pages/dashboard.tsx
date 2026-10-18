@@ -2783,7 +2783,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Fasi ed eventi</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className={dashboardSingleSection === "settore_giovanile" ? "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"}>
         {dashboardShowsSchoolSeasonPhases && (
           <>
             <DashboardMatchSummaryCard
@@ -2807,21 +2807,21 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         {dashboardShowsChampionshipPhases && (
           <>
             <DashboardMatchSummaryCard
-              title="Campionato"
+              title={dashboardSingleSection === "settore_giovanile" ? "Campionato e classifica" : "Campionato"}
               value={dashboardChampionshipMatchCount}
               description="gare andata/ritorno"
               icon={Trophy}
               tone="amber"
               onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/campionati`)}
             />
-            <DashboardMatchSummaryCard
+            {dashboardSingleSection !== "settore_giovanile" && <DashboardMatchSummaryCard
               title="Classifica girone"
               value={dashboardTeams.length}
               description="risultati e graduatoria"
               icon={BarChart3}
               tone="pink"
               onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/campionati`)}
-            />
+            />}
           </>
         )}
         <DashboardMatchSummaryCard
