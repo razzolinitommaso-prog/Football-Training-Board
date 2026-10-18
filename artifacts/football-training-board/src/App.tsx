@@ -330,7 +330,7 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/settore-giovanile/matches">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
-            <Redirect to={`/settore-giovanile/campionati?${new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(window.location.search)), manage: "1" })}${window.location.hash}`} />
+            <Redirect to={`/settore-giovanile/campionati?${new URLSearchParams(Object.fromEntries([...new URLSearchParams(window.location.search)].filter(([key]) => key !== "manage")))}${window.location.hash}`} />
           </ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/campionati">

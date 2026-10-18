@@ -1,7 +1,7 @@
 import { championshipMatchPath } from "@/lib/championship-match-links";
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -231,7 +231,7 @@ function groupFixturesByRound(fixtures: ChampionshipFixture[]) {
   return [...groups.entries()].map(([label, items]) => ({ label, fixtures: items }));
 }
 
-function ChampionshipSectionPanel({ section, teams, managementOnly = false }: { section: string; teams: Team[]; managementOnly?: boolean }) {
+function ChampionshipSectionPanel({ section, teams }: { section: string; teams: Team[] }) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -290,10 +290,10 @@ function ChampionshipSectionPanel({ section, teams, managementOnly = false }: { 
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
               <BarChart3 className="h-4 w-4 text-emerald-600" />
-              {managementOnly ? "Campionati e risultati manuali" : "Campionati e classifiche gironi"}
+              Campionati e classifiche gironi
             </CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              {managementOnly ? "Crea campionati e aggiorna i risultati dei gironi." : "Area separata dal calendario squadra: qui vivranno gironi, risultati delle altre squadre e classifiche."}
+              Area separata dal calendario squadra: qui vivranno gironi, risultati delle altre squadre e classifiche.
             </p>
           </div>
           <Button type="button" size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
@@ -311,7 +311,7 @@ function ChampionshipSectionPanel({ section, teams, managementOnly = false }: { 
           </div>
         ) : (
           championships.map((championship) => (
-            <details key={championship.id} className="group rounded-xl border bg-background/90 shadow-sm" open={!managementOnly}>
+            <details key={championship.id} className="group rounded-xl border bg-background/90 shadow-sm" open>
               <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-3 sm:p-4">
                 <div className="min-w-0">
                   <p className="break-words text-base font-semibold leading-snug">{championship.title}</p>
@@ -333,7 +333,7 @@ function ChampionshipSectionPanel({ section, teams, managementOnly = false }: { 
                       <p className="text-sm font-semibold">{group.name}</p>
                       <Badge variant="outline">{group.fixtures.length} partite</Badge>
                     </div>
-                    {!managementOnly && <div className="rounded-lg border bg-background p-2 sm:p-3">
+                    <div className="rounded-lg border bg-background p-2 sm:p-3">
                       <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Classifica {group.name}</p>
                       {group.standings.length === 0 ? (
                         <p className="text-sm text-muted-foreground">Classifica pronta: apparira quando ci saranno squadre nel girone.</p>
@@ -374,7 +374,7 @@ function ChampionshipSectionPanel({ section, teams, managementOnly = false }: { 
                           </table>
                         </div>
                       )}
-                    </div>}
+                    </div>
                     <div className="space-y-2">
                       <p className="text-xs font-semibold uppercase text-muted-foreground">Risultati {group.name}</p>
                       {group.fixtures.length === 0 ? (
@@ -690,10 +690,6 @@ function MatchCalendarTeamCard({
               <ArrowRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <CardTitle className="text-base mt-3 leading-tight">{team.name}</CardTitle>
-            {section === "settore_giovanile" && <div className="mt-3 flex flex-wrap gap-2 text-sm">
-              <Link className="rounded border px-3 py-2" href={`/settore-giovanile/calendari/${team.id}?phase=tornei`}>Tornei</Link>
-              <Link className="rounded border px-3 py-2" href={`/settore-giovanile/calendari/${team.id}?phase=amichevoli`}>Amichevoli</Link>
-            </div>}
           </CardHeader>
           <CardContent className="pt-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1192,7 +1188,7 @@ async function apiFetch(url: string, options?: RequestInit) {
   return res.json();
 }
 
-export default function SectionMatchCalendars({ section, managementOnly = false }: { section: string; managementOnly?: boolean }) {
+export default function SectionMatchCalendars({ section }: { section: string }) {
   const { role, user } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -1471,14 +1467,14 @@ export default function SectionMatchCalendars({ section, managementOnly = false 
 
   if (isManagement || isStaff) {
     return (
-      <div className={managementOnly ? "min-w-0 space-y-6" : "p-6 max-w-5xl mx-auto space-y-6"}>
+      <div className="p-6 max-w-5xl mx-auto space-y-6">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Trophy className="w-6 h-6 text-primary" />
-            {managementOnly ? "Gestione campionati" : `Calendari Partite — ${SECTION_LABEL[section]}`}
+            Calendari Partite — {SECTION_LABEL[section]}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {managementOnly ? "Importazioni, esportazioni e gestione delle partite per squadra." : "Seleziona un’annata per vedere il calendario gare"}
+            Seleziona un'annata per vedere il calendario gare
           </p>
           {canImportYouthFederalPdf && (
             <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -1627,7 +1623,7 @@ export default function SectionMatchCalendars({ section, managementOnly = false 
           </Card>
         )}
 
-        <ChampionshipSectionPanel section={section} teams={visibleTeams} managementOnly={managementOnly} />
+        <ChampionshipSectionPanel section={section} teams={visibleTeams} />
 
         {visibleTeams.length === 0 ? (
           <Card>
