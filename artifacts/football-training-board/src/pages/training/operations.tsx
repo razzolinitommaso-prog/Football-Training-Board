@@ -85,9 +85,9 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
   const canEdit = canEditOperation(normalizedRole);
   const scopeLabel = section ? SECTION_LABELS[section] : "Tutte le sezioni abilitate";
 
-  const { data: sessions = [], isLoading } = useQuery<TrainingSession[]>({
+  const { data: sessions = [], isLoading, isError } = useQuery<TrainingSession[]>({
     queryKey: ["/api/training-sessions", "operations", kind, section ?? "global"],
-    queryFn: () => apiFetch<TrainingSession[]>("/api/training-sessions"),
+    queryFn: () => apiFetch<TrainingSession[]>(section ? `/api/training-sessions?section=${encodeURIComponent(section)}` : "/api/training-sessions"),
   });
 
   const visibleSessions = useMemo(() => {
@@ -115,15 +115,16 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
   };
 
   const openSession = (session: TrainingSession) => {
+    const basePath = section ? `/${section.replaceAll("_", "-")}` : "";
     if (kind === "attendance") {
-      setLocation(`/attendance?sessionId=${session.id}`);
+      setLocation(`${basePath}/attendance?sessionId=${session.id}`);
       return;
     }
     if (kind === "calendar") {
-      setLocation(`/training?sessionId=${session.id}`);
+      setLocation(`${basePath}/training?sessionId=${session.id}`);
       return;
     }
-    setLocation(`/training?sessionId=${session.id}`);
+    setLocation(`${basePath}/training?sessionId=${session.id}`);
   };
 
   return (
@@ -173,6 +174,8 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
         <CardContent className="space-y-2">
           {isLoading ? (
             <div className="rounded-md border bg-muted/20 px-3 py-6 text-sm text-muted-foreground">Caricamento...</div>
+          ) : isError ? (
+            <div role="alert" className="rounded-md border border-destructive/40 px-3 py-6 text-sm text-destructive">Impossibile caricare le sedute del settore. Riprova tra poco.</div>
           ) : visibleSessions.length === 0 ? (
             <div className="rounded-md border bg-muted/20 px-3 py-6 text-sm text-muted-foreground">{config.empty}</div>
           ) : (

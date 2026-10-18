@@ -14,7 +14,7 @@ import {
   GetDashboardStatsResponse,
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
-import { canViewAllClubTrainingSessions, isClubWideListRole, normalizeSessionRole } from "../lib/club-scope";
+import { canViewAllClubTrainingSessions, isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { requireClubAndUserIds } from "../lib/session-context";
 
 /** Per le statistiche dashboard: solo chi è vincolato alle squadre assegnate (non il direttore tecnico). */
@@ -138,6 +138,21 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
   const { clubId, userId } = ids;
   const role = req.session.role ?? "";
 
+  const requestedSection = req.query.section;
+  if (requestedSection !== undefined && (typeof requestedSection !== "string" || !["scuola_calcio", "settore_giovanile", "prima_squadra"].includes(requestedSection))) {
+    res.status(400).json({ error: "Settore non valido" });
+    return;
+  }
+  // Explicit section narrows existing permissions; unscoped consumers keep their current behavior.
+  const allowedSections = requestedSection ? await resolveAllowedClubSections(req, requestedSection) : undefined;
+  const sectionTeams = allowedSections?.length
+    ? await db.select({ id: teamsTable.id }).from(teamsTable)
+        .where(and(eq(teamsTable.clubId, clubId), inArray(teamsTable.clubSection, allowedSections)))
+    : [];
+  const sectionScope = requestedSection
+    ? sectionTeams.length ? inArray(trainingSessionsTable.teamId, sectionTeams.map(team => team.id)) : sql`false`
+    : undefined;
+
   const queryParams = ListTrainingSessionsQueryParams.safeParse(req.query);
   let sessions: (typeof trainingSessionsTable.$inferSelect)[] = [];
 
@@ -146,7 +161,8 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
     if (queryParams.success && queryParams.data.teamId) {
       conditions.push(eq(trainingSessionsTable.teamId, queryParams.data.teamId) as any);
     }
-    if (req.session.section && !isClubWideListRole(role)) {
+    if (sectionScope) conditions.push(sectionScope as any);
+    if (!requestedSection && req.session.section && !isClubWideListRole(role)) {
       const sTeams = await db.select({ id: teamsTable.id }).from(teamsTable)
         .where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.clubSection, req.session.section)));
       const ids = sTeams.map(t => t.id);
@@ -180,6 +196,7 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
       .where(
         and(
           eq(trainingSessionsTable.clubId, clubId),
+          sectionScope,
           teamScope as any,
           or(
             assignedSessionsScope as any,
