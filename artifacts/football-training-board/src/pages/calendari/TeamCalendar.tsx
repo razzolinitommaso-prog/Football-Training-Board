@@ -1607,6 +1607,52 @@ function isNoopMatchUpdateError(err: unknown): boolean {
   return message.includes("Nessun campo da aggiornare");
 }
 
+function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById }: {
+  period: MatchPlanPeriodRuntime;
+  matchFormat: MatchFormat;
+  selectedIds: Set<number>;
+  playersById: Map<number, Player>;
+}) {
+  const limit = startersLimitForPeriod(period, matchFormat);
+  const ids = (period.lineupPlayerIds ?? []).filter(id => selectedIds.has(id));
+  const slots = formationSlotsForLineup(period.module, period.format ?? matchFormat, limit);
+  return <div className="space-y-2" aria-label={`Schieramento ${period.label}`}>
+    <p className="text-xs text-muted-foreground">Titolari {Math.min(ids.length, limit)}/{limit} · Riserve {Math.max(0, ids.length - limit)}</p>
+    <div className="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-lg border-4 border-emerald-300 bg-green-700" role="img" aria-label={`Campo ${period.label}: ${ids.slice(0, limit).map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : id; }).join(", ") || "nessun titolare"}`}>
+      <div className="pointer-events-none absolute inset-[5%] border border-white/60" />
+      <div className="pointer-events-none absolute inset-x-[5%] top-1/2 border-t border-white/60" />
+      <div className="pointer-events-none absolute left-[35%] top-[39%] h-[22%] w-[30%] rounded-full border border-white/60" />
+      <div className="pointer-events-none absolute left-[28%] top-[5%] h-[16%] w-[44%] border border-white/60" />
+      <div className="pointer-events-none absolute bottom-[5%] left-[28%] h-[16%] w-[44%] border border-white/60" />
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        {(period.lineupDrawings ?? []).map(drawing => {
+          const points = lineupPointsToPortrait(drawing.points);
+          if (points.length < 2) return null;
+          const straight = drawing.tool === "arrow" && isLineupStraightGeometry(drawing.geometry);
+          const path = isLineupConduzioneGeometry(drawing.geometry) ? lineupConduzionePath(points, straight, Math.max(1.2, (drawing.width ?? 3) * 0.45)) : lineupDrawingPath(points, straight);
+          return <g key={drawing.id}>
+            <path d={path} fill="none" stroke={drawing.color} strokeWidth={(drawing.width ?? 3) * 0.6} vectorEffect="non-scaling-stroke" strokeDasharray={drawing.lineStyle === "dashed" ? "8 6" : undefined} />
+            {drawing.tool === "arrow" && (drawing.arrowHeads === "end" || drawing.arrowHeads === "both") && <path d={lineupArrowHeadPath(points[points.length - 1], points[points.length - 2])} fill="none" stroke={drawing.color} strokeWidth={(drawing.width ?? 3) * 0.42} vectorEffect="non-scaling-stroke" />}
+            {drawing.tool === "arrow" && (drawing.arrowHeads === "start" || drawing.arrowHeads === "both") && <path d={lineupArrowHeadPath(points[0], points[1])} fill="none" stroke={drawing.color} strokeWidth={(drawing.width ?? 3) * 0.42} vectorEffect="non-scaling-stroke" />}
+          </g>;
+        })}
+      </svg>
+      {ids.slice(0, limit).map((id, index) => {
+        const player = playersById.get(id);
+        const slot = slots[index] ?? { x: 50, y: 50, role: "player" };
+        const position = period.lineupPositions?.[String(id)] ?? slot;
+        const display = lineupPointToPortrait(position);
+        return <div key={id} className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center" style={{ left: `${display.x}%`, top: `${display.y}%` }}>
+          <span className={cn("flex h-7 w-7 items-center justify-center rounded-full border border-white text-[10px] font-bold text-white", player && isGoalkeeperPlayer(player) ? "bg-yellow-600" : "bg-blue-500")}>{player?.jerseyNumber ?? (player && isGoalkeeperPlayer(player) ? "GK" : index + 1)}</span>
+          <span className="max-w-20 truncate rounded bg-black/60 px-1 text-[9px] text-white">{player ? shortPlayerLabel(player) : id}</span>
+        </div>;
+      })}
+    </div>
+    {ids.length > limit && <p className="text-xs"><span className="font-semibold">Riserve: </span>{ids.slice(limit).map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : String(id); }).join(", ")}</p>}
+    {ids.length === 0 && <p className="text-xs text-muted-foreground">Seleziona i convocati o caricali nel tempo per visualizzare lo schieramento.</p>}
+  </div>;
+}
+
 function MatchCard({
   match,
   canEditPreNotes,
@@ -1665,6 +1711,7 @@ function MatchCard({
   const [planOpen, setPlanOpen] = useState(shouldOpenPlanFromQuery);
   const [previewBoard, setPreviewBoard] = useState<MatchPlanPeriodRuntime | null>(null);
   const [lineupDialog, setLineupDialog] = useState<LineupDialogState | null>(null);
+  const [previewPeriodKey, setPreviewPeriodKey] = useState<string>("t1");
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set());
   const [callupSearch, setCallupSearch] = useState("");
   const [exportingCallupPdf, setExportingCallupPdf] = useState(false);
@@ -2092,9 +2139,12 @@ function MatchCard({
     setLineupDialog(null);
   }
 
-  function setFirstPeriodPlayerReserveStatus(playerId: number, reserve: boolean) {
+  const previewPeriodIndex = Math.max(0, planDraft.periods.findIndex(period => period.key === previewPeriodKey));
+  const previewPeriod = planDraft.periods[previewPeriodIndex];
+
+  function setPeriodPlayerReserveStatus(playerId: number, reserve: boolean, periodIndex: number) {
     setPlanDraft((prev) => {
-      const first = prev.periods[0];
+      const first = prev.periods[periodIndex];
       if (!first) return prev;
       const selected = new Set(selectedPlayerIds);
       const limit = startersLimitForPeriod(first, matchFormat);
@@ -2102,14 +2152,15 @@ function MatchCard({
       const withoutPlayer = current.filter((id) => id !== playerId);
       const starters = withoutPlayer.slice(0, limit);
       const reserves = withoutPlayer.slice(limit);
+      if (!reserve && starters.length >= limit && limit > 0) reserves.unshift(starters.pop()!);
       const lineupPlayerIds = reserve
         ? [...starters, ...reserves, playerId]
         : [...starters, playerId, ...reserves];
       const nextPeriods = prev.periods.map((period, index) =>
-        index === 0 ? { ...period, lineupPlayerIds, boardConfirmed: false } : period,
+        index === periodIndex ? { ...period, lineupPlayerIds, boardConfirmed: false } : period,
       );
       const adjusted =
-        autoReserveRuleEnabled
+        autoReserveRuleEnabled && periodIndex === 0
           ? applyScuolaCalcioSecondPeriodAuto(nextPeriods, selectedPlayerIds, matchFormat)
           : nextPeriods;
       return { ...prev, periods: adjusted };
@@ -2636,8 +2687,10 @@ function MatchCard({
             </div>
             {planOpen && canManageMatchPlan && (
               <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
-                <div className="space-y-1">
+                <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.65fr)]">
+                <div className="min-w-0 space-y-2">
                   <Label className="text-xs text-muted-foreground">Convocazione (rosa utilizzata)</Label>
+                  <p className="text-xs text-muted-foreground">Titolari e riserve: {previewPeriod?.label}. Le modifiche restano in bozza fino a Salva piano partita.</p>
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                     <Input
@@ -2647,7 +2700,7 @@ function MatchCard({
                       placeholder="Ricerca rapida giocatore (cognome o nome)"
                     />
                   </div>
-                  <div className="max-h-72 overflow-auto rounded border bg-background p-2 grid grid-cols-1 xl:grid-cols-2 gap-1.5">
+                  <div className="min-w-0 divide-y rounded border bg-background px-2">
                     {filteredTeamPlayers.map((p) => {
                       const parentUnavailable = parentUnavailableCallupsByPlayer.get(p.id);
                       const parentUnavailableLabel = parentUnavailable
@@ -2655,9 +2708,10 @@ function MatchCard({
                         : "";
                       const disabled = p.available === false || Boolean(parentUnavailable);
                       return (
-                      <label key={p.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)] gap-2 rounded px-1 py-1.5 text-xs", disabled && "opacity-50")}>
+                      <div key={p.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2 px-1 py-3 text-xs", disabled && "opacity-50")}>
                         <Checkbox
-                          className="mt-0.5"
+                          className="mt-1"
+                          aria-label={`Convoca ${p.firstName} ${p.lastName}`}
                           checked={selectedPlayerIds.has(p.id)}
                           disabled={disabled}
                           onCheckedChange={(v) =>
@@ -2669,42 +2723,47 @@ function MatchCard({
                             })
                           }
                         />
-                        <span className="min-w-0 space-y-1">
-                          <span className="block truncate font-medium text-foreground">
+                        <span className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                          <span className="min-w-0">
+                          <span className="block break-words font-medium text-foreground">
                             {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
                           </span>
-                          <span className="block truncate text-[11px] text-muted-foreground">
+                          <span className="block break-words text-[11px] text-muted-foreground">
                             {p.position || "Ruolo non indicato"}{parentUnavailable ? parentUnavailableLabel : playerUnavailableLabel(p)}
+                          </span>
                           </span>
                           {selectedPlayerIds.has(p.id) && (
                             <span className="flex flex-wrap gap-1">
                               {(() => {
-                                const firstPeriod = planDraft.periods[0];
+                                const firstPeriod = previewPeriod;
                                 const limit = firstPeriod ? startersLimitForPeriod(firstPeriod, matchFormat) : 0;
                                 const firstLineup = (firstPeriod?.lineupPlayerIds ?? selectedPlayersOrdered).filter((id) => selectedPlayerIds.has(id));
-                                const isReserve = firstLineup.indexOf(p.id) >= limit;
+                                const playerIndex = firstLineup.indexOf(p.id);
+                                const isReserve = playerIndex >= limit;
                                 return (
                                   <>
                                     <button
                                       type="button"
+                                      aria-pressed={playerIndex >= 0 && !isReserve}
                                       className={cn(
-                                        "rounded border px-2 py-0.5 text-[10px] font-semibold",
-                                        !isReserve
+                                        "min-h-9 rounded border px-2 py-1 text-[11px] font-semibold",
+                                        playerIndex >= 0 && !isReserve
                                           ? "border-emerald-300 bg-emerald-50 text-emerald-700"
                                           : "border-border bg-background text-muted-foreground",
                                       )}
                                       onClick={(event) => {
                                         event.preventDefault();
                                         event.stopPropagation();
-                                        setFirstPeriodPlayerReserveStatus(p.id, false);
+                                        setPeriodPlayerReserveStatus(p.id, false, previewPeriodIndex);
                                       }}
                                     >
                                       Titolare
                                     </button>
                                     <button
                                       type="button"
+                                      aria-pressed={isReserve}
                                       className={cn(
-                                        "rounded border px-2 py-0.5 text-[10px] font-semibold",
+                                        "min-h-9 rounded border px-2 py-1 text-[11px] font-semibold",
                                         isReserve
                                           ? "border-amber-300 bg-amber-50 text-amber-700"
                                           : "border-border bg-background text-muted-foreground",
@@ -2712,7 +2771,7 @@ function MatchCard({
                                       onClick={(event) => {
                                         event.preventDefault();
                                         event.stopPropagation();
-                                        setFirstPeriodPlayerReserveStatus(p.id, true);
+                                        setPeriodPlayerReserveStatus(p.id, true, previewPeriodIndex);
                                       }}
                                     >
                                       Riserva
@@ -2723,7 +2782,7 @@ function MatchCard({
                             </span>
                           )}
                           {matchWeekTrainingDays.length > 0 && (
-                            <span className="flex min-w-0 flex-wrap items-center gap-1" aria-label="Presenze allenamenti settimana partita">
+                            <span className="flex min-w-0 flex-wrap items-center gap-1 sm:col-span-2" aria-label="Presenze allenamenti settimana partita">
                               {matchWeekTrainingDays.map((day) => {
                                 const status = day.sessionId ? matchWeekAttendanceByPlayer.get(`${p.id}:${day.sessionId}`) : null;
                                 const tone = trainingAttendanceTone(status);
@@ -2753,14 +2812,14 @@ function MatchCard({
                                     )}
                                   >
                                     {format(day.date, "EEE d", { locale: itLocale })}
-                                    <span className="ml-0.5 font-semibold">{tone === "present" ? "✓" : tone === "unknown" ? "·" : "-"}</span>
+                                    <span className="ml-0.5 font-semibold">{tone === "present" ? "✓" : tone === "requested" ? "G" : tone === "injured" ? "I" : tone === "unknown" ? "·" : "−"}</span>
                                   </span>
                                 );
                               })}
                             </span>
                           )}
                         </span>
-                      </label>
+                      </div>
                     );})}
                     {filteredTeamPlayers.length === 0 && (
                       <p className="col-span-full text-[11px] text-muted-foreground py-1">
@@ -2768,6 +2827,21 @@ function MatchCard({
                       </p>
                     )}
                   </div>
+                  <p className="text-[11px] text-muted-foreground">Presenze allenamenti: ✓ presente · − assente · G giustificato · I infortunato · · non registrato.</p>
+                </div>
+                <aside className="min-w-0 self-start space-y-3 rounded-lg border bg-background p-3 lg:sticky lg:top-20">
+                  <h4 className="text-sm font-semibold">Anteprima schieramento</h4>
+                  <div className="flex flex-wrap gap-1" aria-label="Tempo visualizzato">
+                    {planDraft.periods.map((period, index) => (
+                      <Button key={period.key} type="button" size="sm" variant={index === previewPeriodIndex ? "default" : "outline"} aria-pressed={index === previewPeriodIndex} onClick={() => setPreviewPeriodKey(period.key)}>{period.label}</Button>
+                    ))}
+                  </div>
+                  {previewPeriod && <>
+                    <MatchDraftLineupPreview period={previewPeriod} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} />
+                    <Button type="button" variant="outline" className="w-full" onClick={() => openLineupDialog(previewPeriodIndex, "view")}>Ingrandisci anteprima</Button>
+                    <Button type="button" variant="secondary" className="w-full" onClick={() => openLineupDialog(previewPeriodIndex, "edit")}>Prepara schieramento</Button>
+                  </>}
+                </aside>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="space-y-1">
@@ -3010,9 +3084,11 @@ function MatchCard({
                           )}
                         </div>
 
+                        <details className="rounded border border-border/60 p-2">
+                          <summary className="cursor-pointer text-xs font-medium">Ordina o sposta giocatori tra i tempi</summary>
                         {lineupIds.length > 0 ? (
                           <div
-                            className="max-h-36 overflow-auto rounded border bg-muted/20 p-1.5 space-y-1"
+                            className="rounded border bg-muted/20 p-1.5 space-y-1"
                             onDragOver={(e) => e.preventDefault()}
                             onDrop={(e) => {
                               e.preventDefault();
@@ -3149,6 +3225,7 @@ function MatchCard({
                           </div>
                         )}
 
+                        </details>
                         {hasLineup && (
                           <div className="rounded-lg border border-emerald-300 bg-emerald-50/70 p-2 text-xs">
                             <div className="flex flex-wrap items-center justify-between gap-2">
