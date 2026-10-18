@@ -2723,7 +2723,7 @@ function MatchCard({
                             })
                           }
                         />
-                        <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 @min-[34rem]:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+                        <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_7rem] items-center gap-x-2 gap-y-0.5 @min-[34rem]:grid-cols-[minmax(0,1fr)_6rem_7rem_10rem]">
                           <span className="contents">
                           <span className="col-start-1 row-start-1 min-w-0 break-words font-medium leading-tight text-foreground">
                             {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
@@ -2782,7 +2782,7 @@ function MatchCard({
                             </span>
                           )}
                           {matchWeekTrainingDays.length > 0 && (
-                            <span className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center justify-end gap-0.5 @min-[34rem]:col-start-4 @min-[34rem]:row-start-1" aria-label="Presenze allenamenti settimana partita">
+                            <span className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center justify-end gap-0.5 @min-[34rem]:col-start-4 @min-[34rem]:row-start-1 @min-[34rem]:grid @min-[34rem]:grid-cols-3" aria-label="Presenze allenamenti settimana partita">
                               {matchWeekTrainingDays.map((day) => {
                                 const status = day.sessionId ? matchWeekAttendanceByPlayer.get(`${p.id}:${day.sessionId}`) : null;
                                 const tone = trainingAttendanceTone(status);
