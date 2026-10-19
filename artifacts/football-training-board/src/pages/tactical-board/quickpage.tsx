@@ -3493,7 +3493,7 @@ const QuickPage = () => {
 
         <div className="hidden min-w-0 flex-1 flex-col items-center px-3 md:flex">
         <input
-  value={boardTitle}
+  data-board-animation value={boardTitle}
   onChange={(e) => { setBoardTitle(e.target.value); setSaveState("Unsaved"); }}
   title={boardTitle}
   className="w-full max-w-[58rem] truncate bg-transparent text-center text-sm font-semibold outline-none md:text-base"
@@ -3573,10 +3573,16 @@ const QuickPage = () => {
           </div>
 
 <button
-  disabled={saveState === "Saving..." || animation.mode !== "stopped"}
+  data-board-animation
+  disabled={saveState === "Saving..."}
   onClick={async () => {      
     setSaveError(null);
     setSaveState("Saving...");
+    if (animation.mode !== "stopped") {
+      animation.stop();
+      // Let React restore the editable frame before any linked PNG is captured.
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    }
 
     const data = buildBoardSnapshot();
 
@@ -3643,7 +3649,7 @@ const QuickPage = () => {
       </header>
       {saveError && <p role="alert" className="border-b border-red-400/30 bg-red-950 px-3 py-2 text-sm text-white">{saveError}</p>}
       <div className="flex min-w-0 items-center gap-2 border-b border-white/10 px-3 py-2 md:hidden">
-        <input aria-label="Titolo lavagna" value={boardTitle} onChange={event => { setBoardTitle(event.target.value); setSaveState("Unsaved"); }} className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" />
+        <input aria-label="Titolo lavagna" data-board-animation value={boardTitle} onChange={event => { setBoardTitle(event.target.value); setSaveState("Unsaved"); }} className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" />
         <span className="shrink-0 text-xs text-emerald-400">{saveStateLabelMap[saveState] ?? saveState}</span>
       </div>
       {boardsError && (
@@ -6250,8 +6256,8 @@ const QuickPage = () => {
               </h3>
               <div className="space-y-3">
                 <input
-                  value={boardTitle}
-                  onChange={(e) => setBoardTitle(e.target.value)}
+                  data-board-animation value={boardTitle}
+                  onChange={(e) => { setBoardTitle(e.target.value); setSaveState("Unsaved"); }}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none"
                 />
                 <select
