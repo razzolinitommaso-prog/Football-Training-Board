@@ -1,3 +1,6 @@
+import { AnimationPanel } from "./animation-panel";
+import { useBoardAnimation } from "./use-board-animation";
+import { readAnimation } from "./board-animation";
 import { splitMatchLineup } from "@/lib/match-lineup";
 import { capturePitch } from "./capture-pitch";
 import React, { useLayoutEffect, useRef, useState } from "react";
@@ -1549,6 +1552,13 @@ const QuickPage = () => {
   const [boards, setBoards] = useState<any[]>([]);
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const [elements, setElements] = useState<TacticalBoardElement[]>([]);
+  const animation = useBoardAnimation(elements, setElements, () => setSaveState("Unsaved"));
+  const displayElements = animation.preview ?? elements;
+  React.useEffect(() => {
+    setSelectedElementIndex(null);
+    setSelectedElementIndexes([]);
+    setFieldElementMenuOpen(false);
+  }, [animation.activeFrame, animation.mode]);
   const effectiveTeamId = boardMode === "assigned" ? boardTeamId : null;
   const { players: fetchedTeamPlayers } = useTeamPlayers(effectiveTeamId, selectedMatchId, isExerciseBoard);
   const [teamPlayers, setTeamPlayers] = useState<TeamPlayer[]>([]);
@@ -1614,6 +1624,8 @@ const QuickPage = () => {
       } else {
         setArrowToolPreset(DEFAULT_ARROW_PRESET);
       }
+      const savedAnimation = readAnimation(data.animation);
+      animation.load(savedAnimation ? { ...savedAnimation, frames: savedAnimation.frames.map(frame => ({ ...frame, elements: frame.elements.map(element => convertBoardElementCoordinates(element, sourceCoordinateSpace, targetCoordinateSpace)) })) } : null);
       setElements((data.elements ?? []).map((element) =>
         convertBoardElementCoordinates(element, sourceCoordinateSpace, targetCoordinateSpace)
       ));
@@ -1622,7 +1634,7 @@ const QuickPage = () => {
       setSaveState("Saved");
       setBoardIdInUrl(parsedBoardId);
     },
-    [club, initialTeamIdFromQuery, isMobileViewport, setBoardIdInUrl]
+    [club, initialTeamIdFromQuery, isMobileViewport, setBoardIdInUrl, animation.load]
   );
 
   React.useEffect(() => {
@@ -1962,6 +1974,7 @@ const QuickPage = () => {
     setAssignmentTeamId("");
     setTeamPlayers([]);
     setSelectedPreset(null);
+    animation.load(null);
     setElements([]);
     closeToolPopovers();
     setSaveState("Unsaved");
@@ -2110,7 +2123,7 @@ const QuickPage = () => {
   const mobileElementScale = isMobileViewport && pitchDisplayWidth > 0
     ? Math.max(0.45, Math.min(1, (pitchDisplayWidth / displayPitchMeasurement.canvasLength) / (800 / pitchMeasurement.canvasLength)))
     : 1;
-  const hasRenderableElements = elements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
+  const hasRenderableElements = displayElements.some((el) => isPlayerType(el?.type) || isEquipmentType(el?.type) || isDrawingType(el?.type));
   const selectedElement =
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
   const selectedRotation = selectedElement ? Math.round(Number(selectedElement.rotation ?? 0)) : 0;
@@ -3354,7 +3367,9 @@ const QuickPage = () => {
     window.addEventListener("pointercancel", handleUp);
   };
 
-  const buildBoardSnapshot = (): TacticalBoardData => ({
+  const buildBoardSnapshot = (): TacticalBoardData => {
+    const savedAnimation = animation.snapshot();
+    return ({
     teamId: boardMode === "assigned" ? boardTeamId : null,
     clubId: boardClubId,
     category: boardCategory,
@@ -3370,11 +3385,13 @@ const QuickPage = () => {
     showMetricGrid,
     showFieldMarkings,
     arrowToolPreset,
-    elements,
+    elements: savedAnimation?.frames[savedAnimation.activeFrame].elements ?? elements,
+    animation: savedAnimation,
     coordinateSpace: isMobileViewport ? "mobile-portrait" : "desktop-landscape",
     updatedAt: new Date().toISOString(),
     notes: boardNotes,
   });
+  };
 
   const linkSavedBoardToExercise = async (savedBoardId: number | null, savedBoardTitle: string, boardData: TacticalBoardData) => {
     if (!savedBoardId || !isExerciseBoard || !initialExerciseIdFromQuery) return;
@@ -3441,7 +3458,11 @@ const QuickPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B1220] text-white flex flex-col">
+    <div className="min-h-screen bg-[#0B1220] text-white flex flex-col"
+      onClickCapture={event => { if (animation.mode !== "stopped" && !(event.target as Element).closest("[data-board-animation]")) { event.preventDefault(); event.stopPropagation(); } }}
+      onPointerDownCapture={event => { if (animation.mode !== "stopped" && !(event.target as Element).closest("[data-board-animation]")) event.stopPropagation(); }}
+      onKeyDownCapture={event => { if (animation.mode === "stopped" || ["Tab", "PageUp", "PageDown", "Home", "End"].includes(event.key)) return; if (event.key === "Escape") { animation.stop(); event.preventDefault(); event.stopPropagation(); } else if (!(event.target as Element).closest("[data-board-animation]")) { event.preventDefault(); event.stopPropagation(); } }}
+    >
       {/* HEADER */}
       <header className="h-14 border-b border-white/10 bg-[#0F172A]/90 backdrop-blur flex items-center justify-between gap-2 px-2 md:h-16 md:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-2 md:flex-none md:gap-3">
@@ -3524,6 +3545,7 @@ const QuickPage = () => {
     setSelectedPreset(null);
     setActiveTool("player");
     setFocusMode(false);
+    animation.load(null);
     setElements([]);
     setSelectedElementIndex(null);
     setSaveState("New");
@@ -3551,7 +3573,7 @@ const QuickPage = () => {
           </div>
 
 <button
-  disabled={saveState === "Saving..."}
+  disabled={saveState === "Saving..." || animation.mode !== "stopped"}
   onClick={async () => {      
     setSaveError(null);
     setSaveState("Saving...");
@@ -3793,6 +3815,8 @@ const QuickPage = () => {
 
           </details>
 
+          <AnimationPanel animation={animation} />
+
           {/* CANVAS */}
           <div className="relative flex-1 overflow-auto px-1 py-2 sm:px-4 md:py-5">
             <div className="flex w-full flex-col gap-3 xl:grid xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
@@ -3834,7 +3858,7 @@ const QuickPage = () => {
               style={{
                 aspectRatio: `${displayPitchMeasurement.canvasLength} / ${displayPitchMeasurement.canvasWidth}`,
                 maxWidth: "100%",
-                touchAction: "none",
+                touchAction: animation.mode !== "stopped" ? "pan-y pinch-zoom" : "none",
                 WebkitUserSelect: "none",
                 userSelect: "none",
               }}
@@ -4047,7 +4071,7 @@ const QuickPage = () => {
                     <path d="M0.2,0.2 L1.85,1 L0.2,1.8" fill="none" stroke="context-stroke" strokeWidth="0.24" strokeLinecap="round" strokeLinejoin="round" />
                   </marker>
                 </defs>
-                {elements.map((el: TacticalBoardElement, i: number) => {
+                {displayElements.map((el: TacticalBoardElement, i: number) => {
                   if (!isDrawingType(el.type)) return null;
                   const points = Array.isArray(el.points) ? el.points as Array<{ x: number; y: number }> : [];
                   if (points.length < 2) return null;
@@ -4226,7 +4250,7 @@ const QuickPage = () => {
                 })}
               </svg>
 
-              {elements.map((el: TacticalBoardElement, i: number) => {
+              {displayElements.map((el: TacticalBoardElement, i: number) => {
                 if (!isDrawingType(el.type)) return null;
                 const isSelected = selectedElementIndex === i || selectedElementIndexes.includes(i);
                 const points = Array.isArray(el.points) ? el.points as Array<{ x: number; y: number }> : [];
@@ -4290,7 +4314,7 @@ const QuickPage = () => {
 
               {/* Elements */}
               {hasRenderableElements ? (
-                elements.map((el: TacticalBoardElement, i: number) => {
+                displayElements.map((el: TacticalBoardElement, i: number) => {
                   if (!isPlayerType(el?.type) && !isEquipmentType(el?.type)) return null;
 
                   if (
@@ -5340,6 +5364,7 @@ const QuickPage = () => {
                             setBoardTitle("Nuova sessione lavagna");
                             setSelectedMatchId(null);
                             matchPrepBindingCommittedRef.current = false;
+                            animation.load(null);
                             setElements([]);
                             setSelectedElementIndex(null);
                             setSelectedElementIndexes([]);
