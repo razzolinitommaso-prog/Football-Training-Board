@@ -48,7 +48,7 @@ const inviteSchema = z.object({
   lastName: z.string().min(2, "Required"),
   email: z.string().email("Invalid email"),
   password: z.string().min(6, "Min 6 chars"),
-  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin"]),
+  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   staffRole: z.string().optional(),
   registered: z.boolean().optional(),
@@ -66,7 +66,7 @@ const editSchema = z.object({
   lastName: z.string().min(2, "Minimo 2 caratteri"),
   email: z.string().email("Email non valida"),
   newPassword: z.string().optional(),
-  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin"]),
+  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   staffRole: z.string().optional(),
   registered: z.boolean().optional(),
@@ -89,9 +89,10 @@ const MEMBER_ROLE_ORDER: Record<string, number> = {
   athletic_director: 4,
   coach: 5,
   fitness_coach: 5,
+  team_manager: 6,
 };
 
-const STAFF_MANAGED_ROLES = ["coach", "fitness_coach", "athletic_director"] as const;
+const STAFF_MANAGED_ROLES = ["coach", "fitness_coach", "athletic_director", "team_manager"] as const;
 
 type StaffRoleBySection = Partial<Record<ClubSection, string>>;
 
@@ -143,6 +144,7 @@ export default function MembersList() {
     { value: "athletic_director", label: t.athleticDirector },
     { value: "fitness_coach", label: t.fitnessCoach },
     { value: "coach", label: t.coach },
+    { value: "team_manager", label: "Dirigente accompagnatore" },
   ].filter((option) => {
     if (role === "admin" || role === "presidente") return true;
     if (role === "director") return option.value !== "admin" && option.value !== "presidente" && (MEMBER_ROLE_ORDER[option.value] ?? 99) > currentRoleRank;
@@ -245,7 +247,7 @@ export default function MembersList() {
 
   const roleLabel = (role: string) => {
     const map: Record<string, string> = {
-      presidente: "Presidente", admin: t.admin, coach: t.coach, secretary: t.secretary, sporting_director: "Direttore Sportivo",
+      team_manager: "Dirigente accompagnatore", presidente: "Presidente", admin: t.admin, coach: t.coach, secretary: t.secretary, sporting_director: "Direttore Sportivo",
       technical_director: t.technicalDirector, athletic_director: t.athleticDirector,
       fitness_coach: t.fitnessCoach, director: t.director,
     };
@@ -290,11 +292,11 @@ export default function MembersList() {
   const locale = language === "it" ? itLocale : undefined;
   const showCoachInviteFields = watchedInviteRole === "coach";
   const showFitnessInviteFields = watchedInviteRole === "fitness_coach" || watchedInviteRole === "athletic_director";
-  const showInviteTeams = watchedInviteRole === "coach" || watchedInviteRole === "fitness_coach" || watchedInviteRole === "athletic_director" || watchedInviteRole === "technical_director";
+  const showInviteTeams = watchedInviteRole === "team_manager" || watchedInviteRole === "coach" || watchedInviteRole === "fitness_coach" || watchedInviteRole === "athletic_director" || watchedInviteRole === "technical_director";
   const showEditStaffRole = staffRoleOptions(watchedEditRole).length > 0;
   const showEditCoachFields = watchedEditRole === "coach";
   const showEditFitnessFields = watchedEditRole === "fitness_coach" || watchedEditRole === "athletic_director";
-  const showEditTeams = watchedEditRole === "coach" || watchedEditRole === "fitness_coach" || watchedEditRole === "athletic_director" || watchedEditRole === "technical_director";
+  const showEditTeams = watchedEditRole === "team_manager" || watchedEditRole === "coach" || watchedEditRole === "fitness_coach" || watchedEditRole === "athletic_director" || watchedEditRole === "technical_director";
 
   function toggleTeam(teamId: number) {
     const current = editForm.getValues("teamIds") ?? [];

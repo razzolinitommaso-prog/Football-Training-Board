@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getCurrentUser, getGetCurrentUserQueryKey } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Link, Redirect, useLocation } from "wouter";
-import { Loader2, ArrowLeft, Eye, EyeOff, Shield, Target, FileText, BarChart3, Settings, Heart, Dumbbell, BriefcaseBusiness } from "lucide-react";
+import { Loader2, ArrowLeft, Eye, EyeOff, Shield, Target, FileText, BarChart3, Settings, Heart, Dumbbell, BriefcaseBusiness, Users } from "lucide-react";
 import { useState } from "react";
 import { withApi } from "@/lib/api-base";
 import { setAuthToken } from "@/lib/auth-token";
@@ -106,6 +106,7 @@ const AREA_CONFIGS: Record<string, AreaConfig> = {
     accentGlow: "focus:ring-green-500/20 focus:border-green-500/50",
     gradientFrom: "from-green-950/30",
   },
+  manager: { role: "team_manager", label: "Area Dirigenti", description: "Calendario, convocazioni e squadra assegnata", Icon: Users, accent: "text-teal-400", accentBg: "bg-teal-500/10", accentBorder: "border-teal-500/20", accentGlow: "focus:ring-teal-500/20 focus:border-teal-500/50", gradientFrom: "from-teal-950/30" },
   parent: {
     role: "parent",
     label: "Area Genitori",
@@ -212,6 +213,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
         fitness: ["fitness_coach", "athletic_director"],
         coach: ["coach"],
         parent: ["parent"],
+        manager: ["team_manager"],
       };
       const allowedRoles = areaRoleMap[effectiveAreaKey];
       if (allowedRoles && roleFromResponse && !allowedRoles.includes(roleFromResponse)) {
@@ -522,3 +524,5 @@ export function ParentLoginPage() {
     </div>
   );
 }
+
+export function TeamManagerLoginPage() { return <AreaLoginPage areaKey="manager" />; }

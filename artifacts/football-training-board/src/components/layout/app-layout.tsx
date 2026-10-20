@@ -30,6 +30,7 @@ const ROLE_LABELS: Record<string, string> = {
   fitness_coach:      "Prep. Atletico",
   athletic_director:  "Dir. Atletico",
   parent:             "Genitore",
+  team_manager:       "Dirigente",
   superadmin:         "Super Admin",
 };
 
@@ -114,7 +115,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const backgroundLogoOpacity = Math.max(0, Math.min(30, Number((activeClub as { backgroundLogoOpacity?: number | null } | null)?.backgroundLogoOpacity ?? 8))) / 100;
   const [unreadNotifications, setUnreadNotifications] = useState<LayoutNotification[]>([]);
   const seenNotificationKeysRef = useRef<Set<string> | null>(null);
-  const canWatchClubNotifications = !!user?.id && !!activeClub?.id && role !== "parent" && role !== "superadmin";
+  const canWatchClubNotifications = !!user?.id && !!activeClub?.id && role !== "parent" && role !== "superadmin" && role !== "team_manager";
 
   const defaultSidebarOpen = typeof window !== "undefined"
     ? window.innerWidth >= MOBILE_BREAKPOINT
@@ -327,7 +328,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4">
-              <DropdownMenu>
+              {role !== "team_manager" && <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     size="icon"
@@ -418,7 +419,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     </DropdownMenuItem>
                   </div>
                 </DropdownMenuContent>
-              </DropdownMenu>
+              </DropdownMenu>}
 
               <div className="flex items-center gap-2 sm:gap-3 pl-3 sm:pl-4 border-l">
                 <div className="hidden md:flex flex-col items-end">

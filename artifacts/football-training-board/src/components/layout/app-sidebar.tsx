@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useGetMyClub } from "@workspace/api-client-react";
@@ -121,6 +121,7 @@ const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof Users
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const search = useSearch();
   const { role, section, sections, club } = useAuth();
   const { data: liveClub } = useGetMyClub();
   const activeClub = liveClub ?? club;
@@ -163,6 +164,9 @@ export function AppSidebar() {
     // Admin
     { titleKey: "billing",       url: "/billing",       icon: CreditCard, roles: ["admin", "presidente"], group: "admin" },
     { label: "Accesso Genitori", url: "/admin/parents", icon: Heart,      roles: ["admin", "presidente"], group: "admin" },
+    { label: "Calendario", url: "/dirigenti/calendario", icon: CalendarDays, roles: ["team_manager"], group: "parent" },
+    { label: "Convocazioni", url: "/dirigenti/convocazioni", icon: ClipboardCheck, roles: ["team_manager"], group: "parent" },
+    { label: "Squadra", url: "/dirigenti/squadra", icon: Users, roles: ["team_manager"], group: "parent" },
     // Genitori
     { label: "Dashboard",          url: "/parent-dashboard",      icon: LayoutDashboard, roles: ["parent"], group: "parent" },
     { label: "Squadre & Atleti",   url: "/parent/children",       icon: Users,           roles: ["parent"], group: "parent" },
@@ -290,12 +294,14 @@ export function AppSidebar() {
         <SidebarGroupContent>
           <SidebarMenu>
             {items.map((item) => {
+              const teamId = role === "team_manager" ? new URLSearchParams(search).get("teamId") : null;
+              const itemHref = teamId && item.url.startsWith("/dirigenti/") ? `${item.url}?teamId=${encodeURIComponent(teamId)}` : item.url;
               const isActive = location.startsWith(item.url);
               const title = item.label ?? (item.titleKey ? t[item.titleKey] as string : "");
               return (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild isActive={isActive} tooltip={title} className="font-medium">
-                    <Link href={item.url} className="flex items-center gap-3">
+                    <Link href={itemHref} className="flex items-center gap-3">
                       <item.icon className={`w-5 h-5 ${isActive ? "text-primary" : "text-sidebar-foreground/70"}`} />
                       <span>{title}</span>
                     </Link>
@@ -423,14 +429,14 @@ export function AppSidebar() {
         <NavGroup items={secretaryNav} labelKey={t.secretaryArea} />
         <NavGroup items={fitnessNav}   labelKey={t.fitnessSection} />
         <NavGroup items={adminNav}     labelKey={t.adminSection} />
-        <NavGroup items={parentNav}    labelKey="Area Genitori" />
+        <NavGroup items={parentNav}    labelKey={role === "team_manager" ? "Area Dirigenti" : "Area Genitori"} />
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border bg-sidebar-accent/30 space-y-3">
         <div className="flex items-center gap-3 px-2">
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold truncate text-sidebar-foreground">{club?.name}</p>
-            <p className="text-xs text-sidebar-foreground/60 capitalize truncate">{role?.replace(/_/g, " ")} {t.account}</p>
+            <p className="text-xs text-sidebar-foreground/60 capitalize truncate">{role === "team_manager" ? "Dirigente" : role?.replace(/_/g, " ")} {t.account}</p>
           </div>
         </div>
         <div className="px-2">

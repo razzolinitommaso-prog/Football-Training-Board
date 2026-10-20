@@ -26,7 +26,12 @@ import calendarExtraEventsRouter from "./calendar-extra-events";
 import trainingCalendarOverridesRouter from "./training-calendar-overrides";
 import { boardsRouter } from "./boards-routers";
 
+import teamManagerRouter from "./team-manager";
+import { restrictTeamManagerApi } from "../lib/team-manager-access";
+
 const router: IRouter = Router();
+router.use(restrictTeamManagerApi);
+router.use(teamManagerRouter);
 
 router.use(healthRouter);
 router.use(authRouter);

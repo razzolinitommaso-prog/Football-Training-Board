@@ -1,4 +1,5 @@
-import { Redirect, Switch, Route } from "wouter";
+import { Redirect, Switch, Route, useLocation } from "wouter";
+import TeamManagerArea from "@/pages/team-manager";
 import NotFound from "@/pages/not-found";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/layout/app-layout";
@@ -10,7 +11,7 @@ import LandingPage from "@/pages/landing/index";
 import LoginClubPage from "@/pages/login-club/index";
 import WorkspacePage from "@/pages/workspace/index";
 import WorkspaceSectionAreasPage from "@/pages/workspace/section-areas";
-import { CoachLoginPage, SecretaryLoginPage, SportingDirectorLoginPage, TechnicalLoginPage, DirectorLoginPage, AdminLoginPage, ParentLoginPage, FitnessLoginPage } from "@/pages/area-login/index";
+import { CoachLoginPage, SecretaryLoginPage, SportingDirectorLoginPage, TechnicalLoginPage, DirectorLoginPage, AdminLoginPage, ParentLoginPage, FitnessLoginPage, TeamManagerLoginPage } from "@/pages/area-login/index";
 import ParentDashboard from "@/pages/parent/index";
 import ParentChildren from "@/pages/parent/children";
 import ParentTeamInfo from "@/pages/parent/team";
@@ -97,9 +98,13 @@ function DashboardRedirect() {
 }
 
 function ProtectedAppRoutes() {
+  const {role,isLoading}=useAuth();
+  const [location]=useLocation();
+  if (!isLoading && role === "team_manager" && !["/dirigenti","/dirigenti/calendario","/dirigenti/convocazioni","/dirigenti/squadra"].includes(location)) return <Redirect to="/dirigenti" />;
   return (
     <AppLayout>
       <Switch>
+        {["/dirigenti","/dirigenti/calendario","/dirigenti/convocazioni","/dirigenti/squadra"].map(path=><Route key={path} path={path}><ProtectedRoute allowedRoles={["team_manager"]}><TeamManagerArea/></ProtectedRoute></Route>)}
         <Route path="/scuola-calcio/dashboard">
           <ProtectedRoute><Dashboard sectionOverride="scuola_calcio" /></ProtectedRoute>
         </Route>
@@ -436,6 +441,7 @@ function Router() {
       <Route path="/director/login" component={DirectorLoginPage} />
       <Route path="/admin/login" component={AdminLoginPage} />
       <Route path="/fitness/login" component={FitnessLoginPage} />
+      <Route path="/dirigenti/login" component={TeamManagerLoginPage} />
       <Route path="/parent/login" component={ParentLoginPage} />
       <Route path="/platform-login" component={PlatformLoginPage} />
       <Route path="/platform-admin" component={PlatformAdminPage} />

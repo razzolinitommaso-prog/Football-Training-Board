@@ -273,6 +273,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       fitness: ["fitness_coach", "athletic_director"],
       coach: ["coach"],
       parent: ["parent"],
+      manager: ["team_manager"],
     };
 
     let membership = memberships[0];

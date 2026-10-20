@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, clubsTable, clubMembershipsTable, usersTable, teamStaffAssignmentsTable, teamsTable } from "@workspace/db";
-import { eq, and, ilike, SQL, sql } from "drizzle-orm";
+import { eq, and, ilike, SQL, sql, inArray } from "drizzle-orm";
 import {
   GetMyClubResponse,
   UpdateMyClubBody,
@@ -26,9 +26,10 @@ const MEMBER_ROLE_ORDER: Record<string, number> = {
   athletic_director: 4,
   coach: 5,
   fitness_coach: 5,
+  team_manager: 6,
 };
 
-const STAFF_MANAGED_ROLES = new Set(["coach", "fitness_coach", "athletic_director"]);
+const STAFF_MANAGED_ROLES = new Set(["coach", "fitness_coach", "athletic_director", "team_manager"]);
 
 function canAssignMemberRole(actorRole?: string | null, targetRole?: string | null): boolean {
   const actor = actorRole ?? "";
@@ -37,6 +38,15 @@ function canAssignMemberRole(actorRole?: string | null, targetRole?: string | nu
   if (actor === "director") return (MEMBER_ROLE_ORDER[target] ?? 99) > (MEMBER_ROLE_ORDER[actor] ?? 99);
   if (actor === "technical_director" || actor === "secretary" || actor === "sporting_director") return STAFF_MANAGED_ROLES.has(target);
   return false;
+}
+
+async function validManagerTeams(role: string, teamIds: number[] | undefined, sections: string[] | undefined, clubId: number): Promise<boolean> {
+  if (role !== "team_manager" || !teamIds?.length) return true;
+  const ids = [...new Set(teamIds)];
+  if (ids.some(id=>!Number.isInteger(id)||id<=0)) return false;
+  const rows = await db.select({id:teamsTable.id, section:teamsTable.clubSection}).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),inArray(teamsTable.id,ids)));
+  const allowed = new Set((sections?.length ? sections : ["scuola_calcio"]).map(section=>section.replace(/-/g,"_")));
+  return rows.length === ids.length && rows.every(team=>allowed.has(team.section));
 }
 
 async function getClubMemberRole(userId: number, clubId: number): Promise<string | null> {
@@ -244,6 +254,7 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
   }
 
   const { email, firstName, lastName, password, role, clubSection, staffRole, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
+  if (!(await validManagerTeams(role,teamIds,clubSection,req.session.clubId!))) { res.status(400).json({ error: "Squadre non valide per società e sezioni selezionate" }); return; }
 
   if (!canAssignMemberRole(req.session.role, role)) {
     res.status(403).json({ error: "Non puoi creare membri con questo ruolo" });
@@ -328,6 +339,7 @@ router.patch("/clubs/me/members/:userId", requireAuth, async (req, res): Promise
   }
 
   const { firstName, lastName, email, newPassword, role, clubSection, staffRole, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
+  if (!(await validManagerTeams(role,teamIds,clubSection,req.session.clubId!))) { res.status(400).json({ error: "Squadre non valide per società e sezioni selezionate" }); return; }
 
   const currentTargetRole = await getClubMemberRole(userId, req.session.clubId!);
   if (!currentTargetRole) {
