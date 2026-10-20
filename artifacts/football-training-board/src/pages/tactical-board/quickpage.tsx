@@ -1,3 +1,4 @@
+import { ADDITIONAL_EQUIPMENT, AdditionalEquipmentGlyph } from "./additional-equipment";
 import { AnimationPanel } from "./animation-panel";
 import { useBoardAnimation } from "./use-board-animation";
 import { readAnimation } from "./board-animation";
@@ -325,7 +326,7 @@ function formatMatchPhaseGroupLabel(phaseLabel: string, items: MatchOption[]) {
 
 const BOARD_TYPES = ["Training", "Exercise", "Match", "Match Plan", "Set Piece", "Quick Idea"] as const;
 const BOARD_TAGS = ["Pressing", "Build-up", "Transition"] as const;
-const EQUIPMENT_TOOLS = ["ball", "cone", "goal", "goalLarge", "goalMini", "goal5", "goal7", "goal9", "goal11", "sagoma", "flag", "ladder", "hurdle", "pole", "vest", "disc", "cinesino", "text"] as const;
+const EQUIPMENT_TOOLS = ["ball", "cone", "goal", "goalLarge", "goalMini", "goal5", "goal7", "goal9", "goal11", "sagoma", "flag", "ladder", "hurdle", "pole", "vest", "disc", "cinesino", "text", ...ADDITIONAL_EQUIPMENT.map(tool => tool.id)] as const;
 const PLAYER_TYPES = ["player", "opponent", "goalkeeper"] as const;
 const DRAWING_TYPES = ["path", "line", "arrow", "bezier", "bezierarrow", "draw", "zone"] as const;
 const FIELD_MEASUREMENTS: Record<TacticalBoardFormat, {
@@ -1086,6 +1087,7 @@ function EquipmentGlyph({
   textVerticalAlign?: "top" | "middle" | "bottom";
 }) {
   const primary = color;
+  if (ADDITIONAL_EQUIPMENT.some(tool => tool.id === type)) return <AdditionalEquipmentGlyph type={type} color={color} />;
   if (type === "ball") {
     const fill = primary ?? "#f8fafc";
     const ink = fill === "#111827" ? "#f8fafc" : "#111827";
@@ -2079,6 +2081,7 @@ const QuickPage = () => {
     vest: "Casacca",
     disc: "Cinesino",
     text: "Testo",
+    ...Object.fromEntries(ADDITIONAL_EQUIPMENT.map(tool => [tool.id, tool.label])),
   };
   const equipmentTools = [
     { id: "ball", label: "Palla" },
@@ -2091,6 +2094,7 @@ const QuickPage = () => {
     { id: "pole", label: "Paletto" },
     { id: "vest", label: "Casacca" },
     { id: "disc", label: "Cinesino" },
+    ...ADDITIONAL_EQUIPMENT,
   ];
   const filteredBoards = boards.filter((board) =>
     board.title?.toLowerCase().includes(librarySearch.toLowerCase())
