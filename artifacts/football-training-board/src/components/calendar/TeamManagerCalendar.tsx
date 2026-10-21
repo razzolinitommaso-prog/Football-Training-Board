@@ -4,15 +4,15 @@ import { it } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type CalendarEvent = { id: string; title: string; kind: string; date: string | null; location: string | null };
+import { managerTrainingEvents, type ManagerCalendarEvent, type ManagerTrainingCalendar, type ManagerTrainingSession } from "@/lib/team-manager-training-calendar";
 const dateKey = (date: Date) => format(date, "yyyy-MM-dd");
 
-export function TeamManagerCalendar({ events }: { events: CalendarEvent[] }) {
+export function TeamManagerCalendar({ events, training = [], trainingCalendar }: { events: ManagerCalendarEvent[]; training?: ManagerTrainingSession[]; trainingCalendar?: ManagerTrainingCalendar | null }) {
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selected, setSelected] = useState(() => dateKey(new Date()));
   const days = eachDayOfInterval({ start: startOfWeek(month, { weekStartsOn: 1 }), end: endOfWeek(endOfMonth(month), { weekStartsOn: 1 }) });
-  const byDay = new Map<string, CalendarEvent[]>();
-  for (const event of events) {
+  const byDay = new Map<string, ManagerCalendarEvent[]>();
+  for (const event of [...events, ...managerTrainingEvents(trainingCalendar, training, days[0], days[days.length - 1])]) {
     if (!event.date || !Number.isFinite(Date.parse(event.date))) continue;
     const key = dateKey(new Date(event.date));
     byDay.set(key, [...(byDay.get(key) ?? []), event]);
@@ -25,7 +25,7 @@ export function TeamManagerCalendar({ events }: { events: CalendarEvent[] }) {
   const today = dateKey(new Date());
   const selectedEvents = byDay.get(selected) ?? [];
   return <section className="space-y-4">
-    <div><h2 className="text-lg font-semibold">Calendario squadra</h2><p className="text-xs text-muted-foreground">Allenamenti registrati e partite della squadra. Tocca un giorno per i dettagli.</p></div>
+    <div><h2 className="text-lg font-semibold">Calendario squadra</h2><p className="text-xs text-muted-foreground">Programmazione allenamenti, variazioni e partite della squadra. Tocca un giorno per i dettagli.</p></div>
     <div className="rounded-2xl border bg-card p-3 sm:p-4">
       <div className="mb-4 flex items-center justify-between gap-2">
         <Button type="button" variant="outline" size="icon" aria-label="Mese precedente" onClick={() => moveMonth(-1)}><ChevronLeft className="h-4 w-4"/></Button>
@@ -59,9 +59,9 @@ export function TeamManagerCalendar({ events }: { events: CalendarEvent[] }) {
     <div aria-live="polite" className="space-y-3">
       <h3 className="font-semibold capitalize">{format(new Date(`${selected}T12:00:00`), "EEEE d MMMM yyyy", { locale: it })}</h3>
       {selectedEvents.map(event => <article key={event.id} className="rounded-2xl border bg-card p-4">
-        <p className="text-xs text-primary">{event.kind} · {format(new Date(event.date!), "HH:mm")}</p>
-        <h4 className="mt-1 break-words font-medium">{event.title}</h4>
-        <p className="mt-1 break-words text-sm text-muted-foreground">{event.location || "Luogo da definire"}</p>
+        <p className="text-xs text-primary">{event.kind} · {format(new Date(event.date!), "HH:mm")}{event.endTime ? `–${event.endTime}` : ""}</p>
+        <h4 className={`mt-1 break-words font-medium ${event.status === "cancelled" || event.status === "relocated" ? "text-muted-foreground" : ""}`}>{event.title}</h4>
+        <p className="mt-1 break-words text-sm text-muted-foreground">{event.location || "Luogo da definire"}</p>{event.detail && <p className="mt-2 text-sm">{event.detail}</p>}
       </article>)}
       {!selectedEvents.length && <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">Nessun appuntamento per questo giorno.</p>}
     </div>
