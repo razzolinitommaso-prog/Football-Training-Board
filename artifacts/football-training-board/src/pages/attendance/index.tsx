@@ -286,6 +286,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   function handleConductChange(playerId: number, conduct: TrainingConduct) {
     if (!sessionId || isTechnicalDirector) return;
     const existing = getPlayerAttendance(playerId);
+    if (!existing?.status) return;
     markAttendance.mutate({
       trainingSessionId: sessionId,
       playerId,
@@ -695,7 +696,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                           ))}
                         </div>
                         <Select value={conduct ?? ""} onValueChange={(value) => handleConductChange(player.id, value as TrainingConduct)}>
-                          <SelectTrigger className="h-8 w-full sm:w-[170px] text-xs">
+                          <SelectTrigger disabled={!status} className="h-8 w-full sm:w-[170px] text-xs">
                             <SelectValue placeholder="Condotta" />
                           </SelectTrigger>
                           <SelectContent>

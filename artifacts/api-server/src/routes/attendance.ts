@@ -1,3 +1,4 @@
+import { saveAttendanceAndNotify } from "../lib/attendance-notifications";
 import { trainingAvailability } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
 import { db, trainingAttendancesTable, playersTable, teamStaffAssignmentsTable, teamsTable, trainingSessionsTable } from "@workspace/db";
@@ -196,23 +197,9 @@ router.post("/attendance", requireAuth, async (req, res): Promise<void> => {
       return;
     }
   }
-  const existing = await db.select().from(trainingAttendancesTable)
-    .where(and(
-      eq(trainingAttendancesTable.trainingSessionId, sessionId),
-      eq(trainingAttendancesTable.playerId, playerNumericId),
-      eq(trainingAttendancesTable.clubId, req.session.clubId!),
-    ));
-  if (existing.length > 0) {
-    const [updated] = await db.update(trainingAttendancesTable).set({ status: nextStatus, notes: notes ?? null })
-      .where(eq(trainingAttendancesTable.id, existing[0].id)).returning();
-    res.json(updated);
-    return;
-  }
-  const [record] = await db.insert(trainingAttendancesTable).values({
-    trainingSessionId: sessionId, playerId: playerNumericId,
-    clubId: req.session.clubId!, status: nextStatus, notes: notes ?? null,
-  }).returning();
-  res.status(201).json(record);
+  const saved=await saveAttendanceAndNotify({clubId:req.session.clubId!,sessionId,playerId:playerNumericId,status:nextStatus,notes:notes??null});
+  res.status(saved?.created?201:200).json(saved?.record);
+
 });
 
 router.patch("/attendance/:id", requireAuth, async (req, res): Promise<void> => {
@@ -229,10 +216,9 @@ router.patch("/attendance/:id", requireAuth, async (req, res): Promise<void> => 
     res.status(403).json({ error: "Non autorizzato a modificare presenze di questa sessione" });
     return;
   }
-  const [record] = await db.update(trainingAttendancesTable).set({ status, notes })
-    .where(and(eq(trainingAttendancesTable.id, id), eq(trainingAttendancesTable.clubId, req.session.clubId!))).returning();
-  if (!record) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(record);
+  const saved=await saveAttendanceAndNotify({id,clubId:req.session.clubId!,sessionId:existing.trainingSessionId,playerId:existing.playerId,status,notes});
+  if(!saved){res.status(404).json({error:"Not found"});return;}
+  res.json(saved.record);
 });
 
 export default router;
