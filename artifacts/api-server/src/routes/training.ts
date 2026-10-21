@@ -1,3 +1,4 @@
+import { AUTO_TRAINING_MARKER } from "../lib/automatic-training-drafts";
 import { Router, type IRouter } from "express";
 import { db, trainingSessionsTable, trainingDirectivesTable, teamsTable, teamStaffAssignmentsTable, playersTable, usersTable, clubMembershipsTable } from "@workspace/db";
 import { eq, and, gte, desc, inArray, sql, or } from "drizzle-orm";
@@ -92,6 +93,7 @@ async function canManageSession(
   if (["secretary", "technical_director"].includes(role)) return true;
   if (session.createdByUserId === userId) return true;
   if (!STAFF_RESTRICTED_ROLES.includes(role) || !session.teamId) return false;
+  if(session.notes?.startsWith(AUTO_TRAINING_MARKER)&&await canAccessTeamForRestrictedRole(clubId,userId,session.teamId))return true;
   const primaryCoachTeamIds = await getPrimaryCoachTeamIds(clubId, userId);
   return primaryCoachTeamIds.includes(session.teamId);
 }
@@ -99,18 +101,19 @@ async function canManageSession(
 async function enrichSession(
   session: typeof trainingSessionsTable.$inferSelect,
   viewer?: { clubId: number; userId: number; role: string },
+  lookup?: {teams:Map<number,string>;creators:Map<number,string>;canEdit:(session:typeof trainingSessionsTable.$inferSelect)=>boolean},
 ) {
-  let teamName: string | null = null;
-  if (session.teamId) {
+  let teamName: string | null = lookup?.teams.get(session.teamId??0)??null;
+  if (!lookup && session.teamId) {
     const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, session.teamId), eq(teamsTable.clubId, session.clubId)));
     if (team) teamName = team.name;
   }
-  let creatorName: string | null = null;
-  if (session.createdByUserId) {
+  let creatorName: string | null = lookup?.creators.get(session.createdByUserId??0)??null;
+  if (!lookup && session.createdByUserId) {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, session.createdByUserId));
     if (user) creatorName = `${user.firstName} ${user.lastName}`;
   }
-  const canEdit = viewer ? await canManageSession(session, viewer.clubId, viewer.userId, viewer.role) : undefined;
+  const canEdit = lookup?lookup.canEdit(session):viewer ? await canManageSession(session, viewer.clubId, viewer.userId, viewer.role) : undefined;
   return {
     ...session,
     teamId: session.teamId ?? null,
@@ -212,7 +215,14 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
       .orderBy(desc(trainingSessionsTable.scheduledAt));
   }
 
-  const enriched = await Promise.all(sessions.map((session) => enrichSession(session, { clubId, userId, role })));
+  const [teamRows,creatorRows,primaryIds,assignedIds]=await Promise.all([
+    db.select({id:teamsTable.id,name:teamsTable.name}).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),inArray(teamsTable.id,[...new Set(sessions.flatMap(session=>session.teamId?[session.teamId]:[]))]))),
+    db.select({id:usersTable.id,firstName:usersTable.firstName,lastName:usersTable.lastName}).from(usersTable).where(inArray(usersTable.id,[...new Set(sessions.flatMap(session=>session.createdByUserId?[session.createdByUserId]:[]))])),
+    STAFF_RESTRICTED_ROLES.includes(role)?getPrimaryCoachTeamIds(clubId,userId):Promise.resolve([] as number[]),
+    STAFF_RESTRICTED_ROLES.includes(role)?getAssignedTeamIds(clubId,userId):Promise.resolve([] as number[]),
+  ]);
+  const lookup={teams:new Map(teamRows.map(team=>[team.id,team.name])),creators:new Map(creatorRows.map(user=>[user.id,`${user.firstName} ${user.lastName}`])),canEdit:(session:typeof trainingSessionsTable.$inferSelect)=>["secretary","technical_director"].includes(role)||session.createdByUserId===userId||Boolean(STAFF_RESTRICTED_ROLES.includes(role)&&session.teamId&&(primaryIds.includes(session.teamId)||(session.notes?.startsWith(AUTO_TRAINING_MARKER)&&assignedIds.includes(session.teamId))))};
+  const enriched = await Promise.all(sessions.map((session) => enrichSession(session, { clubId, userId, role },lookup)));
   res.json(enriched);
 });
 
@@ -247,17 +257,19 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
     }
   }
 
-  const [session] = await db
-    .insert(trainingSessionsTable)
-    .values({
-      ...parsed.data,
-      clubId: req.session.clubId!,
-      createdByUserId: userId,
-      sessionKind: body.sessionKind ?? "regular",
-      sentToUserIds: body.sentToUserIds ?? null,
-    })
-    .returning();
+  const [session] = await db.transaction(async tx=>{
+    const values={...parsed.data,clubId:req.session.clubId!,createdByUserId:userId,sessionKind:body.sessionKind??"regular",sentToUserIds:body.sentToUserIds??null};
+    if(body.teamId&&values.sessionKind==="regular"){
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${req.session.clubId}|${body.teamId}`}))`);
+      const [draft]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),eq(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.notes,AUTO_TRAINING_MARKER),eq(trainingSessionsTable.title,"Allenamento da preparare"),eq(trainingSessionsTable.status,"scheduled"),sql`${trainingSessionsTable.objectives} IS NULL`,sql`NOT EXISTS(SELECT 1 FROM training_session_exercises e WHERE e.training_session_id=${trainingSessionsTable.id})`,sql`NOT EXISTS(SELECT 1 FROM training_attendances a WHERE a.training_session_id=${trainingSessionsTable.id})`)).limit(1);
+      if(draft)return tx.update(trainingSessionsTable).set({...values,notes:parsed.data.notes??draft.notes}).where(eq(trainingSessionsTable.id,draft.id)).returning();
+      const [occupied]=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),eq(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.sessionKind,"regular"))).limit(1);
+      if(occupied)return [];
+    }
+    return tx.insert(trainingSessionsTable).values(values).returning();
+  });
 
+  if(!session){res.status(409).json({error:"Esiste già una sessione per questa squadra, data e orario. Aprila per modificarla."});return;}
   const enriched = await enrichSession(session, { clubId: req.session.clubId!, userId, role });
   res.status(201).json(enriched);
 });
@@ -352,11 +364,14 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
     return;
   }
 
-  const [session] = await db
-    .update(trainingSessionsTable)
-    .set(updateData)
-    .where(and(eq(trainingSessionsTable.id, params.data.id), eq(trainingSessionsTable.clubId, clubId)))
-    .returning();
+  if(existing.notes===AUTO_TRAINING_MARKER&&STAFF_RESTRICTED_ROLES.includes(role))updateData.createdByUserId=userId;
+  const [session] = await db.transaction(async tx=>{
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${clubId}|${existing.teamId}`}))`);
+    const [current]=await tx.select({notes:trainingSessionsTable.notes}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,params.data.id),eq(trainingSessionsTable.clubId,clubId))).limit(1);
+    if(!current||(existing.notes===AUTO_TRAINING_MARKER&&current.notes===AUTO_TRAINING_MARKER+" REMOVED"))return [];
+    return tx.update(trainingSessionsTable).set(updateData).where(and(eq(trainingSessionsTable.id,params.data.id),eq(trainingSessionsTable.clubId,clubId))).returning();
+  });
+  if(!session){res.status(409).json({error:"La programmazione è cambiata. Riapri la sessione prima di modificarla."});return;}
 
   const enriched = await enrichSession(session, { clubId, userId, role });
   res.json(enriched);

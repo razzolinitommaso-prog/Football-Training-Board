@@ -1,3 +1,4 @@
+import { syncTrainingDrafts } from "../lib/automatic-training-drafts";
 import { Router, type IRouter, type Request } from "express";
 import { db, teamsTable, playersTable, usersTable, teamStaffAssignmentsTable, seasonsTable, clubMembershipsTable } from "@workspace/db";
 import { eq, and, sql, inArray, SQL, asc } from "drizzle-orm";
@@ -283,10 +284,11 @@ router.post("/teams", requireAuth, async (req, res): Promise<void> => {
 
   const teamData = teamPayloadForSession(parsed.data, req);
 
-  const [team] = await db
-    .insert(teamsTable)
-    .values({ ...teamData, clubId: req.session.clubId! })
-    .returning();
+  const [team] = await db.transaction(async tx=>{
+    const rows=await tx.insert(teamsTable).values({...teamData,clubId:req.session.clubId!}).returning();
+    if(rows[0]?.trainingSchedule?.length)await syncTrainingDrafts(tx,rows[0],req.session.userId!);
+    return rows;
+  });
 
   let coachName: string | null = null;
   if (team.coachId) {
@@ -370,11 +372,18 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const [team] = await db
-    .update(teamsTable)
-    .set(teamData)
-    .where(and(eq(teamsTable.id, params.data.id), eq(teamsTable.clubId, req.session.clubId!)))
-    .returning();
+  if(!canManageTeams(req)){
+    const [target]=await db.select({coachId:teamsTable.coachId}).from(teamsTable).where(and(eq(teamsTable.id,params.data.id),eq(teamsTable.clubId,req.session.clubId!))).limit(1);
+    const [assignment]=await db.select({id:teamStaffAssignmentsTable.id}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,req.session.clubId!),eq(teamStaffAssignmentsTable.teamId,params.data.id),eq(teamStaffAssignmentsTable.userId,req.session.userId!))).limit(1);
+    if(!target||(!assignment&&target.coachId!==req.session.userId)){res.status(403).json({error:"Puoi modificare gli orari solo delle squadre assegnate"});return;}
+  }
+
+  const [team] = await db.transaction(async tx=>{
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${req.session.clubId}|${params.data.id}`}))`);
+    const rows=await tx.update(teamsTable).set(teamData).where(and(eq(teamsTable.id,params.data.id),eq(teamsTable.clubId,req.session.clubId!))).returning();
+    if(rows[0]&&["trainingSchedule","seasonTrainingStartDate","officialTrainingEndDate","seasonId"].some(key=>Object.prototype.hasOwnProperty.call(teamData,key)))await syncTrainingDrafts(tx,rows[0],req.session.userId!);
+    return rows;
+  });
 
   if (!team) {
     res.status(404).json({ error: "Team not found" });

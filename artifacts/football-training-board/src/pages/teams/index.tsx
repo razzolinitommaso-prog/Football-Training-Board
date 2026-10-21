@@ -333,6 +333,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/training-sessions"] });
         setScheduleTeam(null);
         toast({ title: "Orari salvati" });
       },
@@ -1301,6 +1302,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               Giorni e orari di allenamento — {scheduleTeam?.name}
             </DialogTitle>
           </DialogHeader>
+          <p className="text-xs text-muted-foreground">Il salvataggio prepara le sessioni vuote future entro le date di allenamento o della stagione configurata. Le sessioni già compilate vengono conservate.</p>
           <div className="space-y-3 pt-2 max-h-[55vh] overflow-y-auto pr-1">
             {scheduleRows.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-6">
