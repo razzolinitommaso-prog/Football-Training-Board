@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { and, asc, eq, inArray, or } from "drizzle-orm";
 import { db, clubMembershipsTable, teamStaffAssignmentsTable, teamsTable, playersTable, matchesTable, callUpsTable, trainingSessionsTable, clubsTable, trainingCalendarOverridesTable } from "@workspace/db";
+import { managerMatchComparison } from "../lib/team-manager-comparison";
 import { requireAuth } from "../lib/auth";
 
 const router = Router();
@@ -50,8 +51,17 @@ router.get("/dirigenti/overview", requireAuth, async (req, res): Promise<void> =
       newEndTime:change.teamId === selectedTeamId ? change.newEndTime : change.targetEndTime,
     })),
   };
-  const callups = matchRows.length ? await db.select({ matchId:callUpsTable.matchId, id:playersTable.id, firstName:playersTable.firstName, lastName:playersTable.lastName }).from(callUpsTable).innerJoin(playersTable,and(eq(playersTable.id,callUpsTable.playerId),eq(playersTable.clubId,clubId))).where(inArray(callUpsTable.matchId,matchRows.map(match=>match.id))).orderBy(asc(playersTable.lastName)) : [];
-  const matches = matchRows.map(({matchPlan,...match})=>({...match, convocationAt:typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null, convocationPlace:typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null, callups:callups.filter(callup=>callup.matchId===match.id)}));
-  res.json({ teams, selectedTeamId, players, training, matches, trainingCalendar });
+  const callups = matchRows.length ? await db.select({ matchId:callUpsTable.matchId, id:playersTable.id, firstName:playersTable.firstName, lastName:playersTable.lastName, status:callUpsTable.status }).from(callUpsTable).innerJoin(playersTable,and(eq(playersTable.id,callUpsTable.playerId),eq(playersTable.clubId,clubId))).where(inArray(callUpsTable.matchId,matchRows.map(match=>match.id))).orderBy(asc(playersTable.lastName)) : [];
+  const coachCallups = callups.filter(callup=>!["available","unavailable","availability","absent","declined","not_called"].includes(callup.status.toLowerCase()));
+  const comparisonId = req.query.comparisonMatchId;
+  let comparison;
+  if (comparisonId !== undefined) {
+    const match = matchRows.find(item=>item.id===Number(comparisonId));
+    if (!match || !Number.isInteger(Number(comparisonId))) { res.status(403).json({error:"Partita non disponibile per questa squadra"}); return; }
+    const date = match.isPostponed ? match.rescheduleTbd ? null : match.rescheduleDate : match.date;
+    comparison = await managerMatchComparison(clubId,selectedTeamId,date,coachCallups.filter(callup=>callup.matchId===match.id).map(callup=>callup.id));
+  }
+  const matches = matchRows.map(({matchPlan,...match})=>({...match, convocationAt:typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null, convocationPlace:typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null, callups:coachCallups.filter(callup=>callup.matchId===match.id).map(({status,...callup})=>callup)}));
+  res.json({ teams, selectedTeamId, players, training, matches, trainingCalendar, ...(comparison ? {comparison} : {}) });
 });
 export default router;
