@@ -1,4 +1,5 @@
-import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
+import { ensureParentTrainingAvailabilityTable, resultRows } from "./training-availability";
+import { and, asc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { db, playersTable, trainingSessionsTable, trainingAttendancesTable } from "@workspace/db";
 import { rosterMembers } from "./training-roster-policy";
 
@@ -10,7 +11,7 @@ export async function managerMatchComparison(clubId: number, teamId: number, mat
   const roster = new Set(rosterMembers(clubPlayers,[teamId]).map(player=>player.id));
   const called = new Set(calledIds);
   const players = clubPlayers.filter(player=>roster.has(player.id)||called.has(player.id)).map(player=>({id:player.id,firstName:player.firstName,lastName:player.lastName,called:called.has(player.id)}));
-  if (!matchDate || !Number.isFinite(matchDate.getTime())) return {players,sessions:[],records:[]};
+  if (!matchDate || !Number.isFinite(matchDate.getTime())) return {players,sessions:[],records:[],replies:[]};
   // Fetch a bounded superset; the client applies local calendar-day boundaries
   // for the selected week/four weeks. No session after kickoff is returned.
   const from = new Date(matchDate.getTime()-36*24*60*60*1000);
@@ -28,5 +29,10 @@ export async function managerMatchComparison(clubId: number, teamId: number, mat
       availability:parent ? status === "requested" ? "available" : "unavailable" : null,
     });
   }
-  return {players,sessions:valid.map(({status,...session})=>session),records:[...records.values()]};
+  await ensureParentTrainingAvailabilityTable();
+  const allowedIds=new Set(players.map(player=>player.id));
+  const replies=resultRows<{playerId:number;occurrenceId:string;status:string}>(await db.execute(sql`
+    SELECT player_id AS "playerId",occurrence_id AS "occurrenceId",status FROM parent_training_availabilities
+    WHERE club_id=${clubId} AND team_id=${teamId} AND scheduled_at>=${from.toISOString()}::timestamptz AND scheduled_at<${matchDate.toISOString()}::timestamptz`)).filter(row=>allowedIds.has(row.playerId)).map(row=>({...row,status:["available","unavailable"].includes(row.status)?row.status:"pending"}));
+  return {players,replies,sessions:valid.map(({status,...session})=>session),records:[...records.values()]};
 }

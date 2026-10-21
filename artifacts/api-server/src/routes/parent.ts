@@ -1,3 +1,4 @@
+import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
 import {
@@ -58,7 +59,7 @@ function validatePersonalAccessCode(value: string): string | null {
 }
 
 let ensuredParentAvailabilityColumns = false;
-let ensuredParentTrainingAvailabilityTable = false;
+
 
 async function ensureParentAvailabilityColumns() {
   if (ensuredParentAvailabilityColumns) return;
@@ -69,26 +70,6 @@ async function ensureParentAvailabilityColumns() {
   ensuredParentAvailabilityColumns = true;
 }
 
-async function ensureParentTrainingAvailabilityTable() {
-  if (ensuredParentTrainingAvailabilityTable) return;
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS parent_training_availabilities (
-      id SERIAL PRIMARY KEY,
-      club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
-      team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-      player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-      occurrence_id TEXT NOT NULL,
-      scheduled_at TIMESTAMPTZ NOT NULL,
-      status TEXT NOT NULL,
-      reason TEXT,
-      notes TEXT,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (club_id, team_id, player_id, occurrence_id)
-    )
-  `);
-  ensuredParentTrainingAvailabilityTable = true;
-}
 
 const PARENT_AVAILABILITY_REASONS = new Set(["illness", "catechism", "family", "other"]);
 

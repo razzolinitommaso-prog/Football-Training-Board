@@ -1,3 +1,4 @@
+import { trainingAvailability } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
 import { db, trainingAttendancesTable, playersTable, teamStaffAssignmentsTable, teamsTable, trainingSessionsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
@@ -98,6 +99,21 @@ async function playerCanAttend(playerId: number, clubId: number): Promise<{ ok: 
   if (playerHasActiveAvailabilityOverride(player)) return { ok: true };
   return { ok: false, reason: player.unavailabilityReason ?? "non_disponibile" };
 }
+
+router.get("/training-availability", requireAuth, async (req,res):Promise<void>=>{
+  const clubId=req.session.clubId!, teamId=Number(req.query.teamId);
+  const date=String(req.query.date??""),start=String(req.query.start??"");
+  if(!Number.isInteger(teamId)||teamId<=0||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(start)||!Number.isFinite(Date.parse(date))){res.status(400).json({error:"Squadra, data e orario richiesti"});return;}
+  const [team]=await db.select({id:teamsTable.id,coachId:teamsTable.coachId}).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),eq(teamsTable.id,teamId))).limit(1);
+  if(!team){res.status(403).json({error:"Squadra non autorizzata"});return;}
+  let allowed=ATTENDANCE_MANAGE_ALL_ROLES.includes(req.session.role??"");
+  if(!allowed&&ATTENDANCE_TEAM_ROLES.includes(req.session.role??"")){
+    const [assignment]=await db.select({id:teamStaffAssignmentsTable.id}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,clubId),eq(teamStaffAssignmentsTable.teamId,teamId),eq(teamStaffAssignmentsTable.userId,req.session.userId!))).limit(1);
+    allowed=Boolean(assignment)||team.coachId===req.session.userId;
+  }
+  if(!allowed){res.status(403).json({error:"Squadra non autorizzata"});return;}
+  res.json(await trainingAvailability(clubId,teamId,date,start));
+});
 
 router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
   const sessionId = req.query.sessionId ? parseInt(req.query.sessionId as string) : null;

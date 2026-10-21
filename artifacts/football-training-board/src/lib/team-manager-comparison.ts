@@ -3,6 +3,7 @@ import { managerTrainingEvents, type ManagerTrainingCalendar, type ManagerTraini
 export type ManagerComparison = {
   players: {id:number;firstName:string;lastName:string;called:boolean}[];
   sessions: {id:number;title:string;scheduledAt:string}[];
+  replies?: {playerId:number;occurrenceId:string;status:string}[];
   records: {sessionId:number;playerId:number;attendance:"present"|"absent"|"unavailable"|null;availability:"available"|"unavailable"|null}[];
 };
 export type ComparisonState = "present"|"absent"|"unavailable"|"unknown"|"upcoming"|"conflict";
@@ -17,6 +18,9 @@ export function managerComparisonRows(data:ManagerComparison,calendar:ManagerTra
   const sessionsByTime=new Map<string,number[]>();
   for(const session of data.sessions){const at=new Date(session.scheduledAt);if(!Number.isFinite(at.getTime()))continue;const k=key(at);sessionsByTime.set(k,[...(sessionsByTime.get(k)??[]),session.id]);}
   const records=new Map(data.records.map(record=>[`${record.playerId}|${record.sessionId}`,record]));
+  const replies=new Map<string,string>();
+  for(const reply of data.replies??[]){const match=/^\d+-(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2})$/.exec(reply.occurrenceId);if(match)replies.set(`${reply.playerId}|${match[1]}|${match[2]}`,reply.status);}
+  for(const change of calendar?.changes??[]){if(!["moved","joined"].includes(change.status)||!change.originalDate||!change.newDate||!change.newStartTime)continue;for(const player of data.players){const original=replies.get(`${player.id}|${change.originalDate}|${change.originalStartTime}`),target=`${player.id}|${change.newDate}|${change.newStartTime}`;if(original&&!replies.has(target))replies.set(target,original);}}
   const players=data.players.map(player=>{
     const cells=events.map(event=>{
       const at=new Date(event.date!);
@@ -24,7 +28,8 @@ export function managerComparisonRows(data:ManagerComparison,calendar:ManagerTra
       const states=[...new Set(rows.map(row=>row.attendance).filter(Boolean))];
       const answers=[...new Set(rows.map(row=>row.availability).filter(Boolean))];
       const state:ComparisonState=at>now?"upcoming":states.length>1?"conflict":states[0]??"unknown";
-      return {state,availability:answers.length===1?answers[0]:null};
+      const reply=replies.get(`${player.id}|${key(at)}`);
+      return {state,availability:reply!==undefined?(reply==="available"||reply==="unavailable"?reply:null):answers.length===1?answers[0]:null};
     });
     const present=cells.filter(cell=>cell.state==="present").length,absent=cells.filter(cell=>cell.state==="absent").length;
     return {...player,cells,present,absent,recorded:present+absent};

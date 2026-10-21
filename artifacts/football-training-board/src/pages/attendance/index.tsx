@@ -1,3 +1,4 @@
+import { ParentAvailabilityBadge, useTrainingAvailability, TrainingAvailabilityPanel } from "@/components/calendar/TrainingAvailability";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/lib/i18n";
@@ -374,6 +375,11 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
     [sessions, sessionId],
   );
 
+  const availabilityDate=selectedSession?new Date(selectedSession.scheduledAt):null;
+  const availabilityDay=availabilityDate&&!Number.isNaN(availabilityDate.getTime())?`${availabilityDate.getFullYear()}-${String(availabilityDate.getMonth()+1).padStart(2,"0")}-${String(availabilityDate.getDate()).padStart(2,"0")}`:null;
+  const availabilityStart=availabilityDate&&!Number.isNaN(availabilityDate.getTime())?`${String(availabilityDate.getHours()).padStart(2,"0")}:${String(availabilityDate.getMinutes()).padStart(2,"0")}`:null;
+  const {data:parentAvailability,error:parentAvailabilityError,isLoading:parentAvailabilityLoading}=useTrainingAvailability(selectedSession?.teamId,availabilityDay,availabilityStart);
+
   const sessionAnnata = useMemo(() => {
     const source = `${selectedSession?.title ?? ""} ${selectedSession?.teamName ?? ""}`;
     const m = source.match(/\(([^)]+)\)/);
@@ -638,6 +644,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
             </div>
           )}
 
+          {selectedSession?.teamId&&<TrainingAvailabilityPanel teamId={selectedSession.teamId} date={availabilityDay} start={availabilityStart}/>}
           {attLoading ? (
             <div className="text-center py-8 text-muted-foreground">{t.loading}</div>
           ) : (
@@ -668,7 +675,8 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                         </Badge>
                       ) : (
                         <div className="flex flex-col gap-2 sm:items-end">
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {parentAvailabilityError?<span role="alert" className="text-xs text-destructive">Disponibilità non disponibili</span>:parentAvailabilityLoading?<span className="text-xs">Caricamento disponibilità...</span>:<ParentAvailabilityBadge status={parentAvailability?.records.find(record=>record.playerId===player.id)?.status}/>}
                           {(["present", "absent", "requested", "injured"] as const).map(s => (
                             <Button key={s} size="sm" variant={status === s ? "default" : "outline"}
                               className={

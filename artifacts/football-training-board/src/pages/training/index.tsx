@@ -1,3 +1,4 @@
+import { TrainingAvailabilityPanel } from "@/components/calendar/TrainingAvailability";
 import { TrainingRosterOptions } from "@/components/training-roster-groups";
 import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -1319,6 +1320,8 @@ function CreateSessionDialog({
             </div>
           </div>
 
+          {sessionKind === "regular" && <TrainingAvailabilityPanel teamId={teamId} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)}/> }
+
           {isTD && sessionKind === "tipo" && (
             <div className="space-y-2">
               <Label>Invio sessione</Label>
@@ -1511,6 +1514,8 @@ function EditSessionDialog({
               <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="Campo 1..." />
             </div>
           </div>
+
+          <TrainingAvailabilityPanel teamId={teamId} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)}/>
 
           {onManageExercises && (
             <Button type="button" variant="outline" className="w-full justify-center" onClick={onManageExercises}>
