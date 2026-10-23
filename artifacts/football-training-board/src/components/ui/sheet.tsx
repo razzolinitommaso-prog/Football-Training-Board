@@ -51,12 +51,14 @@ const sheetVariants = cva(
 
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
-    VariantProps<typeof sheetVariants> {}
+    VariantProps<typeof sheetVariants> {
+  dismissOnPointerDownOutside?: boolean
+}
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, onPointerDownOutside, onInteractOutside, ...props }, ref) => (
+>(({ side = "right", className, children, onPointerDownOutside, onInteractOutside, dismissOnPointerDownOutside = false, ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <SheetPrimitive.Content
@@ -64,11 +66,11 @@ const SheetContent = React.forwardRef<
       className={cn(sheetVariants({ side }), className)}
       onPointerDownOutside={(event) => {
         onPointerDownOutside?.(event)
-        if (!event.defaultPrevented) event.preventDefault()
+        if (!dismissOnPointerDownOutside && !event.defaultPrevented) event.preventDefault()
       }}
       onInteractOutside={(event) => {
         onInteractOutside?.(event)
-        if (!event.defaultPrevented) event.preventDefault()
+        if ((!dismissOnPointerDownOutside || event.type !== "dismissableLayer.pointerDownOutside") && !event.defaultPrevented) event.preventDefault()
       }}
       {...props}
     >

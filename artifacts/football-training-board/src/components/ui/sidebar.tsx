@@ -184,6 +184,7 @@ function Sidebar({
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
+          dismissOnPointerDownOutside
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
