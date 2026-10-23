@@ -18,6 +18,17 @@ import { analyseMatchReport, matchReportSchema } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
+// Parent replies and historical duplicate rows must not inflate a saved callup.
+function uniqueCoachCallups<T extends { playerId: number; status?: string | null }>(rows: T[]): T[] {
+  const seen = new Set<number>();
+  return rows.filter(row => {
+    if (["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(row.status ?? "").toLowerCase()) || seen.has(row.playerId)) return false;
+    seen.add(row.playerId);
+    return true;
+  });
+}
+
+
 let ensuredParentAvailabilityColumns = false;
 
 async function ensureParentAvailabilityColumns() {
@@ -528,6 +539,7 @@ router.get("/match-callup-summary", requireAuth, async (req, res): Promise<void>
       };
       grouped.set(record.match.id, row);
     }
+    if (row.callups.some(callup => callup.playerId === record.playerId)) continue;
     row.callups.push({ id: record.callupId, playerId: record.playerId, status: record.status,
       playerName: record.firstName != null ? `${record.firstName} ${record.lastName ?? ""}`.trim() : null });
   }
@@ -687,8 +699,7 @@ router.get("/matches/:id/callups", requireAuth, async (req, res): Promise<void> 
   const canView = await userCanViewMatchPlan(req.session.userId!, req.session.clubId!, req.session.role ?? "", match.teamId ?? null);
   if (!canView) { res.status(403).json({ error: "Non autorizzato" }); return; }
   await ensureParentAvailabilityColumns();
-  const callups = (await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId)))
-    .filter((callup) => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(callup.status ?? "").toLowerCase()));
+  const callups = uniqueCoachCallups(await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId)));
   const metaRows = sqlRows<{
     id: number;
     parentAvailabilityStatus: string | null;
@@ -726,8 +737,7 @@ router.get("/matches/:id/callups/pdf", requireAuth, async (req, res): Promise<vo
   const [team] = match.teamId
     ? await db.select({ name: teamsTable.name }).from(teamsTable).where(and(eq(teamsTable.id, match.teamId), eq(teamsTable.clubId, clubId)))
     : [null];
-  const callups = (await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId)))
-    .filter((callup) => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(callup.status ?? "").toLowerCase()));
+  const callups = uniqueCoachCallups(await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId)));
   const playerIds = [...new Set(callups.map((callup) => callup.playerId).filter((id): id is number => Number(id) > 0))];
   const players = playerIds.length > 0
     ? await db
@@ -885,6 +895,7 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
   }
 
   await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('match-callups'), ${matchId})`);
     const parsed = splitPublicNotesAndPlan(existingMatch.notes ?? null);
     await tx
       .update(matchesTable)
@@ -923,9 +934,8 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
     for (const row of availabilityOnlyRows) {
       await tx.update(callUpsTable).set({ status: "called" }).where(eq(callUpsTable.id, row.id));
     }
-    const existingPlayerIds = new Set(existingCallups
-      .filter((callup) => !["available", "unavailable", "availability"].includes(String(callup.status ?? "").toLowerCase()))
-      .map((callup) => callup.playerId));
+    // Availability rows above have just been promoted: they already represent a callup.
+    const existingPlayerIds = new Set(existingCallups.map((callup) => callup.playerId));
     const toInsert = desiredPlayerIds
       .filter((playerId) => !existingPlayerIds.has(playerId))
       .map((playerId) => ({ matchId, playerId, status: "called" }));
