@@ -1,3 +1,4 @@
+import { TrainingSessionOverview } from "@/components/training/TrainingSessionOverview";
 import { TrainingAvailabilityPanel } from "@/components/calendar/TrainingAvailability";
 import { TrainingRosterOptions } from "@/components/training-roster-groups";
 import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
@@ -1834,11 +1835,13 @@ function SessionDetailsDialog({
   onClose,
   teams,
   readOnly = false,
+  onEditSession,
 }: {
   session: TrainingSession;
   onClose: () => void;
   teams: { id: number; name: string; clubSection?: string | null }[];
   readOnly?: boolean;
+  onEditSession?: () => void;
 }) {
   const { role } = useAuth();
   const { toast } = useToast();
@@ -1984,10 +1987,10 @@ function SessionDetailsDialog({
     onError: () => toast({ title: "Errore nella rimozione", variant: "destructive" }),
   });
 
-  function openAddExercise() {
+  function openAddExercise(phase = "") {
     setEditingLink(null);
     setDuplicateSourceExerciseId(null);
-    setExerciseForm(emptyExerciseFormFromSession(session, linkedExercises.length));
+    setExerciseForm({ ...emptyExerciseFormFromSession(session, linkedExercises.length), trainingPhase: phase });
     setExerciseFormOpen(true);
   }
 
@@ -2142,248 +2145,61 @@ function SessionDetailsDialog({
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-[760px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] p-3 sm:max-w-[960px] sm:p-6 max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="w-4 h-4" />
             Scheda sessione - {session.title}
           </DialogTitle>
+          {!readOnly && onEditSession && <Button type="button" variant="outline" size="sm" className="mt-2 w-fit" onClick={onEditSession}>Modifica dati sessione</Button>}
         </DialogHeader>
 
-        <div className="space-y-4 pt-2">
-          <Card className="border-primary/20 bg-primary/5">
-            <CardContent className="p-4">
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {statusBadge(session.status)}
-                {typeBadge(session.sessionKind)}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Calendar className="w-4 h-4" />
-                  <span>{fmtDate(session.scheduledAt)}</span>
-                </div>
-                {session.durationMinutes && (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Clock className="w-4 h-4" />
-                    <span>{session.durationMinutes} min</span>
-                  </div>
-                )}
-                {session.location && (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <MapPin className="w-4 h-4" />
-                    <span>{session.location}</span>
-                  </div>
-                )}
-                {session.teamName && (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <ClipboardList className="w-4 h-4" />
-                    <span>{session.teamName}</span>
-                  </div>
-                )}
-                {session.creatorName && (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <UserCheck className="w-4 h-4" />
-                    <span>Creata da {session.creatorName}</span>
-                  </div>
-                )}
-              </div>
-              {session.durationMinutes && (
-                <div className="mt-3 rounded-md border border-dashed bg-background p-2">
-                  {linkedExercisesQuery.isLoading ? (
-                    <p className="text-xs text-muted-foreground mt-0.5">Calcolo in corso...</p>
-                  ) : linkedExercises.length === 0 ? (
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground mt-0.5">Aggiungi esercitazioni per calcolare il recupero medio.</p>
-                      <p className="text-xs">
-                        Stima iniziale: puoi inserire circa <span className="font-semibold text-foreground">{estimateRemainingExercises(session.durationMinutes)} esercitazioni</span> da 12,5 min.
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-[11px] font-medium text-muted-foreground">
-                        Recupero medio tra esercitazioni{" "}
-                        <span className="text-foreground font-semibold">{Math.round(recoveryPerExercise ?? 0)} min</span>
-                      </p>
-                      <p className="text-xs mt-0.5">
-                        ({session.durationMinutes} - {plannedExerciseMinutes} = {residualMinutes}, ripartiti su {linkedExercises.length} esercitazioni)
-                      </p>
-                      <p className="text-xs mt-0.5">
-                        Spazio residuo: <span className="font-semibold text-foreground">{Math.max(residualMinutes, 0)} min</span>
-                        {" "}circa <span className="font-semibold text-foreground">{estimatedRemainingExercises}</span> esercitazioni medie da 12,5 min.
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                Esercitazioni associate
-              </h3>
-              <div className="flex items-center gap-2">
-                {!linkedExercisesQuery.isLoading && (
-                  <Badge variant="secondary">{linkedExercises.length}</Badge>
-                )}
-                {!readOnly && (
-                  <Button size="sm" onClick={openAddExercise}>
-                    <Plus className="w-3.5 h-3.5 mr-1.5" />
-                    Aggiungi esercitazione
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {linkedExercisesQuery.isLoading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {Array(2).fill(0).map((_, i) => (
-                  <div key={i} className="h-28 rounded-lg bg-muted/30 animate-pulse" />
-                ))}
-              </div>
-            ) : linkedExercises.length === 0 ? (
-              <Card>
-                <CardContent className="p-5 text-sm text-muted-foreground">
-                  Nessuna esercitazione collegata a questa sessione.
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {linkedExercises.map((link, index) => (
-                  <Card key={link.id} className="border-border/60">
-                    <CardContent className="p-4 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm leading-tight truncate">
-                            {link.exercise?.title ?? "Esercitazione non trovata"}
-                          </p>
-                          {link.exercise?.principio && (
-                            <p className="text-[11px] text-primary font-medium mt-0.5">
-                              Principio: {principioLabel(link.exercise.principio)}
-                            </p>
-                          )}
-                          {link.exercise?.sourceExerciseId && link.exercise?.originalCreatedByName && (
-                            <p className="text-[11px] text-indigo-700 font-medium mt-0.5">
-                              Originale creato da {link.exercise.originalCreatedByName}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Badge variant="outline" className="text-[10px]">#{index + 1}</Badge>
-                          {link.exercise && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7"
-                              title="Apri esercitazione"
-                              onClick={() => setViewingLink(link)}
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                          {link.exercise && !readOnly && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7"
-                              title="Modifica esercitazione"
-                              onClick={() => openEditExercise(link)}
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                          {!readOnly && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              title="Rimuovi dalla sessione"
-                              onClick={() => {
-                                if (confirm("Rimuovere l'esercitazione da questa sessione?")) {
-                                  removeLinkMutation.mutate(link.id);
-                                }
-                              }}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                        {trainingDayLabel(link.exercise?.trainingDay) && (
-                          <span>Giorno: {trainingDayLabel(link.exercise?.trainingDay)}</span>
-                        )}
-                        {trainingSessionLabel(link.exercise?.trainingSession ?? link.exercise?.trainingDay) && (
-                          <span>{t.trainingSessionField}: {trainingSessionLabel(link.exercise?.trainingSession ?? link.exercise?.trainingDay, t)}</span>
-                        )}
-                        {link.exercise?.durationMinutes && (
-                          <span>Durata: {link.exercise.durationMinutes} min</span>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                        {link.exercise?.trainingPhase && (
-                          <span>Fase: {phaseLabel(link.exercise.trainingPhase)}</span>
-                        )}
-                        {link.exercise?.category && (
-                          <span>Categoria: {categoryLabel(link.exercise.category)}</span>
-                        )}
-                        {link.exercise?.teamId && (
-                          <span>Squadra: {teams.find((team) => team.id === link.exercise?.teamId)?.name ?? `Team #${link.exercise.teamId}`}</span>
-                        )}
-                      </div>
-
-                      {(() => {
-                        const parsed = splitExerciseDescriptionAndStations(link.exercise?.description ?? "");
-                        return (
-                          <>
-                            {parsed.description && (
-                              <p className="text-xs text-foreground/80 line-clamp-3">{parsed.description}</p>
-                            )}
-                            {parsed.stations.length > 0 && (
-                              <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
-                                <p className="font-semibold text-foreground">Stazioni</p>
-                                <div className="mt-1 space-y-1">
-                                  {parsed.stations.map((station, stationIndex) => (
-                                    <p key={station.id}>
-                                      {stationIndex + 1}. {station.title || "Stazione"} ({station.durationMinutes || 0} min)
-                                      {station.playersRequired ? ` - Giocatori: ${station.playersRequired}` : ""}
-                                      {station.objective ? ` - Obiettivo: ${station.objective}` : ""}
-                                      {station.exercise ? ` - ${station.exercise}` : ""}
-                                      {formatEquipmentLabel(station.equipment) ? ` - Materiali: ${formatEquipmentLabel(station.equipment)}` : ""}
-                                    </p>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-
-                      {link.exercise?.playersRequired && (
-                        <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                          <span className="inline-flex items-center gap-1">
-                            <UserCheck className="w-3 h-3" />
-                            {link.exercise.playersRequired} giocatori
-                          </span>
-                        </div>
-                      )}
-
-                      {link.notes && (
-                        <div className="rounded-md border bg-muted/40 p-2">
-                          <p className="text-[11px] font-medium text-muted-foreground">Note sessione</p>
-                          <p className="text-xs text-foreground/80">{link.notes}</p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <TrainingSessionOverview
+          metadata={[
+            { label: "Giorno", value: format(new Date(session.scheduledAt), "EEEE", { locale: itLocale }) },
+            { label: "Data", value: format(new Date(session.scheduledAt), "dd/MM/yyyy") },
+            { label: "Ora", value: format(new Date(session.scheduledAt), "HH:mm") },
+            { label: "Durata sessione", value: session.durationMinutes ? `${session.durationMinutes} min` : "Da indicare" },
+          ]}
+          badges={<>{statusBadge(session.status)}{typeBadge(session.sessionKind)}</>}
+          principle={principioLabel(session.objectives) || "Da indicare"}
+          slot={trainingSessionLabel(getSessionTrainingSession(session), t)}
+          exercises={linkedExercises.map(link => ({
+            id: link.id,
+            title: link.exercise?.title ?? "Esercitazione non trovata",
+            phase: link.exercise?.trainingPhase ?? null,
+            duration: link.exercise?.durationMinutes ?? null,
+            preview: link.exercise?.drawingData ?? null,
+            principle: link.exercise?.principio ? principioLabel(link.exercise.principio) : null,
+            players: link.exercise?.playersRequired ?? null,
+            available: Boolean(link.exercise),
+          }))}
+          loading={linkedExercisesQuery.isLoading}
+          error={linkedExercisesQuery.isError}
+          onRetry={() => void linkedExercisesQuery.refetch()}
+          readOnly={readOnly}
+          duration={session.durationMinutes}
+          plannedMinutes={plannedExerciseMinutes}
+          onAdd={openAddExercise}
+          onView={id => setViewingLink(linkedExercises.find(link => link.id === id) ?? null)}
+          onEdit={id => { const link = linkedExercises.find(link => link.id === id); if (link) openEditExercise(link); }}
+          onRemove={id => { if (confirm("Rimuovere l'esercitazione da questa sessione?")) removeLinkMutation.mutate(id); }}
+          recovery={<>
+            {linkedExercisesQuery.isLoading ? <p>Calcolo in corso...</p> : linkedExercisesQuery.isError ? <p>Calcolo non disponibile: ricarica le esercitazioni.</p> : session.durationMinutes ? linkedExercises.length === 0 ? <p>Aggiungi esercitazioni per calcolare il recupero medio. Stima iniziale: circa {estimateRemainingExercises(session.durationMinutes)} esercitazioni da 12,5 min.</p> : <>
+              <p>Recupero medio tra esercitazioni: <strong>{Math.round(recoveryPerExercise ?? 0)} min</strong></p>
+              <p className="text-xs text-muted-foreground">({session.durationMinutes} − {plannedExerciseMinutes} = {residualMinutes}, ripartiti su {linkedExercises.length} esercitazioni)</p>
+              <p>Spazio residuo: <strong>{Math.max(residualMinutes, 0)} min</strong> · circa {estimatedRemainingExercises} esercitazioni medie da 12,5 min.</p>
+              {residualMinutes < 0 && <p className="text-xs text-destructive">Durata pianificata superiore alla durata della sessione.</p>}
+            </> : <p>Durata della sessione da indicare.</p>}
+          </>}
+          organization={<div className="space-y-2 border-t pt-3">
+            <p><span className="text-muted-foreground">Squadra: </span>{session.teamName || "Da indicare"}</p>
+            <p><span className="text-muted-foreground">Luogo: </span>{session.location || "Da indicare"}</p>
+            {session.creatorName && <p><span className="text-muted-foreground">Creata da: </span>{session.creatorName}</p>}
+            {session.description && <p className="whitespace-pre-wrap">{session.description}</p>}
+            {getTrainingCalendarNote(session) && <p className="whitespace-pre-wrap">{getTrainingCalendarNote(session)}</p>}
+          </div>}
+        />
       </DialogContent>
 
       <Dialog open={!!viewingLink} onOpenChange={(open) => { if (!open) setViewingLink(null); }}>
@@ -2399,6 +2215,7 @@ function SessionDetailsDialog({
                 {viewingLink.exercise.category && <Badge variant="outline">{categoryLabel(viewingLink.exercise.category)}</Badge>}
                 {viewingLink.exercise.durationMinutes && <Badge variant="outline">{viewingLink.exercise.durationMinutes} min</Badge>}
               </div>
+              {viewingLink.exercise.sourceExerciseId && viewingLink.exercise.originalCreatedByName && <p className="text-xs text-muted-foreground">Originale creato da {viewingLink.exercise.originalCreatedByName}</p>}
               {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").description && (
                 <div className="space-y-1">
                   <Label>Descrizione</Label>
@@ -3538,6 +3355,11 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             onSaved={invalidateSessions}
           />
         )}
+        {detailsSession && (
+          <SessionDetailsDialog session={detailsSession} onClose={() => setDetailsSession(null)} teams={teams}
+            readOnly={!(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
+            onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }} />
+        )}
         {editingSession && (
           <EditSessionDialog
             session={editingSession}
@@ -3610,6 +3432,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             session={detailsSession}
             onClose={() => setDetailsSession(null)}
             teams={teams}
+            onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }}
           />
         )}
         {editingSession && (
@@ -3800,6 +3623,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           session={detailsSession}
           onClose={() => setDetailsSession(null)}
           teams={teams}
+          readOnly={!(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
+          onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }}
         />
       )}
       {editingSession && (
