@@ -40,6 +40,21 @@ async function ensureParentAvailabilityColumns() {
   ensuredParentAvailabilityColumns = true;
 }
 
+async function parentUnavailableForMatch(matchId: number, playerIds: number[]): Promise<boolean> {
+  if (!playerIds.length) return false;
+  await ensureParentAvailabilityColumns();
+  const replies = sqlRows<{ playerId: number; availability: string | null }>(await db.execute(sql`
+    SELECT DISTINCT ON (player_id) player_id AS "playerId",
+      coalesce(parent_availability_status, CASE WHEN lower(status) IN ('available', 'unavailable') THEN lower(status) END) AS availability
+    FROM call_ups
+    WHERE match_id = ${matchId}
+      AND player_id IN (${sql.join(playerIds.map(id => sql`${id}`), sql`, `)})
+      AND (parent_availability_status IS NOT NULL OR lower(status) IN ('available', 'unavailable'))
+    ORDER BY player_id, parent_availability_updated_at DESC NULLS LAST, id DESC
+  `));
+  return replies.some(reply => reply.availability === "unavailable");
+}
+
 function sqlRows<T>(result: unknown): T[] {
   if (Array.isArray(result)) return result as T[];
   const rows = (result as { rows?: unknown })?.rows;
@@ -699,27 +714,51 @@ router.get("/matches/:id/callups", requireAuth, async (req, res): Promise<void> 
   const canView = await userCanViewMatchPlan(req.session.userId!, req.session.clubId!, req.session.role ?? "", match.teamId ?? null);
   if (!canView) { res.status(403).json({ error: "Non autorizzato" }); return; }
   await ensureParentAvailabilityColumns();
-  const callups = uniqueCoachCallups(await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId)));
+  const rows = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId));
+  const callups = uniqueCoachCallups(rows);
   const metaRows = sqlRows<{
     id: number;
+    playerId: number;
     parentAvailabilityStatus: string | null;
     parentAvailabilityReason: string | null;
     parentAvailabilityNotes: string | null;
     parentAvailabilityUpdatedAt: Date | string | null;
   }>(await db.execute(sql`
-    SELECT id,
+    SELECT id, player_id AS "playerId",
       parent_availability_status AS "parentAvailabilityStatus",
       parent_availability_reason AS "parentAvailabilityReason",
       parent_availability_notes AS "parentAvailabilityNotes",
       parent_availability_updated_at AS "parentAvailabilityUpdatedAt"
     FROM call_ups
     WHERE match_id = ${matchId}
+    ORDER BY parent_availability_updated_at DESC NULLS LAST, id DESC
   `));
-  const metaById = new Map(metaRows.map((row) => [row.id, row]));
-  const enriched = await Promise.all(callups.map(async (cu) => {
+  // Historical duplicates may hold the latest parent reply on a different row.
+  const metaByPlayer = new Map<number, typeof metaRows[number]>();
+  for (const row of metaRows) {
+    if (row.parentAvailabilityStatus && !metaByPlayer.has(row.playerId)) metaByPlayer.set(row.playerId, row);
+  }
+  // Opt in only for preparation: PDF, counts and existing consumers stay callups-only.
+  const visibleRows = [...callups];
+  if (req.query.includeParentAvailability === "1") {
+    const seen = new Set(visibleRows.map(row => row.playerId));
+    for (const row of rows) {
+      if (seen.has(row.playerId)) continue;
+      if (!metaByPlayer.has(row.playerId) && !["available", "unavailable", "availability"].includes(String(row.status).toLowerCase())) continue;
+      visibleRows.push({ ...row, status: "availability" });
+      seen.add(row.playerId);
+    }
+  }
+  const enriched = await Promise.all(visibleRows.map(async (cu) => {
     const [player] = await db.select().from(playersTable).where(and(eq(playersTable.id, cu.playerId), eq(playersTable.clubId, req.session.clubId!)));
-    const meta = metaById.get(cu.id);
-    return { ...cu, ...meta, playerName: player ? `${player.firstName} ${player.lastName}` : null };
+    const meta = metaByPlayer.get(cu.playerId);
+    const legacyStatus = String(rows.find(row => row.playerId === cu.playerId && ["available", "unavailable"].includes(String(row.status).toLowerCase()))?.status ?? "").toLowerCase();
+    return { ...cu,
+      parentAvailabilityStatus: meta?.parentAvailabilityStatus ?? (legacyStatus || null),
+      parentAvailabilityReason: meta?.parentAvailabilityReason ?? null,
+      parentAvailabilityNotes: meta?.parentAvailabilityNotes ?? null,
+      parentAvailabilityUpdatedAt: meta?.parentAvailabilityUpdatedAt ?? null,
+      playerName: player ? `${player.firstName} ${player.lastName}` : null };
   }));
   res.json(enriched);
 });
@@ -792,6 +831,10 @@ router.post("/matches/:id/callups", requireAuth, async (req, res): Promise<void>
   if (!canManage) { res.status(403).json({ error: "Non autorizzato a modificare le convocazioni" }); return; }
   const [player] = await db.select({ id: playersTable.id }).from(playersTable).where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!)));
   if (!player) { res.status(400).json({ error: "Giocatore non valido per questa societa" }); return; }
+  if (await parentUnavailableForMatch(matchId, [Number(playerId)])) {
+    res.status(409).json({ error: "Il genitore ha indicato il giocatore come non disponibile per questa partita" });
+    return;
+  }
   const suspendedPlayers = await suspendedPlayerIdsForMatch(req.session.clubId!, match, [Number(playerId)]);
   if (suspendedPlayers.has(Number(playerId))) {
     res.status(409).json({ error: "Giocatore squalificato per questa partita" });
@@ -822,6 +865,10 @@ router.patch("/callups/:id", requireAuth, async (req, res): Promise<void> => {
   if (!match) { res.status(404).json({ error: "Match not found" }); return; }
   const canManage = await userCanManageAssignedTeamMatch(req.session.userId!, req.session.clubId!, req.session.role ?? "", match.teamId ?? null);
   if (!canManage) { res.status(403).json({ error: "Non autorizzato a modificare le convocazioni" }); return; }
+  if (!["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(status ?? "").toLowerCase()) && await parentUnavailableForMatch(existing.matchId, [existing.playerId])) {
+    res.status(409).json({ error: "Il genitore ha indicato il giocatore come non disponibile per questa partita" });
+    return;
+  }
   const [cu] = await db.update(callUpsTable).set({ status }).where(eq(callUpsTable.id, id)).returning();
   if (!cu) { res.status(404).json({ error: "Call-up not found" }); return; }
   res.json(cu);
@@ -872,6 +919,11 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
   const reportError = validateMatchReport(matchPlan, desiredPlayerIds);
   if (reportError) { res.status(400).json({ error: reportError }); return; }
 
+  if (await parentUnavailableForMatch(matchId, desiredPlayerIds)) {
+    res.status(409).json({ error: "Uno o piu giocatori risultano non disponibili per questa partita secondo la risposta del genitore. Aggiorna la convocazione." });
+    return;
+  }
+
   if (desiredPlayerIds.length > 0) {
     const validPlayers = await db
       .select({ id: playersTable.id })
@@ -894,8 +946,15 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
     }
   }
 
+  await ensureParentAvailabilityColumns();
   await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('match-callups'), ${matchId})`);
+    // Deselecting a called player must retain the parent's separate reply.
+    await tx.execute(sql`
+      UPDATE call_ups SET status = 'availability'
+      WHERE match_id = ${matchId} AND parent_availability_status IS NOT NULL
+        ${desiredPlayerIds.length ? sql`AND player_id NOT IN (${sql.join(desiredPlayerIds.map(id => sql`${id}`), sql`, `)})` : sql``}
+    `);
     const parsed = splitPublicNotesAndPlan(existingMatch.notes ?? null);
     await tx
       .update(matchesTable)

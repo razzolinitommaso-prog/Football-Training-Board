@@ -253,6 +253,7 @@ interface MatchCallUp {
   playerId: number;
   status: string;
   playerName?: string | null;
+  parentAvailabilityStatus?: string | null;
   parentAvailabilityReason?: string | null;
   parentAvailabilityNotes?: string | null;
 }
@@ -1852,20 +1853,22 @@ function MatchCard({
   const sortedTeamPlayers = useMemo(() => {
     return [...rosterForMatch].sort(comparePlayersByRole);
   }, [rosterForMatch]);
-  const { data: callups = EMPTY_CALLUPS, isSuccess: callupsLoaded } = useQuery<MatchCallUp[]>({
-    queryKey: ["/api/matches", match.id, "callups"],
-    queryFn: () => apiFetch(`/api/matches/${match.id}/callups`),
+  const { data: callupRows = EMPTY_CALLUPS, isSuccess: callupsLoaded } = useQuery<MatchCallUp[]>({
+    queryKey: ["/api/matches", match.id, "callups", "with-parent-availability"],
+    queryFn: () => apiFetch(`/api/matches/${match.id}/callups?includeParentAvailability=1`),
     enabled: canViewMatchPlan,
   });
+  const callups = useMemo(() => callupRows.filter(row =>
+    !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(row.status ?? "").toLowerCase())), [callupRows]);
   const parentUnavailableCallupsByPlayer = useMemo(() => {
     const map = new Map<number, MatchCallUp>();
-    for (const callup of callups) {
-      if (String(callup.status ?? "").toLowerCase() === "unavailable") {
+    for (const callup of callupRows) {
+      if (String(callup.parentAvailabilityStatus ?? callup.status ?? "").toLowerCase() === "unavailable") {
         map.set(callup.playerId, callup);
       }
     }
     return map;
-  }, [callups]);
+  }, [callupRows]);
   const filteredTeamPlayers = useMemo(() => {
     const needle = callupSearch.trim().toLowerCase();
     if (!needle) return sortedTeamPlayers;
