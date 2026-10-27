@@ -43,3 +43,11 @@ export type TrainingDirective = typeof trainingDirectivesTable.$inferSelect;
 export const insertTrainingSessionSchema = createInsertSchema(trainingSessionsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertTrainingSession = z.infer<typeof insertTrainingSessionSchema>;
 export type TrainingSession = typeof trainingSessionsTable.$inferSelect;
+
+// Session-local timing overrides: source library exercises remain unchanged.
+export const trainingSessionPlansTable = pgTable("training_session_plans", {
+  sessionId: integer("session_id").primaryKey().references(() => trainingSessionsTable.id, { onDelete: "cascade" }),
+  clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
+  plan: jsonb("plan").$type<{ recoveries: [number, number]; timings: Record<string, { seconds: number; stations: number[]; signature: string }> }>().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

@@ -397,7 +397,7 @@ function emptyExerciseFormFromSession(session: TrainingSession, existingCount: n
     title: `Esercitazione ${existingCount + 1} - ${session.title}`,
     category: "",
     description: "",
-    durationMinutes: "",
+    durationMinutes: "15",
     playersRequired: "",
     equipment: "",
     teamId: session.teamId ? String(session.teamId) : "",
@@ -619,18 +619,6 @@ function emptyExerciseStation(): ExerciseStation {
     playersRequired: "",
     variants: ["", "", ""],
   };
-}
-
-function computeRecoveryPerExercise(sessionDuration: number | null, links: SessionExerciseLink[]): number | null {
-  if (!sessionDuration || links.length === 0) return null;
-  const plannedExerciseMinutes = links.reduce((sum, link) => sum + (link.exercise?.durationMinutes ?? 0), 0);
-  const difference = sessionDuration - plannedExerciseMinutes;
-  return difference / links.length;
-}
-
-function estimateRemainingExercises(residualMinutes: number, averageMinutes = 12.5): number {
-  if (!Number.isFinite(residualMinutes) || residualMinutes <= 0) return 0;
-  return Math.floor(residualMinutes / averageMinutes);
 }
 
 function statusBadge(status: string, timelineState?: SessionTimelineState) {
@@ -892,10 +880,6 @@ function SessionCard({
     enabled: !!showRecovery,
   });
   const linkedExercises = linkedExercisesQuery.data ?? [];
-  const recoveryPerExercise = computeRecoveryPerExercise(session.durationMinutes, linkedExercises);
-  const plannedExerciseMinutes = linkedExercises.reduce((sum, link) => sum + (link.exercise?.durationMinutes ?? 0), 0);
-  const residualMinutes = (session.durationMinutes ?? 0) - plannedExerciseMinutes;
-  const estimatedRemainingExercises = estimateRemainingExercises(residualMinutes);
   const cardTone =
     timelineState === "next"
       ? "border-emerald-300 bg-emerald-50 shadow-sm"
@@ -1015,26 +999,7 @@ function SessionCard({
           </div>
         )}
 
-        {showRecovery && (
-          <div className="rounded-md border bg-muted/20 p-2">
-            {linkedExercisesQuery.isLoading ? (
-              <p className="text-xs text-muted-foreground">Caricamento esercitazioni...</p>
-            ) : (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">
-                  Esercitazioni: <span className="font-semibold text-foreground">{linkedExercises.length}</span>
-                  {" • "}Minutaggio previsto: <span className="font-semibold text-foreground">{plannedExerciseMinutes} min</span>
-                </p>
-                {session.durationMinutes ? (
-                  <p className="text-xs text-muted-foreground">
-                    Residuo: <span className="font-semibold text-foreground">{Math.max(residualMinutes, 0)} min</span>
-                    {" "}circa <span className="font-semibold text-foreground">{estimatedRemainingExercises}</span> esercitazioni da 12,5 min.
-                  </p>
-                ) : null}
-              </div>
-            )}
-          </div>
-        )}
+        {showRecovery && <div className="rounded-md border bg-muted/20 p-2 text-xs text-muted-foreground">{linkedExercisesQuery.isLoading?"Caricamento esercitazioni...":`${linkedExercises.length} esercitazioni. Apri la scheda per tempi pianificati e recuperi manuali tra le fasi.`}</div>}
 
         {(session.tdComment || session.tdGuidelines) && (
           <div>
@@ -1062,34 +1027,6 @@ function SessionCard({
           </div>
         )}
 
-        {showRecovery && session.durationMinutes && (
-          <div className="rounded-md border border-dashed bg-muted/30 p-2">
-            {linkedExercisesQuery.isLoading ? (
-              <p className="text-xs text-muted-foreground mt-0.5">Calcolo in corso...</p>
-            ) : linkedExercises.length === 0 ? (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground mt-0.5">Aggiungi almeno un'esercitazione per calcolare il recupero.</p>
-                <p className="text-xs">
-                  Stima iniziale: circa <span className="font-semibold text-foreground">{estimateRemainingExercises(session.durationMinutes)}</span> esercitazioni da 12,5 min.
-                </p>
-              </div>
-            ) : (
-              <>
-                <p className="text-[11px] font-medium text-muted-foreground">
-                  Recupero medio tra esercitazioni{" "}
-                  <span className="text-foreground font-semibold">{Math.round(recoveryPerExercise ?? 0)} min</span>
-                </p>
-                <p className="text-xs mt-0.5">
-                  ({session.durationMinutes} - {plannedExerciseMinutes} = {residualMinutes}, ripartiti su {linkedExercises.length} esercitazioni)
-                </p>
-                <p className="text-xs mt-0.5">
-                  Residuo: <span className="font-semibold text-foreground">{Math.max(residualMinutes, 0)} min</span>
-                  {" "}circa <span className="font-semibold text-foreground">{estimatedRemainingExercises}</span> esercitazioni da 12,5 min.
-                </p>
-              </>
-            )}
-          </div>
-        )}
       </CardContent>
     </Card>
   );
@@ -1143,7 +1080,7 @@ function CreateSessionDialog({
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
-  onCreatedSession?: (session: TrainingSession) => void;
+  onCreatedSession?: (session: TrainingSession, phase?: string) => void;
   members: Member[];
   isTD: boolean;
   teams: { id: number; name: string }[];
@@ -1151,6 +1088,9 @@ function CreateSessionDialog({
 }) {
   const { toast } = useToast();
   const { t } = useLanguage();
+  const [creationRecoveries,setCreationRecoveries]=useState<[number,number]>([0,0]);
+  const createFormRef=useRef<HTMLFormElement>(null);
+  const requestedPhase=useRef<string|undefined>(undefined);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
   const [duration, setDuration] = useState(90);
@@ -1165,7 +1105,7 @@ function CreateSessionDialog({
 
   function reset() {
     setScheduledDate(""); setScheduledTime(""); setDuration(90);
-    setLocation(""); setTeamId(null); setSessionPrincipio(""); setSessionTrainingSession(""); setSessionKind("regular"); setRecipientMode("selected"); setRecipients([]);
+    setLocation(""); setTeamId(null); setSessionPrincipio(""); setSessionTrainingSession(""); setSessionKind("regular"); setRecipientMode("selected"); setRecipients([]); requestedPhase.current=undefined;setCreationRecoveries([0,0]);
   }
 
   useEffect(() => {
@@ -1222,11 +1162,16 @@ function CreateSessionDialog({
           sentToUserIds: sessionKind === "tipo" ? resolvedRecipients : null,
         }),
       });
+      let recoverySaveFailed=false;
+      if(sessionKind==="regular"&&creationRecoveries.some(value=>value>0)){
+        try{await apiFetch(`/api/training-sessions/${createdSession.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries:creationRecoveries,recalculate:false})});}
+        catch{recoverySaveFailed=true;}
+      }
       onCreated();
-      onCreatedSession?.(createdSession as TrainingSession);
+      onCreatedSession?.(createdSession as TrainingSession, requestedPhase.current);
       onClose();
       reset();
-      toast({ title: sessionKind === "tipo" ? "Sessione Tipo inviata" : "Sessione creata" });
+      toast({ title: recoverySaveFailed?"Sessione creata: recuperi da reinserire nella scheda":sessionKind === "tipo" ? "Sessione Tipo inviata" : "Sessione creata",variant:recoverySaveFailed?"destructive":"default" });
     } catch {
       toast({ title: "Errore nella creazione", variant: "destructive" });
     } finally {
@@ -1236,13 +1181,13 @@ function CreateSessionDialog({
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) { onClose(); reset(); } }}>
-      <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] sm:max-w-[960px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>
             {isTD ? "Nuova Sessione" : "Pianifica Sessione di Allenamento"}
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} noValidate className="space-y-4 pt-2">
+        <form ref={createFormRef} onSubmit={handleSubmit} noValidate className="space-y-4 pt-2">
           {isTD && (
             <div className="space-y-2">
               <Label>Tipo sessione</Label>
@@ -1258,6 +1203,7 @@ function CreateSessionDialog({
             </div>
           )}
 
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>{t.trainingSessionField} <span className="text-destructive">*</span></Label>
             <Select value={sessionTrainingSession || "_none"} onValueChange={v => setSessionTrainingSession(v === "_none" ? "" : v)}>
@@ -1284,7 +1230,8 @@ function CreateSessionDialog({
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Data e ora <span className="text-destructive">*</span></Label>
               <div className="grid grid-cols-2 gap-2">
@@ -1310,7 +1257,7 @@ function CreateSessionDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Squadra</Label>
               <Select value={teamId?.toString() ?? ""} onValueChange={v => setTeamId(v ? Number(v) : null)}>
@@ -1364,10 +1311,11 @@ function CreateSessionDialog({
             <Button type="button" variant="ghost" onClick={() => { onClose(); reset(); }}>Annulla</Button>
             <Button type="submit" disabled={loading}>
               {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {sessionKind === "tipo" ? "Invia Sessione Tipo" : "Crea Sessione"}
+              {sessionKind === "tipo" ? "Invia Sessione Tipo" : "Salva dati e prepara sessione"}
             </Button>
           </div>
         </form>
+        {sessionKind==="regular"&&<TrainingSessionOverview phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3"><Label>Recupero tra fase {index+1} e {index+2}</Label><Input aria-label={`Recupero tra fase ${index+1} e ${index+2}`} type="number" min={0} max={300} className="w-20" value={creationRecoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300)setCreationRecoveries(old=>index===0?[value,old[1]]:[old[0],value]);}}/><span>min</span></div>)} metadata={[]} badges={null} principle={principioLabel(sessionPrincipio)||"Principio da scegliere"} slot={null} exercises={[]} loading={false} error={false} onRetry={()=>{}} readOnly={loading} duration={duration} plannedMinutes={0} recovery={<div><p>Base: 6 esercitazioni × 15 min + {creationRecoveries[0]+creationRecoveries[1]} min di recuperi.</p>{90+creationRecoveries[0]+creationRecoveries[1]>duration&&<p className="mt-1 text-amber-700">La base supera la durata della sessione. A fine preparazione potrai ricalcolare i tempi delle esercitazioni.</p>}<p className="mt-1 text-xs text-muted-foreground">Gli spazi vuoti non creano esercitazioni. Compila i dati e premi + per salvare la sessione e preparare la prima esercitazione.</p></div>} organization={null} onAdd={phase=>{requestedPhase.current=phase;createFormRef.current?.requestSubmit();}} onView={()=>{}} onEdit={()=>{}} onRemove={()=>{}}/>}
       </DialogContent>
     </Dialog>
   );
@@ -1379,11 +1327,13 @@ function EditSessionDialog({
   onSaved,
   onManageExercises,
   teams,
+  inline = false,
 }: {
   session: TrainingSession;
   onClose: () => void;
   onSaved: () => void;
   onManageExercises?: () => void;
+  inline?: boolean;
   teams: { id: number; name: string }[];
 }) {
   const { toast } = useToast();
@@ -1446,13 +1396,8 @@ function EditSessionDialog({
     }
   }
 
-  return (
-    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Modifica sessione</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} noValidate className="space-y-4 pt-2">
+  const content = <form onSubmit={handleSubmit} noValidate className="space-y-4 pt-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>{t.trainingSessionField} <span className="text-destructive">*</span></Label>
             <Select value={sessionTrainingSession || "_none"} onValueChange={v => setSessionTrainingSession(v === "_none" ? "" : v)}>
@@ -1479,7 +1424,8 @@ function EditSessionDialog({
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Data e ora <span className="text-destructive">*</span></Label>
               <div className="grid grid-cols-2 gap-2">
@@ -1505,7 +1451,7 @@ function EditSessionDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Squadra</Label>
               <Select value={teamId?.toString() ?? ""} onValueChange={v => setTeamId(v ? Number(v) : null)}>
@@ -1536,10 +1482,9 @@ function EditSessionDialog({
               Salva modifiche
             </Button>
           </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
+        </form>;
+  if (inline) return <div className="rounded-xl border bg-muted/10 p-3">{content}</div>;
+  return <Dialog open onOpenChange={v=>{if(!v)onClose();}}><DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Modifica sessione</DialogTitle></DialogHeader>{content}</DialogContent></Dialog>;
 }
 
 // ── Comment Dialog (TD only) ───────────────────────────────────────────────
@@ -1841,17 +1786,26 @@ function SessionDetailsDialog({
   teams,
   readOnly = false,
   onEditSession,
+  initialAddPhase,
 }: {
   session: TrainingSession;
   onClose: () => void;
   teams: { id: number; name: string; clubSection?: string | null }[];
   readOnly?: boolean;
   onEditSession?: () => void;
+  initialAddPhase?: string;
 }) {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
+  const canEditMetadata=!readOnly&&(role!=="technical_director"||session.createdByUserId===user?.id);
   const { toast } = useToast();
   const { t } = useLanguage();
   const qc = useQueryClient();
+  const [editingMetadata,setEditingMetadata] = useState(true);
+  const [recoveries,setRecoveries] = useState<[number,number]>([0,0]);
+  const [recoveriesDirty,setRecoveriesDirty] = useState(false);
+  const planQuery=useQuery<{recoveries:[number,number];timings:Record<string,{seconds:number;stations:number[]}>}>({queryKey:["/api/training-sessions",session.id,"planning"],queryFn:()=>apiFetch(`/api/training-sessions/${session.id}/planning`)});
+  useEffect(()=>{if(planQuery.data&&!recoveriesDirty)setRecoveries(planQuery.data.recoveries);},[planQuery.data,recoveriesDirty]);
+  const savePlan=useMutation({mutationFn:(recalculate:boolean)=>apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate})}),onSuccess:async()=>{setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Tempi della sessione salvati"});},onError:()=>toast({title:"Impossibile salvare i tempi",variant:"destructive"})});
   const [exerciseFormOpen, setExerciseFormOpen] = useState(false);
   const [viewingLink, setViewingLink] = useState<SessionExerciseLink | null>(null);
   const [editingLink, setEditingLink] = useState<SessionExerciseLink | null>(null);
@@ -1882,10 +1836,11 @@ function SessionDetailsDialog({
 
   const linkedExercises = [...(linkedExercisesQuery.data ?? [])]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const recoveryPerExercise = computeRecoveryPerExercise(session.durationMinutes, linkedExercises);
-  const plannedExerciseMinutes = linkedExercises.reduce((sum, link) => sum + (link.exercise?.durationMinutes ?? 0), 0);
-  const residualMinutes = (session.durationMinutes ?? 0) - plannedExerciseMinutes;
-  const estimatedRemainingExercises = estimateRemainingExercises(residualMinutes);
+  const effectiveDuration=(link:SessionExerciseLink)=>planQuery.data?.timings[String(link.id)]?.seconds!==undefined?planQuery.data.timings[String(link.id)].seconds/60:link.exercise?.durationMinutes??0;
+  const plannedExerciseMinutes = linkedExercises.reduce((sum,link)=>sum+effectiveDuration(link),0);
+  const recoveryMinutes=recoveries[0]+recoveries[1];
+  const residualMinutes=(session.durationMinutes??0)-plannedExerciseMinutes-recoveryMinutes;
+  const formatMinutes=(minutes:number)=>{const seconds=Math.round(minutes*60);return seconds%60===0?`${seconds/60} min`:`${Math.floor(seconds/60)} min ${seconds%60} s`;};
 
   const createAndLinkExerciseMutation = useMutation({
     mutationFn: async ({ form, sourceExerciseId }: { form: ExerciseFormState; sourceExerciseId?: number | null }) => {
@@ -1930,6 +1885,7 @@ function SessionDetailsDialog({
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "exercises"] });
+      await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "planning"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions"] });
       toast({ title: "Esercitazione creata e collegata" });
       setExerciseFormOpen(false);
@@ -1973,6 +1929,7 @@ function SessionDetailsDialog({
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "exercises"] });
+      await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "planning"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions"] });
       toast({ title: "Esercitazione aggiornata" });
       setExerciseFormOpen(false);
@@ -1986,6 +1943,7 @@ function SessionDetailsDialog({
     mutationFn: (linkId: number) => apiFetch(`/api/training-sessions/${session.id}/exercises/${linkId}`, { method: "DELETE" }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "exercises"] });
+      await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "planning"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions"] });
       toast({ title: "Esercitazione rimossa dalla sessione" });
     },
@@ -1998,6 +1956,9 @@ function SessionDetailsDialog({
     setExerciseForm({ ...emptyExerciseFormFromSession(session, linkedExercises.length), trainingPhase: phase });
     setExerciseFormOpen(true);
   }
+
+  const initialPhaseOpened=useRef(false);
+  useEffect(()=>{if(initialAddPhase&&!initialPhaseOpened.current&&!linkedExercisesQuery.isLoading){initialPhaseOpened.current=true;openAddExercise(initialAddPhase);}},[initialAddPhase,linkedExercisesQuery.isLoading]);
 
   function openEditExercise(link: SessionExerciseLink) {
     const sourceId = link.exercise ? (link.exercise.sourceExerciseId ?? link.exercise.id) : null;
@@ -2150,17 +2111,19 @@ function SessionDetailsDialog({
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] p-3 sm:max-w-[960px] sm:p-6 max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] p-3 sm:max-w-[960px] sm:p-6 max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="w-4 h-4" />
             Scheda sessione - {session.title}
           </DialogTitle>
-          {!readOnly && onEditSession && <Button type="button" variant="outline" size="sm" className="mt-2 w-fit" onClick={onEditSession}>Modifica dati sessione</Button>}
+          {canEditMetadata && <Button type="button" variant="outline" size="sm" className="mt-2 w-fit" onClick={()=>setEditingMetadata(!editingMetadata)}>{editingMetadata?"Chiudi dati sessione":"Modifica dati sessione"}</Button>}
         </DialogHeader>
 
         <TrainingSessionOverview
-          metadata={[
+          editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline session={session} teams={teams} onClose={()=>setEditingMetadata(false)} onSaved={()=>{void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
+          phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 text-sm"><Label htmlFor={`recovery-${session.id}-${index}`}>Recupero tra fase {index+1} e {index+2}</Label><Input id={`recovery-${session.id}-${index}`} aria-label={`Recupero tra fase ${index+1} e ${index+2}`} className="w-20" type="number" min={0} max={300} step={1} disabled={readOnly||planQuery.isLoading||planQuery.isError||savePlan.isPending} value={recoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300){setRecoveries(previous=>index===0?[value,previous[1]]:[previous[0],value]);setRecoveriesDirty(true);}}}/><span>min</span></div>)}
+          metadata={editingMetadata&&canEditMetadata?[]:[
             { label: "Giorno", value: format(new Date(session.scheduledAt), "EEEE", { locale: itLocale }) },
             { label: "Data", value: format(new Date(session.scheduledAt), "dd/MM/yyyy") },
             { label: "Ora", value: format(new Date(session.scheduledAt), "HH:mm") },
@@ -2173,7 +2136,7 @@ function SessionDetailsDialog({
             id: link.id,
             title: link.exercise?.title ?? "Esercitazione non trovata",
             phase: link.exercise?.trainingPhase ?? null,
-            duration: link.exercise?.durationMinutes ?? null,
+            duration: effectiveDuration(link),
             preview: link.exercise?.drawingData ?? null,
             principle: link.exercise?.principio ? principioLabel(link.exercise.principio) : null,
             players: link.exercise?.playersRequired ?? null,
@@ -2184,19 +2147,20 @@ function SessionDetailsDialog({
           onRetry={() => void linkedExercisesQuery.refetch()}
           readOnly={readOnly}
           duration={session.durationMinutes}
-          plannedMinutes={plannedExerciseMinutes}
+          plannedMinutes={Math.round((plannedExerciseMinutes+recoveryMinutes)*100)/100}
           onAdd={openAddExercise}
           onView={id => setViewingLink(linkedExercises.find(link => link.id === id) ?? null)}
           onEdit={id => { const link = linkedExercises.find(link => link.id === id); if (link) openEditExercise(link); }}
           onRemove={id => { if (confirm("Rimuovere l'esercitazione da questa sessione?")) removeLinkMutation.mutate(id); }}
-          recovery={<>
-            {linkedExercisesQuery.isLoading ? <p>Calcolo in corso...</p> : linkedExercisesQuery.isError ? <p>Calcolo non disponibile: ricarica le esercitazioni.</p> : session.durationMinutes ? linkedExercises.length === 0 ? <p>Aggiungi esercitazioni per calcolare il recupero medio. Stima iniziale: circa {estimateRemainingExercises(session.durationMinutes)} esercitazioni da 12,5 min.</p> : <>
-              <p>Recupero medio tra esercitazioni: <strong>{Math.round(recoveryPerExercise ?? 0)} min</strong></p>
-              <p className="text-xs text-muted-foreground">({session.durationMinutes} − {plannedExerciseMinutes} = {residualMinutes}, ripartiti su {linkedExercises.length} esercitazioni)</p>
-              <p>Spazio residuo: <strong>{Math.max(residualMinutes, 0)} min</strong> · circa {estimatedRemainingExercises} esercitazioni medie da 12,5 min.</p>
-              {residualMinutes < 0 && <p className="text-xs text-destructive">Durata pianificata superiore alla durata della sessione.</p>}
-            </> : <p>Durata della sessione da indicare.</p>}
-          </>}
+          recovery={<div className="space-y-2">
+            {planQuery.isLoading?<p role="status">Caricamento tempi della sessione...</p>:planQuery.isError?<p role="alert">Tempi non disponibili. <Button variant="link" onClick={()=>void planQuery.refetch()}>Riprova</Button></p>:<>
+              <p>Esercitazioni: <strong>{formatMinutes(plannedExerciseMinutes)}</strong> · Recuperi: <strong>{formatMinutes(recoveryMinutes)}</strong></p>
+              <p>Base iniziale: 6 esercitazioni × 15 min, senza recuperi automatici.</p>
+              <p>Tempo residuo: <strong>{formatMinutes(Math.max(0,residualMinutes))}</strong></p>
+              {!readOnly&&<Button type="button" variant="outline" disabled={!recoveriesDirty||savePlan.isPending||planQuery.isLoading} onClick={()=>savePlan.mutate(false)}>Salva recuperi</Button>}
+              {residualMinutes<0&&<div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950"><p>Tempo limite superato di {formatMinutes(-residualMinutes)}. Vuoi ricalcolare il minutaggio delle esercitazioni?</p><p className="mt-1 text-xs">({session.durationMinutes} − {recoveryMinutes}) ÷ {linkedExercises.length} esercitazioni{linkedExercises.length>0&&session.durationMinutes&&session.durationMinutes>recoveryMinutes?` = circa ${formatMinutes((session.durationMinutes-recoveryMinutes)/linkedExercises.length)} ciascuna`:""}. Le stazioni interne saranno riproporzionate. I tempi valgono solo per questa sessione.</p>{!readOnly&&<Button type="button" className="mt-2" disabled={savePlan.isPending||planQuery.isLoading||!linkedExercises.length||!session.durationMinutes||session.durationMinutes<=recoveryMinutes} onClick={()=>{if(confirm("Ricalcolare i tempi delle esercitazioni e delle relative stazioni solo per questa sessione?"))savePlan.mutate(true);}}>Ricalcola minutaggio</Button>}</div>}
+            </>}
+          </div>}
           organization={<div className="space-y-2 border-t pt-3">
             <p><span className="text-muted-foreground">Squadra: </span>{session.teamName || "Da indicare"}</p>
             <p><span className="text-muted-foreground">Luogo: </span>{session.location || "Da indicare"}</p>
@@ -2218,7 +2182,7 @@ function SessionDetailsDialog({
                 {viewingLink.exercise.principio && <Badge variant="secondary">{principioLabel(viewingLink.exercise.principio)}</Badge>}
                 {viewingLink.exercise.trainingPhase && <Badge variant="outline">{phaseLabel(viewingLink.exercise.trainingPhase)}</Badge>}
                 {viewingLink.exercise.category && <Badge variant="outline">{categoryLabel(viewingLink.exercise.category)}</Badge>}
-                {viewingLink.exercise.durationMinutes && <Badge variant="outline">{viewingLink.exercise.durationMinutes} min</Badge>}
+                <Badge variant="outline">{formatMinutes(effectiveDuration(viewingLink))}</Badge>
               </div>
               {viewingLink.exercise.sourceExerciseId && viewingLink.exercise.originalCreatedByName && <p className="text-xs text-muted-foreground">Originale creato da {viewingLink.exercise.originalCreatedByName}</p>}
               {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").description && (
@@ -2237,7 +2201,7 @@ function SessionDetailsDialog({
                       <div key={station.id} className="rounded-md border bg-muted/30 p-3 text-sm">
                         <div className="flex items-center justify-between gap-2">
                           <p className="font-semibold">{index + 1}. {station.title || "Stazione"}</p>
-                          <Badge variant="outline">{station.durationMinutes || 0} min</Badge>
+                          <Badge variant="outline">{formatMinutes((planQuery.data?.timings[String(viewingLink.id)]?.stations[index] ?? Number(station.durationMinutes||0)*60)/60)}</Badge>
                         </div>
                         {station.playersRequired && (
                           <p className="mt-2 text-muted-foreground">
@@ -2817,6 +2781,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   const [tdSessionSearch, setTdSessionSearch] = useState("");
   const [tdExerciseSearch, setTdExerciseSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [createdPhase,setCreatedPhase] = useState<string|undefined>(undefined);
   const [calendarDraft, setCalendarDraft] = useState<InitialSessionDraft | null>(null);
   const [editingSession, setEditingSession] = useState<TrainingSession | null>(null);
   const [commentSession, setCommentSession] = useState<TrainingSession | null>(null);
@@ -2914,6 +2879,13 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   }, [initialSessionDraft]);
 
   const activeDirectives = directives.filter(d => !dismissedDirectives.includes(d.id));
+
+  useEffect(() => {
+    if (detailsSession) {
+      const fresh = sessionsQuery.data?.find(item => item.id === detailsSession.id);
+      if (fresh && fresh !== detailsSession) setDetailsSession(fresh);
+    }
+  }, [sessionsQuery.data]);
 
   // ── Session grids ─────────────────────────────────────────────────────────
   const isReadOnly = ["admin", "presidente", "director", "sporting_director"].includes(role ?? "");
@@ -3374,7 +3346,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         {/* Dialogs */}
         <CreateSessionDialog
           open={createOpen} onClose={() => setCreateOpen(false)}
-          onCreated={invalidateSessions} members={members} isTD teams={teams}
+          onCreated={invalidateSessions}
+          onCreatedSession={(created,phase)=>{setCreatedPhase(phase);setDetailsSession(created);}} members={members} isTD teams={teams}
           initialDraft={calendarDraft ?? initialSessionDraft ?? undefined}
         />
         <DirectiveDialog
@@ -3389,7 +3362,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           />
         )}
         {detailsSession && (
-          <SessionDetailsDialog session={detailsSession} onClose={() => setDetailsSession(null)} teams={teams}
+          <SessionDetailsDialog initialAddPhase={createdPhase} session={detailsSession} onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}} teams={teams}
             readOnly={!(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
             onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }} />
         )}
@@ -3458,7 +3431,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           open={createOpen}
           onClose={() => setCreateOpen(false)}
           onCreated={invalidateSessions}
-          onCreatedSession={(created) => setDetailsSession(created)}
+          onCreatedSession={(created,phase)=>{setCreatedPhase(phase);setDetailsSession(created);}}
           members={[]}
           isTD={false}
           teams={teams}
@@ -3466,8 +3439,9 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         />
         {detailsSession && (
           <SessionDetailsDialog
+            initialAddPhase={createdPhase}
             session={detailsSession}
-            onClose={() => setDetailsSession(null)}
+            onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}
             teams={teams}
             onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }}
           />
@@ -3514,8 +3488,9 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         </div></details>
         {detailsSession && (
           <SessionDetailsDialog
+            initialAddPhase={createdPhase}
             session={detailsSession}
-            onClose={() => setDetailsSession(null)}
+            onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}
             teams={teams}
             readOnly
           />
@@ -3657,7 +3632,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
       <CreateSessionDialog
         open={createOpen} onClose={() => setCreateOpen(false)}
         onCreated={invalidateSessions}
-        onCreatedSession={(created) => setDetailsSession(created)}
+          onCreatedSession={(created,phase)=>{setCreatedPhase(phase);setDetailsSession(created);}}
         members={[]}
         isTD={false}
         teams={teams}
@@ -3665,8 +3640,9 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
       />
       {detailsSession && (
         <SessionDetailsDialog
+            initialAddPhase={createdPhase}
           session={detailsSession}
-          onClose={() => setDetailsSession(null)}
+          onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}
           teams={teams}
           readOnly={!(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
           onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }}
