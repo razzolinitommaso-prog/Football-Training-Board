@@ -45,11 +45,20 @@ type ChampionshipStanding = {
   pts: number;
 };
 
+type FtbStandings = {
+  status: "aligned" | "provisional" | "no-official" | "review";
+  rows: ChampionshipStanding[];
+  resultMatches: number;
+  officialGamesMin: number | null;
+  officialGamesMax: number | null;
+};
+
 type ChampionshipGroup = {
   id: number;
   name: string;
   fixtures: ChampionshipFixture[];
   standings: ChampionshipStanding[];
+  ftbStandings?: FtbStandings;
 };
 
 type Championship = {
@@ -444,9 +453,9 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
   );
 }
 
-function CollapsibleChampionshipCard({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
+function CollapsibleChampionshipCard({ title, icon, children, defaultOpen = true }: { title: string; icon: ReactNode; children: ReactNode; defaultOpen?: boolean }) {
   return <Card className="shadow-sm">
-    <details open className="group/panel">
+    <details open={defaultOpen} className="group/panel">
       <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-6 outline-offset-2 group-open/panel:pb-3 [&::-webkit-details-marker]:hidden">
         <h3 className="flex items-center gap-2 text-base font-semibold">{icon}{title}</h3>
         <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/panel:rotate-180" />
@@ -520,6 +529,31 @@ function ChampionshipView({ championship, group }: { championship: Championship;
               <StandingsTable standings={group.standings} />
             </CardContent>
           </Card>
+
+        {championship.sourceProvider === "lnd" && group.ftbStandings && (
+          <CollapsibleChampionshipCard key={`ftb-${group.id}`} title="Classifica provvisoria aggiornata FTB" icon={<BarChart3 className="h-4 w-4 text-primary" />} defaultOpen={false}>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={group.ftbStandings.status === "aligned" ? "secondary" : "outline"}>
+                  {group.ftbStandings.status === "aligned" ? "Allineata a LND" : group.ftbStandings.status === "review" ? "Da verificare" : "Provvisoria FTB"}
+                </Badge>
+                <span className="text-xs text-muted-foreground">{group.ftbStandings.resultMatches} gare con risultato salvate in FTB</span>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {group.ftbStandings.status === "aligned"
+                  ? "Gare giocate, vittorie, pareggi e sconfitte coincidono: qui è riportata la classifica LND salvata, compresi i punti ufficiali."
+                  : group.ftbStandings.status === "review"
+                    ? "Risultati e classifica ufficiale non sono confrontabili in modo univoco. Il calcolo seguente usa i risultati salvati in FTB e può essere incompleto."
+                    : group.ftbStandings.status === "no-official"
+                      ? "Classifica ufficiale non disponibile: calcolo sui soli risultati salvati in FTB."
+                      : "I risultati salvati in FTB comprendono più gare della classifica LND. Calcolo provvisorio aggiornato su questi risultati."}
+              </p>
+              {group.ftbStandings.officialGamesMin !== null && <p className="text-xs text-muted-foreground">Classifica LND salvata: {group.ftbStandings.officialGamesMin === group.ftbStandings.officialGamesMax ? group.ftbStandings.officialGamesMin : `${group.ftbStandings.officialGamesMin}–${group.ftbStandings.officialGamesMax}`} gare giocate per squadra.</p>}
+              <StandingsTable standings={group.ftbStandings.rows} />
+              {group.ftbStandings.status !== "aligned" && <p className="text-xs leading-relaxed text-muted-foreground">Calcolo indicativo: penalizzazioni, decisioni federali e criteri di parità possono modificare la graduatoria ufficiale. Nessuna modifica alla classifica LND.</p>}
+            </CardContent>
+          </CollapsibleChampionshipCard>
+        )}
 
         <CollapsibleChampionshipCard title="Prossima Giornata" icon={<Clock className="h-4 w-4 text-primary" />}>
             <CardContent>

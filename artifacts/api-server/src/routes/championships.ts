@@ -710,6 +710,44 @@ function mergeOfficialStandingsWithGoals(officialStandings: StandingRow[], calcu
   }).sort((a, b) => b.pts - a.pts || b.dr - a.dr || b.gf - a.gf || a.pg - b.pg || a.team.localeCompare(b.team, "it"));
 }
 
+// Read-only comparison of saved results: never fetches LND or writes its table.
+function ftbStandingsFor(
+  fixtures: Array<{ homeTeam: string; awayTeam: string; homeScore: number | null; awayScore: number | null; date?: Date | string | null }>,
+  official: StandingRow[],
+  pointsRule: ChampionshipPointsRule,
+  now = Date.now(),
+) {
+  const saved = fixtures.map(fixture => {
+    const date = fixture.date ? new Date(fixture.date).getTime() : null;
+    const valid = Number.isInteger(fixture.homeScore) && Number.isInteger(fixture.awayScore)
+      && fixture.homeScore! >= 0 && fixture.awayScore! >= 0
+      && (date === null || (Number.isFinite(date) && date <= now));
+    return { ...fixture, homeScore: valid ? fixture.homeScore : null, awayScore: valid ? fixture.awayScore : null };
+  });
+  const calculated = standingsFor(saved, pointsRule);
+  const resultMatches = saved.filter(row => row.homeScore !== null && row.awayScore !== null).length;
+  const officialByTeam = new Map(official.map(row => [tableKey(row.team), row]));
+  const sameTeams = official.length > 0 && officialByTeam.size === official.length
+    && official.length === calculated.length && calculated.every(row => officialByTeam.has(tableKey(row.team)));
+  const sameRecord = sameTeams && calculated.every(row => {
+    const other = officialByTeam.get(tableKey(row.team))!;
+    return row.pg === other.pg && row.v === other.v && row.n === other.n && row.p === other.p;
+  });
+  const ahead = sameTeams && !sameRecord && calculated.every(row => {
+    const other = officialByTeam.get(tableKey(row.team))!;
+    return row.pg >= other.pg && row.v >= other.v && row.n >= other.n && row.p >= other.p;
+  }) && calculated.some(row => row.pg > officialByTeam.get(tableKey(row.team))!.pg);
+  const status = sameRecord ? "aligned" : official.length === 0 ? "no-official" : ahead ? "provisional" : "review";
+  return {
+    status,
+    // Preserve official points (including adjustments) when the game records match.
+    rows: sameRecord ? official : calculated,
+    resultMatches,
+    officialGamesMin: official.length ? Math.min(...official.map(row => row.pg)) : null,
+    officialGamesMax: official.length ? Math.max(...official.map(row => row.pg)) : null,
+  };
+}
+
 async function teamBelongsToClub(teamId: number | null, clubId: number): Promise<boolean> {
   if (!teamId) return true;
   const [team] = await db
@@ -781,6 +819,7 @@ async function enrichedChampionships(params: { clubId: number; section?: string 
           ...group,
           fixtures: groupFixtures,
           standings: mergeOfficialStandingsWithGoals(normalizedStandingRows(officialStandingsByGroupId.get(group.id)), standingsFor(groupFixtures, pointsRule)),
+          ftbStandings: ftbStandingsFor(groupFixtures, normalizedStandingRows(officialStandingsByGroupId.get(group.id)), pointsRule),
         };
       }),
     };
