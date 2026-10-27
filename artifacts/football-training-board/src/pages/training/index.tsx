@@ -1,3 +1,5 @@
+import { TrainingSessionsCalendar } from "@/components/training/TrainingSessionsCalendar";
+import type { SessionCalendarTeam, SessionPreparation } from "@/lib/training-session-calendar";
 import { TrainingSessionOverview } from "@/components/training/TrainingSessionOverview";
 import { TrainingAvailabilityPanel } from "@/components/calendar/TrainingAvailability";
 import { TrainingRosterOptions } from "@/components/training-roster-groups";
@@ -48,6 +50,7 @@ interface TrainingSession {
   createdByUserId: number | null;
   creatorName: string | null;
   canEdit?: boolean;
+  preparation?: SessionPreparation;
   sessionKind: string;
   sentToUserIds: number[] | null;
   tdComment: string | null;
@@ -133,6 +136,7 @@ type InitialSessionDraft = {
   teamId?: number | null;
   date?: string | null;
   start?: string | null;
+  durationMinutes?: number;
 };
 
 interface PlayerOption {
@@ -1168,6 +1172,7 @@ function CreateSessionDialog({
     if (!open || !initialDraft) return;
     if (initialDraft.date) setScheduledDate(toDisplayDateValue(`${initialDraft.date}T00:00:00`));
     if (initialDraft.start) setScheduledTime(formatTimeInput(initialDraft.start));
+    if (initialDraft.durationMinutes && initialDraft.durationMinutes > 0) setDuration(initialDraft.durationMinutes);
     if (initialDraft.teamId && teams.some((team) => team.id === initialDraft.teamId)) {
       setTeamId(initialDraft.teamId);
     }
@@ -2800,7 +2805,7 @@ type TrainingPageProps = {
 };
 
 export default function TrainingPage({ section }: TrainingPageProps = {}) {
-  const { role, user } = useAuth();
+  const { role, user, club, section: activeSection } = useAuth();
   const { toast } = useToast();
   const { t } = useLanguage();
   const qc = useQueryClient();
@@ -2812,6 +2817,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   const [tdSessionSearch, setTdSessionSearch] = useState("");
   const [tdExerciseSearch, setTdExerciseSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [calendarDraft, setCalendarDraft] = useState<InitialSessionDraft | null>(null);
   const [editingSession, setEditingSession] = useState<TrainingSession | null>(null);
   const [commentSession, setCommentSession] = useState<TrainingSession | null>(null);
   const [detailsSession, setDetailsSession] = useState<TrainingSession | null>(null);
@@ -2835,8 +2841,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   }, []);
 
   const sessionsQuery = useQuery<TrainingSession[]>({
-    queryKey: ["/api/training-sessions"],
-    queryFn: () => apiFetch("/api/training-sessions"),
+    queryKey: ["/api/training-sessions", "preparation-calendar", club?.id, user?.id, role, section ?? activeSection],
+    queryFn: () => apiFetch(`/api/training-sessions?includePreparation=1${section ? `&section=${encodeURIComponent(section)}` : ""}`),
     enabled: !!role,
   });
   const initialSessionQuery = useQuery<TrainingSession>({
@@ -2858,9 +2864,9 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     enabled: role === "technical_director",
   });
 
-  const teamsQuery = useQuery<{ id: number; name: string; clubSection?: string | null }[]>({
-    queryKey: ["/api/teams"],
-    queryFn: () => apiFetch("/api/teams"),
+  const teamsQuery = useQuery<SessionCalendarTeam[]>({
+    queryKey: ["/api/teams", "training-calendar", club?.id, user?.id, role, section ?? activeSection],
+    queryFn: () => apiFetch(`/api/teams${section ? `?section=${encodeURIComponent(section)}` : ""}`),
     enabled: !!role,
   });
 
@@ -2910,7 +2916,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   const activeDirectives = directives.filter(d => !dismissedDirectives.includes(d.id));
 
   // ── Session grids ─────────────────────────────────────────────────────────
-  const isReadOnly = ["admin", "presidente", "director"].includes(role ?? "");
+  const isReadOnly = ["admin", "presidente", "director", "sporting_director"].includes(role ?? "");
   const isTD = role === "technical_director";
   const isCoach = ["coach", "fitness_coach", "athletic_director"].includes(role ?? "");
 
@@ -3006,6 +3012,26 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   const tipoReceived = sessions.filter(s =>
     s.sessionKind === "tipo" && s.sentToUserIds?.includes(userId ?? 0)
   );
+
+  function renderSessionsCalendar() {
+    return <TrainingSessionsCalendar
+      teams={teams}
+      sessions={regularSessions}
+      section={section}
+      canCreate={["coach", "fitness_coach", "athletic_director", "technical_director", "secretary"].includes(role ?? "")}
+      loading={sessionsQuery.isLoading || teamsQuery.isLoading}
+      error={sessionsQuery.isError || teamsQuery.isError}
+      onRetry={() => { void sessionsQuery.refetch(); void teamsQuery.refetch(); }}
+      focusSession={detailsSession ?? initialSessionQuery.data}
+      onOpen={id => { const target = sessions.find(session => session.id === id); if (target) setDetailsSession(target); }}
+      onCreate={draft => {
+        // Recheck the current list before opening creation: existing drafts always open in place.
+        const existing = regularSessions.find(session => session.teamId === draft.teamId && Number.isFinite(Date.parse(session.scheduledAt)) && format(new Date(session.scheduledAt), "yyyy-MM-dd|HH:mm") === `${draft.date}|${draft.start}`);
+        if (existing) { setDetailsSession(existing); return; }
+        setCalendarDraft(draft); setCreateOpen(true);
+      }}
+    />;
+  }
 
   function SessionGrid({ items, emptyMsg, canDeleteFn, canEditFn, showComment, onOpenDetails, showRecovery, isReadOnly: gridReadOnly = isReadOnly }: {
     items: TrainingSession[];
@@ -3205,7 +3231,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <ClipboardList className="w-6 h-6 text-primary" />
@@ -3220,13 +3246,17 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
               <Megaphone className="w-4 h-4 mr-2" />
               Direttiva
             </Button>
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button onClick={() => { setCalendarDraft(null); setCreateOpen(true); }}>
               <Plus className="w-4 h-4 mr-2" />
               Nuova sessione
             </Button>
           </div>
         </div>
 
+        {renderSessionsCalendar()}
+        <details className="rounded-xl border bg-card p-3">
+          <summary className="cursor-pointer text-sm font-medium">Elenco, filtri, sessioni tipo e direttive</summary>
+          <div className="mt-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Cerca sessioni (principio, giorno, squadra, stato)</Label>
@@ -3338,11 +3368,14 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           </TabsContent>
         </Tabs>
 
+          </div>
+        </details>
+
         {/* Dialogs */}
         <CreateSessionDialog
           open={createOpen} onClose={() => setCreateOpen(false)}
           onCreated={invalidateSessions} members={members} isTD teams={teams}
-          initialDraft={initialSessionDraft ?? undefined}
+          initialDraft={calendarDraft ?? initialSessionDraft ?? undefined}
         />
         <DirectiveDialog
           open={directiveOpen} onClose={() => setDirectiveOpen(false)}
@@ -3402,12 +3435,14 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         </Card>
 
         <div className="flex justify-end">
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => { setCalendarDraft(null); setCreateOpen(true); }}>
             <Plus className="w-4 h-4 mr-2" />
             Nuova sessione
           </Button>
         </div>
 
+        {renderSessionsCalendar()}
+        <details className="rounded-xl border bg-card p-3"><summary className="cursor-pointer text-sm font-medium">Elenco e gestione sessioni</summary><div className="mt-4">
         <SessionGrid
           items={sessions}
           emptyMsg="Nessuna sessione di allenamento registrata nel club"
@@ -3417,6 +3452,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           showRecovery
         />
 
+        </div></details>
+
         <CreateSessionDialog
           open={createOpen}
           onClose={() => setCreateOpen(false)}
@@ -3425,7 +3462,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           members={[]}
           isTD={false}
           teams={teams}
-          initialDraft={initialSessionDraft ?? undefined}
+          initialDraft={calendarDraft ?? initialSessionDraft ?? undefined}
         />
         {detailsSession && (
           <SessionDetailsDialog
@@ -3467,11 +3504,14 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             <Eye className="w-3 h-3" /> Solo visualizzazione
           </Badge>
         </div>
+        {renderSessionsCalendar()}
+        <details className="rounded-xl border bg-card p-3"><summary className="cursor-pointer text-sm font-medium">Elenco e archivio sessioni</summary><div className="mt-4">
         <SeasonArchive
           items={sessions}
           emptyMsg="Nessuna sessione di allenamento programmata"
           readOnly
         />
+        </div></details>
         {detailsSession && (
           <SessionDetailsDialog
             session={detailsSession}
@@ -3488,7 +3528,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Calendar className="w-6 h-6 text-primary" />
@@ -3496,11 +3536,13 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Pianifica e gestisci le tue sessioni di allenamento</p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
+        <Button onClick={() => { setCalendarDraft(null); setCreateOpen(true); }}>
           <Plus className="w-4 h-4 mr-2" />
           Nuova sessione
         </Button>
       </div>
+
+      {renderSessionsCalendar()}
 
       {/* Directives from TD */}
       {activeDirectives.length > 0 && (
@@ -3530,6 +3572,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         </div>
       )}
 
+      <details className="rounded-xl border bg-card p-3"><summary className="cursor-pointer text-sm font-medium">Elenco, filtri e gestione sessioni</summary><div className="mt-4">
       {/* My sessions */}
       <div className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -3609,6 +3652,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         />
       </div>
 
+      </div></details>
+
       <CreateSessionDialog
         open={createOpen} onClose={() => setCreateOpen(false)}
         onCreated={invalidateSessions}
@@ -3616,7 +3661,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         members={[]}
         isTD={false}
         teams={teams}
-        initialDraft={initialSessionDraft ?? undefined}
+        initialDraft={calendarDraft ?? initialSessionDraft ?? undefined}
       />
       {detailsSession && (
         <SessionDetailsDialog

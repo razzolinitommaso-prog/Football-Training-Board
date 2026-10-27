@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, lte, sql, or } from "drizzle-orm";
 import {
   clubNotificationsTable,
   db,
@@ -9,7 +9,7 @@ import {
   trainingSessionsTable,
 } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
-import { normalizeSessionRole } from "../lib/club-scope";
+import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 
 const router: IRouter = Router();
 
@@ -155,7 +155,7 @@ async function syncPreparedSession(params: {
 router.get("/training-calendar-overrides", requireAuth, async (req, res): Promise<void> => {
   await ensureTrainingCalendarOverridesTable();
   const role = normalizeSessionRole(req.session.role);
-  if (!VIEW_ROLES.includes(role)) {
+  if (!VIEW_ROLES.includes(role) && !(req.query.calendarTeamId !== undefined && role === "sporting_director")) {
     res.status(403).json({ error: "Non autorizzato" });
     return;
   }
@@ -168,6 +168,39 @@ router.get("/training-calendar-overrides", requireAuth, async (req, res): Promis
   }
 
   const clubId = req.session.clubId!;
+  // Opt-in read-only projection for the session calendar. Other consumers retain their response.
+  const calendarTeamId = req.query.calendarTeamId === undefined ? null : Number(req.query.calendarTeamId);
+  if (calendarTeamId !== null) {
+    if (!Number.isInteger(calendarTeamId) || calendarTeamId <= 0) { res.status(400).json({ error: "Squadra non valida" }); return; }
+    const [team] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, calendarTeamId), eq(teamsTable.clubId, clubId)));
+    const sections = await resolveAllowedClubSections(req, section || undefined);
+    if (!team || (sections && !sections.includes(team.clubSection))) { res.status(403).json({ error: "Squadra non accessibile" }); return; }
+    if (["coach", "fitness_coach", "athletic_director"].includes(role) && team.coachId !== req.session.userId) {
+      const [assignment] = await db.select({ id: teamStaffAssignmentsTable.id }).from(teamStaffAssignmentsTable)
+        .where(and(eq(teamStaffAssignmentsTable.clubId, clubId), eq(teamStaffAssignmentsTable.teamId, calendarTeamId), eq(teamStaffAssignmentsTable.userId, req.session.userId!)));
+      if (!assignment) { res.status(403).json({ error: "Squadra non assegnata" }); return; }
+    }
+    const changes = await db.select().from(trainingCalendarOverridesTable).where(and(
+      eq(trainingCalendarOverridesTable.clubId, clubId),
+      or(eq(trainingCalendarOverridesTable.teamId, calendarTeamId), eq(trainingCalendarOverridesTable.targetTeamId, calendarTeamId)),
+      or(and(gte(trainingCalendarOverridesTable.originalDate, from), lte(trainingCalendarOverridesTable.originalDate, to)),
+        and(gte(trainingCalendarOverridesTable.newDate, from), lte(trainingCalendarOverridesTable.newDate, to)),
+        and(gte(trainingCalendarOverridesTable.targetDate, from), lte(trainingCalendarOverridesTable.targetDate, to))),
+    ));
+    res.json(changes.filter(row => row.teamId === calendarTeamId || row.status === "joined").map(row => {
+      const own = row.teamId === calendarTeamId;
+      return {
+        id: row.id, status: row.status, location: row.location,
+        originalDate: own ? row.originalDate : null,
+        originalStartTime: own ? row.originalStartTime : null,
+        originalEndTime: own ? row.originalEndTime : null,
+        newDate: own ? row.newDate : row.targetDate ?? row.newDate,
+        newStartTime: own ? row.newStartTime : row.targetStartTime ?? row.newStartTime,
+        newEndTime: own ? row.newEndTime : row.targetEndTime ?? row.newEndTime,
+      };
+    }));
+    return;
+  }
   const rows = await db
     .select()
     .from(trainingCalendarOverridesTable)

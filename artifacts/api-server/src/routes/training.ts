@@ -132,6 +132,19 @@ async function enrichSession(
 }
 
 // GET all training sessions (role-filtered)
+function preparationSummaries(rows: { sessionId: number; phase: string | null; title: string | null }[]) {
+  const summaries = new Map<number, { exerciseCount: number; phases: string[]; complete: boolean }>();
+  for (const row of rows) {
+    const value = summaries.get(row.sessionId) ?? { exerciseCount: 0, phases: [], complete: false };
+    value.exerciseCount++;
+    const phase = String(row.phase ?? "").trim().toLowerCase();
+    if (row.title?.trim() && ["iniziale", "centrale", "finale"].includes(phase) && !value.phases.includes(phase)) value.phases.push(phase);
+    value.complete = ["iniziale", "centrale", "finale"].every(phase => value.phases.includes(phase));
+    summaries.set(row.sessionId, value);
+  }
+  return summaries;
+}
+
 router.get("/training-sessions", requireAuth, async (req, res): Promise<void> => {
   const ids = requireClubAndUserIds(req);
   if (!ids) {
@@ -223,6 +236,18 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
   ]);
   const lookup={teams:new Map(teamRows.map(team=>[team.id,team.name])),creators:new Map(creatorRows.map(user=>[user.id,`${user.firstName} ${user.lastName}`])),canEdit:(session:typeof trainingSessionsTable.$inferSelect)=>["secretary","technical_director"].includes(role)||session.createdByUserId===userId||Boolean(STAFF_RESTRICTED_ROLES.includes(role)&&session.teamId&&(primaryIds.includes(session.teamId)||(session.notes?.startsWith(AUTO_TRAINING_MARKER)&&assignedIds.includes(session.teamId))))};
   const enriched = await Promise.all(sessions.map((session) => enrichSession(session, { clubId, userId, role },lookup)));
+  if (req.query.includePreparation === "1" && sessions.length > 0) {
+    const result = await db.execute(sql`
+      SELECT link.training_session_id AS "sessionId", exercise.training_phase AS phase, exercise.title
+      FROM training_session_exercises link
+      LEFT JOIN exercises exercise ON exercise.id = link.exercise_id AND exercise.club_id = ${clubId}
+      WHERE link.training_session_id IN (${sql.join(sessions.map(session => sql`${session.id}`), sql`, `)})
+    `);
+    const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows ?? []) as { sessionId: number; phase: string | null; title: string | null }[];
+    const summaries = preparationSummaries(rows);
+    res.json(enriched.map(session => ({ ...session, preparation: summaries.get(session.id) ?? { exerciseCount: 0, phases: [], complete: false } })));
+    return;
+  }
   res.json(enriched);
 });
 
