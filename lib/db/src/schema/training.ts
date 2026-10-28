@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, jsonb, primaryKey } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -51,3 +51,9 @@ export const trainingSessionPlansTable = pgTable("training_session_plans", {
   plan: jsonb("plan").$type<{ recoveries: [number, number]; timings: Record<string, { seconds: number; stations: number[]; signature: string }> }>().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const trainingSessionSuppressionsTable = pgTable("training_session_suppressions", {
+  clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
+  teamId: integer("team_id").notNull().references(() => teamsTable.id, { onDelete: "cascade" }),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+}, table => [primaryKey({columns:[table.clubId,table.teamId,table.scheduledAt]})]);

@@ -1,3 +1,4 @@
+import { confirmDeleteTrainingSession } from "@/lib/delete-training-session";
 import { TrainingSessionsCalendar } from "@/components/training/TrainingSessionsCalendar";
 import type { SessionCalendarTeam, SessionPreparation } from "@/lib/training-session-calendar";
 import { TrainingSessionOverview } from "@/components/training/TrainingSessionOverview";
@@ -1787,6 +1788,7 @@ function SessionDetailsDialog({
   readOnly = false,
   onEditSession,
   initialAddPhase,
+  onDeleteSession,
 }: {
   session: TrainingSession;
   onClose: () => void;
@@ -1794,6 +1796,7 @@ function SessionDetailsDialog({
   readOnly?: boolean;
   onEditSession?: () => void;
   initialAddPhase?: string;
+  onDeleteSession?:()=>void;
 }) {
   const { role, user } = useAuth();
   const canEditMetadata=!readOnly&&(role!=="technical_director"||session.createdByUserId===user?.id);
@@ -2117,6 +2120,7 @@ function SessionDetailsDialog({
             <Calendar className="w-4 h-4" />
             Scheda sessione - {session.title}
           </DialogTitle>
+          {!readOnly&&onDeleteSession&&<Button type="button" variant="outline" size="sm" className="w-fit text-destructive" onClick={onDeleteSession}>Elimina seduta</Button>}
           {canEditMetadata && <Button type="button" variant="outline" size="sm" className="mt-2 w-fit" onClick={()=>setEditingMetadata(!editingMetadata)}>{editingMetadata?"Chiudi dati sessione":"Modifica dati sessione"}</Button>}
         </DialogHeader>
 
@@ -2836,8 +2840,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => apiFetch(`/api/training-sessions/${id}`, { method: "DELETE" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/training-sessions"] }); toast({ title: "Sessione eliminata" }); },
+    mutationFn: (id: number) => confirmDeleteTrainingSession(id,apiFetch),
+    onSuccess: (deleted,id) => { if(!deleted)return;qc.invalidateQueries({ queryKey: ["/api/training-sessions"] });qc.invalidateQueries({queryKey:["/api/attendance-summary"]});if(detailsSession?.id===id)setDetailsSession(null);toast({ title: "Seduta eliminata" }); },
     onError: () => toast({ title: "Errore nell'eliminazione", variant: "destructive" }),
   });
 
@@ -3053,7 +3057,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             session={s}
             canDelete={canDeleteFn ? canDeleteFn(s) : false}
             canEdit={canEditFn ? canEditFn(s) : false}
-            onDelete={() => { if (confirm("Eliminare questa sessione?")) deleteMutation.mutate(s.id); }}
+            onDelete={() => deleteMutation.mutate(s.id)}
             onEdit={() => setEditingSession(s)}
             onComment={showComment ? () => setCommentSession(s) : undefined}
             onOpenDetails={onOpenDetails ? () => onOpenDetails(s) : undefined}
@@ -3362,7 +3366,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           />
         )}
         {detailsSession && (
-          <SessionDetailsDialog initialAddPhase={createdPhase} session={detailsSession} onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}} teams={teams}
+          <SessionDetailsDialog onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)} initialAddPhase={createdPhase} session={detailsSession} onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}} teams={teams}
             readOnly={!(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
             onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }} />
         )}
@@ -3439,6 +3443,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         />
         {detailsSession && (
           <SessionDetailsDialog
+            onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)}
             initialAddPhase={createdPhase}
             session={detailsSession}
             onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}
@@ -3488,6 +3493,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         </div></details>
         {detailsSession && (
           <SessionDetailsDialog
+            onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)}
             initialAddPhase={createdPhase}
             session={detailsSession}
             onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}
@@ -3640,6 +3646,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
       />
       {detailsSession && (
         <SessionDetailsDialog
+            onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)}
             initialAddPhase={createdPhase}
           session={detailsSession}
           onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}

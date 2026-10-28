@@ -1,3 +1,4 @@
+import { ensureTrainingSuppressions, sameTrainingMinute, trainingDeletionSummary } from "../lib/training-session-integrity";
 import { readSessionPlan, ensureSessionPlans, resultRows, recalculatePlan, timingSignature, type PlanningExercise } from "../lib/training-session-planning";
 import { AUTO_TRAINING_MARKER } from "../lib/automatic-training-drafts";
 import { Router, type IRouter } from "express";
@@ -287,9 +288,11 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
     const values={...parsed.data,clubId:req.session.clubId!,createdByUserId:userId,sessionKind:body.sessionKind??"regular",sentToUserIds:body.sentToUserIds??null};
     if(body.teamId&&values.sessionKind==="regular"){
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${req.session.clubId}|${body.teamId}`}))`);
-      const [draft]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),eq(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.notes,AUTO_TRAINING_MARKER),eq(trainingSessionsTable.title,"Allenamento da preparare"),eq(trainingSessionsTable.status,"scheduled"),sql`${trainingSessionsTable.objectives} IS NULL`,sql`NOT EXISTS(SELECT 1 FROM training_session_exercises e WHERE e.training_session_id=${trainingSessionsTable.id})`,sql`NOT EXISTS(SELECT 1 FROM training_attendances a WHERE a.training_session_id=${trainingSessionsTable.id})`)).limit(1);
+      const slotRows=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),sameTrainingMinute(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.sessionKind,"regular")));
+      if(slotRows.length>1)return [];
+      const [draft]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),sameTrainingMinute(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.notes,AUTO_TRAINING_MARKER),eq(trainingSessionsTable.title,"Allenamento da preparare"),eq(trainingSessionsTable.status,"scheduled"),sql`${trainingSessionsTable.objectives} IS NULL`,sql`NOT EXISTS(SELECT 1 FROM training_session_exercises e WHERE e.training_session_id=${trainingSessionsTable.id})`,sql`NOT EXISTS(SELECT 1 FROM training_attendances a WHERE a.training_session_id=${trainingSessionsTable.id})`)).limit(1);
       if(draft)return tx.update(trainingSessionsTable).set({...values,notes:parsed.data.notes??draft.notes}).where(eq(trainingSessionsTable.id,draft.id)).returning();
-      const [occupied]=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),eq(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.sessionKind,"regular"))).limit(1);
+      const [occupied]=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),sameTrainingMinute(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.sessionKind,"regular"))).limit(1);
       if(occupied)return [];
     }
     return tx.insert(trainingSessionsTable).values(values).returning();
@@ -390,14 +393,27 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
     return;
   }
 
+  const targetTeam=(updateData.teamId===undefined?existing.teamId:updateData.teamId) as number|null;
+  if(targetTeam!==existing.teamId&&targetTeam){
+    const [team]=await db.select().from(teamsTable).where(and(eq(teamsTable.id,targetTeam),eq(teamsTable.clubId,clubId)));
+    const sections=await resolveAllowedClubSections(req,undefined);
+    if(!team||(sections&&!sections.includes(team.clubSection))||(STAFF_RESTRICTED_ROLES.includes(role)&&!await canAccessTeamForRestrictedRole(clubId,userId,targetTeam))){res.status(403).json({error:"Squadra non accessibile"});return;}
+  }
   if(existing.notes===AUTO_TRAINING_MARKER&&STAFF_RESTRICTED_ROLES.includes(role))updateData.createdByUserId=userId;
   const [session] = await db.transaction(async tx=>{
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${clubId}|${existing.teamId}`}))`);
+    for(const teamId of [...new Set([existing.teamId,targetTeam])].sort((a,b)=>(a??0)-(b??0)))await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${clubId}|${teamId}`}))`);
     const [current]=await tx.select({notes:trainingSessionsTable.notes}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,params.data.id),eq(trainingSessionsTable.clubId,clubId))).limit(1);
     if(!current||(existing.notes===AUTO_TRAINING_MARKER&&current.notes===AUTO_TRAINING_MARKER+" REMOVED"))return [];
+    const targetAt=updateData.scheduledAt instanceof Date?updateData.scheduledAt:existing.scheduledAt;
+    const targetKind=String(updateData.sessionKind??existing.sessionKind);
+    const moved=targetTeam!==existing.teamId||Math.floor(targetAt.getTime()/60000)!==Math.floor(existing.scheduledAt.getTime()/60000)||targetKind!==existing.sessionKind;
+    if(moved&&targetTeam&&targetKind==="regular"){
+      const occupied=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),eq(trainingSessionsTable.teamId,targetTeam),sameTrainingMinute(trainingSessionsTable.scheduledAt,targetAt),eq(trainingSessionsTable.sessionKind,"regular"),sql`${trainingSessionsTable.id}<>${existing.id}`)).limit(1);
+      if(occupied.length)return [];
+    }
     return tx.update(trainingSessionsTable).set(updateData).where(and(eq(trainingSessionsTable.id,params.data.id),eq(trainingSessionsTable.clubId,clubId))).returning();
   });
-  if(!session){res.status(409).json({error:"La programmazione è cambiata. Riapri la sessione prima di modificarla."});return;}
+  if(!session){res.status(409).json({error:"Orario già occupato oppure programmazione cambiata. Riapri la seduta prima di modificarla."});return;}
 
   const enriched = await enrichSession(session, { clubId, userId, role });
   res.json(enriched);
@@ -459,34 +475,35 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
   } catch(error) {res.status(400).json({error:error instanceof Error?error.message:"Pianificazione non valida"});}
 });
 
-// DELETE training session
-router.delete("/training-sessions/:id", requireAuth, async (req, res): Promise<void> => {
-  const role = req.session.role ?? "";
-  const userId = req.session.userId!;
-  const clubId = req.session.clubId!;
-
-  const params = DeleteTrainingSessionParams.safeParse(req.params);
-  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
-
-  const [existing] = await db
-    .select()
-    .from(trainingSessionsTable)
-    .where(and(eq(trainingSessionsTable.id, params.data.id), eq(trainingSessionsTable.clubId, clubId)));
-
-  if (!existing) { res.status(404).json({ error: "Training session not found" }); return; }
-
-  // Only creator or admin/presidente/secretary can delete
-  const canManage = ["admin", "presidente"].includes(role ?? "") || await canManageSession(existing, clubId, userId, role);
-  if (!canManage) {
-    res.status(403).json({ error: "Puoi eliminare solo le tue sessioni" });
-    return;
-  }
-
-  await db
-    .delete(trainingSessionsTable)
-    .where(and(eq(trainingSessionsTable.id, params.data.id), eq(trainingSessionsTable.clubId, clubId)));
-
-  res.sendStatus(204);
+// Confirmation snapshot is checked again under the same lock as deletion.
+router.get("/training-sessions/:id/deletion-summary",requireAuth,async(req,res):Promise<void>=>{
+  const id=Number(req.params.id);
+  if(!Number.isInteger(id)||id<=0){res.status(400).json({error:"Seduta non valida"});return;}
+  const session=await planningAccess(req,id,!["admin","presidente"].includes(normalizeSessionRole(req.session.role)));
+  if(!session){res.status(403).json({error:"Seduta non eliminabile dal tuo profilo"});return;}
+  const summary=await db.transaction(tx=>trainingDeletionSummary(tx,session.clubId,id));
+  if(!summary){res.status(404).json({error:"Seduta non trovata"});return;}res.json(summary);
+});
+router.delete("/training-sessions/:id",requireAuth,async(req,res):Promise<void>=>{
+  const id=Number(req.params.id);
+  if(!Number.isInteger(id)||id<=0){res.status(400).json({error:"Seduta non valida"});return;}
+  const session=await planningAccess(req,id,!["admin","presidente"].includes(normalizeSessionRole(req.session.role)));
+  if(!session){res.status(403).json({error:"Seduta non eliminabile dal tuo profilo"});return;}
+  const confirmation=req.body?.confirmation;
+  if(!confirmation||typeof confirmation.version!=="string"||!Number.isInteger(confirmation.exerciseCount)||!Number.isInteger(confirmation.attendanceCount)){res.status(409).json({error:"Verifica i dati della seduta e conferma prima di eliminarla"});return;}
+  const removed=await db.transaction(async tx=>{
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${session.clubId}|${session.teamId}`}))`);
+    await tx.execute(sql`SELECT id FROM training_sessions WHERE id=${id} AND club_id=${session.clubId} FOR UPDATE`);
+    const summary=await trainingDeletionSummary(tx,session.clubId,id);
+    if(!summary||summary.version!==confirmation.version||summary.exerciseCount!==confirmation.exerciseCount||summary.attendanceCount!==confirmation.attendanceCount)return false;
+    if(session.teamId&&session.sessionKind==="regular"){
+      await ensureTrainingSuppressions(tx);
+      await tx.execute(sql`INSERT INTO training_session_suppressions(club_id,team_id,scheduled_at) VALUES(${session.clubId},${session.teamId},date_trunc('minute',${session.scheduledAt.toISOString()}::timestamptz)) ON CONFLICT DO NOTHING`);
+    }
+    await tx.delete(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,id),eq(trainingSessionsTable.clubId,session.clubId)));
+    return true;
+  });
+  if(!removed){res.status(409).json({error:"La seduta è cambiata: rileggi i dati e conferma nuovamente"});return;}res.sendStatus(204);
 });
 
 // ── Training Directives ──────────────────────────────────────────────────────

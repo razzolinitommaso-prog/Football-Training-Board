@@ -1,3 +1,4 @@
+import { ensureTrainingSuppressions } from "./training-session-integrity";
 import { sql } from "drizzle-orm";
 import { db, type Team } from "@workspace/db";
 import { resultRows } from "./training-availability";
@@ -42,7 +43,10 @@ export async function syncTrainingDrafts(tx:Tx,team:Team,userId:number) {
     if(planned&&row.title===title&&!row.protected&&row.notes===AUTO_TRAINING_MARKER&&row.untouched)await tx.execute(sql`UPDATE training_sessions SET duration_minutes=${planned.duration},location=${planned.location} WHERE id=${row.id} AND club_id=${team.clubId}`);
     desired.delete(at);
   }
-  const values=[...desired.values()].map(item=>sql`(${team.clubId},${team.id},${title},${item.at}::timestamptz,${item.duration},${item.location},'scheduled','regular',${AUTO_TRAINING_MARKER},${team.coachId??userId},NOW(),NOW())`);
+  await ensureTrainingSuppressions(tx);
+  const suppressed=resultRows<{at:Date|string}>(await tx.execute(sql`SELECT scheduled_at AS at FROM training_session_suppressions WHERE club_id=${team.clubId} AND team_id=${team.id}`));
+  const blocked=new Set(suppressed.map(row=>new Date(row.at).toISOString().slice(0,16)));
+  const values=[...desired.values()].filter(item=>!blocked.has(item.at.slice(0,16))).map(item=>sql`(${team.clubId},${team.id},${title},${item.at}::timestamptz,${item.duration},${item.location},'scheduled','regular',${AUTO_TRAINING_MARKER},${team.coachId??userId},NOW(),NOW())`);
   if(values.length)await tx.execute(sql`INSERT INTO training_sessions(club_id,team_id,title,scheduled_at,duration_minutes,location,status,session_kind,notes,created_by_user_id,created_at,updated_at) VALUES ${sql.join(values,sql`,`)}`);
   return {created:values.length,reason:null};
 }
