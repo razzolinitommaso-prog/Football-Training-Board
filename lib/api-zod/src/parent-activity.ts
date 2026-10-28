@@ -1,3 +1,4 @@
+import { trainingPrinciple } from "./training-principles";
 import { analyseMatchReport, matchReportSchema } from "./match-report";
 
 export type ParentTrainingActivity = {
@@ -13,7 +14,8 @@ export type ParentActivity = {
 /** Never return a free-form technical objective or a session title to families. */
 export function parentTrainingType(objectives: string | null): string | null {
   const labels: Record<string, string> = { forza: "Forza", resistenza: "Resistenza", tecnico_tattico: "Tecnico-tattico" };
-  return labels[String(objectives ?? "").trim().toLowerCase()] ?? null;
+  const catalog = trainingPrinciple(objectives);
+  return catalog?.area ?? labels[String(objectives ?? "").trim().toLowerCase()] ?? null;
 }
 
 export function parentTrainingOccurrence(teamId: number, at: Date): string {

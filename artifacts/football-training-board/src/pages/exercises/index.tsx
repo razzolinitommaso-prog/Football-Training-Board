@@ -1,3 +1,5 @@
+import { PrinciplePicker } from "@/components/training/PrinciplePicker";
+import { trainingPrincipleLabel } from "@workspace/api-zod";
 import { TrainingRosterPicker } from "@/components/training/TrainingRosterPicker";
 import { MaterialPicker } from "@/components/training/MaterialPicker";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
@@ -207,7 +209,7 @@ function getGlCatColor(cat: string) { return GUIDELINE_CATEGORIES.find(c => c.va
 function getGlCatLabel(cat: string) { return GUIDELINE_CATEGORIES.find(c => c.value === cat)?.label ?? cat; }
 function getPhaseLabel(v: string) { return PHASES.find(p => p.value === v)?.label ?? v; }
 function getPhaseColor(v: string) { return PHASES.find(p => p.value === v)?.color ?? "bg-gray-100 text-gray-700"; }
-function getPrincipioLabel(v: string) { return PRINCIPI.find(p => p.value === v)?.label ?? v; }
+function getPrincipioLabel(v: string) { return trainingPrincipleLabel(v); }
 function getPrincipioColor(v: string) { return PRINCIPI.find(p => p.value === v)?.color ?? "bg-gray-100 text-gray-700"; }
 
 function getPhaseRank(value: string | null | undefined): number {
@@ -1075,13 +1077,7 @@ export default function ExercisesPage() {
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="flex items-center gap-1.5"><Dumbbell className="w-3.5 h-3.5" /> Principio</Label>
-                      <Select value={form.principio ?? "_none"} onValueChange={v => setForm(f => ({ ...f, principio: v === "_none" ? null : v }))}>
-                        <SelectTrigger><SelectValue placeholder="Seleziona principio" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">Nessuno</SelectItem>
-                          {PRINCIPI.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                      <PrinciplePicker value={form.principio ?? ""} onChange={value => setForm(prev => ({ ...prev, principio: value || null }))} section={selectedTeam?.clubSection} />
                     </div>
                     <div className="space-y-2">
                       <Label>{t.category}</Label>

@@ -2,3 +2,5 @@ export * from "./generated/api";
 export * from "./generated/types";
 export * from "./match-report";
 export * from "./parent-activity";
+
+export * from "./training-principles";

@@ -1,3 +1,5 @@
+import { PrinciplePicker } from "@/components/training/PrinciplePicker";
+import { trainingPrincipleLabel } from "@workspace/api-zod";
 import { inferTrainingSlot, trainingSlotOptions } from "@/lib/training-session-slot";
 import { TrainingRosterPicker } from "@/components/training/TrainingRosterPicker";
 import { MaterialPicker } from "@/components/training/MaterialPicker";
@@ -395,7 +397,7 @@ function normalizePrincipio(value: string | null | undefined): string {
   const direct = PRINCIPI.find((item) => item.value === normalized);
   if (direct) return direct.value;
   const byLabel = PRINCIPI.find((item) => item.label.toLowerCase() === normalized);
-  return byLabel?.value ?? "";
+  return byLabel?.value ?? value.trim();
 }
 
 function emptyExerciseFormFromSession(session: TrainingSession, existingCount: number): ExerciseFormState {
@@ -661,7 +663,7 @@ function roleLabel(role: string) {
 function principioLabel(value: string | null | undefined) {
   if (!value) return "";
   const normalized = normalizePrincipio(value);
-  return PRINCIPI.find((item) => item.value === normalized)?.label ?? value;
+  return trainingPrincipleLabel(normalized || value);
 }
 
 function trainingSessionOptionLabel(value: string, t?: any): string {
@@ -1159,7 +1161,7 @@ function CreateSessionDialog({
     }
     setLoading(true);
     try {
-      const principioLabel = PRINCIPI.find((item) => item.value === sessionPrincipio)?.label ?? sessionPrincipio.toUpperCase();
+      const principioLabel = trainingPrincipleLabel(sessionPrincipio);
       const sessionLabel = trainingSessionOptionLabel(sessionTrainingSession, t);
       const generatedTitle = `${principioLabel} - ${sessionLabel}`;
       const createdSession = await apiFetch("/api/training-sessions", {
@@ -1231,15 +1233,7 @@ function CreateSessionDialog({
 
           <div className="space-y-2">
             <Label>{t.principle} <span className="text-destructive">*</span></Label>
-            <Select value={sessionPrincipio || "_none"} onValueChange={v => setSessionPrincipio(v === "_none" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder={t.selectPrincipleType} /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_none">{t.selectSession}...</SelectItem>
-                {PRINCIPI.map(opt => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <PrinciplePicker value={sessionPrincipio} onChange={setSessionPrincipio} section={teams.find(team => team.id === teamId)?.clubSection} />
           </div>
 
           </div>
@@ -1386,7 +1380,7 @@ function EditSessionDialog({
 
     setLoading(true);
     try {
-      const principioLabel = PRINCIPI.find((item) => item.value === sessionPrincipio)?.label ?? sessionPrincipio.toUpperCase();
+      const principioLabel = trainingPrincipleLabel(sessionPrincipio);
       const sessionLabel = trainingSessionOptionLabel(sessionTrainingSession, t);
       const generatedTitle = `${principioLabel} - ${sessionLabel}`;
       await apiFetch(`/api/training-sessions/${session.id}`, {
@@ -1432,15 +1426,7 @@ function EditSessionDialog({
 
           <div className="space-y-2">
             <Label>{t.principle} <span className="text-destructive">*</span></Label>
-            <Select value={sessionPrincipio || "_none"} onValueChange={v => setSessionPrincipio(v === "_none" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder={t.selectPrincipleType} /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_none">{t.selectSession}...</SelectItem>
-                {PRINCIPI.map(opt => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <PrinciplePicker value={sessionPrincipio} onChange={setSessionPrincipio} section={teams.find(team => team.id === teamId)?.clubSection} />
           </div>
 
           </div>
@@ -2379,13 +2365,7 @@ function SessionDetailsDialog({
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="flex items-center gap-1.5"><Dumbbell className="w-3.5 h-3.5" /> Principio</Label>
-                      <Select value={exerciseForm.principio || "_none"} onValueChange={(v) => setExerciseForm((prev) => ({ ...prev, principio: v === "_none" ? "" : v }))}>
-                        <SelectTrigger><SelectValue placeholder="Seleziona principio" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">Nessuno</SelectItem>
-                          {PRINCIPI.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                      <PrinciplePicker value={exerciseForm.principio} onChange={value => setExerciseForm(prev => ({ ...prev, principio: value }))} section={teams.find(team => team.id === Number(exerciseForm.teamId))?.clubSection} />
                     </div>
                     <div className="space-y-2">
                       <Label>Categoria</Label>
@@ -3536,7 +3516,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             <SelectContent>
               <SelectItem value="all">Tutti i principi</SelectItem>
               {coachPrincipleOptions.map((p) => (
-                <SelectItem key={p} value={p}>{p}</SelectItem>
+                <SelectItem key={p} value={p}>{principioLabel(p)}</SelectItem>
               ))}
             </SelectContent>
           </Select>

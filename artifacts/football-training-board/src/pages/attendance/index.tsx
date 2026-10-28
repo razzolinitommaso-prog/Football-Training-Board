@@ -1,3 +1,4 @@
+import { trainingPrincipleLabel } from "@workspace/api-zod";
 import { Link } from "wouter";
 import { safeTrainingReturnPath } from "@/lib/training-session-slot";
 import { ParentAvailabilityBadge, useTrainingAvailability, TrainingAvailabilityPanel } from "@/components/calendar/TrainingAvailability";
@@ -562,7 +563,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                       <SelectItem value="all">Tutti i principi</SelectItem>
                       {visibleSessionObjectives.map((objective) => (
                         <SelectItem key={objective} value={objective}>
-                          {objective}
+                          {trainingPrincipleLabel(objective)}
                         </SelectItem>
                       ))}
                     </SelectContent>
