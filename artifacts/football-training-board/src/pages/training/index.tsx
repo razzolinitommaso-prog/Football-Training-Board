@@ -1,3 +1,4 @@
+import { TrainingRosterPicker } from "@/components/training/TrainingRosterPicker";
 import { MaterialPicker } from "@/components/training/MaterialPicker";
 import { divideExerciseMinutes, sumExerciseMinutes, mergeExerciseMaterials } from "@/lib/exercise-station-timing";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
@@ -2470,18 +2471,7 @@ function SessionDetailsDialog({
                         ) : selectablePlayers.length === 0 ? (
                           <p className="text-sm text-muted-foreground italic">Nessun giocatore disponibile per la selezione.</p>
                         ) : (
-                          <div className="max-h-52 space-y-2 overflow-auto pr-1">
-                            {selectablePlayers.map((player) => {
-                              const isChecked = selectedPlayerIds.includes(player.id);
-                              return (
-                                <label key={player.id} className="flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 hover:bg-muted/40">
-                                  <Checkbox checked={isChecked} onCheckedChange={(value) => toggleSelectedPlayer(player.id, !!value)} />
-                                  <span className="text-sm">{player.firstName} {player.lastName}</span>
-                                  {player.teamName ? <span className="ml-auto text-xs text-muted-foreground">{player.teamName}</span> : null}
-                                </label>
-                              );
-                            })}
-                          </div>
+                          <TrainingRosterPicker players={selectablePlayers} selectedIds={selectedPlayerIds} teamId={exerciseForm.teamId} onConfirm={ids => setExerciseForm(prev => ({ ...prev, selectedPlayerIdsJson: JSON.stringify(ids) }))} />
                         )}
                       </div>
                     )}
