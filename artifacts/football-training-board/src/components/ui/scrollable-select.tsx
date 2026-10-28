@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { Children, Fragment, isValidElement, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "./select";
 
@@ -25,14 +26,14 @@ function options(children: ReactNode, groupDisabled = false): ReactNode {
   });
 }
 
-export function ScrollableSelect({ value, defaultValue, onValueChange, children, disabled, name, ...triggerProps }: Props) {
+export function ScrollableSelect({ value, defaultValue, onValueChange, children, disabled, name, className, ...triggerProps }: Props) {
   return <Select
     value={value == null ? undefined : `option:${value}`}
     defaultValue={defaultValue == null ? undefined : `option:${defaultValue}`}
     onValueChange={next => onValueChange?.(next.slice("option:".length))}
     disabled={disabled}
   >
-    <SelectTrigger {...triggerProps} disabled={disabled}><SelectValue /></SelectTrigger>
+    <SelectTrigger {...triggerProps} className={cn("w-auto max-w-full", className)} disabled={disabled}><SelectValue /></SelectTrigger>
     <SelectContent position="popper" collisionPadding={12}>{options(children)}</SelectContent>
     {name && <input type="hidden" name={name} value={value ?? defaultValue ?? ""} disabled={disabled} />}
   </Select>;

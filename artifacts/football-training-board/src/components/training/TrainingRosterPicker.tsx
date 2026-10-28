@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useDialogViewport } from "@/hooks/use-dialog-viewport";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { withApi } from "@/lib/api-base";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,9 @@ type Roster = { workGroups: { id: number; name: string; playerIds?: number[] }[]
 export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId }: {
   players: Player[]; selectedIds: number[]; onConfirm: (ids: number[]) => void; teamId?: string | number | null;
 }) {
+  const uid = useId();
   const [open, setOpen] = useState(false);
+  const dialogViewport = useDialogViewport(open, true);
   const [draft, setDraft] = useState<number[]>([]);
   const [search, setSearch] = useState("");
   const [year, setYear] = useState("");
@@ -31,20 +34,20 @@ export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId }
   return <>
     <div className="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" onClick={() => { setDraft([...selectedIds]); setSearch(""); setYear(""); setGroup(""); setOnlySelected(false); setOpen(true); }}>Scegli giocatori</Button><span className="text-sm">{selectedIds.length} selezionati</span></div>
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="flex h-[90dvh] max-h-[90dvh] w-[calc(100%-1rem)] max-w-5xl flex-col overflow-hidden sm:w-[calc(100%-3rem)]">
+      <DialogContent style={dialogViewport} className="flex h-[90dvh] max-h-[90dvh] w-[calc(100%-1rem)] max-w-5xl flex-col overflow-hidden sm:w-[calc(100%-3rem)]">
         <DialogHeader><DialogTitle>Rosa dell'esercitazione</DialogTitle><DialogDescription>Nomi completi, squadra e annata. La scelta viene applicata solo alla conferma.</DialogDescription></DialogHeader>
         <Input aria-label="Cerca giocatori" placeholder="Cerca per nome, cognome o squadra" value={search} onChange={e => setSearch(e.target.value)} />
         <div className="grid grid-cols-2 gap-2">
-          <ScrollableSelect aria-label="Filtra annata" value={year} onValueChange={setYear}><option value="">Tutte le annate</option>{years.map(y => <option key={y} value={y}>{y}</option>)}</ScrollableSelect>
-          <ScrollableSelect aria-label="Filtra gruppo di lavoro" value={group} onValueChange={setGroup}><option value="">Tutti i gruppi</option>{groups.data?.workGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</ScrollableSelect>
+          <ScrollableSelect className="w-full" aria-label="Filtra annata" value={year} onValueChange={setYear}><option value="">Tutte le annate</option>{years.map(y => <option key={y} value={y}>{y}</option>)}</ScrollableSelect>
+          <ScrollableSelect className="w-full" aria-label="Filtra gruppo di lavoro" value={group} onValueChange={setGroup}><option value="">Tutti i gruppi</option>{groups.data?.workGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</ScrollableSelect>
         </div>
         {groups.error && <p role="alert" className="text-xs text-destructive">{groups.error.message}</p>}
-        <div className="flex flex-wrap items-center gap-2 text-sm"><Button type="button" size="sm" variant="outline" onClick={selectVisible}>Seleziona visibili</Button><Button type="button" size="sm" variant="ghost" onClick={() => setDraft([])}>Svuota scelta</Button><label className="flex items-center gap-2"><Checkbox checked={onlySelected} onCheckedChange={value => setOnlySelected(!!value)} />Solo selezionati</label><span className="ml-auto">{draft.length} selezionati · {visible.length} visibili</span></div>
+        <div className="flex flex-wrap items-center gap-2 text-sm"><Button type="button" size="sm" variant="outline" onClick={selectVisible}>Seleziona visibili</Button><Button type="button" size="sm" variant="ghost" onClick={() => setDraft([])}>Svuota scelta</Button><div className="flex items-center gap-2"><Checkbox id={`${uid}-selected-only`} aria-label="Solo selezionati" checked={onlySelected} onCheckedChange={value => setOnlySelected(!!value)} /><label htmlFor={`${uid}-selected-only`}>Solo selezionati</label></div><span className="ml-auto">{draft.length} selezionati · {visible.length} visibili</span></div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
-          <div className="grid gap-2 md:grid-cols-2">{visible.map(player => <label key={player.id} className="flex min-h-16 cursor-pointer items-center gap-3 rounded-lg border p-3">
-            <Checkbox checked={draft.includes(player.id)} disabled={player.available === false && !draft.includes(player.id)} onCheckedChange={checked => setDraft(prev => checked ? [...new Set([...prev, player.id])] : prev.filter(id => id !== player.id))} />
-            <span className="min-w-0 break-words"><span className="block font-medium">{player.lastName} {player.firstName}</span><span className="text-xs text-muted-foreground">{[player.teamName, player.dateOfBirth?.slice(0, 4), player.available === false ? "Non disponibile" : null].filter(Boolean).join(" · ")}</span></span>
-          </label>)}</div>
+          <div className="grid gap-2 md:grid-cols-2">{visible.map(player => <div key={player.id} className="flex min-h-16 cursor-pointer items-center gap-3 rounded-lg border p-3">
+            <Checkbox id={`${uid}-${player.id}`} aria-label={`${player.lastName} ${player.firstName}`} checked={draft.includes(player.id)} disabled={player.available === false && !draft.includes(player.id)} onCheckedChange={checked => setDraft(prev => checked ? [...new Set([...prev, player.id])] : prev.filter(id => id !== player.id))} />
+            <label htmlFor={`${uid}-${player.id}`} className="min-w-0 cursor-pointer break-words"><span className="block font-medium">{player.lastName} {player.firstName}</span><span className="text-xs text-muted-foreground">{[player.teamName, player.dateOfBirth?.slice(0, 4), player.available === false ? "Non disponibile" : null].filter(Boolean).join(" · ")}</span></label>
+          </div>)}</div>
           {!visible.length && <p className="py-6 text-center text-sm text-muted-foreground">Nessun giocatore per questi filtri.</p>}
           {draft.some(id => !unique.some(p => p.id === id)) && <p className="mt-3 text-xs text-muted-foreground">La scelta contiene giocatori salvati non presenti nella rosa attualmente caricata. Sono conservati finché non svuoti la scelta.</p>}
         </div>

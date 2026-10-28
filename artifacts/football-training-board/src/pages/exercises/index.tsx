@@ -132,17 +132,8 @@ type MaterialId = (typeof MATERIAL_OPTIONS)[number]["id"];
 type MaterialAvailability = (typeof MATERIAL_OPTIONS)[number]["availability"];
 type MaterialOption = (typeof MATERIAL_OPTIONS)[number];
 
-const DEFAULT_FREQUENT_MATERIAL_IDS: MaterialId[] = [
-  "palloni",
-  "cinesini",
-  "coni",
-  "casacche",
-  "porticine",
-  "paletti",
-  "scalette",
-  "ostacoli_20",
-];
-const RECENT_MATERIALS_STORAGE_KEY = "ftb.recentExerciseMaterials";
+
+
 
 interface Guideline {
   id: number; title: string; content: string; category: string;
@@ -375,18 +366,8 @@ export default function ExercisesPage() {
 
   const [filter, setFilter] = useState("all");
   const [exerciseSearch, setExerciseSearch] = useState("");
-  const [materialSearch, setMaterialSearch] = useState("");
-  const [recentMaterialIds, setRecentMaterialIds] = useState<MaterialId[]>(() => {
-    if (typeof window === "undefined") return DEFAULT_FREQUENT_MATERIAL_IDS;
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(RECENT_MATERIALS_STORAGE_KEY) ?? "[]") as string[];
-      const validIds = new Set(MATERIAL_OPTIONS.map((option) => option.id));
-      const stored = parsed.filter((id): id is MaterialId => validIds.has(id as MaterialId));
-      return stored.length > 0 ? stored : DEFAULT_FREQUENT_MATERIAL_IDS;
-    } catch {
-      return DEFAULT_FREQUENT_MATERIAL_IDS;
-    }
-  });
+
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEx, setEditingEx] = useState<Exercise | null>(null);
   const [viewingEx, setViewingEx] = useState<Exercise | null>(null);
@@ -489,19 +470,13 @@ export default function ExercisesPage() {
   const materialSelection = parseEquipmentSelection(form.equipment);
   const selectedTeam = form.teamId ? myTeams.find((team) => team.id === form.teamId) : null;
   const selectedMaterialSection = normalizeClubSection(selectedTeam?.clubSection);
-  const normalizedMaterialSearch = materialSearch.trim().toLowerCase();
+
   const availableMaterialOptions = MATERIAL_OPTIONS.filter((option) =>
     canUseMaterial(option.availability, selectedMaterialSection, role)
   );
-  const recentMaterialOptions = recentMaterialIds
-    .map((id) => availableMaterialOptions.find((option) => option.id === id))
-    .filter((option): option is MaterialOption => Boolean(option))
-    .filter((option, index, list) => list.findIndex((item) => item.id === option.id) === index);
-  const searchedMaterialOptions = availableMaterialOptions.filter((option) => {
-    if (!normalizedMaterialSearch) return true;
-    return `${option.label} ${option.category}`.toLowerCase().includes(normalizedMaterialSearch);
-  });
-  const materialCategories = Array.from(new Set(searchedMaterialOptions.map((option) => option.category)));
+
+
+
 
   const computedPlayersRequired =
     form.playersRequiredMode === "all"
@@ -510,39 +485,11 @@ export default function ExercisesPage() {
         ? selectedPlayersCount
         : (form.playersRequired ?? null);
 
-  function toggleSelectedPlayer(playerId: number, checked: boolean) {
-    const nextSet = new Set(selectedPlayerIds);
-    if (checked) nextSet.add(playerId);
-    else nextSet.delete(playerId);
-    setForm((prev) => ({
-      ...prev,
-      selectedPlayerIdsJson: nextSet.size > 0 ? JSON.stringify(Array.from(nextSet)) : null,
-    }));
-  }
 
-  function toggleMaterial(materialId: MaterialId, checked: boolean) {
-    const next = { ...materialSelection };
-    if (checked) next[materialId] = next[materialId] ?? 1;
-    else delete next[materialId];
-    setForm((prev) => ({ ...prev, equipment: serializeEquipmentSelection(next) }));
-    if (checked) {
-      setRecentMaterialIds((current) => {
-        const nextRecent = [materialId, ...current.filter((id) => id !== materialId)].slice(0, 12);
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(RECENT_MATERIALS_STORAGE_KEY, JSON.stringify(nextRecent));
-        }
-        return nextRecent;
-      });
-    }
-  }
 
-  function setMaterialQty(materialId: MaterialId, qtyRaw: string) {
-    const next = { ...materialSelection };
-    const qty = Number(qtyRaw);
-    if (Number.isFinite(qty) && qty > 0) next[materialId] = qty;
-    else delete next[materialId];
-    setForm((prev) => ({ ...prev, equipment: serializeEquipmentSelection(next) }));
-  }
+
+
+
 
   function openNewGl() { setEditingGl(null); setGlForm({ title: "", content: "", category: "general", linkedExerciseId: "", sortOrder: "0" }); setGlOpen(true); }
   function openEditGl(gl: Guideline) {
@@ -690,7 +637,7 @@ export default function ExercisesPage() {
         ex.title,
         ex.description,
         ex.category,
-        ex.principio,
+        getPrincipioLabel(ex.principio ?? ""),
         ex.trainingPhase,
         ex.trainingDay,
         ex.trainingSession,

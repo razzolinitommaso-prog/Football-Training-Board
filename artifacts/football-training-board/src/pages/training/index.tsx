@@ -251,8 +251,8 @@ const MATERIAL_OPTIONS = [
 ] as const;
 type MaterialId = (typeof MATERIAL_OPTIONS)[number]["id"];
 type MaterialAvailability = (typeof MATERIAL_OPTIONS)[number]["availability"];
-const DEFAULT_FREQUENT_MATERIAL_IDS: MaterialId[] = ["palloni", "cinesini", "coni", "casacche", "porticine", "paletti", "scalette", "ostacoli_20"];
-const RECENT_MATERIALS_STORAGE_KEY = "ftb.recentExerciseMaterials";
+
+
 const EXERCISE_STATIONS_MARKER = "\n\n[FTB_EXERCISE_STATIONS]";
 type ExerciseStation = {
   id: string;
@@ -1217,7 +1217,7 @@ function CreateSessionDialog({
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3">
           <div className="space-y-2">
             <Label>{t.trainingSessionField} <span className="text-destructive">*</span></Label>
             <Select value={sessionTrainingSession || "_none"} onValueChange={v => { manualSlot.current = true; setSessionTrainingSession(v === "_none" ? "" : v); }}>
@@ -1410,7 +1410,7 @@ function EditSessionDialog({
   }
 
   const content = <form onSubmit={handleSubmit} noValidate className="space-y-4 pt-2">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3">
           <div className="space-y-2">
             <Label>{t.trainingSessionField} <span className="text-destructive">*</span></Label>
             <Select value={sessionTrainingSession || "_none"} onValueChange={v => setSessionTrainingSession(v === "_none" ? "" : v)}>
@@ -1828,17 +1828,7 @@ function SessionDetailsDialog({
   const [editingLink, setEditingLink] = useState<SessionExerciseLink | null>(null);
   const [duplicateSourceExerciseId, setDuplicateSourceExerciseId] = useState<number | null>(null);
   const [exerciseForm, setExerciseForm] = useState<ExerciseFormState>(() => emptyExerciseFormFromSession(session, 0));
-  const [, setRecentMaterialIds] = useState<MaterialId[]>(() => {
-    if (typeof window === "undefined") return DEFAULT_FREQUENT_MATERIAL_IDS;
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(RECENT_MATERIALS_STORAGE_KEY) ?? "[]") as string[];
-      const validIds = new Set(MATERIAL_OPTIONS.map((option) => option.id));
-      const stored = parsed.filter((id): id is MaterialId => validIds.has(id as MaterialId));
-      return stored.length > 0 ? stored : DEFAULT_FREQUENT_MATERIAL_IDS;
-    } catch {
-      return DEFAULT_FREQUENT_MATERIAL_IDS;
-    }
-  });
+
 
   const linkedExercisesQuery = useQuery<SessionExerciseLink[]>({
     queryKey: ["/api/training-sessions", session.id, "exercises"],
@@ -1869,7 +1859,7 @@ function SessionDetailsDialog({
           title: form.title,
           category: form.category || null,
           description: composeExerciseDescription(form.description, stations),
-          durationMinutes: totalStationMinutes(stations) || (form.durationMinutes ? Number(form.durationMinutes) : null),
+          durationMinutes: Math.ceil(totalStationMinutes(stations)) || (form.durationMinutes ? Number(form.durationMinutes) : null),
           playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
           equipment: stationEquipment || form.equipment || null,
           teamId: form.teamId ? Number(form.teamId) : null,
@@ -1923,7 +1913,7 @@ function SessionDetailsDialog({
           title: form.title,
           category: form.category || null,
           description: composeExerciseDescription(form.description, stations),
-          durationMinutes: totalStationMinutes(stations) || (form.durationMinutes ? Number(form.durationMinutes) : null),
+          durationMinutes: Math.ceil(totalStationMinutes(stations)) || (form.durationMinutes ? Number(form.durationMinutes) : null),
           playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
           equipment: stationEquipment || form.equipment || null,
           teamId: form.teamId ? Number(form.teamId) : null,
@@ -2064,21 +2054,13 @@ function SessionDetailsDialog({
         ? selectedPlayersCount
         : (exerciseForm.playersRequired ? Number(exerciseForm.playersRequired) : null);
 
-  function toggleSelectedPlayer(playerId: number, checked: boolean) {
-    const nextSet = new Set(selectedPlayerIds);
-    if (checked) nextSet.add(playerId);
-    else nextSet.delete(playerId);
-    setExerciseForm((prev) => ({
-      ...prev,
-      selectedPlayerIdsJson: nextSet.size > 0 ? JSON.stringify(Array.from(nextSet)) : "",
-    }));
-  }
+
 
   function setStations(next: ExerciseStation[], timing: "preserve" | "divide" | "sum" = "preserve") {
     setExerciseForm(prev => {
       const updated = timing === "divide" ? divideExerciseMinutes(next, Number(prev.durationMinutes)) : next;
       const minutes = totalStationMinutes(updated);
-      return { ...prev, stationsJson: JSON.stringify(updated), durationMinutes: timing === "sum" && minutes > 0 ? String(minutes) : prev.durationMinutes };
+      return { ...prev, stationsJson: JSON.stringify(updated), durationMinutes: timing === "sum" && minutes > 0 ? String(Math.ceil(minutes)) : prev.durationMinutes };
     });
   }
 
@@ -2092,30 +2074,11 @@ function SessionDetailsDialog({
     ));
   }
 
-  function addStationMaterial(station: ExerciseStation, materialId: MaterialId) {
-    const selection = parseEquipmentSelection(station.equipment);
-    if ((selection[materialId] ?? 0) <= 0) selection[materialId] = 1;
-    setStationEquipmentSelection(station.id, selection);
-    setRecentMaterialIds((current) => {
-      const nextRecent = [materialId, ...current.filter((item) => item !== materialId)].slice(0, 12);
-      if (typeof window !== "undefined") window.localStorage.setItem(RECENT_MATERIALS_STORAGE_KEY, JSON.stringify(nextRecent));
-      return nextRecent;
-    });
-  }
 
-  function setStationMaterialQty(station: ExerciseStation, materialId: MaterialId, rawValue: string) {
-    const selection = parseEquipmentSelection(station.equipment);
-    const parsed = Number(rawValue);
-    if (!Number.isFinite(parsed) || parsed <= 0) delete selection[materialId];
-    else selection[materialId] = parsed;
-    setStationEquipmentSelection(station.id, selection);
-  }
 
-  function removeStationMaterial(station: ExerciseStation, materialId: MaterialId) {
-    const selection = parseEquipmentSelection(station.equipment);
-    delete selection[materialId];
-    setStationEquipmentSelection(station.id, selection);
-  }
+
+
+
 
   function updateStationVariant(station: ExerciseStation, variantIndex: number, value: string) {
     const variants = [...(station.variants.length > 0 ? station.variants : ["", "", ""])];
@@ -2137,13 +2100,15 @@ function SessionDetailsDialog({
             <Calendar className="w-4 h-4" />
             Scheda seduta - {session.title}
           </DialogTitle>
+          <div className="flex flex-wrap items-center gap-2">
           {session.sessionKind === "regular" && <Button type="button" variant="outline" size="sm" className="w-fit" onClick={openAttendance}><UserCheck className="mr-2 h-4 w-4" />Presenze</Button>}
           {!readOnly&&onDeleteSession&&<Button type="button" variant="outline" size="sm" className="w-fit text-destructive" onClick={onDeleteSession}>Elimina seduta</Button>}
-          {canEditMetadata && <Button type="button" variant="outline" size="sm" className="mt-2 w-fit" onClick={()=>setEditingMetadata(!editingMetadata)}>{editingMetadata?"Chiudi dati seduta":"Modifica dati seduta"}</Button>}
+          {canEditMetadata && <Button type="button" variant="outline" size="sm" className="w-fit" onClick={()=>{if(editingMetadata&&metadataDirty&&!window.confirm("Scartare le modifiche non salvate ai dati della seduta?"))return;setMetadataDirty(false);setEditingMetadata(!editingMetadata);}}>{editingMetadata?"Chiudi dati seduta":"Modifica dati seduta"}</Button>}
+          </div>
         </DialogHeader>
 
         <TrainingSessionOverview
-          editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>setEditingMetadata(false)} onSaved={()=>{void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
+          editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>{setEditingMetadata(false);setMetadataDirty(false);}} onSaved={()=>{setMetadataDirty(false);void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
           phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 text-sm"><Label htmlFor={`recovery-${session.id}-${index}`}>Recupero tra fase {index+1} e {index+2}</Label><Input id={`recovery-${session.id}-${index}`} aria-label={`Recupero tra fase ${index+1} e ${index+2}`} className="w-20" type="number" min={0} max={300} step={1} disabled={readOnly||planQuery.isLoading||planQuery.isError||savePlan.isPending} value={recoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300){setRecoveries(previous=>index===0?[value,previous[1]]:[previous[0],value]);setRecoveriesDirty(true);}}}/><span>min</span></div>)}
           metadata={editingMetadata&&canEditMetadata?[]:[
             { label: "Giorno", value: format(new Date(session.scheduledAt), "EEEE", { locale: itLocale }) },
@@ -2348,7 +2313,7 @@ function SessionDetailsDialog({
 
                       />
                       {stationMinutes > 0 && (
-                        <p className="text-[11px] text-muted-foreground">Calcolata dagli stazionamenti: {stationMinutes} min</p>
+                        <p className="text-[11px] text-muted-foreground">Calcolata dagli stazionamenti: {formatMinutes(stationMinutes)}{Math.ceil(stationMinutes) !== stationMinutes ? " · durata pianificata arrotondata al minuto superiore" : ""}</p>
                       )}
                     </div>
                   </div>
@@ -2522,7 +2487,8 @@ function SessionDetailsDialog({
                                 <Badge variant="outline" className="h-8">Stazione {index + 1}</Badge>
                                 <Input
                                   type="number"
-                                  min={1}
+                                  min={0}
+                                  step="any"
                                   className="h-8 w-24"
                                   value={station.durationMinutes ? String(Number(Number(station.durationMinutes).toFixed(3))) : ""}
                                   onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, durationMinutes: e.target.value ? String(Math.max(1, Math.round(Number(e.target.value)))) : "" } : item), "sum")}
@@ -2620,7 +2586,7 @@ function SessionDetailsDialog({
                           </div>
                         ))}
                         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
-                          Totale stazionamenti: {stationMinutes} min
+                          Totale stazionamenti: {formatMinutes(stationMinutes)}
                         </div>
                       </div>
                     )}
