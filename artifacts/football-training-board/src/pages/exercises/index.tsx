@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { TrainingRosterOptions } from "@/components/training-roster-groups";
 import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
 import { useState } from "react";
@@ -1210,10 +1211,10 @@ export default function ExercisesPage() {
 
                     {recentMaterialOptions.length > 0 && !normalizedMaterialSearch && (
                       <details className="group rounded-md border bg-background" open>
-                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           <span>Usati di recente / frequenti</span>
                           <span className="text-[11px] font-medium normal-case">{recentMaterialOptions.length}</span>
-                        </summary>
+                        </DisclosureSummary>
                         <div className="border-t p-3">
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {recentMaterialOptions.map((option) => {
@@ -1245,12 +1246,12 @@ export default function ExercisesPage() {
                         const selectedInCategory = options.filter((option) => (materialSelection[option.id] ?? 0) > 0).length;
                         return (
                           <details key={category} className="group rounded-md border bg-background" open={Boolean(normalizedMaterialSearch || selectedInCategory)}>
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                               <span>{category}</span>
                               <span className="text-[11px] font-medium normal-case">
                                 {selectedInCategory > 0 ? `${selectedInCategory} selezionati` : `${options.length}`}
                               </span>
-                            </summary>
+                            </DisclosureSummary>
                             <div className="border-t p-3">
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                               {options.map((option) => {

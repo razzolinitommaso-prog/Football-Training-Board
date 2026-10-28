@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Download, FileSpreadsheet, Package, Plus, Shirt, Goal, AlertTriangle, Pencil, Trash2, Upload } from "lucide-react";
@@ -589,7 +590,7 @@ export default function WarehousePage() {
         <div className="grid gap-3 lg:grid-cols-2">
           {groupedItems.map((group) => (
             <details key={group.key} className={cn("group rounded-lg border bg-card shadow-sm", group.hasWarning && "border-amber-300")}>
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+              <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3" indicator={false}>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">{group.name}</p>
                   <p className="text-xs text-muted-foreground">{group.category} - {group.items.length} taglie/formati</p>
@@ -599,7 +600,7 @@ export default function WarehousePage() {
                   {group.hasWarning && <Badge className="bg-amber-500 text-white">Da riordinare</Badge>}
                   <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
                 </div>
-              </summary>
+              </DisclosureSummary>
               <div className="space-y-3 border-t px-4 pb-4 pt-3 text-sm">
                 <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-md border p-2">

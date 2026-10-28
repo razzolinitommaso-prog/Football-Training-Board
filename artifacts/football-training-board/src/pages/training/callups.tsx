@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, Download, ExternalLink, FileDown, Loader2, MapPin, Trophy, UsersRound } from "lucide-react";
@@ -172,7 +173,7 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
           ) : (
             rows.map(({ match, callups }) => (
               <details key={match.id} className="group/callup rounded-md border bg-background">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="break-words text-base font-bold">{match.teamName || "Squadra"}</span>
@@ -194,7 +195,7 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
                     <span className="group-open/callup:hidden">Apri dettaglio</span>
                     <span className="hidden group-open/callup:inline">Chiudi dettaglio</span>
                   </span>
-                </summary>
+                </DisclosureSummary>
                 <div className="flex flex-col gap-3 border-t p-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">

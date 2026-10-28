@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { Link, useLocation, useSearch } from "wouter";
 import { useGetMyClub } from "@workspace/api-client-react";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
@@ -456,10 +457,10 @@ function StandingsTable({ standings }: { standings: ChampionshipStanding[] }) {
 function CollapsibleChampionshipCard({ title, icon, children, defaultOpen = true }: { title: string; icon: ReactNode; children: ReactNode; defaultOpen?: boolean }) {
   return <Card className="shadow-sm">
     <details open={defaultOpen} className="group/panel">
-      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-6 outline-offset-2 group-open/panel:pb-3 [&::-webkit-details-marker]:hidden">
+      <DisclosureSummary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-lg p-6 outline-offset-2 group-open/panel:pb-3 [&::-webkit-details-marker]:hidden" indicator={false}>
         <h3 className="flex items-center gap-2 text-base font-semibold">{icon}{title}</h3>
         <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/panel:rotate-180" />
-      </summary>
+      </DisclosureSummary>
       {children}
     </details>
   </Card>;

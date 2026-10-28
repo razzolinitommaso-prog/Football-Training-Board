@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { splitMatchLineup, changeMatchLineupStatus } from "@/lib/match-lineup";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -2838,7 +2839,7 @@ function MatchCard({
               <div className="rounded-md border border-border/60 bg-muted/20 p-1 sm:p-3 space-y-3">
                 {planDraft.periods.map((previewPeriod, previewPeriodIndex) => (
                   <details key={previewPeriod.key} open={previewPeriodIndex === 0} className="rounded-lg border bg-background/50 p-1 sm:p-3">
-                    <summary className="cursor-pointer py-2 text-sm font-semibold">{previewPeriod.label} · {previewPeriod.minutes} min — apri/chiudi preparazione</summary>
+                    <DisclosureSummary className="cursor-pointer py-2 text-sm font-semibold">{previewPeriod.label} · {previewPeriod.minutes} min — apri/chiudi preparazione</DisclosureSummary>
                 <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.65fr)]">
                 <div className="min-w-0 space-y-2">
                   <Label className="text-xs text-muted-foreground">Convocazione (rosa utilizzata)</Label>
@@ -3184,7 +3185,7 @@ function MatchCard({
                   </div>
                 )}
                 <details className="space-y-2 rounded border p-2">
-                  <summary className="cursor-pointer py-1 text-xs font-semibold">Opzioni avanzate dei tempi: formato e ordinamento</summary>
+                  <DisclosureSummary className="cursor-pointer py-1 text-xs font-semibold">Opzioni avanzate dei tempi: formato e ordinamento</DisclosureSummary>
                   {planDraft.periods.map((p, i) => {
                     const periodFormat = p.format ?? matchFormat;
                     const periodBoardUrl = p.boardUrl || (p.boardId ? `/tactical-board?boardId=${p.boardId}&teamId=${match.teamId ?? ""}&matchId=${match.id}&periodKey=${p.key}&returnTo=${encodeURIComponent(returnToMatchUrl)}` : "");
@@ -3258,7 +3259,7 @@ function MatchCard({
                         </div>
 
                         <details className="rounded border border-border/60 p-2">
-                          <summary className="cursor-pointer text-xs font-medium">Ordina o sposta giocatori tra i tempi</summary>
+                          <DisclosureSummary className="cursor-pointer text-xs font-medium">Ordina o sposta giocatori tra i tempi</DisclosureSummary>
                         {lineupIds.length > 0 ? (
                           <div
                             className="rounded border bg-muted/20 p-1.5 space-y-1"

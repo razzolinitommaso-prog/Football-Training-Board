@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useState, type ReactNode } from "react";
 import { ChevronDown, Eye, ImageIcon, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -69,7 +70,7 @@ export function TrainingSessionOverview(props: Props) {
               {!props.readOnly && <div className="flex shrink-0 items-center gap-1"><Button type="button" size="sm" variant="outline" className="h-8 gap-1 px-2" onClick={() => props.onAdd(phase.key)} aria-label={`Aggiungi esercitazione: ${phase.label}`}><Plus className="h-3.5 w-3.5"/><span className="hidden min-[400px]:inline">Aggiungi</span></Button><Button type="button" size="icon" variant={removePhase === phase.key ? "secondary" : "ghost"} className="h-8 w-8" disabled={exercises.length === 0} aria-label={`Gestisci rimozione: ${phase.label}`} aria-pressed={removePhase === phase.key} onClick={() => setRemovePhase(removePhase === phase.key ? null : phase.key)}>−</Button></div>}
             </div>
             <details open className="group/phase">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground outline-offset-2 [&::-webkit-details-marker]:hidden"><span>{exercises.length} {exercises.length === 1 ? "esercitazione" : "esercitazioni"} · {durationLabel(minutes)}</span><span className="flex items-center gap-1">Apri / chiudi<ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open/phase:rotate-180"/></span></summary>
+              <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground outline-offset-2 [&::-webkit-details-marker]:hidden" indicator={false}><span>{exercises.length} {exercises.length === 1 ? "esercitazione" : "esercitazioni"} · {durationLabel(minutes)}</span><span className="flex items-center gap-1">Apri / chiudi<ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open/phase:rotate-180"/></span></DisclosureSummary>
               <div className="grid grid-cols-2 gap-2 p-2 pt-0 sm:gap-3 sm:p-3 sm:pt-0">
                 {exercises.map(exercise => <article key={exercise.id} className="flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
                   <button type="button" disabled={!exercise.available} onClick={() => props.onView(exercise.id)} className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Apri esercitazione: ${exercise.title}`}>
@@ -90,6 +91,6 @@ export function TrainingSessionOverview(props: Props) {
           </section>{phaseIndex < 2 && props.phaseRecoveries?.[phaseIndex]}</div>;
         })}
       </>}
-    <details className="rounded-xl border"><summary className="cursor-pointer px-3 py-3 text-sm font-medium">Organizzazione e note</summary><div className="space-y-3 border-t p-3 text-sm">{props.organization}</div></details>
+    <details className="rounded-xl border"><DisclosureSummary className="cursor-pointer px-3 py-3 text-sm font-medium">Organizzazione e note</DisclosureSummary><div className="space-y-3 border-t p-3 text-sm">{props.organization}</div></details>
   </div>;
 }

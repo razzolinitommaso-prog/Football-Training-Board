@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { ADDITIONAL_EQUIPMENT, AdditionalEquipmentGlyph } from "./additional-equipment";
 import { AnimationPanel } from "./animation-panel";
 import { useBoardAnimation } from "./use-board-animation";
@@ -3668,7 +3669,7 @@ const QuickPage = () => {
         <main className="flex-1 flex flex-col bg-[#0B1220]">
           {/* CANVAS TOP BAR */}
           <details open={!isMobileViewport} className="border-b border-white/10">
-          <summary className="cursor-pointer px-3 py-3 text-sm font-semibold md:hidden">Campo e modulo · {boardFormat}</summary>
+          <DisclosureSummary className="cursor-pointer px-3 py-3 text-sm font-semibold md:hidden">Campo e modulo · {boardFormat}</DisclosureSummary>
           <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-white/10 bg-[#0B1220] md:px-6 md:py-3">
             <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <select

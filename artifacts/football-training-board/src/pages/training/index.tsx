@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { confirmDeleteTrainingSession } from "@/lib/delete-training-session";
 import { TrainingSessionsCalendar } from "@/components/training/TrainingSessionsCalendar";
 import type { SessionCalendarTeam, SessionPreparation } from "@/lib/training-session-calendar";
@@ -2573,10 +2574,10 @@ function SessionDetailsDialog({
                             </div>
 
                             <details className="mt-3 rounded-md border bg-muted/20">
-                              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium">
+                              <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium">
                                 <span>Varianti</span>
                                 <Badge variant="secondary">{station.variants.filter((variant) => variant.trim()).length}</Badge>
-                              </summary>
+                              </DisclosureSummary>
                               <div className="space-y-2 border-t p-3">
                                 {(station.variants.length > 0 ? station.variants : ["", "", ""]).map((variant, variantIndex) => (
                                   <Textarea
@@ -3229,9 +3230,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           </div>
         </div>
 
-        {renderSessionsCalendar()}
         <details className="rounded-xl border bg-card p-3">
-          <summary className="cursor-pointer text-sm font-medium">Elenco, filtri, sessioni tipo e direttive</summary>
+          <DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri, sessioni tipo e direttive</DisclosureSummary>
           <div className="mt-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -3346,6 +3346,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
 
           </div>
         </details>
+        {renderSessionsCalendar()}
+
 
         {/* Dialogs */}
         <CreateSessionDialog
@@ -3418,8 +3420,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           </Button>
         </div>
 
-        {renderSessionsCalendar()}
-        <details className="rounded-xl border bg-card p-3"><summary className="cursor-pointer text-sm font-medium">Elenco e gestione sessioni</summary><div className="mt-4">
+        <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco e gestione sessioni</DisclosureSummary><div className="mt-4">
         <SessionGrid
           items={sessions}
           emptyMsg="Nessuna sessione di allenamento registrata nel club"
@@ -3430,6 +3431,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         />
 
         </div></details>
+        {renderSessionsCalendar()}
+
 
         <CreateSessionDialog
           open={createOpen}
@@ -3483,14 +3486,15 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             <Eye className="w-3 h-3" /> Solo visualizzazione
           </Badge>
         </div>
-        {renderSessionsCalendar()}
-        <details className="rounded-xl border bg-card p-3"><summary className="cursor-pointer text-sm font-medium">Elenco e archivio sessioni</summary><div className="mt-4">
+        <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco e archivio sessioni</DisclosureSummary><div className="mt-4">
         <SeasonArchive
           items={sessions}
           emptyMsg="Nessuna sessione di allenamento programmata"
           readOnly
         />
         </div></details>
+        {renderSessionsCalendar()}
+
         {detailsSession && (
           <SessionDetailsDialog
             onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)}
@@ -3523,37 +3527,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         </Button>
       </div>
 
-      {renderSessionsCalendar()}
-
-      {/* Directives from TD */}
-      {activeDirectives.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <Megaphone className="w-3.5 h-3.5 text-amber-500" />
-            Direttive dal Direttore Tecnico
-          </h2>
-          <DirectivesBanner
-            directives={activeDirectives}
-            onDismiss={id => setDismissedDirectives(prev => [...prev, id])}
-          />
-        </div>
-      )}
-
-      {/* Tipo sessions received */}
-      {tipoReceived.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <Star className="w-3.5 h-3.5 text-amber-500" />
-            Sessioni Tipo da Seguire ({tipoReceived.length})
-          </h2>
-          <SessionGrid
-            items={tipoReceived}
-            emptyMsg="Nessuna sessione tipo da seguire"
-          />
-        </div>
-      )}
-
-      <details className="rounded-xl border bg-card p-3"><summary className="cursor-pointer text-sm font-medium">Elenco, filtri e gestione sessioni</summary><div className="mt-4">
+      <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri e gestione sessioni</DisclosureSummary><div className="mt-4">
       {/* My sessions */}
       <div className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -3634,6 +3608,37 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
       </div>
 
       </div></details>
+        {renderSessionsCalendar()}
+
+      {/* Directives from TD */}
+      {activeDirectives.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <Megaphone className="w-3.5 h-3.5 text-amber-500" />
+            Direttive dal Direttore Tecnico
+          </h2>
+          <DirectivesBanner
+            directives={activeDirectives}
+            onDismiss={id => setDismissedDirectives(prev => [...prev, id])}
+          />
+        </div>
+      )}
+
+      {/* Tipo sessions received */}
+      {tipoReceived.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <Star className="w-3.5 h-3.5 text-amber-500" />
+            Sessioni Tipo da Seguire ({tipoReceived.length})
+          </h2>
+          <SessionGrid
+            items={tipoReceived}
+            emptyMsg="Nessuna sessione tipo da seguire"
+          />
+        </div>
+      )}
+
+
 
       <CreateSessionDialog
         open={createOpen} onClose={() => setCreateOpen(false)}

@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { championshipMatchPath } from "@/lib/championship-match-links";
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
@@ -312,7 +313,7 @@ function ChampionshipSectionPanel({ section, teams }: { section: string; teams: 
         ) : (
           championships.map((championship) => (
             <details key={championship.id} className="group rounded-xl border bg-background/90 shadow-sm" open>
-              <summary className="flex cursor-pointer list-none items-start justify-between gap-3 p-3 sm:p-4">
+              <DisclosureSummary className="flex cursor-pointer list-none items-start justify-between gap-3 p-3 sm:p-4">
                 <div className="min-w-0">
                   <p className="break-words text-base font-semibold leading-snug">{championship.title}</p>
                   {championship.category && <p className="mt-1 text-xs text-muted-foreground">{championship.category}</p>}
@@ -325,7 +326,7 @@ function ChampionshipSectionPanel({ section, teams }: { section: string; teams: 
                 </div>
                 <span className="mt-1 rounded-full border px-2 py-1 text-xs text-muted-foreground group-open:hidden">Apri</span>
                 <span className="mt-1 hidden rounded-full border px-2 py-1 text-xs text-muted-foreground group-open:inline">Chiudi</span>
-              </summary>
+              </DisclosureSummary>
               <div className="space-y-3 border-t p-3 sm:p-4">
                 {championship.groups.map((group) => (
                   <div key={group.id} className="space-y-3 rounded-lg border bg-muted/10 p-2 sm:p-3">
@@ -382,14 +383,14 @@ function ChampionshipSectionPanel({ section, teams }: { section: string; teams: 
                       ) : (
                         groupFixturesByRound(group.fixtures).map((roundGroup, roundIndex) => (
                           <details key={roundGroup.label} className="group/round rounded-lg border bg-background" open={roundIndex === 0}>
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3">
+                            <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3">
                               <div>
                                 <p className="text-sm font-semibold">{roundGroup.label}</p>
                                 <p className="text-xs text-muted-foreground">{roundGroup.fixtures.length} partite</p>
                               </div>
                               <span className="text-xs text-muted-foreground group-open/round:hidden">Apri</span>
                               <span className="hidden text-xs text-muted-foreground group-open/round:inline">Chiudi</span>
-                            </summary>
+                            </DisclosureSummary>
                             <div className="space-y-2 border-t p-2 sm:p-3">
                               {roundGroup.fixtures.map((fixture) => {
                                 const draft = fixtureDrafts[fixture.id] ?? {

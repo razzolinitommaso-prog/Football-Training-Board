@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useEffect, useState } from "react";
 import { Activity, CalendarDays, CheckCircle2, ClipboardCheck, HeartPulse, ShieldAlert, ShieldCheck, Trophy, User, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +19,7 @@ function ParentActivitySummary({ data, isYouthSection }: { data: any; isYouthSec
 
   return (
     <details className="rounded-xl border bg-card p-4" open>
-      <summary className="cursor-pointer text-sm font-semibold">Andamento automatico</summary>
+      <DisclosureSummary className="cursor-pointer text-sm font-semibold">Andamento automatico</DisclosureSummary>
       <div className="mt-3 space-y-3">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="rounded-lg border bg-muted/20 p-3">

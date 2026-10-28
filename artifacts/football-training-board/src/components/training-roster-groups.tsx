@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { withApi } from "@/lib/api-base";
@@ -42,7 +43,7 @@ export function TrainingRosterManager({ kind }: { kind: "shared" | "work" }) {
     } catch (err) { setError(err instanceof Error ? err.message : "Errore"); } finally { setBusy(false); }
   }
   return <details className="rounded-xl border bg-card p-3" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary className="cursor-pointer font-semibold">{kind === "shared" ? "Squadre unite per gli allenamenti" : "Gruppi di lavoro della rosa"}</summary>
+    <DisclosureSummary className="cursor-pointer font-semibold">{kind === "shared" ? "Squadre unite per gli allenamenti" : "Gruppi di lavoro della rosa"}</DisclosureSummary>
     {open && <div className="mt-3 space-y-3">
       <p className="text-sm text-muted-foreground">{kind === "shared" ? "Unisci rose per allenamenti ed esercitazioni. Squadre, partite e convocazioni restano distinte. Sono selezionabili solo squadre già autorizzate della stessa stagione e sezione." : "Crea gruppi per annata, scelta manuale, livello o obiettivo. Un giocatore può appartenere a più gruppi. Le modifiche non cambiano i partecipanti delle esercitazioni già salvate."}</p>
       {(error || config.error || roster.error) && <p role="alert" className="text-sm text-red-600">{error || config.error?.message || roster.error?.message}</p>}

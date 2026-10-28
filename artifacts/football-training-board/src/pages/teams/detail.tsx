@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useParams, Link } from "wouter";
 import { useGetTeam, useListPlayers, useDeletePlayer, useUpdatePlayer } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -209,7 +210,7 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
 
   return (
     <details className="rounded-lg border p-3" open>
-      <summary className="cursor-pointer text-sm font-semibold">Andamento automatico</summary>
+      <DisclosureSummary className="cursor-pointer text-sm font-semibold">Andamento automatico</DisclosureSummary>
       {isLoading ? (
         <div className="mt-3 space-y-2">
           <Skeleton className="h-16 rounded-lg" />
@@ -825,7 +826,7 @@ export default function TeamDetail() {
               </div>
 
               <details className="rounded-lg border p-3">
-                <summary className="cursor-pointer text-sm font-semibold">Dati principali</summary>
+                <DisclosureSummary className="cursor-pointer text-sm font-semibold">Dati principali</DisclosureSummary>
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-muted-foreground">Nato il</span><p>{editingPlayer.dateOfBirth || "-"}</p></div>
                   <div><span className="text-muted-foreground">Nazionalita</span><p>{editingPlayer.nationality || "-"}</p></div>

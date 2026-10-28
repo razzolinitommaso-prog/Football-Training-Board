@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { TrainingRosterManager } from "@/components/training-roster-groups";
 import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam, useListClubMembers, type ClubMember, type Team } from "@workspace/api-client-react";
@@ -756,10 +757,10 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
 
   return (
     <details className="group rounded-lg border p-3">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+      <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3" indicator={false}>
         <span className="text-sm font-semibold">Storico sportivo automatico</span>
         <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
-      </summary>
+      </DisclosureSummary>
       {isLoading ? (
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Skeleton className="h-20 rounded-lg" />
@@ -1767,12 +1768,12 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   }) {
     const textClass = tone === "success" ? "text-emerald-800" : "text-muted-foreground";
     return (
-      <summary className={`flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide ${textClass} [&::-webkit-details-marker]:hidden`}>
+      <DisclosureSummary className={`flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide ${textClass} [&::-webkit-details-marker]:hidden`} indicator={false}>
         <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 group-open:rotate-90" />
         {icon && <span className="flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>}
         <span className="min-w-0 truncate">{title}</span>
         {status && <SectionStatusBadge status={status} />}
-      </summary>
+      </DisclosureSummary>
     );
   }
 

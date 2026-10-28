@@ -379,3 +379,9 @@
     inset: -1px;
   }
 }
+
+/* Native details keep keyboard/touch behavior; all headers use the shared visual indicator. */
+summary { list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::marker { content: ""; }
+details[open] > summary > [data-disclosure-indicator] { transform: rotate(180deg); }

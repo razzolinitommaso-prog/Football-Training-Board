@@ -1,3 +1,4 @@
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { analyseMatchReport, type MatchReport } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,7 +65,7 @@ export function MatchReportEditor({ value, onChange, players, limit }: {
     <p className="text-[11px] text-muted-foreground">Seleziona i titolari effettivi di ogni tempo. Durata effettiva e minuti sono riferiti al singolo tempo, recupero incluso. I convocati mai entrati hanno 0 minuti.</p>
     {!players.length && <p className="text-xs text-amber-700">Salva prima le convocazioni per compilare il resoconto.</p>}
     {value.periods.map((period, index) => <details key={index} className="rounded border p-2">
-      <summary className="cursor-pointer text-xs font-semibold">{index + 1}° tempo · {period.minutes}′ · {period.starters.length} titolari</summary>
+      <DisclosureSummary className="cursor-pointer text-xs font-semibold">{index + 1}° tempo · {period.minutes}′ · {period.starters.length} titolari</DisclosureSummary>
       <label className="mt-2 block text-xs">Durata effettiva (recupero incluso)
         <Input type="number" min={1} max={180} step="0.5" value={period.minutes} onChange={e => updatePeriod(index, { minutes: Number(e.target.value) })} />
       </label>
