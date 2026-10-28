@@ -1,3 +1,4 @@
+import { MaterialPicker } from "@/components/training/MaterialPicker";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { TrainingRosterOptions } from "@/components/training-roster-groups";
 import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
@@ -1194,95 +1195,10 @@ export default function ExercisesPage() {
                   </div>
 
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <div className="text-sm font-medium">Materiale</div>
-                        <p className="text-xs text-muted-foreground">
-                          {selectedTeam ? `Lista filtrata per ${selectedTeam.name}` : "Seleziona una squadra per filtrare i materiali per sezione."}
-                        </p>
-                      </div>
-                      <Input
-                        value={materialSearch}
-                        onChange={(event) => setMaterialSearch(event.target.value)}
-                        placeholder="Cerca attrezzatura..."
-                        className="sm:max-w-xs"
-                      />
-                    </div>
-
-                    {recentMaterialOptions.length > 0 && !normalizedMaterialSearch && (
-                      <details className="group rounded-md border bg-background" open>
-                        <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          <span>Usati di recente / frequenti</span>
-                          <span className="text-[11px] font-medium normal-case">{recentMaterialOptions.length}</span>
-                        </DisclosureSummary>
-                        <div className="border-t p-3">
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          {recentMaterialOptions.map((option) => {
-                            const checked = (materialSelection[option.id] ?? 0) > 0;
-                            return (
-                              <div key={`recent-${option.id}`} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
-                                <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(option.id, !!value)} />
-                                <span className="min-w-0 flex-1 text-sm">{option.label}</span>
-                                {checked ? (
-                                  <Input
-                                    type="number"
-                                    min={1}
-                                    className="w-20"
-                                    value={materialSelection[option.id] ?? 1}
-                                    onChange={(event) => setMaterialQty(option.id, event.target.value)}
-                                  />
-                                ) : null}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        </div>
-                      </details>
-                    )}
-
-                    <div className="space-y-3">
-                      {materialCategories.map((category) => {
-                        const options = searchedMaterialOptions.filter((option) => option.category === category);
-                        const selectedInCategory = options.filter((option) => (materialSelection[option.id] ?? 0) > 0).length;
-                        return (
-                          <details key={category} className="group rounded-md border bg-background" open={Boolean(normalizedMaterialSearch || selectedInCategory)}>
-                            <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              <span>{category}</span>
-                              <span className="text-[11px] font-medium normal-case">
-                                {selectedInCategory > 0 ? `${selectedInCategory} selezionati` : `${options.length}`}
-                              </span>
-                            </DisclosureSummary>
-                            <div className="border-t p-3">
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              {options.map((option) => {
-                                const checked = (materialSelection[option.id] ?? 0) > 0;
-                                return (
-                                  <div key={option.id} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
-                                    <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(option.id, !!value)} />
-                                    <span className="min-w-0 flex-1 text-sm">{option.label}</span>
-                                    {checked ? (
-                                      <Input
-                                        type="number"
-                                        min={1}
-                                        className="w-20"
-                                        value={materialSelection[option.id] ?? 1}
-                                        onChange={(event) => setMaterialQty(option.id, event.target.value)}
-                                      />
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            </div>
-                          </details>
-                        );
-                      })}
-                      {searchedMaterialOptions.length === 0 && (
-                        <div className="rounded-md border border-dashed bg-background px-3 py-6 text-center text-sm text-muted-foreground">
-                          Nessuna attrezzatura trovata per questa ricerca o sezione.
-                        </div>
-                      )}
-                    </div>
+                    <Label>Materiali dell'esercitazione</Label>
+                    <MaterialPicker options={availableMaterialOptions} selection={materialSelection} onConfirm={selection => setForm(prev => ({ ...prev, equipment: serializeEquipmentSelection(selection) }))} />
+                    {formatEquipmentLabel(form.equipment) && <p className="break-words text-sm">{formatEquipmentLabel(form.equipment)}</p>}
+                    {!Object.keys(materialSelection).length && <Input value={form.equipment ?? ""} placeholder="Oppure scrivi materiali liberi" onChange={e => setForm(prev => ({ ...prev, equipment: e.target.value }))} />}
                   </div>
 
                   {/* Draft flag */}

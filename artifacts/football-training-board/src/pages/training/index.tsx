@@ -1,3 +1,5 @@
+import { MaterialPicker } from "@/components/training/MaterialPicker";
+import { divideExerciseMinutes, sumExerciseMinutes, mergeExerciseMaterials } from "@/lib/exercise-station-timing";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { confirmDeleteTrainingSession } from "@/lib/delete-training-session";
 import { TrainingSessionsCalendar } from "@/components/training/TrainingSessionsCalendar";
@@ -507,10 +509,7 @@ function composeExerciseDescription(description: string, stations: ExerciseStati
 }
 
 function totalStationMinutes(stations: ExerciseStation[]): number {
-  return stations.reduce((sum, station) => {
-    const value = Number(station.durationMinutes);
-    return Number.isFinite(value) && value > 0 ? sum + value : sum;
-  }, 0);
+  return sumExerciseMinutes(stations);
 }
 
 function normalizeClubSection(value: string | null | undefined): "scuola_calcio" | "settore_giovanile" | "prima_squadra" | null {
@@ -615,7 +614,7 @@ function emptyExerciseStation(): ExerciseStation {
     title: "",
     exercise: "",
     equipment: "",
-    durationMinutes: "8",
+    durationMinutes: "0",
     notes: "",
     objective: "",
     playersRequired: "",
@@ -1849,7 +1848,7 @@ function SessionDetailsDialog({
   const createAndLinkExerciseMutation = useMutation({
     mutationFn: async ({ form, sourceExerciseId }: { form: ExerciseFormState; sourceExerciseId?: number | null }) => {
       const stations = parseExerciseStations(form.stationsJson);
-      const stationEquipment = serializeEquipmentSelection(sumStationEquipment(stations));
+      const stationEquipment = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(form.equipment), sumStationEquipment(stations)));
       const created = await apiFetch("/api/exercises", {
         method: "POST",
         body: JSON.stringify({
@@ -1903,7 +1902,7 @@ function SessionDetailsDialog({
     mutationFn: async ({ link, form }: { link: SessionExerciseLink; form: ExerciseFormState }) => {
       if (!link.exercise?.id) throw new Error("Esercitazione non valida");
       const stations = parseExerciseStations(form.stationsJson);
-      const stationEquipment = serializeEquipmentSelection(sumStationEquipment(stations));
+      const stationEquipment = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(form.equipment), sumStationEquipment(stations)));
       return apiFetch(`/api/exercises/${link.exercise.id}`, {
         method: "PATCH",
         body: JSON.stringify({
@@ -2039,7 +2038,7 @@ function SessionDetailsDialog({
   const availableMaterialOptions = MATERIAL_OPTIONS.filter((option) => canUseMaterial(option.availability, selectedMaterialSection, role));
   const exerciseStations = parseExerciseStations(exerciseForm.stationsJson);
   const stationMinutes = totalStationMinutes(exerciseStations);
-  const stationEquipmentSummary = serializeEquipmentSelection(sumStationEquipment(exerciseStations));
+  const stationEquipmentSummary = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(exerciseForm.equipment), sumStationEquipment(exerciseStations)));
   const selectedPlayerIds = parseSelectedPlayerIds(exerciseForm.selectedPlayerIdsJson);
   const selectablePlayers = (selectablePlayersQuery.data ?? []).filter((p) => p.available !== false);
   const selectedPlayersCount = selectedPlayerIds.length;
@@ -2061,13 +2060,16 @@ function SessionDetailsDialog({
     }));
   }
 
-  function setStations(next: ExerciseStation[]) {
-    const minutes = totalStationMinutes(next);
-    setExerciseForm((prev) => ({
-      ...prev,
-      stationsJson: JSON.stringify(next),
-      durationMinutes: minutes > 0 ? String(minutes) : prev.durationMinutes,
-    }));
+  function setStations(next: ExerciseStation[], timing: "preserve" | "divide" | "sum" = "preserve") {
+    setExerciseForm(prev => {
+      const updated = timing === "divide" ? divideExerciseMinutes(next, Number(prev.durationMinutes)) : next;
+      const minutes = totalStationMinutes(updated);
+      return { ...prev, stationsJson: JSON.stringify(updated), durationMinutes: timing === "sum" && minutes > 0 ? String(minutes) : prev.durationMinutes };
+    });
+  }
+
+  function setExerciseDuration(value: string) {
+    setExerciseForm(prev => ({ ...prev, durationMinutes: value, stationsJson: JSON.stringify(divideExerciseMinutes(parseExerciseStations(prev.stationsJson), Number(value))) }));
   }
 
   function setStationEquipmentSelection(stationId: string, selection: Partial<Record<MaterialId, number>>) {
@@ -2327,8 +2329,8 @@ function SessionDetailsDialog({
                         type="number"
                         min={0}
                         value={exerciseForm.durationMinutes}
-                        onChange={(e) => setExerciseForm((prev) => ({ ...prev, durationMinutes: e.target.value }))}
-                        readOnly={stationMinutes > 0}
+                        onChange={(e) => setExerciseDuration(e.target.value)}
+
                       />
                       {stationMinutes > 0 && (
                         <p className="text-[11px] text-muted-foreground">Calcolata dagli stazionamenti: {stationMinutes} min</p>
@@ -2485,17 +2487,25 @@ function SessionDetailsDialog({
                     )}
                   </div>
 
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <Label>Materiali dell'esercitazione</Label>
+                    <p className="text-xs text-muted-foreground">Dotazione complessiva, disponibile anche senza stazioni. Il riepilogo considera almeno la somma dei materiali delle stazioni.</p>
+                    <MaterialPicker options={availableMaterialOptions} selection={parseEquipmentSelection(exerciseForm.equipment)} onConfirm={selection => setExerciseForm(prev => ({ ...prev, equipment: serializeEquipmentSelection(selection) }))} />
+                    {formatEquipmentLabel(exerciseForm.equipment) && <p className="break-words text-xs">{formatEquipmentLabel(exerciseForm.equipment)}</p>}
+                    {!Object.keys(parseEquipmentSelection(exerciseForm.equipment)).length && <Input value={exerciseForm.equipment} placeholder="Oppure scrivi materiali liberi" onChange={e => setExerciseForm(prev => ({ ...prev, equipment: e.target.value }))} />}
+                  </div>
+
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-sm font-medium">Stazionamenti</p>
-                        <p className="text-xs text-muted-foreground">Somma automatica della durata dell'esercitazione.</p>
+                        <p className="text-xs text-muted-foreground">Aggiungendo o rimuovendo stazioni il totale viene ripartito. Modificando una durata, il totale viene aggiornato.</p>
                       </div>
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setStations([...exerciseStations, emptyExerciseStation()])}
+                        onClick={() => setStations([...exerciseStations, emptyExerciseStation()], "divide")}
                       >
                         <Plus className="mr-1.5 h-3.5 w-3.5" />
                         Aggiungi stazionamento
@@ -2516,8 +2526,8 @@ function SessionDetailsDialog({
                                   type="number"
                                   min={1}
                                   className="h-8 w-24"
-                                  value={station.durationMinutes}
-                                  onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, durationMinutes: e.target.value } : item))}
+                                  value={station.durationMinutes ? String(Number(Number(station.durationMinutes).toFixed(3))) : ""}
+                                  onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, durationMinutes: e.target.value ? String(Math.max(1, Math.round(Number(e.target.value)))) : "" } : item), "sum")}
                                   placeholder="Min"
                                 />
                                 <span className="text-xs text-muted-foreground">min</span>
@@ -2527,7 +2537,7 @@ function SessionDetailsDialog({
                                 size="sm"
                                 variant="ghost"
                                 className="text-destructive"
-                                onClick={() => setStations(exerciseStations.filter((item) => item.id !== station.id))}
+                                onClick={() => setStations(exerciseStations.filter((item) => item.id !== station.id), "divide")}
                               >
                                 Rimuovi
                               </Button>
@@ -2597,72 +2607,10 @@ function SessionDetailsDialog({
 
                             <div className="mt-3 rounded-md border bg-muted/20 p-2">
                               <Label className="mb-2 block text-xs font-semibold uppercase text-muted-foreground">Materiale stazionamento</Label>
-                              {(() => {
-                                const stationSelection = parseEquipmentSelection(station.equipment);
-                                const selectedMaterials = MATERIAL_OPTIONS.filter((option) => (stationSelection[option.id] ?? 0) > 0);
-                                const hasStructuredMaterials = selectedMaterials.length > 0;
-                                const legacyText = hasStructuredMaterials ? "" : station.equipment;
-                                return (
-                                  <div className="space-y-2">
-                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                      <Select value="_add" onValueChange={(value) => {
-                                        if (value === "_add") return;
-                                        addStationMaterial(station, value as MaterialId);
-                                      }}>
-                                        <SelectTrigger className="h-9 flex-1 bg-background">
-                                          <SelectValue placeholder="Materiali della stazione" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="_add">Aggiungi materiale</SelectItem>
-                                          {availableMaterialOptions.map((option) => (
-                                            <SelectItem key={option.id} value={option.id}>
-                                              {option.label}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                      {selectedMaterials.length > 0 && (
-                                        <Badge variant="secondary" className="h-8 justify-center">
-                                          {selectedMaterials.length} materiali
-                                        </Badge>
-                                      )}
-                                    </div>
-                                    {selectedMaterials.length > 0 && (
-                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                        {selectedMaterials.map((option) => (
-                                          <div key={option.id} className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5">
-                                            <span className="min-w-0 flex-1 truncate text-xs font-medium">{option.label}</span>
-                                            <Input
-                                              type="number"
-                                              min={1}
-                                              className="h-8 w-16"
-                                              value={stationSelection[option.id] ?? 1}
-                                              onChange={(event) => setStationMaterialQty(station, option.id, event.target.value)}
-                                            />
-                                            <Button
-                                              type="button"
-                                              size="icon"
-                                              variant="ghost"
-                                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                              onClick={() => removeStationMaterial(station, option.id)}
-                                            >
-                                              <X className="h-3.5 w-3.5" />
-                                            </Button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                    {!hasStructuredMaterials && (
-                                      <Input
-                                        className="h-9 bg-background"
-                                        value={legacyText}
-                                        onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, equipment: e.target.value } : item))}
-                                        placeholder="Oppure scrivi materiali liberi"
-                                      />
-                                    )}
-                                  </div>
-                                );
-                              })()}
+                              <MaterialPicker options={availableMaterialOptions} selection={parseEquipmentSelection(station.equipment)} onConfirm={selection => setStationEquipmentSelection(station.id, selection)} />
+                              {formatEquipmentLabel(station.equipment) && <p className="mt-2 break-words text-xs">{formatEquipmentLabel(station.equipment)}</p>}
+                              {!Object.keys(parseEquipmentSelection(station.equipment)).length && <Input className="mt-2" value={station.equipment} placeholder="Oppure scrivi materiali liberi" onChange={e => setStations(exerciseStations.map(item => item.id === station.id ? { ...item, equipment: e.target.value } : item))} />}
+
                             </div>
                             <Textarea
                               className="mt-2"
@@ -2692,7 +2640,7 @@ function SessionDetailsDialog({
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                     <div>
                       <div className="text-sm font-medium">Riepilogo materiale</div>
-                      <p className="text-xs text-muted-foreground">Calcolato automaticamente dai materiali inseriti negli stazionamenti.</p>
+                      <p className="text-xs text-muted-foreground">Dotazione complessiva e materiali degli stazionamenti, senza duplicare il riepilogo.</p>
                     </div>
                     {formatEquipmentLabel(stationEquipmentSummary) ? (
                       <div className="rounded-md border bg-background px-3 py-2 text-sm font-medium">
@@ -2700,7 +2648,7 @@ function SessionDetailsDialog({
                       </div>
                     ) : (
                       <div className="rounded-md border border-dashed bg-background px-3 py-3 text-sm text-muted-foreground">
-                        Nessun materiale inserito negli stazionamenti.
+                        Nessun materiale inserito.
                       </div>
                     )}
                   </div>
