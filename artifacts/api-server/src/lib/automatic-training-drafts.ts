@@ -36,7 +36,8 @@ export async function syncTrainingDrafts(tx:Tx,team:Team,userId:number) {
     (EXISTS(SELECT 1 FROM training_session_exercises e WHERE e.training_session_id=s.id) OR EXISTS(SELECT 1 FROM training_attendances a WHERE a.training_session_id=s.id)) AS protected
     FROM training_sessions s WHERE s.club_id=${team.clubId} AND s.team_id=${team.id} AND s.session_kind='regular' AND s.scheduled_at>=NOW()`));
   for(const row of existing){
-    const at=new Date(row.at).toISOString();
+    const exactAt=new Date(row.at).toISOString();
+    const at=[...desired.keys()].find(key=>key.slice(0,16)===exactAt.slice(0,16))??exactAt;
     if(row.title===title&&!row.protected&&row.notes===AUTO_TRAINING_MARKER&&row.untouched&&!desired.has(at))await tx.execute(sql`UPDATE training_sessions SET status='cancelled',notes=${AUTO_TRAINING_MARKER+' REMOVED'},updated_at=NOW() WHERE id=${row.id} AND club_id=${team.clubId}`);
     if(row.title===title&&!row.protected&&row.notes===AUTO_TRAINING_MARKER+' REMOVED'&&desired.has(at))await tx.execute(sql`UPDATE training_sessions SET status='scheduled',notes=${AUTO_TRAINING_MARKER},updated_at=created_at WHERE id=${row.id} AND club_id=${team.clubId}`);
     const planned=desired.get(at);
