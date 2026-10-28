@@ -529,7 +529,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                 <div className="grid gap-2 sm:grid-cols-[1fr_220px]">
                   <Select value={sessionDateFilter} onValueChange={(v) => setSessionDateFilter(v)}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Data sessione" />
+                      <SelectValue placeholder="Data seduta" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Tutte le date</SelectItem>
@@ -614,7 +614,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                     );
                   })}
                   {filteredSessions.length === 0 && (
-                    <div className="text-sm text-muted-foreground py-2">Nessuna sessione trovata con questi filtri.</div>
+                    <div className="text-sm text-muted-foreground py-2">Nessuna seduta trovata con questi filtri.</div>
                   )}
                 </div>
               </>

@@ -922,7 +922,7 @@ export default function ExercisesPage() {
               <Info className="w-5 h-5 text-primary mt-0.5 shrink-0" />
               <div className="text-sm text-muted-foreground">
                 <p className="font-medium text-foreground mb-1">Bacheca Linee Guida Tecniche</p>
-                <p>Principi e indicazioni operative definiti dal Direttore Tecnico. Segui questi riferimenti nella pianificazione delle sessioni.</p>
+                <p>Principi e indicazioni operative definiti dal Direttore Tecnico. Segui questi riferimenti nella pianificazione delle sedute.</p>
               </div>
             </div>
             {canEditGuidelines && (
@@ -1006,7 +1006,7 @@ export default function ExercisesPage() {
                 {viewingEx.durationMinutes && <div><span className="text-muted-foreground">Durata: </span>{viewingEx.durationMinutes} min</div>}
                 {viewingEx.playersRequired && <div><span className="text-muted-foreground">Giocatori: </span>{viewingEx.playersRequired}</div>}
                 {formatTrainingDay(viewingEx.trainingDay) && <div><span className="text-muted-foreground">Giorno: </span>{formatTrainingDay(viewingEx.trainingDay)}</div>}
-                {formatTrainingSession(viewingEx.trainingSession ?? viewingEx.trainingDay) && <div><span className="text-muted-foreground">Sessione: </span>{formatTrainingSession(viewingEx.trainingSession ?? viewingEx.trainingDay)}</div>}
+                {formatTrainingSession(viewingEx.trainingSession ?? viewingEx.trainingDay) && <div><span className="text-muted-foreground">Seduta: </span>{formatTrainingSession(viewingEx.trainingSession ?? viewingEx.trainingDay)}</div>}
                 {viewingEx.teamId && <div><span className="text-muted-foreground">Squadra: </span>{myTeams.find((tm) => tm.id === viewingEx.teamId)?.name ?? `Team #${viewingEx.teamId}`}</div>}
                 {formatEquipmentLabel(viewingEx.equipment) && <div><span className="text-muted-foreground">Materiale: </span>{formatEquipmentLabel(viewingEx.equipment)}</div>}
               </div>
@@ -1058,9 +1058,9 @@ export default function ExercisesPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Sessione allenamento</Label>
+                      <Label className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Seduta allenamento</Label>
                       <Select value={form.trainingSession ?? "_none"} onValueChange={v => setForm(f => ({ ...f, trainingSession: v === "_none" ? null : v }))}>
-                        <SelectTrigger><SelectValue placeholder="Seleziona sessione" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder="Seleziona seduta" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">Nessuna</SelectItem>
                           {TRAINING_SESSIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}

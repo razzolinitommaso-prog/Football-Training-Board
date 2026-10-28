@@ -34,21 +34,21 @@ const CONFIG = {
     description: "Prepara e controlla gli atleti convocati per le prossime sedute.",
     icon: UsersRound,
     action: "Gestisci convocati",
-    empty: "Nessuna sessione disponibile per preparare convocazioni.",
+    empty: "Nessuna seduta disponibile per preparare convocazioni.",
   },
   attendance: {
     title: "Presenze allenamenti",
     description: "Registra e verifica presenze, assenze e note delle sedute.",
     icon: ClipboardCheck,
     action: "Registra presenze",
-    empty: "Nessuna sessione disponibile per registrare presenze.",
+    empty: "Nessuna seduta disponibile per registrare presenze.",
   },
   calendar: {
     title: "Calendario operativo",
     description: "Vista operativa delle sedute con squadre, orari, campi e note.",
     icon: CalendarDays,
     action: "Apri dettaglio",
-    empty: "Nessuna sessione pianificata nel calendario operativo.",
+    empty: "Nessuna seduta pianificata nel calendario operativo.",
   },
 } satisfies Record<TrainingOperationKind, { title: string; description: string; icon: typeof CalendarDays; action: string; empty: string }>;
 
@@ -146,7 +146,7 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sessioni</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sedute</p>
             <p className="text-2xl font-bold">{visibleSessions.length}</p>
           </CardContent>
         </Card>
@@ -193,7 +193,7 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
                 )}
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{session.title || session.teamName || "Sessione allenamento"}</p>
+                  <p className="truncate text-sm font-semibold">{session.title || session.teamName || "Seduta allenamento"}</p>
                   <p className="text-xs text-muted-foreground">
                     {formatSessionDate(session.scheduledAt)}
                     {session.location ? ` - ${session.location}` : ""}

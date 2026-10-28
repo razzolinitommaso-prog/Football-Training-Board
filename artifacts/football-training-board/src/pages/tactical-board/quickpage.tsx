@@ -2824,7 +2824,7 @@ const QuickPage = () => {
     setBoardType("Match Plan");
     setActiveBoardAction("match");
     if (match.teamId) loadTeamById(match.teamId);
-    if (boardTitle === "Nuova lavagna" || boardTitle === "Nuova sessione lavagna") {
+    if (boardTitle === "Nuova lavagna" || (boardTitle === "Nuova seduta lavagna" || boardTitle === "Nuova sessione lavagna")) {
       setBoardTitle(`Preparazione partita vs ${match.opponent ?? "avversario"}`);
     }
     setSaveState("Unsaved");
@@ -3504,7 +3504,7 @@ const QuickPage = () => {
   title={boardTitle}
   className="w-full max-w-[58rem] truncate bg-transparent text-center text-sm font-semibold outline-none md:text-base"
 />
-          <span className="text-xs text-white/40">Sessione / Allenamento</span>
+          <span className="text-xs text-white/40">Seduta / Allenamento</span>
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
@@ -5373,7 +5373,7 @@ const QuickPage = () => {
                             setCurrentBoardId(null);
                             setBoardIdInUrl(null);
                             setBoardType("Training");
-                            setBoardTitle("Nuova sessione lavagna");
+                            setBoardTitle("Nuova seduta lavagna");
                             setSelectedMatchId(null);
                             matchPrepBindingCommittedRef.current = false;
                             animation.load(null);
@@ -5390,7 +5390,7 @@ const QuickPage = () => {
                           type="button"
                           onClick={() => {
                             setBoardType("Training");
-                            setBoardTitle(boardTitle === "Nuova lavagna" ? "Sessione da lavagna" : boardTitle);
+                            setBoardTitle(boardTitle === "Nuova lavagna" ? "Seduta da lavagna" : boardTitle);
                             setSaveState("Unsaved");
                           }}
                           className="rounded-lg bg-white/10 px-2 py-2 text-left text-[11px] font-semibold text-white/85 transition hover:bg-white/15"

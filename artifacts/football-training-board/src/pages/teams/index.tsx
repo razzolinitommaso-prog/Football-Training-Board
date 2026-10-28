@@ -469,10 +469,10 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
       normalizedRows.forEach((other, otherIdx) => {
         if (otherIdx <= idx || !scheduleOverlaps(row, other)) return;
         if (fieldResourceConflicts(row.campo, other.campo)) {
-          messages.push(`Conflitto campo tra sessione ${idx + 1} e sessione ${otherIdx + 1}`);
+          messages.push(`Conflitto campo tra seduta ${idx + 1} e seduta ${otherIdx + 1}`);
         }
         if (lockerResourceConflicts(row.lockerRoom, other.lockerRoom)) {
-          messages.push(`Conflitto spogliatoio tra sessione ${idx + 1} e sessione ${otherIdx + 1}`);
+          messages.push(`Conflitto spogliatoio tra seduta ${idx + 1} e seduta ${otherIdx + 1}`);
         }
       });
     });
@@ -820,7 +820,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                 <Button type="button" variant="outline" size="sm" className="w-full gap-2 border-dashed text-xs"
                   onClick={() => setCreateScheduleRows(prev => [...prev, { day: "Lunedì", startTime: "17:00", endTime: "19:00", campo: "Campo 1", lockerRoom: "1" }])}>
                   <PlusCircle className="w-3.5 h-3.5" />
-                  Aggiungi sessione
+                  Aggiungi seduta
                 </Button>
               </div>
 
@@ -1212,7 +1212,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               </div>
               {editScheduleRows.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-3">
-                  Nessun orario impostato. Aggiungi una sessione.
+                  Nessun orario impostato. Aggiungi una seduta.
                 </p>
               )}
               <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
@@ -1280,7 +1280,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               </div>
               <Button type="button" variant="outline" size="sm" className="w-full gap-2 border-dashed" onClick={addEditScheduleRow}>
                 <PlusCircle className="w-4 h-4" />
-                Aggiungi sessione
+                Aggiungi seduta
               </Button>
             </div>
 
@@ -1302,11 +1302,11 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               Giorni e orari di allenamento — {scheduleTeam?.name}
             </DialogTitle>
           </DialogHeader>
-          <p className="text-xs text-muted-foreground">Il salvataggio prepara le sessioni vuote future entro le date di allenamento o della stagione configurata. Le sessioni già compilate vengono conservate.</p>
+          <p className="text-xs text-muted-foreground">Il salvataggio prepara le sedute vuote future entro le date di allenamento o della stagione configurata. Le sedute già compilate vengono conservate.</p>
           <div className="space-y-3 pt-2 max-h-[55vh] overflow-y-auto pr-1">
             {scheduleRows.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-6">
-                Nessun orario impostato. Aggiungi una sessione.
+                Nessun orario impostato. Aggiungi una seduta.
               </p>
             )}
             {scheduleRows.map((row, idx) => (
@@ -1371,7 +1371,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
             ))}
             <Button variant="outline" size="sm" className="w-full gap-2 border-dashed" onClick={addScheduleRow}>
               <PlusCircle className="w-4 h-4" />
-              Aggiungi sessione
+              Aggiungi seduta
             </Button>
           </div>
           <DialogFooter className="pt-2">

@@ -62,7 +62,7 @@ type SubItem = { label: string; url: string; icon: any; roles: string[] };
 const SEZIONE_SUB_ITEMS: SubItem[] = [
   { label: "Squadre",              url: "teams",      icon: UsersRound,    roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Giocatori",            url: "players",    icon: Users,         roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
-  { label: "Sessioni Allenamento", url: "training",   icon: CalendarDays,  roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
+  { label: "Sedute Allenamento", url: "training",   icon: CalendarDays,  roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Convocazioni",          url: "training/convocazioni", icon: UsersRound, roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Presenze allenamenti",  url: "training/presenze", icon: ClipboardCheck, roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Calendario operativo",  url: "training/calendario-operativo", icon: CalendarRange, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
@@ -139,7 +139,7 @@ export function AppSidebar() {
     // Main
     { titleKey: "dashboard",       url: "/dashboard",    icon: LayoutDashboard, roles: ["admin", "presidente", "coach", "secretary", "sporting_director", "technical_director", "fitness_coach", "director", "athletic_director"], group: "main" },
     { titleKey: "tacticalBoard",   url: "/tactical-board", icon: Crosshair,     roles: ["coach", "fitness_coach"], group: "main" },
-    { label: "Le mie sessioni",    url: "/training",     icon: CalendarDays,    roles: ["technical_director", "coach", "fitness_coach"], group: "main" },
+    { label: "Le mie sedute",    url: "/training",     icon: CalendarDays,    roles: ["technical_director", "coach", "fitness_coach"], group: "main" },
     { label: "Convocazioni",       url: "/training/convocazioni", icon: UsersRound, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
     { label: "Presenze allenamenti", url: "/training/presenze", icon: ClipboardCheck, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
     { label: "Calendario operativo", url: "/training/calendario-operativo", icon: CalendarRange, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
@@ -365,7 +365,7 @@ export function AppSidebar() {
                 const isActive = location.startsWith(item.url);
                 const title =
                   item.url === "/training" && role === "technical_director"
-                    ? "Sessioni allenamento"
+                    ? "Sedute allenamento"
                     : (item.label ?? (item.titleKey ? t[item.titleKey] as string : ""));
                 return (
                   <SidebarMenuItem key={item.url}>

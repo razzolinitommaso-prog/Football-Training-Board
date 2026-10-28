@@ -120,7 +120,7 @@ router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
   const sessionId = req.query.sessionId ? parseInt(req.query.sessionId as string) : null;
   if (!sessionId || isNaN(sessionId)) { res.status(400).json({ error: "sessionId required" }); return; }
   if (!(await userCanManageAttendanceForSession(req.session.userId!, req.session.clubId!, req.session.role ?? "", sessionId))) {
-    res.status(403).json({ error: "Non autorizzato a visualizzare presenze di questa sessione" });
+    res.status(403).json({ error: "Non autorizzato a visualizzare presenze di questa seduta" });
     return;
   }
   const records = await db.select().from(trainingAttendancesTable)
@@ -182,18 +182,18 @@ router.post("/attendance", requireAuth, async (req, res): Promise<void> => {
   const sessionId = Number(trainingSessionId);
   const playerNumericId = Number(playerId);
   if (!(await userCanManageAttendanceForSession(req.session.userId!, req.session.clubId!, req.session.role ?? "", sessionId))) {
-    res.status(403).json({ error: "Non autorizzato a modificare presenze di questa sessione" });
+    res.status(403).json({ error: "Non autorizzato a modificare presenze di questa seduta" });
     return;
   }
   if (!(await playerIsValidForSession(playerNumericId, req.session.clubId!, sessionId))) {
-    res.status(400).json({ error: "Giocatore non valido per questa sessione" });
+    res.status(400).json({ error: "Giocatore non valido per questa seduta" });
     return;
   }
   const nextStatus = status ?? "present";
   if (nextStatus !== "absent") {
     const availability = await playerCanAttend(playerNumericId, req.session.clubId!);
     if (!availability.ok) {
-      res.status(400).json({ error: "Giocatore non disponibile per questa sessione", reason: availability.reason });
+      res.status(400).json({ error: "Giocatore non disponibile per questa seduta", reason: availability.reason });
       return;
     }
   }
@@ -213,7 +213,7 @@ router.patch("/attendance/:id", requireAuth, async (req, res): Promise<void> => 
     .limit(1);
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
   if (!(await userCanManageAttendanceForSession(req.session.userId!, req.session.clubId!, req.session.role ?? "", existing.trainingSessionId))) {
-    res.status(403).json({ error: "Non autorizzato a modificare presenze di questa sessione" });
+    res.status(403).json({ error: "Non autorizzato a modificare presenze di questa seduta" });
     return;
   }
   const saved=await saveAttendanceAndNotify({id,clubId:req.session.clubId!,sessionId:existing.trainingSessionId,playerId:existing.playerId,status,notes});

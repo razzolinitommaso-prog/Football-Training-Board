@@ -17,7 +17,7 @@ export async function saveAttendanceAndNotify(input:{clubId:number;sessionId:num
     if((status==="present"||status==="absent")&&(status!==existing?.status||legacyParent)){
       const [player]=await tx.select({firstName:playersTable.firstName,lastName:playersTable.lastName}).from(playersTable).where(and(eq(playersTable.clubId,input.clubId),eq(playersTable.id,input.playerId))).limit(1);
       const [session]=await tx.select({title:trainingSessionsTable.title,scheduledAt:trainingSessionsTable.scheduledAt}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,input.clubId),eq(trainingSessionsTable.id,input.sessionId))).limit(1);
-      if(!player||!session)throw new Error("Sessione o giocatore non disponibili");
+      if(!player||!session)throw new Error("Seduta o giocatore non disponibili");
       const parents=await tx.select({id:parentPlayerRelationsTable.parentUserId}).from(parentPlayerRelationsTable).where(eq(parentPlayerRelationsTable.playerId,input.playerId));
       const correction=!legacyParent&&existing&&(existing.status==="present"||existing.status==="absent");
       const title=correction?"Aggiornamento appello allenamento":"Appello allenamento";

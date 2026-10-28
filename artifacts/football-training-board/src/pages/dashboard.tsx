@@ -1098,7 +1098,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         title: rows.length > 1 ? "Allenamenti aggiornati" : "Allenamento aggiornato",
         description: rows.length > 1
           ? `${rows.length} eventi del calendario sono stati aggiornati.`
-          : "Calendario, sessioni collegate e bacheca sono stati aggiornati.",
+          : "Calendario, sedute collegate e bacheca sono stati aggiornati.",
       });
     },
     onError: (error: any) => {
@@ -1317,8 +1317,8 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         key: `training-session-${session.id}`,
         date: sessionDate,
         time: matchTimeLabel(sessionDate),
-        title: session.title?.trim() || `Sessione preparata ${team?.name ?? session.teamName ?? "Squadra"}`,
-        subtitle: [team?.name ?? session.teamName ?? "Squadra", "Sessione preparata"].filter(Boolean).join(" - "),
+        title: session.title?.trim() || `Seduta preparata ${team?.name ?? session.teamName ?? "Squadra"}`,
+        subtitle: [team?.name ?? session.teamName ?? "Squadra", "Seduta preparata"].filter(Boolean).join(" - "),
         teamId: Number(session.teamId),
         teamName: team?.name ?? session.teamName ?? undefined,
         originalDate,
@@ -2754,7 +2754,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
             </div>
           </StatCard>
         ) : (
-          <StatCard title="Sessioni / sedute" value={dashboardTrainingCardTotal} icon={CalendarDays} link="/training">
+          <StatCard title="Sedute" value={dashboardTrainingCardTotal} icon={CalendarDays} link="/training">
             <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
               <span>Prossime: <strong className="text-foreground">{dashboardUpcomingCount}</strong></span>
               <span>Complete: <strong className="text-foreground">{dashboardExerciseSummary.completeSessions}</strong></span>
@@ -3771,7 +3771,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                           setLocation(`/training${query}`);
                         }}
                       >
-                        Apri sessioni
+                        Apri sedute
                       </Button>
                       <Button type="button" variant="outline" onClick={() => setLocation("/exercises")}>
                         Prepara esercitazione

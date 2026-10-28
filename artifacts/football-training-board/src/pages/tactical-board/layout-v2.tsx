@@ -625,7 +625,7 @@ export default function TacticalBoardLayoutV2({
                     </div>
                   </SectionCard>
 
-                  <SectionCard title="Sessione live" icon={TimerReset}>
+                  <SectionCard title="Seduta live" icon={TimerReset}>
                     <div className="space-y-2">
                       {sessionItems.map((item) => (
                         <div key={item} className="rounded-2xl border border-white/6 bg-black/20 px-3 py-3 text-sm text-white/72">

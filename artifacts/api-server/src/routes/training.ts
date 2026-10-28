@@ -259,7 +259,7 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
   const userId = req.session.userId!;
 
   if (!CAN_CREATE_ROLES.includes(role)) {
-    res.status(403).json({ error: "Non hai i permessi per creare sessioni di allenamento" });
+    res.status(403).json({ error: "Non hai i permessi per creare sedute di allenamento" });
     return;
   }
 
@@ -279,7 +279,7 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
   if (STAFF_RESTRICTED_ROLES.includes(role)) {
     const hasTeamAccess = await canAccessTeamForRestrictedRole(req.session.clubId!, userId, body.teamId ?? null);
     if (!hasTeamAccess) {
-      res.status(403).json({ error: "Puoi creare sessioni solo sulle annate assegnate" });
+      res.status(403).json({ error: "Puoi creare sedute solo sulle annate assegnate" });
       return;
     }
   }
@@ -298,7 +298,7 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
     return tx.insert(trainingSessionsTable).values(values).returning();
   });
 
-  if(!session){res.status(409).json({error:"Esiste già una sessione per questa squadra, data e orario. Aprila per modificarla."});return;}
+  if(!session){res.status(409).json({error:"Esiste già una seduta per questa squadra, data e orario. Aprila per modificarla."});return;}
   const enriched = await enrichSession(session, { clubId: req.session.clubId!, userId, role });
   res.status(201).json(enriched);
 });
@@ -325,7 +325,7 @@ router.get("/training-sessions/:id", requireAuth, async (req, res): Promise<void
         await canManageSession(session, req.session.clubId!, req.session.userId!, role) ||
         (session.sessionKind === "tipo" && sentToCurrentUser));
     if (!canSeeSession) {
-      res.status(403).json({ error: "La sessione non è assegnata al tuo profilo" });
+      res.status(403).json({ error: "La seduta non è assegnata al tuo profilo" });
       return;
     }
   }
@@ -341,7 +341,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
   const clubId = req.session.clubId!;
 
   if (role === "admin" || role === "presidente" || role === "director") {
-    res.status(403).json({ error: "Non hai i permessi per modificare sessioni" });
+    res.status(403).json({ error: "Non hai i permessi per modificare sedute" });
     return;
   }
 
@@ -379,7 +379,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
   } else {
     const canManage = await canManageSession(existing, clubId, userId, role);
     if (!canManage) {
-      res.status(403).json({ error: "Puoi modificare solo le tue sessioni" });
+      res.status(403).json({ error: "Puoi modificare solo le tue sedute" });
       return;
     }
     const parsed = UpdateTrainingSessionBody.safeParse(body);
@@ -446,9 +446,9 @@ async function planningExercises(sessionId:number,clubId:number) {
 }
 router.get("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<void>=>{
   const id=Number(req.params.id);
-  if(!Number.isInteger(id)||id<=0){res.status(400).json({error:"Sessione non valida"});return;}
+  if(!Number.isInteger(id)||id<=0){res.status(400).json({error:"Seduta non valida"});return;}
   const session=await planningAccess(req,id,false);
-  if(!session){res.status(403).json({error:"Sessione non accessibile"});return;}
+  if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
   const plan=await readSessionPlan(id,session.clubId);
   const exercises=await planningExercises(id,session.clubId);
   res.json({...plan,timings:Object.fromEntries(exercises.filter(ex=>plan.timings[String(ex.id)]?.signature===timingSignature(ex)).map(ex=>[String(ex.id),plan.timings[String(ex.id)]]))});
@@ -457,13 +457,13 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
   const id=Number(req.params.id), recoveries=req.body?.recoveries;
   if(!Number.isInteger(id)||id<=0||!Array.isArray(recoveries)||recoveries.length!==2||recoveries.some(value=>typeof value!=="number"||!Number.isFinite(value)||value<0||value>300)||typeof req.body.recalculate!=="boolean") {res.status(400).json({error:"Recuperi non validi"});return;}
   const session=await planningAccess(req,id,true);
-  if(!session){res.status(403).json({error:"Non puoi preparare questa sessione"});return;}
+  if(!session){res.status(403).json({error:"Non puoi preparare questa seduta"});return;}
   await ensureSessionPlans();
   try {
     const plan=await db.transaction(async tx=>{
       await tx.execute(sql`SELECT id FROM training_sessions WHERE id=${id} AND club_id=${session.clubId} FOR UPDATE`);
       const [current]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,id),eq(trainingSessionsTable.clubId,session.clubId)));
-      if(!current) throw new Error("Sessione non disponibile");
+      if(!current) throw new Error("Seduta non disponibile");
       const [stored]=resultRows<{plan:Awaited<ReturnType<typeof readSessionPlan>>}>(await tx.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${id} AND club_id=${session.clubId}`));
       const old=stored?.plan??{recoveries:[0,0],timings:{}};
       const exercises=resultRows<PlanningExercise>(await tx.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${session.clubId} WHERE link.training_session_id=${id} ORDER BY link."order",link.id`));

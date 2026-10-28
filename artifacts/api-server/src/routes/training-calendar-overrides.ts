@@ -145,7 +145,7 @@ async function syncPreparedSession(params: {
         status: "cancelled",
         notes: appendCalendarNote(
           session.notes,
-          `Allenamento eliminato dal calendario dalla segreteria: sessione da riassegnare.${params.notes ? ` Note: ${params.notes}` : ""}`,
+          `Allenamento eliminato dal calendario dalla segreteria: seduta da riassegnare.${params.notes ? ` Note: ${params.notes}` : ""}`,
         ),
       })
       .where(eq(trainingSessionsTable.id, session.id));

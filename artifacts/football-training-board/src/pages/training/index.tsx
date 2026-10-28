@@ -638,7 +638,7 @@ function statusBadge(status: string, timelineState?: SessionTimelineState) {
 function typeBadge(kind: string) {
   if (kind === "tipo") return (
     <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] gap-1">
-      <Star className="w-2.5 h-2.5" /> Sessione Tipo
+      <Star className="w-2.5 h-2.5" /> Seduta Tipo
     </Badge>
   );
   return null;
@@ -919,7 +919,7 @@ function SessionCard({
                 variant="ghost"
                 className="h-7 w-7 text-muted-foreground hover:text-primary"
                 onClick={onOpenDetails}
-                title="Apri scheda sessione"
+                title="Apri scheda seduta"
               >
                 <Eye className="w-3.5 h-3.5" />
               </Button>
@@ -930,7 +930,7 @@ function SessionCard({
                 variant="ghost"
                 className="h-7 w-7 text-muted-foreground hover:text-primary"
                 onClick={onEdit}
-                title="Modifica sessione"
+                title="Modifica seduta"
               >
                 <Pencil className="w-3.5 h-3.5" />
               </Button>
@@ -1185,7 +1185,7 @@ function CreateSessionDialog({
       onCreatedSession?.(createdSession as TrainingSession, requestedPhase.current);
       onClose();
       reset();
-      toast({ title: recoverySaveFailed?"Sessione creata: recuperi da reinserire nella scheda":sessionKind === "tipo" ? "Sessione Tipo inviata" : "Sessione creata",variant:recoverySaveFailed?"destructive":"default" });
+      toast({ title: recoverySaveFailed?"Seduta creata: recuperi da reinserire nella scheda":sessionKind === "tipo" ? "Seduta Tipo inviata" : "Seduta creata",variant:recoverySaveFailed?"destructive":"default" });
     } catch {
       toast({ title: "Errore nella creazione", variant: "destructive" });
     } finally {
@@ -1198,20 +1198,20 @@ function CreateSessionDialog({
       <DialogContent className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] sm:max-w-[960px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>
-            {isTD ? "Nuova Sessione" : "Pianifica Sessione di Allenamento"}
+            {isTD ? "Nuova Seduta" : "Pianifica Seduta di Allenamento"}
           </DialogTitle>
         </DialogHeader>
         <form ref={createFormRef} onSubmit={handleSubmit} noValidate className="space-y-4 pt-2">
           {isTD && (
             <div className="space-y-2">
-              <Label>Tipo sessione</Label>
+              <Label>Tipo seduta</Label>
               <Select value={sessionKind} onValueChange={v => setSessionKind(v as "regular" | "tipo")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="regular">Sessione regolare (visibile a te e direttore)</SelectItem>
-                  <SelectItem value="tipo">Sessione TIPO — da inviare agli allenatori</SelectItem>
+                  <SelectItem value="regular">Seduta regolare (visibile a te e direttore)</SelectItem>
+                  <SelectItem value="tipo">Seduta TIPO — da inviare agli allenatori</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1283,7 +1283,7 @@ function CreateSessionDialog({
 
           {isTD && sessionKind === "tipo" && (
             <div className="space-y-2">
-              <Label>Invio sessione</Label>
+              <Label>Invio seduta</Label>
               <Select value={recipientMode} onValueChange={(v) => { setRecipientMode(v as "selected" | "all"); if (v === "all") setRecipients([]); }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -1309,7 +1309,7 @@ function CreateSessionDialog({
 
           {isTD && sessionKind === "tipo" && recipientMode === "all" && (
             <p className="text-xs text-muted-foreground">
-              La sessione verra inviata a tutti gli allenatori/preparatori {teamId ? "della squadra selezionata" : "del club"}.
+              La seduta verra inviata a tutti gli allenatori/preparatori {teamId ? "della squadra selezionata" : "del club"}.
             </p>
           )}
 
@@ -1317,11 +1317,11 @@ function CreateSessionDialog({
             <Button type="button" variant="ghost" onClick={() => { onClose(); reset(); }}>Annulla</Button>
             <Button type="submit" disabled={loading}>
               {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {sessionKind === "tipo" ? "Invia Sessione Tipo" : "Salva dati e prepara sessione"}
+              {sessionKind === "tipo" ? "Invia Seduta Tipo" : "Salva dati e prepara seduta"}
             </Button>
           </div>
         </form>
-        {sessionKind==="regular"&&<TrainingSessionOverview phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3"><Label>Recupero tra fase {index+1} e {index+2}</Label><Input aria-label={`Recupero tra fase ${index+1} e ${index+2}`} type="number" min={0} max={300} className="w-20" value={creationRecoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300)setCreationRecoveries(old=>index===0?[value,old[1]]:[old[0],value]);}}/><span>min</span></div>)} metadata={[]} badges={null} principle={principioLabel(sessionPrincipio)||"Principio da scegliere"} slot={null} exercises={[]} loading={false} error={false} onRetry={()=>{}} readOnly={loading} duration={duration} plannedMinutes={0} recovery={<div><p>Base: 6 esercitazioni × 15 min + {creationRecoveries[0]+creationRecoveries[1]} min di recuperi.</p>{90+creationRecoveries[0]+creationRecoveries[1]>duration&&<p className="mt-1 text-amber-700">La base supera la durata della sessione. A fine preparazione potrai ricalcolare i tempi delle esercitazioni.</p>}<p className="mt-1 text-xs text-muted-foreground">Gli spazi vuoti non creano esercitazioni. Compila i dati e premi + per salvare la sessione e preparare la prima esercitazione.</p></div>} organization={null} onAdd={phase=>{requestedPhase.current=phase;createFormRef.current?.requestSubmit();}} onView={()=>{}} onEdit={()=>{}} onRemove={()=>{}}/>}
+        {sessionKind==="regular"&&<TrainingSessionOverview phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3"><Label>Recupero tra fase {index+1} e {index+2}</Label><Input aria-label={`Recupero tra fase ${index+1} e ${index+2}`} type="number" min={0} max={300} className="w-20" value={creationRecoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300)setCreationRecoveries(old=>index===0?[value,old[1]]:[old[0],value]);}}/><span>min</span></div>)} metadata={[]} badges={null} principle={principioLabel(sessionPrincipio)||"Principio da scegliere"} slot={null} exercises={[]} loading={false} error={false} onRetry={()=>{}} readOnly={loading} duration={duration} plannedMinutes={0} recovery={<div><p>Base: 6 esercitazioni × 15 min + {creationRecoveries[0]+creationRecoveries[1]} min di recuperi.</p>{90+creationRecoveries[0]+creationRecoveries[1]>duration&&<p className="mt-1 text-amber-700">La base supera la durata della seduta. A fine preparazione potrai ricalcolare i tempi delle esercitazioni.</p>}<p className="mt-1 text-xs text-muted-foreground">Gli spazi vuoti non creano esercitazioni. Compila i dati e premi + per salvare la seduta e preparare la prima esercitazione.</p></div>} organization={null} onAdd={phase=>{requestedPhase.current=phase;createFormRef.current?.requestSubmit();}} onView={()=>{}} onEdit={()=>{}} onRemove={()=>{}}/>}
       </DialogContent>
     </Dialog>
   );
@@ -1395,7 +1395,7 @@ function EditSessionDialog({
           teamId,
         }),
       });
-      toast({ title: "Sessione aggiornata" });
+      toast({ title: "Seduta aggiornata" });
       onSaved();
       onClose();
     } catch (err) {
@@ -1489,7 +1489,7 @@ function EditSessionDialog({
           </div>
         </form>;
   if (inline) return <div className="rounded-xl border bg-muted/10 p-3">{content}</div>;
-  return <Dialog open onOpenChange={v=>{if(!v)onClose();}}><DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Modifica sessione</DialogTitle></DialogHeader>{content}</DialogContent></Dialog>;
+  return <Dialog open onOpenChange={v=>{if(!v)onClose();}}><DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Modifica seduta</DialogTitle></DialogHeader>{content}</DialogContent></Dialog>;
 }
 
 // ── Comment Dialog (TD only) ───────────────────────────────────────────────
@@ -1538,7 +1538,7 @@ function CommentDialog({
             <Textarea
               value={comment}
               onChange={e => setComment(e.target.value)}
-              placeholder="Aggiungi un commento sulla sessione..."
+              placeholder="Aggiungi un commento sulla seduta..."
               rows={3}
             />
           </div>
@@ -1822,7 +1822,7 @@ function SessionDetailsDialog({
   const [recoveriesDirty,setRecoveriesDirty] = useState(false);
   const planQuery=useQuery<{recoveries:[number,number];timings:Record<string,{seconds:number;stations:number[]}>}>({queryKey:["/api/training-sessions",session.id,"planning"],queryFn:()=>apiFetch(`/api/training-sessions/${session.id}/planning`)});
   useEffect(()=>{if(planQuery.data&&!recoveriesDirty)setRecoveries(planQuery.data.recoveries);},[planQuery.data,recoveriesDirty]);
-  const savePlan=useMutation({mutationFn:(recalculate:boolean)=>apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate})}),onSuccess:async()=>{setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Tempi della sessione salvati"});},onError:()=>toast({title:"Impossibile salvare i tempi",variant:"destructive"})});
+  const savePlan=useMutation({mutationFn:(recalculate:boolean)=>apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate})}),onSuccess:async()=>{setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Tempi della seduta salvati"});},onError:()=>toast({title:"Impossibile salvare i tempi",variant:"destructive"})});
   const [exerciseFormOpen, setExerciseFormOpen] = useState(false);
   const [viewingLink, setViewingLink] = useState<SessionExerciseLink | null>(null);
   const [editingLink, setEditingLink] = useState<SessionExerciseLink | null>(null);
@@ -1962,7 +1962,7 @@ function SessionDetailsDialog({
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "exercises"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "planning"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions"] });
-      toast({ title: "Esercitazione rimossa dalla sessione" });
+      toast({ title: "Esercitazione rimossa dalla seduta" });
     },
     onError: () => toast({ title: "Errore nella rimozione", variant: "destructive" }),
   });
@@ -2135,11 +2135,11 @@ function SessionDetailsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="w-4 h-4" />
-            Scheda sessione - {session.title}
+            Scheda seduta - {session.title}
           </DialogTitle>
           {session.sessionKind === "regular" && <Button type="button" variant="outline" size="sm" className="w-fit" onClick={openAttendance}><UserCheck className="mr-2 h-4 w-4" />Presenze</Button>}
           {!readOnly&&onDeleteSession&&<Button type="button" variant="outline" size="sm" className="w-fit text-destructive" onClick={onDeleteSession}>Elimina seduta</Button>}
-          {canEditMetadata && <Button type="button" variant="outline" size="sm" className="mt-2 w-fit" onClick={()=>setEditingMetadata(!editingMetadata)}>{editingMetadata?"Chiudi dati sessione":"Modifica dati sessione"}</Button>}
+          {canEditMetadata && <Button type="button" variant="outline" size="sm" className="mt-2 w-fit" onClick={()=>setEditingMetadata(!editingMetadata)}>{editingMetadata?"Chiudi dati seduta":"Modifica dati seduta"}</Button>}
         </DialogHeader>
 
         <TrainingSessionOverview
@@ -2149,7 +2149,7 @@ function SessionDetailsDialog({
             { label: "Giorno", value: format(new Date(session.scheduledAt), "EEEE", { locale: itLocale }) },
             { label: "Data", value: format(new Date(session.scheduledAt), "dd/MM/yyyy") },
             { label: "Ora", value: format(new Date(session.scheduledAt), "HH:mm") },
-            { label: "Durata sessione", value: session.durationMinutes ? `${session.durationMinutes} min` : "Da indicare" },
+            { label: "Durata seduta", value: session.durationMinutes ? `${session.durationMinutes} min` : "Da indicare" },
           ]}
           badges={<>{statusBadge(session.status)}{typeBadge(session.sessionKind)}</>}
           principle={principioLabel(session.objectives) || "Da indicare"}
@@ -2173,14 +2173,14 @@ function SessionDetailsDialog({
           onAdd={openAddExercise}
           onView={id => setViewingLink(linkedExercises.find(link => link.id === id) ?? null)}
           onEdit={id => { const link = linkedExercises.find(link => link.id === id); if (link) openEditExercise(link); }}
-          onRemove={id => { if (confirm("Rimuovere l'esercitazione da questa sessione?")) removeLinkMutation.mutate(id); }}
+          onRemove={id => { if (confirm("Rimuovere l'esercitazione da questa seduta?")) removeLinkMutation.mutate(id); }}
           recovery={<div className="space-y-2">
-            {planQuery.isLoading?<p role="status">Caricamento tempi della sessione...</p>:planQuery.isError?<p role="alert">Tempi non disponibili. <Button variant="link" onClick={()=>void planQuery.refetch()}>Riprova</Button></p>:<>
+            {planQuery.isLoading?<p role="status">Caricamento tempi della seduta...</p>:planQuery.isError?<p role="alert">Tempi non disponibili. <Button variant="link" onClick={()=>void planQuery.refetch()}>Riprova</Button></p>:<>
               <p>Esercitazioni: <strong>{formatMinutes(plannedExerciseMinutes)}</strong> · Recuperi: <strong>{formatMinutes(recoveryMinutes)}</strong></p>
               <p>Base iniziale: 6 esercitazioni × 15 min, senza recuperi automatici.</p>
               <p>Tempo residuo: <strong>{formatMinutes(Math.max(0,residualMinutes))}</strong></p>
               {!readOnly&&<Button type="button" variant="outline" disabled={!recoveriesDirty||savePlan.isPending||planQuery.isLoading} onClick={()=>savePlan.mutate(false)}>Salva recuperi</Button>}
-              {residualMinutes<0&&<div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950"><p>Tempo limite superato di {formatMinutes(-residualMinutes)}. Vuoi ricalcolare il minutaggio delle esercitazioni?</p><p className="mt-1 text-xs">({session.durationMinutes} − {recoveryMinutes}) ÷ {linkedExercises.length} esercitazioni{linkedExercises.length>0&&session.durationMinutes&&session.durationMinutes>recoveryMinutes?` = circa ${formatMinutes((session.durationMinutes-recoveryMinutes)/linkedExercises.length)} ciascuna`:""}. Le stazioni interne saranno riproporzionate. I tempi valgono solo per questa sessione.</p>{!readOnly&&<Button type="button" className="mt-2" disabled={savePlan.isPending||planQuery.isLoading||!linkedExercises.length||!session.durationMinutes||session.durationMinutes<=recoveryMinutes} onClick={()=>{if(confirm("Ricalcolare i tempi delle esercitazioni e delle relative stazioni solo per questa sessione?"))savePlan.mutate(true);}}>Ricalcola minutaggio</Button>}</div>}
+              {residualMinutes<0&&<div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950"><p>Tempo limite superato di {formatMinutes(-residualMinutes)}. Vuoi ricalcolare il minutaggio delle esercitazioni?</p><p className="mt-1 text-xs">({session.durationMinutes} − {recoveryMinutes}) ÷ {linkedExercises.length} esercitazioni{linkedExercises.length>0&&session.durationMinutes&&session.durationMinutes>recoveryMinutes?` = circa ${formatMinutes((session.durationMinutes-recoveryMinutes)/linkedExercises.length)} ciascuna`:""}. Le stazioni interne saranno riproporzionate. I tempi valgono solo per questa seduta.</p>{!readOnly&&<Button type="button" className="mt-2" disabled={savePlan.isPending||planQuery.isLoading||!linkedExercises.length||!session.durationMinutes||session.durationMinutes<=recoveryMinutes} onClick={()=>{if(confirm("Ricalcolare i tempi delle esercitazioni e delle relative stazioni solo per questa seduta?"))savePlan.mutate(true);}}>Ricalcola minutaggio</Button>}</div>}
             </>}
           </div>}
           organization={<div className="space-y-2 border-t pt-3">
@@ -2272,7 +2272,7 @@ function SessionDetailsDialog({
               </div>
               {viewingLink.notes && (
                 <div className="space-y-1">
-                  <Label>Note sessione</Label>
+                  <Label>Note seduta</Label>
                   <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">{viewingLink.notes}</p>
                 </div>
               )}
@@ -2299,7 +2299,7 @@ function SessionDetailsDialog({
         <DialogContent className="max-w-2xl max-h-[92vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle>
-              {editingLink ? "Modifica esercitazione collegata" : "Nuova esercitazione per sessione"}
+              {editingLink ? "Modifica esercitazione collegata" : "Nuova esercitazione per seduta"}
             </DialogTitle>
           </DialogHeader>
           <ScrollArea className="flex-1 overflow-auto">
@@ -2329,9 +2329,9 @@ function SessionDetailsDialog({
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Sessione allenamento</Label>
+                      <Label className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Seduta allenamento</Label>
                       <Select value={exerciseForm.trainingSession || "_none"} onValueChange={(v) => setExerciseForm((prev) => ({ ...prev, trainingSession: v === "_none" ? "" : v }))}>
-                        <SelectTrigger><SelectValue placeholder="Seleziona sessione" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder="Seleziona seduta" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">Nessuna</SelectItem>
                           {TRAINING_SESSIONS.map((s) => <SelectItem key={s.value} value={s.value}>{trainingSessionOptionLabel(s.value, t)}</SelectItem>)}
@@ -2813,8 +2813,8 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
       if (sessionsQuery.isSuccess && (initialSessionQuery.isError || initialSessionQuery.isSuccess)) {
         initialSessionHandledRef.current = true;
         toast({
-          title: "Sessione non trovata",
-          description: "La sessione richiesta non è disponibile per il tuo accesso o non esiste più.",
+          title: "Seduta non trovata",
+          description: "La seduta richiesta non è disponibile per il tuo accesso o non esiste più.",
           variant: "destructive",
         });
       }
@@ -3137,7 +3137,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           </div>
           <SessionGrid
             items={filtered}
-            emptyMsg="Nessuna sessione trovata in questa annata"
+            emptyMsg="Nessuna seduta trovata in questa annata"
             onOpenDetails={setDetailsSession}
             showRecovery
             isReadOnly={readOnly}
@@ -3161,7 +3161,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
               Gestione Allenamenti
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Visualizza tutte le sessioni, invia sessioni tipo e direttive agli allenatori
+              Visualizza tutte le sedute, invia sedute tipo e direttive agli allenatori
             </p>
           </div>
           <div className="flex gap-2">
@@ -3171,17 +3171,17 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             </Button>
             <Button onClick={() => { setCalendarDraft(null); setCreateOpen(true); }}>
               <Plus className="w-4 h-4 mr-2" />
-              Nuova sessione
+              Nuova seduta
             </Button>
           </div>
         </div>
 
         <details className="rounded-xl border bg-card p-3">
-          <DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri, sessioni tipo e direttive</DisclosureSummary>
+          <DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri, sedute tipo e direttive</DisclosureSummary>
           <div className="mt-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label>Cerca sessioni (principio, giorno, squadra, stato)</Label>
+            <Label>Cerca sedute (principio, giorno, squadra, stato)</Label>
             <Input
               value={tdSessionSearch}
               onChange={(e) => setTdSessionSearch(e.target.value)}
@@ -3189,7 +3189,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             />
           </div>
           <div className="space-y-2">
-            <Label>Cerca esercitazioni nelle sessioni (titolo, categoria, principio, fase)</Label>
+            <Label>Cerca esercitazioni nelle sedute (titolo, categoria, principio, fase)</Label>
             <Input
               value={tdExerciseSearch}
               onChange={(e) => setTdExerciseSearch(e.target.value)}
@@ -3201,11 +3201,11 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         <Tabs defaultValue="all">
           <TabsList className="grid grid-cols-3 w-full max-w-lg">
             <TabsTrigger value="all">
-              Tutte le sessioni
+              Tutte le sedute
               {filteredSessionsForTD.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px] px-1">{filteredSessionsForTD.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="tipo">
-              Sessioni Tipo
+              Sedute Tipo
               {filteredTipoSessionsForTD.length > 0 && <Badge className="ml-1.5 bg-amber-100 text-amber-700 text-[10px] px-1">{filteredTipoSessionsForTD.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="directives">
@@ -3218,7 +3218,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           <TabsContent value="all" className="mt-6">
             <SessionGrid
               items={filteredSessionsForTD}
-              emptyMsg={tdHasSearchFilters ? "Nessuna sessione trovata con i filtri di ricerca" : "Nessuna sessione di allenamento registrata nel club"}
+              emptyMsg={tdHasSearchFilters ? "Nessuna seduta trovata con i filtri di ricerca" : "Nessuna seduta di allenamento registrata nel club"}
               canDeleteFn={s => s.createdByUserId === userId}
               canEditFn={s => s.createdByUserId === userId}
               showComment={true}
@@ -3232,12 +3232,12 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             <div className="mb-4 flex items-start gap-3 text-sm text-muted-foreground bg-amber-50/60 border border-amber-200 rounded-lg px-4 py-3">
               <Star className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
               <span>
-                Le <strong>Sessioni Tipo</strong> vengono inviate agli allenatori o preparatori selezionati e appaiono direttamente nelle loro dashboard come sessioni da seguire.
+                Le <strong>Sedute Tipo</strong> vengono inviate agli allenatori o preparatori selezionati e appaiono direttamente nelle loro dashboard come sedute da seguire.
               </span>
             </div>
             <SessionGrid
               items={filteredTipoSessionsForTD}
-              emptyMsg={tdHasSearchFilters ? "Nessuna sessione trovata con i filtri di ricerca" : "Nessuna sessione tipo inviata"}
+              emptyMsg={tdHasSearchFilters ? "Nessuna seduta trovata con i filtri di ricerca" : "Nessuna seduta tipo inviata"}
               canDeleteFn={s => s.createdByUserId === userId}
               canEditFn={s => s.createdByUserId === userId}
               showComment={true}
@@ -3342,10 +3342,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Calendar className="w-6 h-6 text-primary" />
-              Pianificazione sessioni (segreteria)
+              Pianificazione sedute (segreteria)
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Gestisci le sessioni di tutte le squadre. Per avvisi verso allenatori, preparatori e genitori usa le notifiche piattaforma.
+              Gestisci le sedute di tutte le squadre. Per avvisi verso allenatori, preparatori e genitori usa le notifiche piattaforma.
             </p>
           </div>
           <Button asChild variant="outline" className="shrink-0">
@@ -3355,21 +3355,21 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
 
         <Card className="border-primary/20 bg-primary/[0.03]">
           <CardContent className="p-4 text-sm text-muted-foreground">
-            Puoi creare, modificare ed eliminare sessioni per conto del club. Staff tecnico e preparatori vedono e aggiornano le sessioni delle proprie annate dalla propria area.
+            Puoi creare, modificare ed eliminare sedute per conto del club. Staff tecnico e preparatori vedono e aggiornano le sedute delle proprie annate dalla propria area.
           </CardContent>
         </Card>
 
         <div className="flex justify-end">
           <Button onClick={() => { setCalendarDraft(null); setCreateOpen(true); }}>
             <Plus className="w-4 h-4 mr-2" />
-            Nuova sessione
+            Nuova seduta
           </Button>
         </div>
 
-        <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco e gestione sessioni</DisclosureSummary><div className="mt-4">
+        <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco e gestione sedute</DisclosureSummary><div className="mt-4">
         <SessionGrid
           items={sessions}
-          emptyMsg="Nessuna sessione di allenamento registrata nel club"
+          emptyMsg="Nessuna seduta di allenamento registrata nel club"
           canDeleteFn={() => true}
           canEditFn={() => true}
           onOpenDetails={setDetailsSession}
@@ -3432,10 +3432,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             <Eye className="w-3 h-3" /> Solo visualizzazione
           </Badge>
         </div>
-        <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco e archivio sessioni</DisclosureSummary><div className="mt-4">
+        <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco e archivio sedute</DisclosureSummary><div className="mt-4">
         <SeasonArchive
           items={sessions}
-          emptyMsg="Nessuna sessione di allenamento programmata"
+          emptyMsg="Nessuna seduta di allenamento programmata"
           readOnly
         />
         </div></details>
@@ -3463,21 +3463,21 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Calendar className="w-6 h-6 text-primary" />
-            Le mie Sessioni
+            Le mie Sedute
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Pianifica e gestisci le tue sessioni di allenamento</p>
+          <p className="text-sm text-muted-foreground mt-1">Pianifica e gestisci le tue sedute di allenamento</p>
         </div>
         <Button onClick={() => { setCalendarDraft(null); setCreateOpen(true); }}>
           <Plus className="w-4 h-4 mr-2" />
-          Nuova sessione
+          Nuova seduta
         </Button>
       </div>
 
-      <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri e gestione sessioni</DisclosureSummary><div className="mt-4">
+      <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri e gestione sedute</DisclosureSummary><div className="mt-4">
       {/* My sessions */}
       <div className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Le mie sessioni ({filteredMySessionsForCoach.length}/{mySessionsForCoach.length})
+          Le mie sedute ({filteredMySessionsForCoach.length}/{mySessionsForCoach.length})
         </h2>
         {coachTeamOptions.length > 1 ? (
           <div className="space-y-2">
@@ -3521,9 +3521,9 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             </SelectContent>
           </Select>
           <Select value={coachSlotFilter} onValueChange={(v) => setCoachSlotFilter(v)}>
-            <SelectTrigger><SelectValue placeholder="Giorno/sessione" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Giorno/seduta" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tutte le sessioni</SelectItem>
+              <SelectItem value="all">Tutte le sedute</SelectItem>
               {coachSlotOptions.map((slot) => (
                 <SelectItem key={slot} value={slot}>{trainingSessionOptionLabel(slot, t)}</SelectItem>
               ))}
@@ -3544,7 +3544,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           emptyMsg={
             coachTeamOptions.length > 1 && !coachTeamScope
               ? "Seleziona prima un'annata/squadra"
-              : "Nessuna sessione trovata con i filtri selezionati"
+              : "Nessuna seduta trovata con i filtri selezionati"
           }
           canDeleteFn={s => s.canEdit === true || s.createdByUserId === userId}
           canEditFn={s => s.canEdit === true || s.createdByUserId === userId}
@@ -3575,11 +3575,11 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         <div className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
             <Star className="w-3.5 h-3.5 text-amber-500" />
-            Sessioni Tipo da Seguire ({tipoReceived.length})
+            Sedute Tipo da Seguire ({tipoReceived.length})
           </h2>
           <SessionGrid
             items={tipoReceived}
-            emptyMsg="Nessuna sessione tipo da seguire"
+            emptyMsg="Nessuna seduta tipo da seguire"
           />
         </div>
       )}
