@@ -1,3 +1,5 @@
+import { Link } from "wouter";
+import { safeTrainingReturnPath } from "@/lib/training-session-slot";
 import { ParentAvailabilityBadge, useTrainingAvailability, TrainingAvailabilityPanel } from "@/components/calendar/TrainingAvailability";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -160,6 +162,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const qc = useQueryClient();
   const initialParams = new URLSearchParams(window.location.search);
   const initialSessionId = initialParams.get("sessionId");
+  const returnTo = safeTrainingReturnPath(initialParams.get("returnTo"));
   const initialTeamId = initialParams.get("teamId");
   const initialDate = initialParams.get("date");
   const initialStart = initialParams.get("start");
@@ -426,6 +429,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
+        {returnTo && <Button asChild variant="outline" size="sm"><Link href={returnTo}>Torna alla seduta</Link></Button>}
         <h1 className="text-2xl font-bold flex items-center gap-2"><CalendarCheck className="w-6 h-6 text-primary" />{t.trainingAttendance}</h1>
         <p className="text-sm text-muted-foreground mt-1">{t.attendanceDesc}</p>
       </div>

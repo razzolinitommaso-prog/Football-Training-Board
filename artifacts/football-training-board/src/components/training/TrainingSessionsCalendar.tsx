@@ -1,3 +1,4 @@
+import { inferTrainingSlot } from "@/lib/training-session-slot";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
@@ -13,7 +14,7 @@ const dayKey = (date: Date) => format(date, "yyyy-MM-dd");
 const label = (row: SessionCalendarRow) => row.status === "complete" ? "Preparazione completa" : row.status === "pending" ? "Da completare" : row.status === "planned" ? "Sessione da creare" : row.status === "cancelled" ? "Annullato" : row.status === "unknown" ? "Preparazione da verificare" : "Spostato / congiunto";
 const tone = (row: SessionCalendarRow) => row.status === "complete" ? "border-emerald-300 bg-emerald-50 text-emerald-900" : row.status === "pending" ? "border-amber-300 bg-amber-50 text-amber-950" : "border-border bg-muted/30 text-muted-foreground";
 
-type Props = { teams: SessionCalendarTeam[]; sessions: CalendarSession[]; section?: string; canCreate: boolean; loading: boolean; error: boolean; onRetry:()=>void; onOpen:(id:number)=>void; onCreate:(draft:{teamId:number;date:string;start:string;durationMinutes?:number})=>void; focusSession?: CalendarSession | null };
+type Props = { teams: SessionCalendarTeam[]; sessions: CalendarSession[]; section?: string; canCreate: boolean; loading: boolean; error: boolean; onRetry:()=>void; onOpen:(id:number)=>void; onCreate:(draft:{teamId:number;date:string;start:string;durationMinutes?:number;trainingSession?:string})=>void; focusSession?: CalendarSession | null };
 
 export function TrainingSessionsCalendar(props: Props) {
   const {club,user,role,section:activeSection} = useAuth();
@@ -56,7 +57,9 @@ export function TrainingSessionsCalendar(props: Props) {
     else if(row.status==="planned"&&createAllowed&&team) {
       const minutes=(value:string)=>Number(value.slice(0,2))*60+Number(value.slice(3,5));
       const duration=row.endTime ? minutes(row.endTime)-minutes(row.time) : 0;
-      props.onCreate({teamId:team.id,date:row.date,start:row.time,durationMinutes:duration>0?duration:undefined});
+      const change = (changesQuery.data ?? []).find(item => row.id === `change-${item.id}`);
+      const trainingSession = inferTrainingSlot(team, change?.originalDate ?? row.date, change?.originalStartTime ?? row.time);
+      props.onCreate({teamId:team.id,date:row.date,start:row.time,durationMinutes:duration>0?duration:undefined,trainingSession});
     }
   };
   const move=(amount:number)=>{const next=addMonths(month,amount);setMonth(next);setSelected(dayKey(next));};

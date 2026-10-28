@@ -1,3 +1,4 @@
+import { inferTrainingSlot, trainingSlotOptions } from "@/lib/training-session-slot";
 import { TrainingRosterPicker } from "@/components/training/TrainingRosterPicker";
 import { MaterialPicker } from "@/components/training/MaterialPicker";
 import { divideExerciseMinutes, sumExerciseMinutes, mergeExerciseMaterials } from "@/lib/exercise-station-timing";
@@ -14,7 +15,7 @@ import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/rea
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/i18n";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -142,6 +143,7 @@ type InitialSessionDraft = {
   date?: string | null;
   start?: string | null;
   durationMinutes?: number;
+  trainingSession?: string;
 };
 
 interface PlayerOption {
@@ -546,9 +548,9 @@ function parseSelectedPlayerIds(raw: string): number[] {
 function getSessionTrainingSession(session: TrainingSession): string | null {
   const noteValue = session.notes ?? "";
   if (!noteValue.startsWith(SESSION_SLOT_NOTE_PREFIX)) return null;
-  const value = noteValue.slice(SESSION_SLOT_NOTE_PREFIX.length).trim();
+  const value = noteValue.slice(SESSION_SLOT_NOTE_PREFIX.length).split("\n")[0].trim();
   if (!value) return null;
-  return TRAINING_SESSIONS.some((item) => item.value === value) ? value : null;
+  return /^giorno_([1-9]|1[0-4])$/.test(value) ? value : null;
 }
 
 function getTrainingCalendarNote(session: TrainingSession): string | null {
@@ -1085,7 +1087,7 @@ function CreateSessionDialog({
   onCreatedSession?: (session: TrainingSession, phase?: string) => void;
   members: Member[];
   isTD: boolean;
-  teams: { id: number; name: string }[];
+  teams: SessionCalendarTeam[];
   initialDraft?: InitialSessionDraft;
 }) {
   const { toast } = useToast();
@@ -1100,18 +1102,21 @@ function CreateSessionDialog({
   const [teamId, setTeamId] = useState<number | null>(null);
   const [sessionPrincipio, setSessionPrincipio] = useState("");
   const [sessionTrainingSession, setSessionTrainingSession] = useState("");
+  const manualSlot = useRef(false);
   const [sessionKind, setSessionKind] = useState<"regular" | "tipo">("regular");
   const [recipientMode, setRecipientMode] = useState<"selected" | "all">("selected");
   const [recipients, setRecipients] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
 
   function reset() {
+    manualSlot.current = false;
     setScheduledDate(""); setScheduledTime(""); setDuration(90);
     setLocation(""); setTeamId(null); setSessionPrincipio(""); setSessionTrainingSession(""); setSessionKind("regular"); setRecipientMode("selected"); setRecipients([]); requestedPhase.current=undefined;setCreationRecoveries([0,0]);
   }
 
   useEffect(() => {
     if (!open || !initialDraft) return;
+    if (initialDraft.trainingSession) { setSessionTrainingSession(initialDraft.trainingSession); manualSlot.current = true; }
     if (initialDraft.date) setScheduledDate(toDisplayDateValue(`${initialDraft.date}T00:00:00`));
     if (initialDraft.start) setScheduledTime(formatTimeInput(initialDraft.start));
     if (initialDraft.durationMinutes && initialDraft.durationMinutes > 0) setDuration(initialDraft.durationMinutes);
@@ -1119,6 +1124,11 @@ function CreateSessionDialog({
       setTeamId(initialDraft.teamId);
     }
   }, [initialDraft, open, teams]);
+
+  useEffect(() => {
+    if (!open || manualSlot.current || sessionKind !== "regular") return;
+    setSessionTrainingSession(inferTrainingSlot(teams.find(team => team.id === teamId), normalizeDateIt(scheduledDate) ?? "", normalizeTime24(scheduledTime) ?? ""));
+  }, [open, teamId, scheduledDate, scheduledTime, sessionKind, teams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1208,12 +1218,12 @@ function CreateSessionDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>{t.trainingSessionField} <span className="text-destructive">*</span></Label>
-            <Select value={sessionTrainingSession || "_none"} onValueChange={v => setSessionTrainingSession(v === "_none" ? "" : v)}>
+            <Select value={sessionTrainingSession || "_none"} onValueChange={v => { manualSlot.current = true; setSessionTrainingSession(v === "_none" ? "" : v); }}>
               <SelectTrigger><SelectValue placeholder={t.selectSession} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_none">{t.selectSession}...</SelectItem>
-                {TRAINING_SESSIONS.map(opt => (
-                  <SelectItem key={opt.value} value={opt.value}>{trainingSessionOptionLabel(opt.value, t)}</SelectItem>
+                {trainingSlotOptions(teams.find(team => team.id === teamId), sessionTrainingSession).map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -1240,14 +1250,14 @@ function CreateSessionDialog({
                 <Input
                   type="text"
                   value={scheduledDate}
-                  onChange={e => setScheduledDate(formatDateInput(e.target.value))}
+                  onChange={e => { manualSlot.current = false; setScheduledDate(formatDateInput(e.target.value)); }}
                   placeholder="dd/MM/yyyy"
                   inputMode="numeric"
                 />
                 <Input
                   type="text"
                   value={scheduledTime}
-                  onChange={e => setScheduledTime(formatTimeInput(e.target.value))}
+                  onChange={e => { manualSlot.current = false; setScheduledTime(formatTimeInput(e.target.value)); }}
                   placeholder="HH:mm"
                   inputMode="numeric"
                 />
@@ -1262,7 +1272,7 @@ function CreateSessionDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Squadra</Label>
-              <Select value={teamId?.toString() ?? ""} onValueChange={v => setTeamId(v ? Number(v) : null)}>
+              <Select value={teamId?.toString() ?? ""} onValueChange={v => { manualSlot.current = false; setTeamId(v ? Number(v) : null); }}>
                 <SelectTrigger><SelectValue placeholder="Seleziona..." /></SelectTrigger>
                 <SelectContent>
                   {teams.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}
@@ -1330,13 +1340,15 @@ function EditSessionDialog({
   onManageExercises,
   teams,
   inline = false,
+  onDirtyChange,
 }: {
   session: TrainingSession;
   onClose: () => void;
   onSaved: () => void;
   onManageExercises?: () => void;
   inline?: boolean;
-  teams: { id: number; name: string }[];
+  onDirtyChange?: (dirty: boolean) => void;
+  teams: SessionCalendarTeam[];
 }) {
   const { toast } = useToast();
   const { t } = useLanguage();
@@ -1346,8 +1358,13 @@ function EditSessionDialog({
   const [location, setLocation] = useState(session.location ?? "");
   const [teamId, setTeamId] = useState<number | null>(session.teamId ?? null);
   const [sessionPrincipio, setSessionPrincipio] = useState(normalizePrincipio(session.objectives));
-  const [sessionTrainingSession, setSessionTrainingSession] = useState(getSessionTrainingSession(session) ?? "");
+  const [sessionTrainingSession, setSessionTrainingSession] = useState(getSessionTrainingSession(session) ?? inferTrainingSlot(teams.find(team => team.id === session.teamId), datePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)), timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt))));
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const original = [toDisplayDateValue(session.scheduledAt), timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)), session.durationMinutes ?? 90, session.location ?? "", session.teamId ?? null, normalizePrincipio(session.objectives), getSessionTrainingSession(session) ?? inferTrainingSlot(teams.find(team => team.id === session.teamId), datePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)), timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)))];
+    onDirtyChange?.(JSON.stringify(original) !== JSON.stringify([scheduledDate, scheduledTime, duration, location, teamId, sessionPrincipio, sessionTrainingSession]));
+  }, [scheduledDate, scheduledTime, duration, location, teamId, sessionPrincipio, sessionTrainingSession, session, teams, onDirtyChange]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1380,7 +1397,7 @@ function EditSessionDialog({
           durationMinutes: duration,
           location: location || null,
           objectives: sessionPrincipio || null,
-          notes: `${SESSION_SLOT_NOTE_PREFIX}${sessionTrainingSession}`,
+          notes: `${SESSION_SLOT_NOTE_PREFIX}${sessionTrainingSession}${getTrainingCalendarNote(session) ? `\n${TRAINING_CALENDAR_NOTE_MARKER}${getTrainingCalendarNote(session)}` : ""}`,
           teamId,
         }),
       });
@@ -1406,8 +1423,8 @@ function EditSessionDialog({
               <SelectTrigger><SelectValue placeholder={t.selectSession} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_none">{t.selectSession}...</SelectItem>
-                {TRAINING_SESSIONS.map(opt => (
-                  <SelectItem key={opt.value} value={opt.value}>{trainingSessionOptionLabel(opt.value, t)}</SelectItem>
+                {trainingSlotOptions(teams.find(team => team.id === teamId), sessionTrainingSession).map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -1793,13 +1810,23 @@ function SessionDetailsDialog({
 }: {
   session: TrainingSession;
   onClose: () => void;
-  teams: { id: number; name: string; clubSection?: string | null }[];
+  teams: SessionCalendarTeam[];
   readOnly?: boolean;
   onEditSession?: () => void;
   initialAddPhase?: string;
   onDeleteSession?:()=>void;
 }) {
   const { role, user } = useAuth();
+  const [, navigate] = useLocation();
+  const [metadataDirty, setMetadataDirty] = useState(false);
+  function openAttendance() {
+    if ((metadataDirty || recoveriesDirty || exerciseFormOpen) && !window.confirm("Ci sono modifiche non salvate. Aprire le presenze e abbandonarle?")) return;
+    const teamSection = normalizeClubSection(teams.find(team => team.id === session.teamId)?.clubSection);
+    const base = teamSection ? `/${teamSection.replace(/_/g, "-")}` : "";
+    const returnTo = `${window.location.pathname}?sessionId=${session.id}`;
+    navigate(`${base}/attendance?sessionId=${session.id}&returnTo=${encodeURIComponent(returnTo)}`);
+  }
+
   const canEditMetadata=!readOnly&&(role!=="technical_director"||session.createdByUserId===user?.id);
   const { toast } = useToast();
   const { t } = useLanguage();
@@ -2124,12 +2151,13 @@ function SessionDetailsDialog({
             <Calendar className="w-4 h-4" />
             Scheda sessione - {session.title}
           </DialogTitle>
+          {session.sessionKind === "regular" && <Button type="button" variant="outline" size="sm" className="w-fit" onClick={openAttendance}><UserCheck className="mr-2 h-4 w-4" />Presenze</Button>}
           {!readOnly&&onDeleteSession&&<Button type="button" variant="outline" size="sm" className="w-fit text-destructive" onClick={onDeleteSession}>Elimina seduta</Button>}
           {canEditMetadata && <Button type="button" variant="outline" size="sm" className="mt-2 w-fit" onClick={()=>setEditingMetadata(!editingMetadata)}>{editingMetadata?"Chiudi dati sessione":"Modifica dati sessione"}</Button>}
         </DialogHeader>
 
         <TrainingSessionOverview
-          editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline session={session} teams={teams} onClose={()=>setEditingMetadata(false)} onSaved={()=>{void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
+          editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>setEditingMetadata(false)} onSaved={()=>{void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
           phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 text-sm"><Label htmlFor={`recovery-${session.id}-${index}`}>Recupero tra fase {index+1} e {index+2}</Label><Input id={`recovery-${session.id}-${index}`} aria-label={`Recupero tra fase ${index+1} e ${index+2}`} className="w-20" type="number" min={0} max={300} step={1} disabled={readOnly||planQuery.isLoading||planQuery.isError||savePlan.isPending} value={recoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300){setRecoveries(previous=>index===0?[value,previous[1]]:[previous[0],value]);setRecoveriesDirty(true);}}}/><span>min</span></div>)}
           metadata={editingMetadata&&canEditMetadata?[]:[
             { label: "Giorno", value: format(new Date(session.scheduledAt), "EEEE", { locale: itLocale }) },
