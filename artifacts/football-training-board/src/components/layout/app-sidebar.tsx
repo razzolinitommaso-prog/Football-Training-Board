@@ -32,7 +32,6 @@ import {
   Star,
   School,
   ChevronRight,
-  X,
   CalendarRange,
   RefreshCw,
   Bus,
@@ -126,7 +125,7 @@ export function AppSidebar() {
   const { data: liveClub } = useGetMyClub();
   const activeClub = liveClub ?? club;
   const { t } = useLanguage();
-  const { isMobile, setOpenMobile, toggleSidebar } = useSidebar();
+  const { isMobile, setOpenMobile } = useSidebar();
 
   useEffect(() => {
     if (isMobile) {
@@ -343,15 +342,7 @@ export function AppSidebar() {
                 {activeClub?.name || "FT Board"}
               </span>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0 h-9 w-9 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent md:hidden"
-              onClick={toggleSidebar}
-              aria-label="Chiudi menu"
-            >
-              <X className="w-5 h-5" />
-            </Button>
+
           </div>
         </div>
 

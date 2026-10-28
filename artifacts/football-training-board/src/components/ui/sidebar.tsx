@@ -164,6 +164,9 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const swipeStart = React.useRef<{ id: number; x: number; y: number; at: number } | null>(null)
+  const swallowClick = React.useRef(false)
+
 
   if (collapsible === "none") {
     return (
@@ -185,10 +188,29 @@ function Sidebar({
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
           dismissOnPointerDownOutside
+          onPointerDownCapture={event => {
+            swallowClick.current = false
+            if (event.pointerType !== "touch" || !event.isPrimary || (event.target as HTMLElement).closest("input,textarea,select,[role=slider]")) { swipeStart.current = null; return }
+            swipeStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY, at: performance.now() }
+          }}
+          onPointerCancel={() => { swipeStart.current = null }}
+          onPointerUpCapture={event => {
+            const start = swipeStart.current
+            swipeStart.current = null
+            if (!start || event.pointerId !== start.id) return
+            const dx = (event.clientX - start.x) * (side === "left" ? 1 : -1)
+            const dy = Math.abs(event.clientY - start.y)
+            if (dx <= -64 && Math.abs(dx) > dy * 2.5 && dy < 40 && performance.now() - start.at < 800) {
+              event.preventDefault()
+              swallowClick.current = true
+              setOpenMobile(false)
+            }
+          }}
+          onClickCapture={event => { if (swallowClick.current) { event.preventDefault(); event.stopPropagation(); swallowClick.current = false } }}
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="bg-sidebar text-sidebar-foreground w-[var(--sidebar-width)] p-0 [&>button]:hidden"
+          className="bg-sidebar text-sidebar-foreground w-[var(--sidebar-width)] touch-pan-y p-0 [&>button]:hidden"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
