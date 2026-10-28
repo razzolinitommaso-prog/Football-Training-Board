@@ -1,3 +1,4 @@
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { ADDITIONAL_EQUIPMENT, AdditionalEquipmentGlyph } from "./additional-equipment";
 import { AnimationPanel } from "./animation-panel";
@@ -3672,19 +3673,19 @@ const QuickPage = () => {
           <DisclosureSummary className="cursor-pointer px-3 py-3 text-sm font-semibold md:hidden">Campo e modulo · {boardFormat}</DisclosureSummary>
           <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-white/10 bg-[#0B1220] md:px-6 md:py-3">
             <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-              <select
+              <ScrollableSelect
                 value={selectedPreset ?? ""}
-                onChange={(e) => applyPreset(e.target.value)}
+                onValueChange={(e) => applyPreset(e)}
                 className="h-10 min-w-0 rounded-xl border border-white/10 bg-[#111827] px-2 text-sm text-white outline-none sm:px-3"
               >
                 <option className="bg-[#111827] text-white" value="">Scegli modulo</option>
                 {formationPresetOptions.map((formation) => (
                   <option className="bg-[#111827] text-white" key={formation} value={formation}>{formation}</option>
                 ))}
-              </select>
-              <select
+              </ScrollableSelect>
+              <ScrollableSelect
                 value={fieldViewMode}
-                onChange={(event) => setFieldViewMode(event.target.value as FieldViewMode)}
+                onValueChange={(event) => setFieldViewMode(event as FieldViewMode)}
                 className="h-10 min-w-0 rounded-xl border border-white/10 bg-[#111827] px-2 text-sm text-white outline-none sm:px-3"
                 title="Vista campo"
               >
@@ -3693,7 +3694,7 @@ const QuickPage = () => {
                     {option.label}
                   </option>
                 ))}
-              </select>
+              </ScrollableSelect>
               <div className="relative">
                 <button
                   type="button"
@@ -3736,9 +3737,9 @@ const QuickPage = () => {
                   </div>
                 )}
               </div>
-              <select
+              <ScrollableSelect
                 value={boardMode === "assigned" && boardTeamId ? String(boardTeamId) : ""}
-                onChange={(e) => loadTeamById(e.target.value)}
+                onValueChange={(e) => loadTeamById(e)}
                 className={`h-10 min-w-0 rounded-xl border px-2 text-sm outline-none transition sm:px-3 ${
                   boardMode === "assigned"
                     ? "border-[#FACC15] bg-[#FACC15] text-black font-semibold"
@@ -3751,7 +3752,7 @@ const QuickPage = () => {
                     {team.name ?? team.displayName ?? `Squadra ${team.id}`}
                   </option>
                 ))}
-              </select>
+              </ScrollableSelect>
               <button
                 type="button"
                 onClick={() => setActiveTool("select")}
@@ -5445,9 +5446,9 @@ const QuickPage = () => {
                       <div className="grid min-w-0 gap-2">
                         <label className="grid min-w-0 gap-1">
                           <span className="text-[11px] font-semibold text-white/55">Partita</span>
-                          <select
+                          <ScrollableSelect
                             value={selectedMatchId ? String(selectedMatchId) : ""}
-                            onChange={(e) => selectMatchForBoard(e.target.value)}
+                            onValueChange={(e) => selectMatchForBoard(e)}
                             className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                           >
                             <option value="">Seleziona partita</option>
@@ -5472,7 +5473,7 @@ const QuickPage = () => {
                                 </optgroup>
                               );
                             })}
-                          </select>
+                          </ScrollableSelect>
                         </label>
                         <label className="grid min-w-0 gap-1">
                           <span className="text-[11px] font-semibold text-white/55">Modulo di partenza</span>
@@ -5485,9 +5486,9 @@ const QuickPage = () => {
                         </label>
                         <label className="grid min-w-0 gap-1">
                           <span className="text-[11px] font-semibold text-white/55">Preset tattico</span>
-                          <select
+                          <ScrollableSelect
                             value={selectedPreset && isFormationPresetId(selectedPreset) ? selectedPreset : ""}
-                            onChange={(e) => applyMatchPlanFormation(e.target.value)}
+                            onValueChange={(e) => applyMatchPlanFormation(e)}
                             className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                           >
                             <option value="">Seleziona modulo</option>
@@ -5496,28 +5497,28 @@ const QuickPage = () => {
                                 {formation}
                               </option>
                             ))}
-                          </select>
+                          </ScrollableSelect>
                         </label>
                         <label className="grid min-w-0 gap-1">
                           <span className="text-[11px] font-semibold text-white/55">Tempo lavagna</span>
-                          <select
+                          <ScrollableSelect
                             value={matchPeriodKey}
-                            onChange={(e) => setMatchPeriodKey(e.target.value as "t1" | "t2" | "t3" | "t4")}
+                            onValueChange={(e) => setMatchPeriodKey(e as "t1" | "t2" | "t3" | "t4")}
                             className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                           >
                             <option value="t1">1° tempo</option>
                             <option value="t2">2° tempo</option>
                             <option value="t3">3° tempo</option>
                             <option value="t4">4° tempo</option>
-                          </select>
+                          </ScrollableSelect>
                         </label>
                         <label className="grid min-w-0 gap-1">
                           <span className="text-[11px] font-semibold text-white/55">{replacingElementIndex !== null ? "Sostituisci con" : "Aggiungi titolare"}</span>
-                          <select
+                          <ScrollableSelect
                             value={matchPlanPlayerId}
-                            onChange={(e) => {
-                              setMatchPlanPlayerId(e.target.value);
-                              addMatchPlanPlayerToPitch(e.target.value);
+                            onValueChange={(e) => {
+                              setMatchPlanPlayerId(e);
+                              addMatchPlanPlayerToPitch(e);
                             }}
                             className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                             disabled={!teamPlayers.length || !selectedMatchId}
@@ -5536,7 +5537,7 @@ const QuickPage = () => {
                                 </optgroup>
                               );
                             })}
-                          </select>
+                          </ScrollableSelect>
                         </label>
                         <div className="rounded-lg border border-white/10 bg-[#0F172A] p-2">
                           <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-semibold text-white/55">
@@ -6265,25 +6266,25 @@ const QuickPage = () => {
                   onChange={(e) => { setBoardTitle(e.target.value); setSaveState("Unsaved"); }}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm outline-none"
                 />
-                <select
+                <ScrollableSelect
                   value={boardType}
-                  onChange={(e) => setBoardType(e.target.value as (typeof BOARD_TYPES)[number])}
+                  onValueChange={(e) => setBoardType(e as (typeof BOARD_TYPES)[number])}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm"
                 >
                   {BOARD_TYPES.map((type) => (
                     <option key={type} value={type}>{type}</option>
                   ))}
-                </select>
-                <select
+                </ScrollableSelect>
+                <ScrollableSelect
                   value={selectedPreset ?? ""}
-                  onChange={(e) => applyPreset(e.target.value)}
+                  onValueChange={(e) => applyPreset(e)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm"
                 >
                   <option value="">Nessun preset formazione</option>
                   {Object.keys(FORMATIONS).map((formation) => (
                     <option key={formation} value={formation}>{formation}</option>
                   ))}
-                </select>
+                </ScrollableSelect>
                 <div className="flex flex-wrap gap-2">
                   {BOARD_TAGS.map((tag) => (
                     <span key={tag} className="px-3 py-1 rounded-full bg-white/10 text-xs">

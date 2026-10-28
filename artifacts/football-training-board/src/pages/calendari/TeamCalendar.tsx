@@ -1,3 +1,4 @@
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { splitMatchLineup, changeMatchLineupStatus } from "@/lib/match-lineup";
 import { useState, useRef, useEffect, useMemo } from "react";
@@ -1680,15 +1681,15 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
   return <div className="space-y-2" aria-label={`Schieramento ${editorLabel}`}>
     {onChange && <>
       <label className="block text-xs font-medium">Modulo
-        <select aria-label={`Modulo ${editorLabel}`} className="mt-1 min-h-9 w-full rounded-md border bg-background px-2 text-xs" value={period.module ?? ""} onChange={event => {
-          const module = event.target.value;
+        <ScrollableSelect aria-label={`Modulo ${editorLabel}`} className="mt-1 min-h-9 w-full rounded-md border bg-background px-2 text-xs" value={period.module ?? ""} onValueChange={event => {
+          const module = event;
           const ordered = normalizePeriodLineup({ ...period, lineupPlayerIds: ids }, playersById, limit).lineupPlayerIds;
           const nextSlots = formationSlotsForLineup(module, period.format ?? matchFormat, limit);
           onChange({ module, lineupPlayerIds: ordered, lineupStarterCount: starterCount, lineupPositions: Object.fromEntries(ordered.slice(0, starterCount).map((id, index) => [String(id), { x: nextSlots[index]?.x ?? 50, y: nextSlots[index]?.y ?? 50 }])) });
         }}>
           <option value="">Modulo base ({period.format ?? matchFormat})</option>
           {moduleOptionsForFormat(period.format ?? matchFormat).map(module => <option key={module} value={module}>{module}</option>)}
-        </select>
+        </ScrollableSelect>
       </label>
       <p className="text-[11px] text-muted-foreground">Trascina i giocatori sul campo. Tocca un nome per scambiarlo; da tastiera usa le frecce.</p>
     </>}
@@ -1751,8 +1752,8 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
     </div>
     {groups.reserves.length > 0 && <p className="text-xs"><span className="font-semibold">Riserve: </span>{groups.reserves.map(id => { const p = playersById.get(id); return p ? `${p.firstName} ${p.lastName}` : String(id); }).join(", ")}</p>}
     {onChange && selectedId != null && ids.includes(selectedId) && <label className="block text-xs font-medium">Scambia giocatore
-      <select aria-label={`Scambia giocatore ${editorLabel}`} className="mt-1 min-h-9 w-full rounded-md border bg-background px-2 text-xs" value={selectedId} onChange={event => {
-        const nextId = Number(event.target.value), index = ids.indexOf(selectedId), other = ids.indexOf(nextId);
+      <ScrollableSelect aria-label={`Scambia giocatore ${editorLabel}`} className="mt-1 min-h-9 w-full rounded-md border bg-background px-2 text-xs" value={selectedId} onValueChange={event => {
+        const nextId = Number(event), index = ids.indexOf(selectedId), other = ids.indexOf(nextId);
         if (nextId === selectedId || index < 0 || !selectedIds.has(nextId)) return;
         const lineupPlayerIds = [...ids]; lineupPlayerIds[index] = nextId;
         if (other >= 0) lineupPlayerIds[other] = selectedId;
@@ -1761,7 +1762,7 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
         onChange({ lineupPlayerIds, lineupPositions, lineupStarterCount: starterCount }); setSelectedId(nextId);
       }}>
         {[...playersById.values()].filter(player => selectedIds.has(player.id)).map(player => <option key={player.id} value={player.id}>{player.firstName} {player.lastName}</option>)}
-      </select>
+      </ScrollableSelect>
     </label>}
     {ids.length === 0 && <p className="text-xs text-muted-foreground">Seleziona i convocati o caricali nel tempo per visualizzare lo schieramento.</p>}
     {onChange && ids.length === 0 && selectedIds.size > 0 && <Button type="button" size="sm" variant="outline" onClick={() => onChange({ lineupPlayerIds: normalizeLineupGoalkeepers([...selectedIds], playersById, limit), lineupStarterCount: Math.min(selectedIds.size, limit), lineupPositions: {} })}>Carica convocati sul campo</Button>}
@@ -3807,7 +3808,7 @@ function MatchCard({
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <select
+                <ScrollableSelect
                   value={lineupDialog.module}
                   disabled
                   className="h-9 rounded-md border border-input bg-muted/30 px-2 text-sm text-muted-foreground"
@@ -3816,7 +3817,7 @@ function MatchCard({
                   {lineupModuleOptions.map((module) => (
                     <option key={module} value={module}>{module}</option>
                   ))}
-                </select>
+                </ScrollableSelect>
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800">
                   Rilevato: <span className="font-semibold">{lineupDetectedModule || "posiziona i titolari"}</span>
                 </div>
@@ -3881,55 +3882,55 @@ function MatchCard({
                     <div className="space-y-2">
                       <label className="block font-semibold text-slate-700">
                         Tracciato
-                        <select
+                        <ScrollableSelect
                           value={lineupDialog.geometry}
                           className="mt-1 h-8 w-full rounded-md border bg-white px-2 text-xs"
-                          onChange={(e) => setLineupDialog((prev) => prev ? { ...prev, geometry: e.target.value as LineupDrawing["geometry"] } : prev)}
+                          onValueChange={(e) => setLineupDialog((prev) => prev ? { ...prev, geometry: e as LineupDrawing["geometry"] } : prev)}
                         >
                           <option value="freehand">Mano libera</option>
                           <option value="straight">Retta</option>
                           <option value="conduzione-freehand">Conduzione libera</option>
                           <option value="conduzione-straight">Conduzione retta</option>
-                        </select>
+                        </ScrollableSelect>
                       </label>
                       <label className="block font-semibold text-slate-700">
                         Punte
-                        <select
+                        <ScrollableSelect
                           value={lineupDialog.arrowHeads}
                           className="mt-1 h-8 w-full rounded-md border bg-white px-2 text-xs"
-                          onChange={(e) => setLineupDialog((prev) => prev ? { ...prev, arrowHeads: e.target.value as LineupDrawing["arrowHeads"] } : prev)}
+                          onValueChange={(e) => setLineupDialog((prev) => prev ? { ...prev, arrowHeads: e as LineupDrawing["arrowHeads"] } : prev)}
                         >
                           <option value="end">Verso la fine</option>
                           <option value="start">Verso l'inizio</option>
                           <option value="both">Entrambe le estremita</option>
                           <option value="none">Senza punta</option>
-                        </select>
+                        </ScrollableSelect>
                       </label>
                     </div>
                   )}
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <label className="font-semibold text-slate-700">
                       Linea
-                      <select
+                      <ScrollableSelect
                         value={lineupDialog.lineStyle}
                         className="mt-1 h-8 w-full rounded-md border bg-white px-2 text-xs"
-                        onChange={(e) => setLineupDialog((prev) => prev ? { ...prev, lineStyle: e.target.value as LineupDrawing["lineStyle"] } : prev)}
+                        onValueChange={(e) => setLineupDialog((prev) => prev ? { ...prev, lineStyle: e as LineupDrawing["lineStyle"] } : prev)}
                       >
                         <option value="solid">Continua</option>
                         <option value="dashed" disabled={isLineupConduzioneGeometry(lineupDialog.geometry)}>Tratteggio</option>
-                      </select>
+                      </ScrollableSelect>
                     </label>
                     <label className="font-semibold text-slate-700">
                       Spessore
-                      <select
+                      <ScrollableSelect
                         value={lineupDialog.lineWidth}
                         className="mt-1 h-8 w-full rounded-md border bg-white px-2 text-xs"
-                        onChange={(e) => setLineupDialog((prev) => prev ? { ...prev, lineWidth: Number(e.target.value) } : prev)}
+                        onValueChange={(e) => setLineupDialog((prev) => prev ? { ...prev, lineWidth: Number(e) } : prev)}
                       >
                         {[2, 3, 4, 5].map((width) => (
                           <option key={width} value={width}>{width}</option>
                         ))}
-                      </select>
+                      </ScrollableSelect>
                     </label>
                   </div>
                 </div>
@@ -4129,15 +4130,15 @@ function MatchCard({
                           onPointerUp={(event) => event.stopPropagation()}
                         >
                           <p className="mb-1 truncate font-semibold text-slate-900">{player.firstName} {player.lastName}</p>
-                          <select
+                          <ScrollableSelect
                             className="h-7 w-full rounded border bg-white px-1 text-[11px]"
                             value={String(playerId)}
                             onClick={(event) => event.stopPropagation()}
                             onMouseDown={(event) => event.stopPropagation()}
                             onPointerDown={(event) => event.stopPropagation()}
                             onPointerUp={(event) => event.stopPropagation()}
-                            onChange={(e) => {
-                              const nextId = e.target.value ? Number(e.target.value) : null;
+                            onValueChange={(e) => {
+                              const nextId = e ? Number(e) : null;
                               setLineupDialog((prev) => {
                                 if (!prev) return prev;
                                 return {
@@ -4156,7 +4157,7 @@ function MatchCard({
                                 {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
                               </option>
                             ))}
-                          </select>
+                          </ScrollableSelect>
                           <button
                             type="button"
                             className="mt-1 w-full rounded bg-red-50 px-2 py-1 font-semibold text-red-700 hover:bg-red-100"

@@ -1,3 +1,4 @@
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Eraser, Pen, Trash2, Minus, ArrowRight, Circle, Undo2, ImagePlus } from "lucide-react";
@@ -348,15 +349,15 @@ export function ExerciseDrawingBoard({ value, onChange, onChangeElements, readOn
               />
             ))}
           </div>
-          <select
+          <ScrollableSelect
             className="text-xs border rounded px-1.5 py-1 bg-background"
             value={brushSize}
-            onChange={e => setBrushSize(Number(e.target.value))}
+            onValueChange={e => setBrushSize(Number(e))}
           >
             <option value={2}>Sottile</option>
             <option value={4}>Medio</option>
             <option value={7}>Spesso</option>
-          </select>
+          </ScrollableSelect>
           <Button type="button" size="sm" variant="ghost" className="h-8 px-2" onClick={handleUndo} disabled={elements.length === 0}>
             <Undo2 className="w-4 h-4 mr-1" /> Annulla
           </Button>

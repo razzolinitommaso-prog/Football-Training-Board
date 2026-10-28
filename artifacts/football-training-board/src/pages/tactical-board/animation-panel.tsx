@@ -1,3 +1,4 @@
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import type { BoardAnimationControls } from "./use-board-animation";
 import { MAX_ANIMATION_FRAMES } from "./board-animation";
@@ -17,7 +18,7 @@ export function AnimationPanel({ animation }: { animation: BoardAnimationControl
         {animation.activeFrame < animation.frames.length - 1 && <label className="flex items-center gap-2">Passaggio al prossimo (s)<input aria-label="Durata passaggio in secondi" type="number" min="0.2" max="30" step="0.2" disabled={previewing} value={animation.frames[animation.activeFrame].durationMs / 1000} onChange={event => { const n=event.target.valueAsNumber; if(Number.isFinite(n)) animation.setDuration(n*1000); }} className="w-20 rounded-lg border border-white/20 bg-[#111827] p-2" /></label>}
         <button type="button" className={button} disabled={previewing || animation.frames.length < 2} onClick={animation.remove}>Elimina fotogramma</button>
         <button type="button" className={button} disabled={previewing} onClick={animation.clear}>Rimuovi animazione</button>
-        <label className="flex items-center gap-2">Velocità<select disabled={previewing} value={animation.speed} onChange={event => animation.setSpeed(Number(event.target.value))} className="rounded-lg border border-white/20 bg-[#111827] p-2">{[0.5,1,1.5,2].map(speed => <option key={speed} value={speed}>{speed}×</option>)}</select></label>
+        <label className="flex items-center gap-2">Velocità<ScrollableSelect disabled={previewing} value={animation.speed} onValueChange={event => animation.setSpeed(Number(event))} className="rounded-lg border border-white/20 bg-[#111827] p-2">{[0.5,1,1.5,2].map(speed => <option key={speed} value={speed}>{speed}×</option>)}</ScrollableSelect></label>
         <label className="flex min-h-11 items-center gap-2"><input type="checkbox" disabled={previewing} checked={animation.loop} onChange={event => animation.setLoop(event.target.checked)} />Ripeti</label>
       </div></details>}
       <div className="flex flex-wrap items-center gap-2">

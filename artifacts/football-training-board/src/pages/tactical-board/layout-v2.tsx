@@ -1,3 +1,4 @@
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { useState, type ComponentType, type ReactNode } from "react";
 import {
   ArrowRight,
@@ -378,22 +379,22 @@ export default function TacticalBoardLayoutV2({
                 <div className="flex items-center gap-1">
                   <label className="w-[96px] rounded-[12px] border border-white/8 bg-black/20 px-2 py-1">
                     <div className="text-[9px] uppercase tracking-[0.16em] text-white/35">Formato</div>
-                    <select
+                    <ScrollableSelect
                       value={fieldFormat}
-                      onChange={(event) => onFieldFormatChange(event.target.value as FieldFormat)}
+                      onValueChange={(event) => onFieldFormatChange(event as FieldFormat)}
                       className="mt-0.5 w-full bg-transparent text-[12px] font-semibold text-white outline-none"
                     >
                       <option value="11v11" className="bg-[#171717]">11v11</option>
                       <option value="9v9" className="bg-[#171717]">9v9</option>
                       <option value="7v7" className="bg-[#171717]">7v7</option>
                       <option value="5v5" className="bg-[#171717]">5v5</option>
-                    </select>
+                    </ScrollableSelect>
                   </label>
                   <label className="w-[96px] rounded-[12px] border border-white/8 bg-black/20 px-2 py-1">
                     <div className="text-[9px] uppercase tracking-[0.16em] text-white/35">Vista</div>
-                    <select
+                    <ScrollableSelect
                       value={fieldView}
-                      onChange={(event) => onFieldViewChange(event.target.value as FieldView)}
+                      onValueChange={(event) => onFieldViewChange(event as FieldView)}
                       className="mt-0.5 w-full bg-transparent text-[12px] font-semibold text-white outline-none"
                     >
                       <option value="full" className="bg-[#171717]">Intero</option>
@@ -401,7 +402,7 @@ export default function TacticalBoardLayoutV2({
                       <option value="half-bottom" className="bg-[#171717]">Bassa</option>
                       <option value="half-left" className="bg-[#171717]">Sinistra</option>
                       <option value="half-right" className="bg-[#171717]">Destra</option>
-                    </select>
+                    </ScrollableSelect>
                   </label>
                 </div>
               )}
@@ -422,23 +423,23 @@ export default function TacticalBoardLayoutV2({
 
                   <label className="w-[116px] rounded-[14px] border border-white/8 bg-black/20 px-3 py-1">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Formato</div>
-                    <select
+                    <ScrollableSelect
                       value={fieldFormat}
-                      onChange={(event) => onFieldFormatChange(event.target.value as FieldFormat)}
+                      onValueChange={(event) => onFieldFormatChange(event as FieldFormat)}
                       className="mt-0.5 w-full bg-transparent text-[14px] font-semibold text-white outline-none"
                     >
                       <option value="11v11" className="bg-[#171717]">11v11</option>
                       <option value="9v9" className="bg-[#171717]">9v9</option>
                       <option value="7v7" className="bg-[#171717]">7v7</option>
                       <option value="5v5" className="bg-[#171717]">5v5</option>
-                    </select>
+                    </ScrollableSelect>
                   </label>
 
                   <label className="w-[126px] rounded-[14px] border border-white/8 bg-black/20 px-3 py-1">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Vista</div>
-                    <select
+                    <ScrollableSelect
                       value={fieldView}
-                      onChange={(event) => onFieldViewChange(event.target.value as FieldView)}
+                      onValueChange={(event) => onFieldViewChange(event as FieldView)}
                       className="mt-0.5 w-full bg-transparent text-[14px] font-semibold text-white outline-none"
                     >
                       <option value="full" className="bg-[#171717]">Intero</option>
@@ -446,19 +447,19 @@ export default function TacticalBoardLayoutV2({
                       <option value="half-bottom" className="bg-[#171717]">Metà bassa</option>
                       <option value="half-left" className="bg-[#171717]">Metà sx</option>
                       <option value="half-right" className="bg-[#171717]">Metà dx</option>
-                    </select>
+                    </ScrollableSelect>
                   </label>
 
                   <label className="w-[136px] rounded-[14px] border border-white/8 bg-black/20 px-3 py-1">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Render</div>
-                    <select
+                    <ScrollableSelect
                       value={fieldRenderMode}
-                      onChange={(event) => onFieldRenderModeChange(event.target.value as FieldRenderMode)}
+                      onValueChange={(event) => onFieldRenderModeChange(event as FieldRenderMode)}
                       className="mt-0.5 w-full bg-transparent text-[14px] font-semibold text-white outline-none"
                     >
                       <option value="standard" className="bg-[#171717]">Standard</option>
                       <option value="minimal" className="bg-[#171717]">Minimal</option>
-                    </select>
+                    </ScrollableSelect>
                   </label>
                 </>
               ) : null}

@@ -1,3 +1,4 @@
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -24,7 +25,7 @@ export function TeamManagerComparison({teamId,matchId,date}:{teamId:number;match
     {open&&<div className="space-y-3">
       <h3 className="font-semibold">Allenamenti e convocazione salvata</h3>
       {!date?<p>Data della gara da definire: confronto non disponibile.</p>:<>
-        <label className="block text-sm">Periodo<select className="mt-1 block min-h-11 w-full rounded-lg border bg-background px-3" value={period} onChange={event=>setPeriod(event.target.value as "week"|"four")}><option value="week">Settimana della partita</option><option value="four">Quattro settimane prima della partita</option></select></label>
+        <label className="block text-sm">Periodo<ScrollableSelect className="mt-1 block min-h-11 w-full rounded-lg border bg-background px-3" value={period} onValueChange={event=>setPeriod(event as "week"|"four")}><option value="week">Settimana della partita</option><option value="four">Quattro settimane prima della partita</option></ScrollableSelect></label>
         <p className="text-xs text-muted-foreground">Rosa attuale e convocati salvati. Disponibilità dei genitori e appello restano distinti.</p>
         {isLoading&&<p role="status">Caricamento confronto...</p>}
         {error&&<div role="alert"><p>{error.message}</p><Button variant="outline" onClick={()=>void refetch()}>Riprova</Button></div>}

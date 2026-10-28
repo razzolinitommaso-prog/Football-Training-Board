@@ -1,3 +1,4 @@
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { championshipMatchPath } from "@/lib/championship-match-links";
 import { useMemo, useRef, useState } from "react";
@@ -466,16 +467,16 @@ function ChampionshipSectionPanel({ section, teams }: { section: string; teams: 
             </div>
             <div className="space-y-1">
               <Label>Squadra collegata (facoltativa)</Label>
-              <select
+              <ScrollableSelect
                 className="h-10 w-full rounded-md border bg-background px-3 text-sm"
                 value={teamId}
-                onChange={(e) => setTeamId(e.target.value)}
+                onValueChange={(e) => setTeamId(e)}
               >
                 <option value="all">Nessuna squadra specifica</option>
                 {teams.map((team) => (
                   <option key={team.id} value={team.id}>{team.name}</option>
                 ))}
-              </select>
+              </ScrollableSelect>
             </div>
           </div>
           <DialogFooter>

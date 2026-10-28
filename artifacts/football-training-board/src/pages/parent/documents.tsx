@@ -1,3 +1,4 @@
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { useState, useEffect, useRef } from "react";
 import { FileText, Upload, Check, AlertTriangle, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -103,10 +104,10 @@ export default function ParentDocuments() {
           {children.length > 1 && (
             <div>
               <Label className="text-sm">Figlio</Label>
-              <select value={selectedChild} onChange={e => setSelectedChild(e.target.value)} className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm">
+              <ScrollableSelect value={selectedChild} onValueChange={e => setSelectedChild(e)} className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm">
                 <option value="">Seleziona...</option>
                 {children.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
-              </select>
+              </ScrollableSelect>
             </div>
           )}
           <div>

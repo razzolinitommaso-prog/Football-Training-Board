@@ -1,3 +1,4 @@
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { analyseMatchReport, type MatchReport } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
@@ -13,10 +14,10 @@ function PlayerSelect({ value, players, onChange, label, empty = "Giocatore" }: 
   value: number; players: ReportPlayer[]; onChange: (value: number) => void; label: string; empty?: string;
 }) {
   return <label className="min-w-0 space-y-1"><span className="text-[11px]">{label}</span>
-    <select aria-label={label} className={selectClass} value={value || ""} onChange={e => onChange(Number(e.target.value))}>
+    <ScrollableSelect aria-label={label} className={selectClass} value={value || ""} onValueChange={e => onChange(Number(e))}>
       <option value="">{empty}</option>
       {players.map(player => <option key={player.id} value={player.id}>{player.name}</option>)}
-    </select>
+    </ScrollableSelect>
   </label>;
 }
 
@@ -45,10 +46,10 @@ function Timing({ period, minute, periods, onChange: change }: {
     period: number; minute: number; periods: MatchReport["periods"]; onChange: (timing: { period: number; minute: number }) => void;
   }) {
     return <div className="grid grid-cols-2 gap-2">
-      <label className="text-[11px]">Tempo<select aria-label="Tempo evento" className={selectClass} value={period}
-        onChange={e => change({ period: Number(e.target.value), minute })}>
+      <label className="text-[11px]">Tempo<ScrollableSelect aria-label="Tempo evento" className={selectClass} value={period}
+        onValueChange={e => change({ period: Number(e), minute })}>
         {periods.map((_, index) => <option key={index} value={index}>{index + 1}° tempo</option>)}
-      </select></label>
+      </ScrollableSelect></label>
       <label className="text-[11px]">Minuto nel tempo<Input aria-label="Minuto nel tempo" type="number" min={0} step="0.5"
         max={periods[period]?.minutes} value={minute} onChange={e => change({ period, minute: Number(e.target.value) })} /></label>
     </div>;
