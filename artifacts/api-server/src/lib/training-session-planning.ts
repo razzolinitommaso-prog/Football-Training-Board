@@ -1,4 +1,4 @@
-import { type TrainingRotations, TRAINING_ROTATION_PHASES } from "@workspace/api-zod";
+import { type TrainingRotations, TRAINING_ROTATION_PHASES, rotationRecoverySeconds } from "@workspace/api-zod";
 import { createHash } from "node:crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
@@ -51,7 +51,7 @@ export function recalculatePlan(duration: number, recoveries: [number,number], e
 
 export function recalculateRotationPlan(duration:number,recoveries:[number,number],exercises:PlanningExercise[],rotations:TrainingRotations):SessionPlan {
  const turns=TRAINING_ROTATION_PHASES.flatMap(phase=>rotations[phase]??[]);
- const available=Math.round((duration-recoveries[0]-recoveries[1])*60);
+ const available=Math.round((duration-recoveries[0]-recoveries[1])*60)-rotationRecoverySeconds(rotations);
  if(available<=0||!turns.length||exercises.some(ex=>!ex.title?.trim()))throw Error("Tempo utile o stazioni non validi");
  const allocations=distributeSeconds(available,turns.map(()=>1));if(allocations.some(s=>s<=0))throw Error("Tempo insufficiente per i turni");
  let index=0;const next:TrainingRotations={},timings:SessionPlan["timings"]={};

@@ -10,8 +10,8 @@ import { ScrollableSelect } from "@/components/ui/scrollable-select";
 
 type Player = { id: number; firstName: string; lastName: string; teamName?: string | null; dateOfBirth?: string | null; available?: boolean };
 type Roster = { workGroups: { id: number; name: string; playerIds?: number[] }[] };
-export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId }: {
-  players: Player[]; selectedIds: number[]; onConfirm: (ids: number[]) => void; teamId?: string | number | null;
+export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId, buttonLabel="Scegli giocatori", showCount=true, disabled=false }: {
+  players: Player[]; selectedIds: number[]; onConfirm: (ids: number[]) => void; teamId?: string | number | null; buttonLabel?:string;showCount?:boolean;disabled?:boolean;
 }) {
   const uid = useId();
   const [open, setOpen] = useState(false);
@@ -32,7 +32,7 @@ export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId }
   const visible = unique.filter(p => `${p.lastName} ${p.firstName} ${p.teamName ?? ""}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()) && (!year || p.dateOfBirth?.startsWith(year)) && (!group || groupIds.includes(p.id)) && (!onlySelected || draft.includes(p.id))).sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it"));
   function selectVisible() { setDraft(prev => [...new Set([...prev, ...visible.filter(p => p.available !== false).map(p => p.id)])]); }
   return <>
-    <div className="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" onClick={() => { setDraft([...selectedIds]); setSearch(""); setYear(""); setGroup(""); setOnlySelected(false); setOpen(true); }}>Scegli giocatori</Button><span className="text-sm">{selectedIds.length} selezionati</span></div>
+    <div className="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" disabled={disabled} onClick={() => { setDraft([...selectedIds]); setSearch(""); setYear(""); setGroup(""); setOnlySelected(false); setOpen(true); }}>{buttonLabel}</Button>{showCount&&<span className="text-sm">{selectedIds.length} selezionati</span>}</div>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent style={dialogViewport} className="flex h-[90dvh] max-h-[90dvh] w-[calc(100%-1rem)] max-w-5xl flex-col overflow-hidden sm:w-[calc(100%-3rem)]">
         <DialogHeader><DialogTitle>Rosa della stazione</DialogTitle><DialogDescription>Nomi completi, squadra e annata. La scelta viene applicata solo alla conferma.</DialogDescription></DialogHeader>

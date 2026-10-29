@@ -20,6 +20,7 @@ type Props = {
   editor?: ReactNode;
   rotation?:ReactNode;
   phaseMinutes?:Record<string,number>;
+  phaseContent?:Partial<Record<string,ReactNode>>;
   phaseRecoveries?: ReactNode[];
   metadata: { label: string; value: string }[];
   badges: ReactNode;
@@ -70,11 +71,11 @@ export function TrainingSessionOverview(props: Props) {
           return <div key={phase.key || "unassigned"} className="space-y-3"><section className="rounded-xl border bg-background">
             <div className="flex items-center justify-between gap-2 px-3 pt-3">
               <h3 className="text-sm font-semibold">{phase.label}</h3>
-              {!props.readOnly && <div className="flex shrink-0 items-center gap-1"><Button type="button" size="sm" variant="outline" className="h-8 gap-1 px-2" onClick={() => props.onAdd(phase.key)} aria-label={`Aggiungi stazione: ${phase.label}`}><Plus className="h-3.5 w-3.5"/><span className="hidden min-[400px]:inline">Aggiungi</span></Button><Button type="button" size="icon" variant={removePhase === phase.key ? "secondary" : "ghost"} className="h-8 w-8" disabled={exercises.length === 0} aria-label={`Gestisci rimozione: ${phase.label}`} aria-pressed={removePhase === phase.key} onClick={() => setRemovePhase(removePhase === phase.key ? null : phase.key)}>−</Button></div>}
+              {!props.readOnly && <div className="flex shrink-0 items-center gap-1"><Button type="button" size="sm" variant="outline" className="h-8 gap-1 px-2" onClick={() => props.onAdd(phase.key)} aria-label={`Aggiungi stazione: ${phase.label}`}><Plus className="h-3.5 w-3.5"/><span className="hidden min-[400px]:inline">Aggiungi</span></Button>{!props.phaseContent?.[phase.key]&&<Button type="button" size="icon" variant={removePhase === phase.key ? "secondary" : "ghost"} className="h-8 w-8" disabled={exercises.length === 0} aria-label={`Gestisci rimozione: ${phase.label}`} aria-pressed={removePhase === phase.key} onClick={() => setRemovePhase(removePhase === phase.key ? null : phase.key)}>−</Button>}</div>}
             </div>
-            <details open className="group/phase">
+            <details open={props.phaseContent?.[phase.key]?phaseIndex===0:true} className="group/phase">
               <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground outline-offset-2 [&::-webkit-details-marker]:hidden" indicator={false}><span>{exercises.length} {exercises.length === 1 ? "stazione" : "stazioni"} · {durationLabel(minutes)}</span><span className="flex items-center gap-1">Apri / chiudi<ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open/phase:rotate-180"/></span></DisclosureSummary>
-              <div className="grid grid-cols-2 gap-2 p-2 pt-0 sm:gap-3 sm:p-3 sm:pt-0">
+              {props.phaseContent?.[phase.key] ?? <div className="grid grid-cols-2 gap-2 p-2 pt-0 sm:gap-3 sm:p-3 sm:pt-0">
                 {exercises.map(exercise => <article key={exercise.id} className="flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
                   <button type="button" disabled={!exercise.available} onClick={() => props.onView(exercise.id)} className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Apri stazione: ${exercise.title}`}>
                     <div className="flex h-24 items-center justify-center border-b bg-muted/20 p-1 sm:h-32">
@@ -89,7 +90,7 @@ export function TrainingSessionOverview(props: Props) {
                   {!props.readOnly && removePhase === phase.key && <Button type="button" size="sm" variant="ghost" className="m-1 h-auto whitespace-normal text-[11px] text-destructive" onClick={() => props.onRemove(exercise.id)}>Rimuovi dalla seduta</Button>}
                 </article>)}
                 {!props.readOnly ? Array.from({length:Math.max(0, 2 - exercises.length)},(_,emptyIndex)=><button key={`empty-${emptyIndex}`} type="button" onClick={() => props.onAdd(phase.key)} className="flex min-h-36 min-w-0 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-primary/30 bg-primary/[0.03] p-3 text-center text-xs text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Compila spazio vuoto: ${phase.label}`}><Plus aria-hidden="true" className="h-6 w-6"/><span>Aggiungi stazione</span><span className="text-[10px] text-muted-foreground">Spazio da compilare</span></button>) : exercises.length === 0 && <p className="col-span-2 py-5 text-center text-xs text-muted-foreground">Nessuna stazione in questa fase.</p>}
-              </div>
+              </div>}
             </details>
           </section>{phaseIndex < 2 && props.phaseRecoveries?.[phaseIndex]}</div>;
         })}

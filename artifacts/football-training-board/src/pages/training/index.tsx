@@ -1,5 +1,5 @@
 import { StationTurnPlanner } from "@/components/training/StationTurnPlanner";
-import { rotationSeconds, type TrainingRotations } from "@workspace/api-zod";
+import { rotationSeconds, rotationRecoverySeconds, rotationPhaseSeconds, type TrainingRotations } from "@workspace/api-zod";
 import { SessionTeamPicker } from "@/components/training/SessionTeamPicker";
 import { sessionTeamIds, withSessionTeams, SESSION_TEAMS_MARKER } from "@workspace/api-zod";
 import { TrainingCategoryPicker } from "@/components/training/TrainingCategoryPicker";
@@ -1796,6 +1796,7 @@ function SessionDetailsDialog({
   const [, navigate] = useLocation();
   const [metadataDirty, setMetadataDirty] = useState(false);
   const [rotationDirty,setRotationDirty]=useState(false);
+  const [rotationPreview,setRotationPreview]=useState<TrainingRotations|null>(null);
   function openAttendance() {
     if ((metadataDirty || recoveriesDirty || rotationDirty || exerciseFormOpen) && !window.confirm("Ci sono modifiche non salvate. Aprire le presenze e abbandonarle?")) return;
     const teamSection = normalizeClubSection(teams.find(team => team.id === session.teamId)?.clubSection);
@@ -1836,8 +1837,10 @@ function SessionDetailsDialog({
   const linkedExercises = [...(linkedExercisesQuery.data ?? [])]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const effectiveDuration=(link:SessionExerciseLink)=>planQuery.data?.timings[String(link.id)]?.seconds!==undefined?planQuery.data.timings[String(link.id)].seconds/60:link.exercise?.durationMinutes??0;
-  const plannedExerciseMinutes = planQuery.data?.rotations!==undefined?rotationSeconds(planQuery.data.rotations)/60:linkedExercises.reduce((sum,link)=>sum+effectiveDuration(link),0);
-  const recoveryMinutes=recoveries[0]+recoveries[1];
+  const visibleRotations=rotationPreview??planQuery.data?.rotations;
+  const turnRecoveryMinutes=visibleRotations?rotationRecoverySeconds(visibleRotations)/60:0;
+  const plannedExerciseMinutes = visibleRotations!==undefined?rotationSeconds(visibleRotations)/60:linkedExercises.reduce((sum,link)=>sum+effectiveDuration(link),0);
+  const recoveryMinutes=recoveries[0]+recoveries[1]+turnRecoveryMinutes;
   const residualMinutes=(session.durationMinutes??0)-plannedExerciseMinutes-recoveryMinutes;
   const formatMinutes=(minutes:number)=>{const seconds=Math.round(minutes*60);return seconds%60===0?`${seconds/60} min`:`${Math.floor(seconds/60)} min ${seconds%60} s`;};
 
@@ -2105,7 +2108,8 @@ function SessionDetailsDialog({
           </div>
         </DialogHeader>
 
-        <TrainingSessionOverview
+        <StationTurnPlanner activities={linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??""),preview:link.exercise?.drawingData??null,principle:link.exercise?.principio?principioLabel(link.exercise.principio):null}))} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly||planQuery.isLoading||planQuery.isError} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione della seduta salvata"});}} onPreviewChange={setRotationPreview} onView={id=>setViewingLink(linkedExercises.find(link=>link.id===id)??null)} onEdit={id=>{const link=linkedExercises.find(link=>link.id===id);if(link)openEditExercise(link);}} onRemove={id=>{if(confirm("Rimuovere la stazione da questa seduta?"))removeLinkMutation.mutate(id);}}>
+        {({toolbar,phases})=><TrainingSessionOverview
           editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>{setEditingMetadata(false);setMetadataDirty(false);}} onSaved={()=>{setMetadataDirty(false);void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
           phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 text-sm"><Label htmlFor={`recovery-${session.id}-${index}`}>Recupero tra fase {index+1} e {index+2}</Label><Input id={`recovery-${session.id}-${index}`} aria-label={`Recupero tra fase ${index+1} e ${index+2}`} className="w-20" type="number" min={0} max={300} step={1} disabled={readOnly||planQuery.isLoading||planQuery.isError||savePlan.isPending} value={recoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300){setRecoveries(previous=>index===0?[value,previous[1]]:[previous[0],value]);setRecoveriesDirty(true);}}}/><span>min</span></div>)}
           metadata={editingMetadata&&canEditMetadata?[]:[
@@ -2142,12 +2146,13 @@ function SessionDetailsDialog({
               <p>Stazioni: <strong>{formatMinutes(plannedExerciseMinutes)}</strong> · Recuperi: <strong>{formatMinutes(recoveryMinutes)}</strong></p>
               <p>Base iniziale: due stazioni per fase. Nei turni contemporanei il tempo viene contato una sola volta; le rotazioni aggiungono i turni successivi.</p>
               <p>Tempo residuo: <strong>{formatMinutes(Math.max(0,residualMinutes))}</strong></p>
-              {!readOnly&&<Button type="button" variant="outline" disabled={!recoveriesDirty||savePlan.isPending||planQuery.isLoading} onClick={()=>savePlan.mutate(false)}>Salva recuperi</Button>}
-              {residualMinutes<0&&<div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950"><p>Tempo limite superato di {formatMinutes(-residualMinutes)}. Vuoi ricalcolare il minutaggio delle stazioni?</p><p className="mt-1 text-xs">{planQuery.data?.rotations!==undefined?"Il tempo utile verrà ripartito tra i turni; le stazioni contemporanee avranno la stessa durata.":<>({session.durationMinutes} − {recoveryMinutes}) ÷ {linkedExercises.length} stazioni{linkedExercises.length>0&&session.durationMinutes&&session.durationMinutes>recoveryMinutes?` = circa ${formatMinutes((session.durationMinutes-recoveryMinutes)/linkedExercises.length)} ciascuna`:""}. Gli esercizi interni saranno riproporzionati. I tempi valgono solo per questa seduta.</>}</p>{!readOnly&&<Button type="button" className="mt-2" disabled={savePlan.isPending||planQuery.isLoading||!linkedExercises.length||!session.durationMinutes||session.durationMinutes<=recoveryMinutes} onClick={()=>{if(confirm("Ricalcolare i tempi delle stazioni e dei relativi esercizi solo per questa seduta?"))savePlan.mutate(true);}}>Ricalcola minutaggio</Button>}</div>}
+              {!readOnly&&<Button type="button" variant="outline" disabled={!recoveriesDirty||rotationDirty||savePlan.isPending||planQuery.isLoading} onClick={()=>savePlan.mutate(false)}>Salva recuperi</Button>}
+              {residualMinutes<0&&<div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950"><p>Tempo limite superato di {formatMinutes(-residualMinutes)}. Vuoi ricalcolare il minutaggio delle stazioni?</p>{rotationDirty&&<p className="mt-1 text-xs">Per includere i turni in modifica usa Organizza → Ricalcola tempi sui turni e salva.</p>}<p className="mt-1 text-xs">{planQuery.data?.rotations!==undefined?"Il tempo utile verrà ripartito tra i turni; le stazioni contemporanee avranno la stessa durata.":<>({session.durationMinutes} − {recoveryMinutes}) ÷ {linkedExercises.length} stazioni{linkedExercises.length>0&&session.durationMinutes&&session.durationMinutes>recoveryMinutes?` = circa ${formatMinutes((session.durationMinutes-recoveryMinutes)/linkedExercises.length)} ciascuna`:""}. Gli esercizi interni saranno riproporzionati. I tempi valgono solo per questa seduta.</>}</p>{!readOnly&&<Button type="button" className="mt-2" disabled={rotationDirty||savePlan.isPending||planQuery.isLoading||!linkedExercises.length||!session.durationMinutes||session.durationMinutes<=recoveryMinutes} onClick={()=>{if(confirm("Ricalcolare i tempi delle stazioni e dei relativi esercizi solo per questa seduta?"))savePlan.mutate(true);}}>Ricalcola minutaggio</Button>}</div>}
             </>}
           </div>}
-          rotation={<details className="rounded-xl border p-3"><DisclosureSummary>Gruppi e rotazioni</DisclosureSummary><div className="mt-3">{!planQuery.isLoading&&!planQuery.isError&&<StationTurnPlanner activities={linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??"")}))} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione della seduta salvata"});}}/>}</div></details>}
-          phaseMinutes={planQuery.data?.rotations?Object.fromEntries(Object.entries(planQuery.data.rotations).map(([phase,turns])=>[phase,turns.reduce((sum,turn)=>sum+Math.max(0,...turn.stations.map(s=>s.seconds)),0)/60])):undefined}
+          rotation={toolbar}
+          phaseContent={phases}
+          phaseMinutes={visibleRotations?Object.fromEntries(Object.keys(visibleRotations).map(phase=>[phase,rotationPhaseSeconds(visibleRotations,phase as "iniziale"|"centrale"|"finale")/60])):undefined}
           organization={<div className="space-y-2 border-t pt-3">
 
             <p><span className="text-muted-foreground">Squadra: </span>{session.teamName || "Da indicare"}</p>
@@ -2156,7 +2161,8 @@ function SessionDetailsDialog({
             {session.description && <p className="whitespace-pre-wrap">{session.description}</p>}
             {getTrainingCalendarNote(session) && <p className="whitespace-pre-wrap">{getTrainingCalendarNote(session)}</p>}
           </div>}
-        />
+        />}
+        </StationTurnPlanner>
       </DialogContent>
 
       <Dialog open={!!viewingLink} onOpenChange={(open) => { if (!open) setViewingLink(null); }}>

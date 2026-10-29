@@ -1,11 +1,19 @@
 export const TRAINING_ROTATION_PHASES=["iniziale","centrale","finale"] as const;
 export type RotationPhase=typeof TRAINING_ROTATION_PHASES[number];
 export type RotationStation={linkId:number;playerIds:number[];seconds:number};
-export type RotationTurn={id:string;stations:RotationStation[]};
+export type RotationTurn={id:string;stations:RotationStation[];recoverySeconds?:number};
 export type TrainingRotations=Partial<Record<RotationPhase,RotationTurn[]>>;
 export type RotationActivity={id:number;phase:string|null;seconds:number;playerIds:number[]};
 export function rotationSeconds(rotations:TrainingRotations):number {
  return TRAINING_ROTATION_PHASES.reduce((sum,phase)=>sum+(rotations[phase]??[]).reduce((s,turn)=>s+Math.max(0,...turn.stations.map(station=>station.seconds)),0),0);
+}
+/** Recovery belongs to the gap after a turn, never after the final turn of a phase. */
+export function rotationRecoverySeconds(rotations:TrainingRotations):number {
+ return TRAINING_ROTATION_PHASES.reduce((sum,phase)=>sum+(rotations[phase]??[]).slice(0,-1).reduce((s,turn)=>s+(turn.recoverySeconds??0),0),0);
+}
+export function rotationPhaseSeconds(rotations:TrainingRotations,phase:RotationPhase):number {
+ const turns=rotations[phase]??[];
+ return turns.reduce((sum,turn,index)=>sum+Math.max(0,...turn.stations.map(s=>s.seconds))+(index<turns.length-1?(turn.recoverySeconds??0):0),0);
 }
 export function initialTrainingRotations(activities:RotationActivity[]):TrainingRotations {
  const result:TrainingRotations={};
@@ -26,6 +34,7 @@ export function validateTrainingRotations(value:unknown,activities:{id:number;ph
   const turnIds=new Set<string>();
   for(const turn of turns){
    if(!turn||typeof turn.id!=="string"||!turn.id||turn.id.length>100||turnIds.has(turn.id)||!Array.isArray(turn.stations)||turn.stations.length>100)return "Turno non valido";
+   if(turn.recoverySeconds!==undefined&&(!Number.isInteger(turn.recoverySeconds)||turn.recoverySeconds<0||turn.recoverySeconds>18000||(turn===turns[turns.length-1]&&turn.recoverySeconds!==0)))return "Recupero tra turni non valido";
    turnIds.add(turn.id);const used=new Set<number>(),stationIds=new Set<number>();
    for(const station of turn.stations){
     if(!station||!Number.isInteger(station.linkId)||stationIds.has(station.linkId)||!activities.some(item=>item.id===station.linkId&&item.phase===phase))return "Stazione non appartenente alla fase della seduta";
