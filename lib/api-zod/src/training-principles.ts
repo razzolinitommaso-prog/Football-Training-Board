@@ -47,7 +47,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "section": "scuola_calcio",
     "area": "Principi di gioco e collaborazione",
     "principle": "Efficacia Individuale e Finalizzazione",
-    "subprinciple": "Il Tiro in Porta",
+    "subprinciple": "Finalizzazione in porta",
     "detail": null,
     "parent": "ftb1:scuola_calcio:8d68906558ae",
     "depth": 2
@@ -57,8 +57,8 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "section": "scuola_calcio",
     "area": "Principi di gioco e collaborazione",
     "principle": "Efficacia Individuale e Finalizzazione",
-    "subprinciple": "Il Tiro in Porta",
-    "detail": "Tiro immediato d'istinto (Vedere la porta e calciare)",
+    "subprinciple": "Finalizzazione in porta",
+    "detail": "Finalizzazione immediata d'istinto (vedere la porta e calciare)",
     "parent": "ftb1:scuola_calcio:7c1d81a0e40f",
     "depth": 3
   },
@@ -67,7 +67,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "section": "scuola_calcio",
     "area": "Principi di gioco e collaborazione",
     "principle": "Efficacia Individuale e Finalizzazione",
-    "subprinciple": "Il Tiro in Porta",
+    "subprinciple": "Finalizzazione in porta",
     "detail": "Conclusione dopo un cambio di direzione",
     "parent": "ftb1:scuola_calcio:7c1d81a0e40f",
     "depth": 3
@@ -458,7 +458,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "area": "Tecnica",
     "principle": "Sensibilità e Gestione della Palla",
     "subprinciple": "Tecnica Applicata Individuale",
-    "detail": "Calcio/Tiro della palla con collo del piede pieno",
+    "detail": "Finalizzazione con collo del piede pieno",
     "parent": "ftb1:scuola_calcio:355e16ffdcfb",
     "depth": 3
   },
@@ -526,7 +526,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "value": "ftb1:scuola_calcio:591e4c740de8",
     "section": "scuola_calcio",
     "area": "Movimento e prevenzione",
-    "principle": "Efficienza Fisica Ludica",
+    "principle": "Sviluppo motorio attraverso il gioco",
     "subprinciple": null,
     "detail": null,
     "parent": null,
@@ -536,7 +536,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "value": "ftb1:scuola_calcio:b5c3b878cfab",
     "section": "scuola_calcio",
     "area": "Movimento e prevenzione",
-    "principle": "Efficienza Fisica Ludica",
+    "principle": "Sviluppo motorio attraverso il gioco",
     "subprinciple": "Rapidità e Flessibilità spontanea",
     "detail": null,
     "parent": "ftb1:scuola_calcio:591e4c740de8",
@@ -546,7 +546,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "value": "ftb1:scuola_calcio:277ff9ce28ed",
     "section": "scuola_calcio",
     "area": "Movimento e prevenzione",
-    "principle": "Efficienza Fisica Ludica",
+    "principle": "Sviluppo motorio attraverso il gioco",
     "subprinciple": "Rapidità e Flessibilità spontanea",
     "detail": "Rapidità di frequenza degli appoggi (Rapidità motoria pura)",
     "parent": "ftb1:scuola_calcio:b5c3b878cfab",
@@ -556,7 +556,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "value": "ftb1:scuola_calcio:c82d98026355",
     "section": "scuola_calcio",
     "area": "Movimento e prevenzione",
-    "principle": "Efficienza Fisica Ludica",
+    "principle": "Sviluppo motorio attraverso il gioco",
     "subprinciple": "Rapidità e Flessibilità spontanea",
     "detail": "Propriocezione plantare e della caviglia (Attraverso superfici instabili o scalette)",
     "parent": "ftb1:scuola_calcio:b5c3b878cfab",
@@ -566,7 +566,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "value": "ftb1:scuola_calcio:e21c33f72841",
     "section": "scuola_calcio",
     "area": "Movimento e prevenzione",
-    "principle": "Efficienza Fisica Ludica",
+    "principle": "Sviluppo motorio attraverso il gioco",
     "subprinciple": "Rapidità e Flessibilità spontanea",
     "detail": "Mobilità articolare naturale (Flessibilità dinamica tramite gioco)",
     "parent": "ftb1:scuola_calcio:b5c3b878cfab",
@@ -1018,7 +1018,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "area": "Tecnica",
     "principle": "Tecnica Funzionale alla Tattica",
     "subprinciple": "Esecuzione in Velocità e Spazio Ridotto",
-    "detail": "Tecnica di tiro avanzata con interno collo piede (Tiro a giro)",
+    "detail": "Finalizzazione avanzata con interno-collo piede (con effetto)",
     "parent": "ftb1:settore_giovanile:1a288d02b2b5",
     "depth": 3
   },
@@ -1028,7 +1028,7 @@ export const TRAINING_PRINCIPLES: readonly TrainingPrinciple[] = [
     "area": "Tecnica",
     "principle": "Tecnica Funzionale alla Tattica",
     "subprinciple": "Esecuzione in Velocità e Spazio Ridotto",
-    "detail": "Tecnica di tiro avanzata con collo del piede pieno (Tiro di potenza al volo o in corsa)",
+    "detail": "Finalizzazione avanzata con collo del piede pieno (di potenza, al volo o in corsa)",
     "parent": "ftb1:settore_giovanile:1a288d02b2b5",
     "depth": 3
   },
@@ -1927,6 +1927,8 @@ const byValue = new Map(TRAINING_PRINCIPLES.map(item => [item.value, item]));
 export function trainingPrinciple(value: string | null | undefined) { return value ? byValue.get(value) : undefined; }
 export function trainingPrincipleLabel(value: string | null | undefined): string {
   if (!value) return "";
+  const goal = sessionObjectiveLabel(value);
+  if (goal) return goal;
   const item = trainingPrinciple(value);
   if (item) return item.detail ?? item.subprinciple ?? item.principle;
   const legacy: Record<string,string> = {forza:"FORZA",resistenza:"RESISTENZA",tecnico_tattico:"TECNICO TATTICO"};
@@ -1935,4 +1937,15 @@ export function trainingPrincipleLabel(value: string | null | undefined): string
 export function normalizePrincipleSection(value: string | null | undefined): TrainingPrincipleSection | null {
   const normalized = value?.replace(/-/g, "_");
   return normalized === "scuola_calcio" || normalized === "settore_giovanile" || normalized === "prima_squadra" ? normalized : null;
+}
+
+/** A session has one broad goal; detailed principles belong to its activities. */
+export const SESSION_OBJECTIVES = [
+  ["cognitive", "Cognitivo e decisionale"], ["perceptual", "Percettivo"],
+  ["motor", "Motorio e coordinativo"], ["technical", "Tecnico"],
+  ["collaborative", "Collaborativo e relazionale"], ["attack", "Attacco"],
+  ["defence", "Difesa"], ["transitions", "Transizioni"],
+] as const;
+export function sessionObjectiveLabel(value: string | null | undefined): string {
+  return SESSION_OBJECTIVES.find(([id]) => value === `goal1:${id}`)?.[1] ?? "";
 }
