@@ -433,7 +433,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const totalsAligned = totalStatuses === totalPlayers;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="px-3 py-4 sm:p-6 max-w-4xl mx-auto space-y-6">
       <div>
         {returnTo && <Button asChild variant="outline" size="sm"><Link href={returnTo}>Torna alla seduta</Link></Button>}
         <h1 className="text-2xl font-bold flex items-center gap-2"><CalendarCheck className="w-6 h-6 text-primary" />{t.trainingAttendance}</h1>
@@ -668,11 +668,11 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                 const blocked = player.available === false && !hasActiveAvailabilityOverride(player);
                 return (
                   <Card key={player.id} className={`transition-shadow ${blocked ? "border-red-200 bg-red-50/50" : "hover:shadow-sm"}`}>
-                    <CardContent className="py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <Icon className={`w-5 h-5 ${status ? statusColors[status as keyof typeof statusColors] : "text-muted-foreground"}`} />
+                    <CardContent className="grid grid-cols-[minmax(0,1fr)_112px] gap-x-2 gap-y-2 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                      <div className="col-span-2 flex min-w-0 items-center gap-2 md:col-span-1">
+                        <Icon className={`h-4 w-4 shrink-0 ${status ? statusColors[status as keyof typeof statusColors] : "text-muted-foreground"}`} />
                         <div className="min-w-0">
-                          <span className="font-medium">{player.lastName} {player.firstName}</span>
+                          <span className="text-sm font-medium">{player.lastName} {player.firstName}</span>
                           {blocked && (
                             <p className="text-xs font-medium text-red-700">
                               Non disponibile: {reasonLabel(player.unavailabilityReason || player.status)}
@@ -685,12 +685,14 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                           {status === "requested" ? "Richiesto" : status ? (t[status as keyof typeof t] as string) : "Non segnato"}
                         </Badge>
                       ) : (
-                        <div className="flex flex-col gap-2 sm:items-end">
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="col-span-2 grid min-w-0 grid-cols-[minmax(0,1fr)_112px] items-center gap-2 md:col-span-2 md:grid-cols-[minmax(0,1fr)_auto_132px]">
+                        <div className="contents">
                           {parentAvailabilityError?<span role="alert" className="text-xs text-destructive">Disponibilità non disponibili</span>:parentAvailabilityLoading?<span className="text-xs">Caricamento disponibilità...</span>:<ParentAvailabilityBadge status={parentAvailability?.records.find(record=>record.playerId===player.id)?.status}/>}
+                          <div role="group" aria-label={`Presenza di ${player.lastName} ${player.firstName}`} className="col-span-2 row-start-2 grid grid-cols-4 gap-1 md:col-span-1 md:row-start-auto">
                           {(["present", "absent", "requested", "injured"] as const).map(s => (
                             <Button key={s} size="sm" variant={status === s ? "default" : "outline"}
-                              className={
+                              aria-pressed={status === s}
+                              className={`h-10 min-w-0 px-0 text-[11px] max-[359px]:text-[10px] sm:px-3 sm:text-xs ${
                                 status === s && s === "absent"
                                   ? "bg-red-500 hover:bg-red-600 border-red-500"
                                   : status === s && s === "requested"
@@ -698,15 +700,16 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                                     : status === s && s === "injured"
                                       ? "bg-amber-500 hover:bg-amber-600 border-amber-500"
                                       : ""
-                              }
+                              }`}
                               disabled={blocked && s !== "absent"}
                               onClick={() => handleStatusChange(player.id, s)}>
                               {s === "requested" ? "Richiesto" : (t[s as keyof typeof t] as string)}
                             </Button>
                           ))}
+                          </div>
                         </div>
                         <Select value={conduct ?? ""} onValueChange={(value) => handleConductChange(player.id, value as TrainingConduct)}>
-                          <SelectTrigger disabled={!status} className="h-8 w-full sm:w-[170px] text-xs">
+                          <SelectTrigger disabled={!status} aria-label={`Condotta di ${player.lastName} ${player.firstName}`} className="h-9 w-full min-w-0 px-2 text-xs">
                             <SelectValue placeholder="Condotta" />
                           </SelectTrigger>
                           <SelectContent>
