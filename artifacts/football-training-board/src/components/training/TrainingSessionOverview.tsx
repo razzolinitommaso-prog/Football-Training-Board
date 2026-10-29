@@ -11,6 +11,7 @@ export type SessionOverviewExercise = {
   phase: string | null;
   duration: number | null;
   preview: string | null;
+  attendanceAdjusted?:boolean;
   principle: string | null;
   players: number | null;
   available: boolean;
@@ -79,7 +80,7 @@ export function TrainingSessionOverview(props: Props) {
                 {exercises.map(exercise => <article key={exercise.id} className="flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
                   <button type="button" disabled={!exercise.available} onClick={() => props.onView(exercise.id)} className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Apri stazione: ${exercise.title}`}>
                     <div className="flex h-24 items-center justify-center border-b bg-muted/20 p-1 sm:h-32">
-                      {exercise.preview ? <img src={exercise.preview} alt={`Lavagna: ${exercise.title}`} className="h-full w-full object-contain"/> : <span className="flex flex-col items-center gap-2 p-2 text-center text-[11px] text-muted-foreground"><ImageIcon aria-hidden="true" className="h-6 w-6 opacity-50"/>Anteprima non disponibile</span>}
+                      {exercise.preview ? <img src={exercise.preview} alt={`Lavagna: ${exercise.title}`} className="h-full w-full object-contain"/> : <span className="flex flex-col items-center gap-2 p-2 text-center text-[11px] text-muted-foreground"><ImageIcon aria-hidden="true" className="h-6 w-6 opacity-50"/>{exercise.attendanceAdjusted?"Anteprima da aggiornare alla rosa attuale":"Anteprima non disponibile"}</span>}
                     </div>
                     <div className="space-y-1 p-2 sm:p-3"><h4 className="break-words text-xs font-semibold leading-snug sm:text-sm"><span className="mr-1 text-[10px] font-normal text-muted-foreground">#{props.exercises.indexOf(exercise) + 1}</span>{exercise.title}</h4><p className="text-[11px] text-muted-foreground">{exercise.duration !== null ? durationLabel(exercise.duration) : "Durata da indicare"}{exercise.players ? ` · ${exercise.players} giocatori` : ""}</p>{exercise.principle && <p className="break-words text-[10px] text-primary">{exercise.principle}</p>}</div>
                   </button>

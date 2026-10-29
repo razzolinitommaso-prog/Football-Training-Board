@@ -1,5 +1,5 @@
 import { useDialogViewport } from "@/hooks/use-dialog-viewport";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { withApi } from "@/lib/api-base";
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,14 @@ import { ScrollableSelect } from "@/components/ui/scrollable-select";
 
 type Player = { id: number; firstName: string; lastName: string; teamName?: string | null; dateOfBirth?: string | null; available?: boolean };
 type Roster = { workGroups: { id: number; name: string; playerIds?: number[] }[] };
-export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId, buttonLabel="Scegli giocatori", showCount=true, disabled=false }: {
-  players: Player[]; selectedIds: number[]; onConfirm: (ids: number[]) => void; teamId?: string | number | null; buttonLabel?:string;showCount?:boolean;disabled?:boolean;
+export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId, buttonLabel="Scegli giocatori", showCount=true, disabled=false, excludedIds=[] }: {
+  players: Player[]; selectedIds: number[]; onConfirm: (ids: number[]) => void; teamId?: string | number | null; buttonLabel?:string;showCount?:boolean;disabled?:boolean;excludedIds?:number[];
 }) {
   const uid = useId();
   const [open, setOpen] = useState(false);
   const dialogViewport = useDialogViewport(open, true);
   const [draft, setDraft] = useState<number[]>([]);
+  useEffect(()=>{if(excludedIds.length)setDraft(old=>old.filter(id=>!excludedIds.includes(id)));},[excludedIds.join(",")]);
   const [search, setSearch] = useState("");
   const [year, setYear] = useState("");
   const [group, setGroup] = useState("");

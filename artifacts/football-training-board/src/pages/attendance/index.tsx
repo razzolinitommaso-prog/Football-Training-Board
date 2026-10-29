@@ -260,6 +260,9 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/attendance", sessionId] });
       qc.invalidateQueries({ queryKey: ["/api/attendance-summary"] });
+      qc.invalidateQueries({queryKey:["training-session-participants"]});
+      qc.invalidateQueries({queryKey:["/api/training-sessions",sessionId,"planning"]});
+      qc.invalidateQueries({queryKey:["/api/training-sessions",sessionId,"exercises"]});
     },
     onError: () => toast({ title: "Error", variant: "destructive" }),
   });

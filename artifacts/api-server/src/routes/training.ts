@@ -1,4 +1,6 @@
-import { validateTrainingRotations, type TrainingRotations } from "@workspace/api-zod";
+import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
+import { readSessionEligibility } from "../lib/training-session-attendance";
+import { excludeTrainingPlayers, validateTrainingRotations, type TrainingRotations } from "@workspace/api-zod";
 import { rosterMembers } from "../lib/training-roster-policy";
 import { recalculateRotationPlan, planningVersion, rotationTimings } from "../lib/training-session-planning";
 import { sessionTeamScope, sessionTeamIds, consolidateSharedDrafts } from "../lib/session-team-scope";
@@ -463,7 +465,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
 // Session-local planning never changes library exercises or other sessions.
 async function planningAccess(req: Parameters<typeof resolveAllowedClubSections>[0], id: number, write: boolean) {
   const clubId=req.session.clubId, userId=req.session.userId, role=normalizeSessionRole(req.session.role);
-  if(!clubId||!userId) return null;
+  if(!clubId||!userId||(!canViewAllClubTrainingSessions(role)&&!STAFF_RESTRICTED_ROLES.includes(role))) return null;
   const [session]=await db.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,id),eq(trainingSessionsTable.clubId,clubId)));
   if(!session) return null;
   if(session.teamId) {
@@ -485,6 +487,14 @@ async function planningExercises(sessionId:number,clubId:number) {
     FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${clubId}
     WHERE link.training_session_id=${sessionId} ORDER BY link."order",link.id`));
 }
+router.get("/training-sessions/:id/participants",requireAuth,async(req,res):Promise<void>=>{
+ const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0){res.status(400).json({error:"Seduta non valida"});return;}
+ const session=await planningAccess(req,id,false);if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
+ const players=await db.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
+ const ids=new Set(rosterMembers(players,sessionTeamIds(session.teamId,session.notes)).map(player=>player.id));
+ const state=await readSessionEligibility(session.clubId,session);
+ res.json({blockedPlayerIds:state.blockedPlayerIds.filter(id=>ids.has(id)),presentPlayerIds:state.presentPlayerIds.filter(id=>ids.has(id)),recordedPlayerIds:state.recordedPlayerIds.filter(id=>ids.has(id)),total:ids.size});
+});
 router.get("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<void>=>{
   const id=Number(req.params.id);
   if(!Number.isInteger(id)||id<=0){res.status(400).json({error:"Seduta non valida"});return;}
@@ -492,7 +502,8 @@ router.get("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
   if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
   const plan=await readSessionPlan(id,session.clubId);
   const exercises=await planningExercises(id,session.clubId);
-  res.json({...plan,version:planningVersion(plan),timings:Object.fromEntries(exercises.filter(ex=>plan.timings[String(ex.id)]?.signature===timingSignature(ex)).map(ex=>[String(ex.id),plan.timings[String(ex.id)]]))});
+  const attendance=await readSessionEligibility(session.clubId,session);
+  res.json({...plan,...(plan.rotations?{rotations:excludeTrainingPlayers(plan.rotations,attendance.blockedPlayerIds)}:{}),version:planningVersion(plan,attendance.blockedPlayerIds),timings:Object.fromEntries(exercises.filter(ex=>plan.timings[String(ex.id)]?.signature===timingSignature(ex)).map(ex=>[String(ex.id),plan.timings[String(ex.id)]]))});
 });
 router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<void>=>{
   const id=Number(req.params.id), recoveries=req.body?.recoveries;
@@ -500,6 +511,8 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
   const session=await planningAccess(req,id,true);
   if(!session){res.status(403).json({error:"Non puoi preparare questa seduta"});return;}
   await ensureSessionPlans();
+  await ensureParentTrainingAvailabilityTable();
+  let attendanceIds:number[]=[];
   try {
     const plan=await db.transaction(async tx=>{
       await tx.execute(sql`SELECT id FROM training_sessions WHERE id=${id} AND club_id=${session.clubId} FOR UPDATE`);
@@ -508,11 +521,12 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
       const [stored]=resultRows<{plan:Awaited<ReturnType<typeof readSessionPlan>>}>(await tx.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${id} AND club_id=${session.clubId}`));
       const old:Awaited<ReturnType<typeof readSessionPlan>>=stored?.plan??{recoveries:[0,0],timings:{}};
       const exercises=resultRows<PlanningExercise>(await tx.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title, exercise.training_phase AS phase FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${session.clubId} WHERE link.training_session_id=${id} ORDER BY link."order",link.id`));
-      if(req.body.version!==undefined&&req.body.version!==planningVersion(old))throw Error("CONFLICT:La pianificazione è cambiata. Riapri la seduta prima di salvare i turni.");
-      const rotations=req.body.rotations===undefined?old.rotations:req.body.rotations;
+      attendanceIds=(await readSessionEligibility(session.clubId,current,tx)).blockedPlayerIds;
+      if(req.body.version!==undefined&&req.body.version!==planningVersion(old,attendanceIds))throw Error("CONFLICT:La pianificazione è cambiata. Riapri la seduta prima di salvare i turni.");
+      const rotations=req.body.rotations===undefined?(old.rotations?excludeTrainingPlayers(old.rotations,attendanceIds):undefined):req.body.rotations;
       if(rotations!==undefined){
         const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
-        const allowed=rosterMembers(players,sessionTeamIds(current.teamId,current.notes)).map(player=>player.id);
+        const allowed=rosterMembers(players,sessionTeamIds(current.teamId,current.notes)).map(player=>player.id).filter(id=>!attendanceIds.includes(id));
         const issue=validateTrainingRotations(rotations,exercises.map(ex=>({id:ex.id,phase:ex.phase??null})),allowed);
         if(issue)throw Error(issue);
       }
@@ -520,7 +534,7 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
       await tx.execute(sql`INSERT INTO training_session_plans(session_id,club_id,plan) VALUES(${id},${session.clubId},${JSON.stringify(next)}::jsonb) ON CONFLICT(session_id) DO UPDATE SET plan=EXCLUDED.plan,updated_at=now() WHERE training_session_plans.club_id=${session.clubId}`);
       return next;
     });
-    res.json({...plan,version:planningVersion(plan)});
+    res.json({...plan,version:planningVersion(plan,attendanceIds)});
   } catch(error) {const message=error instanceof Error?error.message:"Pianificazione non valida";res.status(message.startsWith("CONFLICT:")?409:400).json({error:message.replace(/^CONFLICT:/,"")});}
 });
 

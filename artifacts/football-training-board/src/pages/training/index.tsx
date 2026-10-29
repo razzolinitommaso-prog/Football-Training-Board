@@ -1,3 +1,5 @@
+import { useSessionParticipants } from "@/hooks/use-session-participants";
+import { attendanceExerciseView } from "@workspace/api-zod";
 import { StationTurnPlanner } from "@/components/training/StationTurnPlanner";
 import { rotationSeconds, rotationRecoverySeconds, rotationPhaseSeconds, type TrainingRotations } from "@workspace/api-zod";
 import { SessionTeamPicker } from "@/components/training/SessionTeamPicker";
@@ -88,6 +90,7 @@ interface LinkedExercise {
   trainingSession?: string | null;
   trainingPhase?: string | null;
   principio?: string | null;
+  attendanceAdjusted?: boolean;
   statoLavagnaJson?: string | null;
   drawingData?: string | null;
   drawingElementsJson?: string | null;
@@ -1809,6 +1812,10 @@ function SessionDetailsDialog({
   const { toast } = useToast();
   const { t } = useLanguage();
   const qc = useQueryClient();
+  const participants=useSessionParticipants(session.id,session.sessionKind!=="tipo");
+  const blockedPlayerIds=participants.data?.blockedPlayerIds??[];
+  const attendanceSignature=JSON.stringify(participants.data??null);
+  useEffect(()=>{if(participants.data){void qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});void qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"exercises"]});}},[attendanceSignature,qc,session.id]);
   const [editingMetadata,setEditingMetadata] = useState(true);
   const [recoveries,setRecoveries] = useState<[number,number]>([0,0]);
   const [recoveriesDirty,setRecoveriesDirty] = useState(false);
@@ -1821,6 +1828,7 @@ function SessionDetailsDialog({
   const [editingLink, setEditingLink] = useState<SessionExerciseLink | null>(null);
   const [duplicateSourceExerciseId, setDuplicateSourceExerciseId] = useState<number | null>(null);
   const [exerciseForm, setExerciseForm] = useState<ExerciseFormState>(() => emptyExerciseFormFromSession(session, 0));
+  useEffect(()=>{if(blockedPlayerIds.length)setExerciseForm(previous=>{const next=attendanceExerciseView({...previous,playersRequired:Number(previous.playersRequired)||0},blockedPlayerIds);return {...previous,selectedPlayerIdsJson:next.selectedPlayerIdsJson??"",playersRequired:String(next.playersRequired??0),statoLavagnaJson:next.statoLavagnaJson??"",drawingElementsJson:next.drawingElementsJson??"",drawingData:next.drawingData??""};});},[blockedPlayerIds.join(",")]);
 
 
   const linkedExercisesQuery = useQuery<SessionExerciseLink[]>({
@@ -1974,6 +1982,8 @@ function SessionDetailsDialog({
 
   async function handleSaveExercise(e: React.FormEvent) {
     e.preventDefault();
+    if(participants.isLoading||participants.isError){toast({title:"Attendi il caricamento dell’appello prima di assegnare i giocatori",variant:"destructive"});return;}
+    if(parseSelectedPlayerIds(exerciseForm.selectedPlayerIdsJson).some(id=>blockedPlayerIds.includes(id))){toast({title:"Un giocatore è stato segnato assente. Rivedi la scelta dei giocatori.",variant:"destructive"});return;}
     if(parseSelectedPlayerIds(exerciseForm.selectedPlayerIdsJson).some(id=>reservedPlayers.has(id))){toast({title:"Giocatore già assegnato a un'altra stazione dello stesso turno",variant:"destructive"});return;}
     if (!exerciseForm.title.trim()) {
       toast({ title: "Titolo stazione obbligatorio", variant: "destructive" });
@@ -2045,7 +2055,7 @@ function SessionDetailsDialog({
   const phaseTurns=planQuery.data?.rotations?.[exerciseForm.trainingPhase as "iniziale"|"centrale"|"finale"];
   const savedTurn=editingLink?(phaseTurns?.find(turn=>turn.stations.some(station=>station.linkId===editingLink.id&&station.playerIds.length>0))??phaseTurns?.[0]):phaseTurns?.[0];
   const reservedPlayers=new Set(planQuery.data?.rotations===undefined?[]:savedTurn?savedTurn.stations.filter(station=>station.linkId!==editingLink?.id).flatMap(station=>station.playerIds):linkedExercises.filter(link=>link.id!==editingLink?.id&&link.exercise?.trainingPhase===exerciseForm.trainingPhase).flatMap(link=>parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??"")));
-  const selectablePlayers = (selectablePlayersQuery.data ?? []).filter((p) => p.available !== false&&!reservedPlayers.has(p.id));
+  const selectablePlayers = (selectablePlayersQuery.data ?? []).filter((p) => p.available !== false&&!reservedPlayers.has(p.id)&&!blockedPlayerIds.includes(p.id));
   const selectedPlayersCount = selectedPlayerIds.length;
   const allPlayersCount = selectablePlayers.length;
   const computedPlayersRequired =
@@ -2108,7 +2118,7 @@ function SessionDetailsDialog({
           </div>
         </DialogHeader>
 
-        <StationTurnPlanner activities={linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??""),preview:link.exercise?.drawingData??null,principle:link.exercise?.principio?principioLabel(link.exercise.principio):null}))} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly||planQuery.isLoading||planQuery.isError} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione della seduta salvata"});}} onPreviewChange={setRotationPreview} onView={id=>setViewingLink(linkedExercises.find(link=>link.id===id)??null)} onEdit={id=>{const link=linkedExercises.find(link=>link.id===id);if(link)openEditExercise(link);}} onRemove={id=>{if(confirm("Rimuovere la stazione da questa seduta?"))removeLinkMutation.mutate(id);}}>
+        <StationTurnPlanner activities={linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??""),preview:link.exercise?.drawingData??null,attendanceAdjusted:link.exercise?.attendanceAdjusted,principle:link.exercise?.principio?principioLabel(link.exercise.principio):null}))} blockedPlayerIds={blockedPlayerIds} attendanceLoading={participants.isLoading||participants.isError} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly||planQuery.isLoading||planQuery.isError} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione della seduta salvata"});}} onPreviewChange={setRotationPreview} onView={id=>setViewingLink(linkedExercises.find(link=>link.id===id)??null)} onEdit={id=>{const link=linkedExercises.find(link=>link.id===id);if(link)openEditExercise(link);}} onRemove={id=>{if(confirm("Rimuovere la stazione da questa seduta?"))removeLinkMutation.mutate(id);}}>
         {({toolbar,phases})=><TrainingSessionOverview
           editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>{setEditingMetadata(false);setMetadataDirty(false);}} onSaved={()=>{setMetadataDirty(false);void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
           phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 text-sm"><Label htmlFor={`recovery-${session.id}-${index}`}>Recupero tra fase {index+1} e {index+2}</Label><Input id={`recovery-${session.id}-${index}`} aria-label={`Recupero tra fase ${index+1} e ${index+2}`} className="w-20" type="number" min={0} max={300} step={1} disabled={readOnly||planQuery.isLoading||planQuery.isError||savePlan.isPending} value={recoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300){setRecoveries(previous=>index===0?[value,previous[1]]:[previous[0],value]);setRecoveriesDirty(true);}}}/><span>min</span></div>)}
@@ -2127,6 +2137,7 @@ function SessionDetailsDialog({
             phase: link.exercise?.trainingPhase ?? null,
             duration: effectiveDuration(link),
             preview: link.exercise?.drawingData ?? null,
+            attendanceAdjusted:link.exercise?.attendanceAdjusted,
             principle: link.exercise?.principio ? principioLabel(link.exercise.principio) : null,
             players: planQuery.data?.rotations?.[link.exercise?.trainingPhase as "iniziale"|"centrale"|"finale"]?.[0]?.stations.find(station=>station.linkId===link.id)?.playerIds.length ?? link.exercise?.playersRequired ?? null,
             available: Boolean(link.exercise),
@@ -2143,6 +2154,7 @@ function SessionDetailsDialog({
           onRemove={id => { if (confirm("Rimuovere la stazione da questa seduta?")) removeLinkMutation.mutate(id); }}
           recovery={<div className="space-y-2">
             {planQuery.isLoading?<p role="status">Caricamento tempi della seduta...</p>:planQuery.isError?<p role="alert">Tempi non disponibili. <Button variant="link" onClick={()=>void planQuery.refetch()}>Riprova</Button></p>:<>
+              {session.sessionKind!=="tipo"&&<p className="text-xs text-muted-foreground">{participants.isLoading?"Caricamento appello...":participants.isError?"Appello non disponibile: assegnazione giocatori sospesa.":`Appello: ${participants.data?.recordedPlayerIds.length??0} su ${participants.data?.total??0} registrati. Prima dell’appello vale la disponibilità dei genitori; presente e assente prevalgono nella seduta. Completa l’appello prima dell’inizio della seduta; restano possibili le rettifiche.`}</p>}
               <p>Stazioni: <strong>{formatMinutes(plannedExerciseMinutes)}</strong> · Recuperi: <strong>{formatMinutes(recoveryMinutes)}</strong></p>
               <p>Base iniziale: due stazioni per fase. Nei turni contemporanei il tempo viene contato una sola volta; le rotazioni aggiungono i turni successivi.</p>
               <p>Tempo residuo: <strong>{formatMinutes(Math.max(0,residualMinutes))}</strong></p>
@@ -2397,7 +2409,7 @@ function SessionDetailsDialog({
                       </div>
                     </div>
 
-                    <TrainingRosterOptions key={exerciseForm.teamId || "all"} teamId={exerciseForm.teamId} onSelect={ids => setExerciseForm(prev => ({ ...prev, playersRequiredMode: "selected", selectedPlayerIdsJson: JSON.stringify(ids.filter(id=>!reservedPlayers.has(id))) }))} />
+                    <TrainingRosterOptions key={exerciseForm.teamId || "all"} teamId={exerciseForm.teamId} onSelect={ids => setExerciseForm(prev => ({ ...prev, playersRequiredMode: "selected", selectedPlayerIdsJson: JSON.stringify(ids.filter(id=>!reservedPlayers.has(id)&&!blockedPlayerIds.includes(id))) }))} />
                     {exerciseForm.playersRequiredMode === "manual" && (
                       <div className="space-y-2">
                         <Label>Inserisci numero</Label>
@@ -2445,7 +2457,7 @@ function SessionDetailsDialog({
                         ) : selectablePlayers.length === 0 ? (
                           <p className="text-sm text-muted-foreground italic">Nessun giocatore disponibile per la selezione.</p>
                         ) : (
-                          <TrainingRosterPicker players={selectablePlayers} selectedIds={selectedPlayerIds} teamId={exerciseForm.teamId} onConfirm={ids => setExerciseForm(prev => ({ ...prev, selectedPlayerIdsJson: JSON.stringify(ids) }))} />
+                          <TrainingRosterPicker excludedIds={blockedPlayerIds} players={selectablePlayers} selectedIds={selectedPlayerIds} teamId={exerciseForm.teamId} onConfirm={ids => setExerciseForm(prev => ({ ...prev, selectedPlayerIdsJson: JSON.stringify(ids.filter(id=>!blockedPlayerIds.includes(id)&&!reservedPlayers.has(id))) }))} />
                         )}
                       </div>
                     )}
@@ -2633,7 +2645,7 @@ function SessionDetailsDialog({
                       <p className="text-sm font-medium">Lavagna stazione</p>
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
-                    <ExerciseTacticalBoard title={exerciseForm.title || "Stazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds : exerciseForm.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setExerciseForm(prev => ({ ...prev, ...result }))} />
+                    <ExerciseTacticalBoard title={exerciseForm.title || "Stazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds.filter(id=>!blockedPlayerIds.includes(id)) : selectablePlayers.map(player => player.id)} onSave={result => setExerciseForm(prev => {const safe=attendanceExerciseView(result,blockedPlayerIds);return {...prev,statoLavagnaJson:safe.statoLavagnaJson??"",drawingData:safe.drawingData??"",drawingElementsJson:safe.drawingElementsJson??""};})} />
                   </div>
                   {exerciseForm.statoLavagnaJson && exerciseForm.drawingData ? <img src={exerciseForm.drawingData} alt="Anteprima lavagna stazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
                     value={exerciseForm.drawingData || null}

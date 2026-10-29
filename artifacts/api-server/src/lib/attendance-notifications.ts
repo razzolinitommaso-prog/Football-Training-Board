@@ -1,9 +1,12 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db, trainingAttendancesTable, trainingSessionsTable, playersTable, parentPlayerRelationsTable, parentNotificationsTable } from "@workspace/db";
+import { removeAbsentFromSessionPlan } from "./training-session-attendance";
 import { sendParentNotificationEmail } from "./parent-email";
 
 export async function saveAttendanceAndNotify(input:{clubId:number;sessionId:number;playerId:number;id?:number;status?:string;notes?:string|null}) {
   const result=await db.transaction(async tx=>{
+    // Serialize appello and station planning for the same session.
+    await tx.execute(sql`SELECT id FROM training_sessions WHERE id=${input.sessionId} AND club_id=${input.clubId} FOR UPDATE`);
     // All attendance write paths share this lock, including the first insert.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${input.clubId}|${input.sessionId}|${input.playerId}`}))`);
     const [existing]=await tx.select().from(trainingAttendancesTable).where(and(eq(trainingAttendancesTable.clubId,input.clubId),eq(trainingAttendancesTable.trainingSessionId,input.sessionId),eq(trainingAttendancesTable.playerId,input.playerId),input.id?eq(trainingAttendancesTable.id,input.id):undefined)).orderBy(asc(trainingAttendancesTable.id)).limit(1);
@@ -13,6 +16,7 @@ export async function saveAttendanceAndNotify(input:{clubId:number;sessionId:num
     const incomingNotes=input.notes===undefined?existing?.notes:input.notes;
     const cleanNotes=(status==="present"||status==="absent")&&(incomingNotes??"").startsWith("Genitore:")?null:incomingNotes;
     const [record]=existing?await tx.update(trainingAttendancesTable).set({status,notes:cleanNotes}).where(eq(trainingAttendancesTable.id,existing.id)).returning():await tx.insert(trainingAttendancesTable).values({clubId:input.clubId,trainingSessionId:input.sessionId,playerId:input.playerId,status,notes:cleanNotes??null}).returning();
+    if(["absent","injured"].includes(status))await removeAbsentFromSessionPlan(tx,input.clubId,input.sessionId,input.playerId);
     const messages:{parentUserId:number;title:string;message:string}[]=[];
     if((status==="present"||status==="absent")&&(status!==existing?.status||legacyParent)){
       const [player]=await tx.select({firstName:playersTable.firstName,lastName:playersTable.lastName}).from(playersTable).where(and(eq(playersTable.clubId,input.clubId),eq(playersTable.id,input.playerId))).limit(1);

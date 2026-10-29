@@ -199,6 +199,7 @@ router.post("/attendance", requireAuth, async (req, res): Promise<void> => {
     return;
   }
   const nextStatus = status ?? "present";
+  if(!["present","absent","requested","injured"].includes(nextStatus)){res.status(400).json({error:"Stato appello non valido"});return;}
   if (nextStatus !== "absent") {
     const availability = await playerCanAttend(playerNumericId, req.session.clubId!);
     if (!availability.ok) {
@@ -215,6 +216,7 @@ router.patch("/attendance/:id", requireAuth, async (req, res): Promise<void> => 
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { status, notes } = req.body;
+  if(status!==undefined&&!["present","absent","requested","injured"].includes(status)){res.status(400).json({error:"Stato appello non valido"});return;}
   const [existing] = await db
     .select()
     .from(trainingAttendancesTable)

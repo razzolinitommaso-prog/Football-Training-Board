@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import {
   db,
   exercisesTable,
+  trainingSessionsTable,
   trainingSessionExercisesTable,
   trainingGuidelinesTable,
   teamsTable,
@@ -10,6 +11,9 @@ import {
   clubMembershipsTable,
 } from "@workspace/db";
 import { eq, and, desc, asc, inArray, isNull, or } from "drizzle-orm";
+import { attendanceExerciseView } from "@workspace/api-zod";
+import { readSessionEligibility } from "../lib/training-session-attendance";
+import { resolveAllowedClubSections, normalizeSessionRole, isClubWideListRole } from "../lib/club-scope";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
@@ -443,11 +447,18 @@ router.delete("/training-guidelines/:id", requireAuth, async (req, res): Promise
 router.get("/training-sessions/:id/exercises", requireAuth, async (req, res): Promise<void> => {
   const sessionId = parseInt(String(req.params.id));
   if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const clubId=req.session.clubId!,role=normalizeSessionRole(req.session.role),userId=req.session.userId!;
+  const [session]=await db.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,sessionId),eq(trainingSessionsTable.clubId,clubId)));
+  if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
+  const sections=await resolveAllowedClubSections(req,undefined);
+  if(session.teamId){const [team]=await db.select().from(teamsTable).where(and(eq(teamsTable.id,session.teamId),eq(teamsTable.clubId,clubId)));if(!team||(sections&&!sections.includes(team.clubSection))){res.status(403).json({error:"Seduta non accessibile"});return;}}
+  if(!isClubWideListRole(role)&&(!STAFF_RESTRICTED_ROLES.includes(role)||!(await canAccessTeamForRestrictedRole(clubId,userId,session.teamId))||(!session.teamId&&session.createdByUserId!==userId&&!session.sentToUserIds?.includes(userId)))){res.status(403).json({error:"Seduta non accessibile"});return;}
+  const attendance=await readSessionEligibility(clubId,session);
   const links = await db.select().from(trainingSessionExercisesTable)
     .where(eq(trainingSessionExercisesTable.trainingSessionId, sessionId));
   const enriched = await Promise.all(links.map(async (l) => {
-    const [ex] = await db.select().from(exercisesTable).where(eq(exercisesTable.id, l.exerciseId));
-    return { ...l, exercise: ex ? await enrichExercise(ex) : null };
+    const [ex] = await db.select().from(exercisesTable).where(and(eq(exercisesTable.id,l.exerciseId),eq(exercisesTable.clubId,clubId)));
+    return { ...l, exercise: ex ? await enrichExercise(attendanceExerciseView(ex,attendance.blockedPlayerIds),{clubId,userId,role}) : null };
   }));
   res.json(enriched);
 });

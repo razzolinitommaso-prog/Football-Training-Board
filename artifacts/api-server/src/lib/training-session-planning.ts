@@ -65,7 +65,7 @@ export function recalculateRotationPlan(duration:number,recoveries:[number,numbe
  return {recoveries,timings,rotations:next};
 }
 
-export function planningVersion(plan:SessionPlan):string { return createHash("sha256").update(JSON.stringify(plan)).digest("hex"); }
+export function planningVersion(plan:SessionPlan,attendanceIds?:number[]):string { return createHash("sha256").update(JSON.stringify(attendanceIds===undefined?plan:[plan,[...attendanceIds].sort((a,b)=>a-b)])).digest("hex"); }
 export function rotationTimings(exercises:PlanningExercise[],rotations:TrainingRotations):SessionPlan["timings"] {
  const timings:SessionPlan["timings"]={};
  for(const phase of TRAINING_ROTATION_PHASES)for(const turn of rotations[phase]??[])for(const station of turn.stations){

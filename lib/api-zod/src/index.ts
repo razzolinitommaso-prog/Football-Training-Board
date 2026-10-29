@@ -12,3 +12,5 @@ export * from "./training-session-teams";
 export * from "./training-rotations";
 
 export * from "./shared-training-occurrences";
+
+export * from "./training-attendance";

@@ -12,16 +12,16 @@ export async function ensureParentTrainingAvailabilityTable() {
   ready = true;
 }
 export function resultRows<T>(result:unknown):T[] { return (Array.isArray(result)?result:(result as {rows?:T[]})?.rows??[]) as T[]; }
-export async function trainingAvailability(clubId:number,teamId:number,date:string,start:string,allowedTeamIds?:number[],requestedTeamIds?:number[],durationMinutes?:number) {
+export async function trainingAvailability(clubId:number,teamId:number,date:string,start:string,allowedTeamIds?:number[],requestedTeamIds?:number[],durationMinutes?:number,reader:Pick<typeof db,"select"|"execute">=db) {
   await ensureParentTrainingAvailabilityTable();
-  const players=await db.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,clubId));
+  const players=await reader.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,clubId));
   const requested=[...new Set([teamId,...(requestedTeamIds??[])])];
   const teamIds=allowedTeamIds?requested.filter(id=>allowedTeamIds.includes(id)):requested;
   const roster=rosterMembers(players,teamIds);
   // Replies belong to the child's original team occurrence, including children
   // training with a supplemental/shared team. Only overlapping scheduled slots
   // are eligible; another training on the same date must not supply a reply.
-  const teams=await db.select().from(teamsTable).where(eq(teamsTable.clubId,clubId));
+  const teams=await reader.select().from(teamsTable).where(eq(teamsTable.clubId,clubId));
   const target=teams.find(team=>team.id===teamId);
   const weekdays=['domenica','lunedi','martedi','mercoledi','giovedi','venerdi','sabato'];
   const weekday=weekdays[new Date(`${date}T12:00:00Z`).getUTCDay()];
@@ -39,12 +39,12 @@ export async function trainingAvailability(clubId:number,teamId:number,date:stri
   });
   // Retain replies attached to the original occurrence when that occurrence
   // was explicitly moved/joined. Never match a different slot by date alone.
-  const origins=resultRows<{originalDate:string;originalStartTime:string}>(await db.execute(sql`
+  const origins=resultRows<{originalDate:string;originalStartTime:string}>(await reader.execute(sql`
     SELECT original_date::text AS "originalDate", original_start_time AS "originalStartTime"
     FROM training_calendar_overrides WHERE club_id=${clubId} AND team_id=${teamId}
       AND status IN ('moved','joined') AND new_date=${date}::date AND new_start_time=${start}`));
   const occurrences=[`${teamId}-${date}-${start}`,...roster.filter(player=>player.teamId).map(player=>`${player.teamId}-${date}-${start}`),...relatedOccurrences,...origins.map(row=>`${teamId}-${row.originalDate}-${row.originalStartTime}`)];
-  const rows=resultRows<{playerId:number;status:string;occurrenceId:string;updatedAt:Date|string}>(await db.execute(sql`
+  const rows=resultRows<{playerId:number;status:string;occurrenceId:string;updatedAt:Date|string}>(await reader.execute(sql`
     SELECT player_id AS "playerId",status,occurrence_id AS "occurrenceId",updated_at AS "updatedAt" FROM parent_training_availabilities
     WHERE club_id=${clubId} AND occurrence_id IN (${sql.join(occurrences.map(value=>sql`${value}`),sql`,`)})`));
   const records=roster.map(player=>{
