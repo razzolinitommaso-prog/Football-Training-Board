@@ -22,19 +22,19 @@ const ROLE_PERMISSIONS: { role: string; label: string; color: string; areas: str
     role: "admin",
     label: "Amministratore",
     color: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    areas: ["Dashboard", "Squadre", "Giocatori", "Allenamenti", "Partite", "Presenze", "Bacheca tattica", "Esercizi", "Stagioni", "Segreteria", "Fitness", "Fatturazione", "Accesso Genitori"],
+    areas: ["Dashboard", "Squadre", "Giocatori", "Allenamenti", "Partite", "Presenze", "Bacheca tattica", "Stazioni", "Stagioni", "Segreteria", "Fitness", "Fatturazione", "Accesso Genitori"],
   },
   {
     role: "technical_director",
     label: "Direttore Tecnico",
     color: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    areas: ["Dashboard", "Sedute allenamento", "Esercitazioni", "Squadre", "Giocatori", "Partite", "Presenze", "Stagioni"],
+    areas: ["Dashboard", "Sedute allenamento", "Stazioni", "Squadre", "Giocatori", "Partite", "Presenze", "Stagioni"],
   },
   {
     role: "coach",
     label: "Allenatore",
     color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    areas: ["Dashboard", "Squadre", "Giocatori", "Allenamenti", "Presenze", "Bacheca tattica", "Esercizi"],
+    areas: ["Dashboard", "Squadre", "Giocatori", "Allenamenti", "Presenze", "Bacheca tattica", "Stazioni"],
   },
   {
     role: "director",

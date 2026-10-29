@@ -118,7 +118,7 @@ export default function WorkspaceSectionAreasPage() {
     {
       key: "technical",
       label: language === "it" ? "Area Direttore Tecnico" : "Technical Director Area",
-      description: language === "it" ? "Stagioni, esercizi e strategia delle squadre" : "Seasons, exercises and team strategy overview",
+      description: language === "it" ? "Stagioni, stazioni e strategia delle squadre" : "Seasons, exercises and team strategy overview",
       href: "/technical/login",
       icon: BarChart3,
       gradient: "from-orange-600/20 to-orange-600/5",

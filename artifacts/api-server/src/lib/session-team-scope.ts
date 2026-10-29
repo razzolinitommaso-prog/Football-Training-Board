@@ -8,6 +8,7 @@ export function sessionTeamScope(teamId:number) {
 }
 export async function consolidateSharedDrafts(tx:Tx,clubId:number,sourceId:number|null,teamIds:number[],at:Date,duration:number) {
  if(teamIds.length<2)return true;
+ if(!Number.isInteger(duration)||duration<15||duration>300)return false;
  for(const teamId of [...teamIds].sort((a,b)=>a-b))await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${clubId}|${teamId}`}))`);
  const result=await tx.execute(sql`SELECT s.id,s.team_id AS "teamId",s.scheduled_at AS at,s.title,s.notes,s.status,
  (s.updated_at=s.created_at AND s.objectives IS NULL AND s.description IS NULL AND NOT EXISTS(SELECT 1 FROM training_session_exercises e WHERE e.training_session_id=s.id) AND NOT EXISTS(SELECT 1 FROM training_attendances a WHERE a.training_session_id=s.id)) AS empty

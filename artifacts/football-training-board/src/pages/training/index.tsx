@@ -1,3 +1,10 @@
+import { StationTurnPlanner } from "@/components/training/StationTurnPlanner";
+import { rotationSeconds, type TrainingRotations } from "@workspace/api-zod";
+import { SessionTeamPicker } from "@/components/training/SessionTeamPicker";
+import { sessionTeamIds, withSessionTeams, SESSION_TEAMS_MARKER } from "@workspace/api-zod";
+import { TrainingCategoryPicker } from "@/components/training/TrainingCategoryPicker";
+import { trainingCategoryLabel } from "@workspace/api-zod";
+import { SessionObjectivePicker } from "@/components/training/SessionObjectivePicker";
 import { PrinciplePicker } from "@/components/training/PrinciplePicker";
 import { trainingPrincipleLabel } from "@workspace/api-zod";
 import { inferTrainingSlot, trainingSlotOptions } from "@/lib/training-session-slot";
@@ -220,7 +227,7 @@ const MATERIAL_OPTIONS = [
   { id: "hurdles_regolabili", label: "Hurdles regolabili", category: "Coordinazione e agility", availability: "youth" },
   { id: "over", label: "Over bassi", category: "Coordinazione e agility", availability: "base" },
   { id: "bastoni_coordinativi", label: "Bastoni coordinativi", category: "Coordinazione e agility", availability: "base" },
-  { id: "stazioni_agility", label: "Stazioni agility", category: "Coordinazione e agility", availability: "base" },
+  { id: "stazioni_agility", label: "Esercizi agility", category: "Coordinazione e agility", availability: "base" },
   { id: "reaction_lights", label: "Luci / reaction lights", category: "Coordinazione e agility", availability: "youth" },
   { id: "elastici", label: "Elastici", category: "Preparazione atletica", availability: "performance" },
   { id: "corde", label: "Corde", category: "Preparazione atletica", availability: "performance" },
@@ -265,7 +272,6 @@ type ExerciseStation = {
   playersRequired: string;
   variants: string[];
 };
-const EXERCISE_CATEGORIES = ["technique", "physical", "tactical", "warmup", "shooting", "passing", "defending"] as const;
 const TRAINING_SESSIONS = [
   { value: "giorno_1" },
   { value: "giorno_2" },
@@ -403,7 +409,7 @@ function normalizePrincipio(value: string | null | undefined): string {
 function emptyExerciseFormFromSession(session: TrainingSession, existingCount: number): ExerciseFormState {
   const inheritedTrainingSession = getSessionTrainingSession(session) ?? "";
   return {
-    title: `Esercitazione ${existingCount + 1} - ${session.title}`,
+    title: `Stazione ${existingCount + 1} - ${session.title}`,
     category: "",
     description: "",
     durationMinutes: "15",
@@ -559,7 +565,7 @@ function getTrainingCalendarNote(session: TrainingSession): string | null {
   const note = session.notes ?? "";
   const idx = note.indexOf(TRAINING_CALENDAR_NOTE_MARKER);
   if (idx < 0) return null;
-  return note.slice(idx + TRAINING_CALENDAR_NOTE_MARKER.length).trim() || null;
+  return note.slice(idx + TRAINING_CALENDAR_NOTE_MARKER.length).split(SESSION_TEAMS_MARKER)[0].trim() || null;
 }
 
 function parseEquipmentSelection(raw: string): Partial<Record<MaterialId, number>> {
@@ -699,19 +705,6 @@ function phaseLabel(value: string | null | undefined): string {
   return TRAINING_PHASES.find((item) => item.value === value)?.label ?? value;
 }
 
-function categoryLabel(value: string | null | undefined): string {
-  if (!value) return "";
-  const labels: Record<string, string> = {
-    technique: "Tecnica",
-    physical: "Fisica",
-    tactical: "Tattica",
-    warmup: "Riscaldamento",
-    shooting: "Tiro",
-    passing: "Passaggio",
-    defending: "Difesa",
-  };
-  return labels[value] ?? value;
-}
 
 function matchesSessionSearch(session: TrainingSession, normalizedSearch: string): boolean {
   if (!normalizedSearch) return true;
@@ -1005,7 +998,7 @@ function SessionCard({
           </div>
         )}
 
-        {showRecovery && <div className="rounded-md border bg-muted/20 p-2 text-xs text-muted-foreground">{linkedExercisesQuery.isLoading?"Caricamento esercitazioni...":`${linkedExercises.length} esercitazioni. Apri la scheda per tempi pianificati e recuperi manuali tra le fasi.`}</div>}
+        {showRecovery && <div className="rounded-md border bg-muted/20 p-2 text-xs text-muted-foreground">{linkedExercisesQuery.isLoading?"Caricamento stazioni...":`${linkedExercises.length} stazioni. Apri la scheda per tempi pianificati e recuperi manuali tra le fasi.`}</div>}
 
         {(session.tdComment || session.tdGuidelines) && (
           <div>
@@ -1102,26 +1095,32 @@ function CreateSessionDialog({
   const [duration, setDuration] = useState(90);
   const [location, setLocation] = useState("");
   const [teamId, setTeamId] = useState<number | null>(null);
+  const [sharedTeamIds,setSharedTeamIds]=useState<number[]>([]);
   const [sessionPrincipio, setSessionPrincipio] = useState("");
   const [sessionTrainingSession, setSessionTrainingSession] = useState("");
   const manualSlot = useRef(false);
+  const initialDraftApplied=useRef<InitialSessionDraft|null>(null);
   const [sessionKind, setSessionKind] = useState<"regular" | "tipo">("regular");
   const [recipientMode, setRecipientMode] = useState<"selected" | "all">("selected");
   const [recipients, setRecipients] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
 
   function reset() {
-    manualSlot.current = false;
+    manualSlot.current = false; initialDraftApplied.current=null;
     setScheduledDate(""); setScheduledTime(""); setDuration(90);
-    setLocation(""); setTeamId(null); setSessionPrincipio(""); setSessionTrainingSession(""); setSessionKind("regular"); setRecipientMode("selected"); setRecipients([]); requestedPhase.current=undefined;setCreationRecoveries([0,0]);
+    setLocation(""); setTeamId(null); setSharedTeamIds([]); setSessionPrincipio(""); setSessionTrainingSession(""); setSessionKind("regular"); setRecipientMode("selected"); setRecipients([]); requestedPhase.current=undefined;setCreationRecoveries([0,0]);
   }
 
   useEffect(() => {
-    if (!open || !initialDraft) return;
+    if (!open) { initialDraftApplied.current=null; return; }
+    if (!initialDraft || initialDraftApplied.current===initialDraft) return;
+    if (initialDraft.teamId&&!teams.some(team=>team.id===initialDraft.teamId)) return;
+    initialDraftApplied.current=initialDraft;
     if (initialDraft.trainingSession) { setSessionTrainingSession(initialDraft.trainingSession); manualSlot.current = true; }
     if (initialDraft.date) setScheduledDate(toDisplayDateValue(`${initialDraft.date}T00:00:00`));
     if (initialDraft.start) setScheduledTime(formatTimeInput(initialDraft.start));
-    if (initialDraft.durationMinutes && initialDraft.durationMinutes > 0) setDuration(initialDraft.durationMinutes);
+    // Planning duration is independent of the field booking window.
+    setDuration(90);
     if (initialDraft.teamId && teams.some((team) => team.id === initialDraft.teamId)) {
       setTeamId(initialDraft.teamId);
     }
@@ -1146,7 +1145,7 @@ function CreateSessionDialog({
       return;
     }
     if (!sessionPrincipio) {
-      toast({ title: t.selectPrincipleError, variant: "destructive" });
+      toast({ title: "Scegli l’obiettivo prevalente della seduta", variant: "destructive" });
       return;
     }
     const eligibleRecipients = members.filter((m) => {
@@ -1170,15 +1169,15 @@ function CreateSessionDialog({
           title: generatedTitle, scheduledAt: new Date(scheduledAt).toISOString(),
           durationMinutes: duration, location: location || null,
           objectives: sessionPrincipio || null,
-          notes: sessionTrainingSession ? `${SESSION_SLOT_NOTE_PREFIX}${sessionTrainingSession}` : null,
+          notes: withSessionTeams(sessionTrainingSession ? `${SESSION_SLOT_NOTE_PREFIX}${sessionTrainingSession}` : null,sharedTeamIds),
           teamId, status: "scheduled",
           sessionKind,
           sentToUserIds: sessionKind === "tipo" ? resolvedRecipients : null,
         }),
       });
       let recoverySaveFailed=false;
-      if(sessionKind==="regular"&&creationRecoveries.some(value=>value>0)){
-        try{await apiFetch(`/api/training-sessions/${createdSession.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries:creationRecoveries,recalculate:false})});}
+      if(sessionKind==="regular"){
+        try{await apiFetch(`/api/training-sessions/${createdSession.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries:creationRecoveries,recalculate:false,rotations:{}})});}
         catch{recoverySaveFailed=true;}
       }
       onCreated();
@@ -1232,8 +1231,8 @@ function CreateSessionDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>{t.principle} <span className="text-destructive">*</span></Label>
-            <PrinciplePicker value={sessionPrincipio} onChange={setSessionPrincipio} section={teams.find(team => team.id === teamId)?.clubSection} />
+            <Label>Obiettivo prevalente della seduta <span className="text-destructive">*</span></Label>
+            <SessionObjectivePicker value={sessionPrincipio} onChange={setSessionPrincipio} section={teams.find(team => team.id === teamId)?.clubSection} />
           </div>
 
           </div>
@@ -1266,12 +1265,7 @@ function CreateSessionDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Squadra</Label>
-              <Select value={teamId?.toString() ?? ""} onValueChange={v => { manualSlot.current = false; setTeamId(v ? Number(v) : null); }}>
-                <SelectTrigger><SelectValue placeholder="Seleziona..." /></SelectTrigger>
-                <SelectContent>
-                  {teams.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SessionTeamPicker teams={teams} teamId={teamId} sharedIds={sharedTeamIds} onChange={(id,ids)=>{manualSlot.current=false;setTeamId(id);setSharedTeamIds(ids);}}/>
             </div>
             <div className="space-y-2">
               <Label>Luogo</Label>
@@ -1279,7 +1273,7 @@ function CreateSessionDialog({
             </div>
           </div>
 
-          {sessionKind === "regular" && <TrainingAvailabilityPanel teamId={teamId} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)}/> }
+          {sessionKind === "regular" && <TrainingAvailabilityPanel teamId={teamId} teamIds={sharedTeamIds} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)}/> }
 
           {isTD && sessionKind === "tipo" && (
             <div className="space-y-2">
@@ -1321,7 +1315,7 @@ function CreateSessionDialog({
             </Button>
           </div>
         </form>
-        {sessionKind==="regular"&&<TrainingSessionOverview phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3"><Label>Recupero tra fase {index+1} e {index+2}</Label><Input aria-label={`Recupero tra fase ${index+1} e ${index+2}`} type="number" min={0} max={300} className="w-20" value={creationRecoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300)setCreationRecoveries(old=>index===0?[value,old[1]]:[old[0],value]);}}/><span>min</span></div>)} metadata={[]} badges={null} principle={principioLabel(sessionPrincipio)||"Principio da scegliere"} slot={null} exercises={[]} loading={false} error={false} onRetry={()=>{}} readOnly={loading} duration={duration} plannedMinutes={0} recovery={<div><p>Base: 6 esercitazioni × 15 min + {creationRecoveries[0]+creationRecoveries[1]} min di recuperi.</p>{90+creationRecoveries[0]+creationRecoveries[1]>duration&&<p className="mt-1 text-amber-700">La base supera la durata della seduta. A fine preparazione potrai ricalcolare i tempi delle esercitazioni.</p>}<p className="mt-1 text-xs text-muted-foreground">Gli spazi vuoti non creano esercitazioni. Compila i dati e premi + per salvare la seduta e preparare la prima esercitazione.</p></div>} organization={null} onAdd={phase=>{requestedPhase.current=phase;createFormRef.current?.requestSubmit();}} onView={()=>{}} onEdit={()=>{}} onRemove={()=>{}}/>}
+        {sessionKind==="regular"&&<TrainingSessionOverview phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3"><Label>Recupero tra fase {index+1} e {index+2}</Label><Input aria-label={`Recupero tra fase ${index+1} e ${index+2}`} type="number" min={0} max={300} className="w-20" value={creationRecoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300)setCreationRecoveries(old=>index===0?[value,old[1]]:[old[0],value]);}}/><span>min</span></div>)} metadata={[]} badges={null} principle={principioLabel(sessionPrincipio)||"Principio da scegliere"} slot={null} exercises={[]} loading={false} error={false} onRetry={()=>{}} readOnly={loading} duration={duration} plannedMinutes={0} recovery={<div><p>Base: 6 stazioni × 15 min + {creationRecoveries[0]+creationRecoveries[1]} min di recuperi.</p>{90+creationRecoveries[0]+creationRecoveries[1]>duration&&<p className="mt-1 text-amber-700">La base supera la durata della seduta. A fine preparazione potrai ricalcolare i tempi delle stazioni.</p>}<p className="mt-1 text-xs text-muted-foreground">Gli spazi vuoti non creano stazioni. Compila i dati e premi + per salvare la seduta e preparare la prima stazione.</p></div>} organization={null} onAdd={phase=>{requestedPhase.current=phase;createFormRef.current?.requestSubmit();}} onView={()=>{}} onEdit={()=>{}} onRemove={()=>{}}/>}
       </DialogContent>
     </Dialog>
   );
@@ -1351,14 +1345,15 @@ function EditSessionDialog({
   const [duration, setDuration] = useState(session.durationMinutes ?? 90);
   const [location, setLocation] = useState(session.location ?? "");
   const [teamId, setTeamId] = useState<number | null>(session.teamId ?? null);
+  const [sharedTeamIds,setSharedTeamIds]=useState<number[]>(()=>sessionTeamIds(session.teamId,session.notes));
   const [sessionPrincipio, setSessionPrincipio] = useState(normalizePrincipio(session.objectives));
   const [sessionTrainingSession, setSessionTrainingSession] = useState(getSessionTrainingSession(session) ?? inferTrainingSlot(teams.find(team => team.id === session.teamId), datePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)), timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt))));
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const original = [toDisplayDateValue(session.scheduledAt), timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)), session.durationMinutes ?? 90, session.location ?? "", session.teamId ?? null, normalizePrincipio(session.objectives), getSessionTrainingSession(session) ?? inferTrainingSlot(teams.find(team => team.id === session.teamId), datePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)), timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)))];
-    onDirtyChange?.(JSON.stringify(original) !== JSON.stringify([scheduledDate, scheduledTime, duration, location, teamId, sessionPrincipio, sessionTrainingSession]));
-  }, [scheduledDate, scheduledTime, duration, location, teamId, sessionPrincipio, sessionTrainingSession, session, teams, onDirtyChange]);
+    onDirtyChange?.(JSON.stringify(original) !== JSON.stringify([scheduledDate, scheduledTime, duration, location, teamId, sessionPrincipio, sessionTrainingSession]) || JSON.stringify(sessionTeamIds(session.teamId,session.notes).sort((a,b)=>a-b))!==JSON.stringify([...sharedTeamIds].sort((a,b)=>a-b)));
+  }, [scheduledDate, scheduledTime, duration, location, teamId, sessionPrincipio, sessionTrainingSession, sharedTeamIds, session, teams, onDirtyChange]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1374,7 +1369,7 @@ function EditSessionDialog({
       return;
     }
     if (!sessionPrincipio) {
-      toast({ title: t.selectPrincipleError, variant: "destructive" });
+      toast({ title: "Scegli l’obiettivo prevalente della seduta", variant: "destructive" });
       return;
     }
 
@@ -1391,7 +1386,7 @@ function EditSessionDialog({
           durationMinutes: duration,
           location: location || null,
           objectives: sessionPrincipio || null,
-          notes: `${SESSION_SLOT_NOTE_PREFIX}${sessionTrainingSession}${getTrainingCalendarNote(session) ? `\n${TRAINING_CALENDAR_NOTE_MARKER}${getTrainingCalendarNote(session)}` : ""}`,
+          notes: withSessionTeams(`${SESSION_SLOT_NOTE_PREFIX}${sessionTrainingSession}${getTrainingCalendarNote(session) ? `\n${TRAINING_CALENDAR_NOTE_MARKER}${getTrainingCalendarNote(session)}` : ""}`,sharedTeamIds),
           teamId,
         }),
       });
@@ -1425,8 +1420,8 @@ function EditSessionDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>{t.principle} <span className="text-destructive">*</span></Label>
-            <PrinciplePicker value={sessionPrincipio} onChange={setSessionPrincipio} section={teams.find(team => team.id === teamId)?.clubSection} />
+            <Label>Obiettivo prevalente della seduta <span className="text-destructive">*</span></Label>
+            <SessionObjectivePicker value={sessionPrincipio} onChange={setSessionPrincipio} section={teams.find(team => team.id === teamId)?.clubSection} />
           </div>
 
           </div>
@@ -1459,12 +1454,7 @@ function EditSessionDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Squadra</Label>
-              <Select value={teamId?.toString() ?? ""} onValueChange={v => setTeamId(v ? Number(v) : null)}>
-                <SelectTrigger><SelectValue placeholder="Seleziona..." /></SelectTrigger>
-                <SelectContent>
-                  {teams.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SessionTeamPicker teams={teams} teamId={teamId} sharedIds={sharedTeamIds} onChange={(id,ids)=>{setTeamId(id);setSharedTeamIds(ids);}}/>
             </div>
             <div className="space-y-2">
               <Label>Luogo</Label>
@@ -1472,11 +1462,11 @@ function EditSessionDialog({
             </div>
           </div>
 
-          <TrainingAvailabilityPanel teamId={teamId} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)}/>
+          <TrainingAvailabilityPanel teamId={teamId} teamIds={sharedTeamIds} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)}/>
 
           {onManageExercises && (
             <Button type="button" variant="outline" className="w-full justify-center" onClick={onManageExercises}>
-              Aggiungi / modifica esercitazioni
+              Aggiungi / modifica stazioni
             </Button>
           )}
 
@@ -1805,8 +1795,9 @@ function SessionDetailsDialog({
   const { role, user } = useAuth();
   const [, navigate] = useLocation();
   const [metadataDirty, setMetadataDirty] = useState(false);
+  const [rotationDirty,setRotationDirty]=useState(false);
   function openAttendance() {
-    if ((metadataDirty || recoveriesDirty || exerciseFormOpen) && !window.confirm("Ci sono modifiche non salvate. Aprire le presenze e abbandonarle?")) return;
+    if ((metadataDirty || recoveriesDirty || rotationDirty || exerciseFormOpen) && !window.confirm("Ci sono modifiche non salvate. Aprire le presenze e abbandonarle?")) return;
     const teamSection = normalizeClubSection(teams.find(team => team.id === session.teamId)?.clubSection);
     const base = teamSection ? `/${teamSection.replace(/_/g, "-")}` : "";
     const returnTo = `${window.location.pathname}?sessionId=${session.id}`;
@@ -1820,9 +1811,10 @@ function SessionDetailsDialog({
   const [editingMetadata,setEditingMetadata] = useState(true);
   const [recoveries,setRecoveries] = useState<[number,number]>([0,0]);
   const [recoveriesDirty,setRecoveriesDirty] = useState(false);
-  const planQuery=useQuery<{recoveries:[number,number];timings:Record<string,{seconds:number;stations:number[]}>}>({queryKey:["/api/training-sessions",session.id,"planning"],queryFn:()=>apiFetch(`/api/training-sessions/${session.id}/planning`)});
-  useEffect(()=>{if(planQuery.data&&!recoveriesDirty)setRecoveries(planQuery.data.recoveries);},[planQuery.data,recoveriesDirty]);
-  const savePlan=useMutation({mutationFn:(recalculate:boolean)=>apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate})}),onSuccess:async()=>{setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Tempi della seduta salvati"});},onError:()=>toast({title:"Impossibile salvare i tempi",variant:"destructive"})});
+  const [recoveriesVersion,setRecoveriesVersion]=useState<string|undefined>();
+  const planQuery=useQuery<{version?:string;rotations?:TrainingRotations;recoveries:[number,number];timings:Record<string,{seconds:number;stations:number[]}>}>({queryKey:["/api/training-sessions",session.id,"planning"],queryFn:()=>apiFetch(`/api/training-sessions/${session.id}/planning`)});
+  useEffect(()=>{if(planQuery.data&&!recoveriesDirty){setRecoveries(planQuery.data.recoveries);setRecoveriesVersion(planQuery.data.version);}},[planQuery.data,recoveriesDirty]);
+  const savePlan=useMutation({mutationFn:(recalculate:boolean)=>apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,version:recoveriesVersion})}),onSuccess:async()=>{setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Tempi della seduta salvati"});},onError:()=>toast({title:"Impossibile salvare i tempi",variant:"destructive"})});
   const [exerciseFormOpen, setExerciseFormOpen] = useState(false);
   const [viewingLink, setViewingLink] = useState<SessionExerciseLink | null>(null);
   const [editingLink, setEditingLink] = useState<SessionExerciseLink | null>(null);
@@ -1836,15 +1828,15 @@ function SessionDetailsDialog({
     enabled: !!session?.id,
   });
   const selectablePlayersQuery = useQuery<PlayerOption[]>({
-    queryKey: ["training-rosters", "training-session-exercise-selection", exerciseForm.teamId || "all", exerciseFormOpen, exerciseForm.playersRequiredMode],
-    queryFn: async () => exerciseForm.teamId ? (await apiFetch(`/api/training-rosters/${exerciseForm.teamId}?scope=shared`)).players : apiFetch("/api/players"),
+    queryKey: ["training-rosters", "training-session-exercise-selection", exerciseForm.teamId || "all", exerciseFormOpen, exerciseForm.playersRequiredMode,session.notes],
+    queryFn: async () => {const ids=sessionTeamIds(session.teamId,session.notes);if(!ids.length)return apiFetch("/api/players");const lists=await Promise.all(ids.map(id=>apiFetch(`/api/training-rosters/${id}?scope=team`)));return [...new Map(lists.flatMap(list=>list.players as PlayerOption[]).map(player=>[player.id,player])).values()];},
     enabled: exerciseFormOpen,
   });
 
   const linkedExercises = [...(linkedExercisesQuery.data ?? [])]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const effectiveDuration=(link:SessionExerciseLink)=>planQuery.data?.timings[String(link.id)]?.seconds!==undefined?planQuery.data.timings[String(link.id)].seconds/60:link.exercise?.durationMinutes??0;
-  const plannedExerciseMinutes = linkedExercises.reduce((sum,link)=>sum+effectiveDuration(link),0);
+  const plannedExerciseMinutes = planQuery.data?.rotations!==undefined?rotationSeconds(planQuery.data.rotations)/60:linkedExercises.reduce((sum,link)=>sum+effectiveDuration(link),0);
   const recoveryMinutes=recoveries[0]+recoveries[1];
   const residualMinutes=(session.durationMinutes??0)-plannedExerciseMinutes-recoveryMinutes;
   const formatMinutes=(minutes:number)=>{const seconds=Math.round(minutes*60);return seconds%60===0?`${seconds/60} min`:`${Math.floor(seconds/60)} min ${seconds%60} s`;};
@@ -1894,17 +1886,17 @@ function SessionDetailsDialog({
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "exercises"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "planning"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions"] });
-      toast({ title: "Esercitazione creata e collegata" });
+      toast({ title: "Stazione creata e collegata" });
       setExerciseFormOpen(false);
       setEditingLink(null);
       setDuplicateSourceExerciseId(null);
     },
-    onError: () => toast({ title: "Errore nel salvataggio esercitazione", variant: "destructive" }),
+    onError: () => toast({ title: "Errore nel salvataggio stazione", variant: "destructive" }),
   });
 
   const updateExerciseMutation = useMutation({
     mutationFn: async ({ link, form }: { link: SessionExerciseLink; form: ExerciseFormState }) => {
-      if (!link.exercise?.id) throw new Error("Esercitazione non valida");
+      if (!link.exercise?.id) throw new Error("Stazione non valida");
       const stations = parseExerciseStations(form.stationsJson);
       const stationEquipment = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(form.equipment), sumStationEquipment(stations)));
       return apiFetch(`/api/exercises/${link.exercise.id}`, {
@@ -1938,7 +1930,7 @@ function SessionDetailsDialog({
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "exercises"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "planning"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions"] });
-      toast({ title: "Esercitazione aggiornata" });
+      toast({ title: "Stazione aggiornata" });
       setExerciseFormOpen(false);
       setEditingLink(null);
       setDuplicateSourceExerciseId(null);
@@ -1952,7 +1944,7 @@ function SessionDetailsDialog({
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "exercises"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions", session.id, "planning"] });
       await qc.invalidateQueries({ queryKey: ["/api/training-sessions"] });
-      toast({ title: "Esercitazione rimossa dalla seduta" });
+      toast({ title: "Stazione rimossa dalla seduta" });
     },
     onError: () => toast({ title: "Errore nella rimozione", variant: "destructive" }),
   });
@@ -1971,14 +1963,17 @@ function SessionDetailsDialog({
     const sourceId = link.exercise ? (link.exercise.sourceExerciseId ?? link.exercise.id) : null;
     setDuplicateSourceExerciseId(sourceId);
     setEditingLink(link);
-    setExerciseForm(formFromLinkedExercise(link));
+    const form=formFromLinkedExercise(link);
+    const allocation=planQuery.data?.rotations?.[link.exercise?.trainingPhase as "iniziale"|"centrale"|"finale"]?.flatMap(turn=>turn.stations).find(station=>station.linkId===link.id&&station.playerIds.length>0);
+    setExerciseForm(allocation?{...form,playersRequiredMode:"selected",selectedPlayerIdsJson:JSON.stringify(allocation.playerIds),playersRequired:String(allocation.playerIds.length)}:form);
     setExerciseFormOpen(true);
   }
 
   async function handleSaveExercise(e: React.FormEvent) {
     e.preventDefault();
+    if(parseSelectedPlayerIds(exerciseForm.selectedPlayerIdsJson).some(id=>reservedPlayers.has(id))){toast({title:"Giocatore già assegnato a un'altra stazione dello stesso turno",variant:"destructive"});return;}
     if (!exerciseForm.title.trim()) {
-      toast({ title: "Titolo esercitazione obbligatorio", variant: "destructive" });
+      toast({ title: "Titolo stazione obbligatorio", variant: "destructive" });
       return;
     }
     if (exerciseForm.playersRequiredMode === "all" && (selectablePlayersQuery.isFetching || selectablePlayersQuery.error || !selectablePlayers.length)) {
@@ -2010,7 +2005,7 @@ function SessionDetailsDialog({
   function handleSaveAsNewLinkedExercise() {
     if (!editingLink) return;
     if (!exerciseForm.title.trim()) {
-      toast({ title: "Titolo esercitazione obbligatorio", variant: "destructive" });
+      toast({ title: "Titolo stazione obbligatorio", variant: "destructive" });
       return;
     }
     if (exerciseForm.playersRequiredMode === "all" && (selectablePlayersQuery.isFetching || selectablePlayersQuery.error || !selectablePlayers.length)) {
@@ -2044,7 +2039,10 @@ function SessionDetailsDialog({
   const stationMinutes = totalStationMinutes(exerciseStations);
   const stationEquipmentSummary = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(exerciseForm.equipment), sumStationEquipment(exerciseStations)));
   const selectedPlayerIds = parseSelectedPlayerIds(exerciseForm.selectedPlayerIdsJson);
-  const selectablePlayers = (selectablePlayersQuery.data ?? []).filter((p) => p.available !== false);
+  const phaseTurns=planQuery.data?.rotations?.[exerciseForm.trainingPhase as "iniziale"|"centrale"|"finale"];
+  const savedTurn=editingLink?(phaseTurns?.find(turn=>turn.stations.some(station=>station.linkId===editingLink.id&&station.playerIds.length>0))??phaseTurns?.[0]):phaseTurns?.[0];
+  const reservedPlayers=new Set(planQuery.data?.rotations===undefined?[]:savedTurn?savedTurn.stations.filter(station=>station.linkId!==editingLink?.id).flatMap(station=>station.playerIds):linkedExercises.filter(link=>link.id!==editingLink?.id&&link.exercise?.trainingPhase===exerciseForm.trainingPhase).flatMap(link=>parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??"")));
+  const selectablePlayers = (selectablePlayersQuery.data ?? []).filter((p) => p.available !== false&&!reservedPlayers.has(p.id));
   const selectedPlayersCount = selectedPlayerIds.length;
   const allPlayersCount = selectablePlayers.length;
   const computedPlayersRequired =
@@ -2093,7 +2091,7 @@ function SessionDetailsDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog open onOpenChange={(v) => { if (!v&&(!(metadataDirty||recoveriesDirty||rotationDirty)||window.confirm("Chiudere e scartare le modifiche non salvate alla seduta?"))) onClose(); }}>
       <DialogContent className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] p-3 sm:max-w-[960px] sm:p-6 max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -2121,12 +2119,12 @@ function SessionDetailsDialog({
           slot={trainingSessionLabel(getSessionTrainingSession(session), t)}
           exercises={linkedExercises.map(link => ({
             id: link.id,
-            title: link.exercise?.title ?? "Esercitazione non trovata",
+            title: link.exercise?.title ?? "Stazione non trovata",
             phase: link.exercise?.trainingPhase ?? null,
             duration: effectiveDuration(link),
             preview: link.exercise?.drawingData ?? null,
             principle: link.exercise?.principio ? principioLabel(link.exercise.principio) : null,
-            players: link.exercise?.playersRequired ?? null,
+            players: planQuery.data?.rotations?.[link.exercise?.trainingPhase as "iniziale"|"centrale"|"finale"]?.[0]?.stations.find(station=>station.linkId===link.id)?.playerIds.length ?? link.exercise?.playersRequired ?? null,
             available: Boolean(link.exercise),
           }))}
           loading={linkedExercisesQuery.isLoading}
@@ -2138,17 +2136,20 @@ function SessionDetailsDialog({
           onAdd={openAddExercise}
           onView={id => setViewingLink(linkedExercises.find(link => link.id === id) ?? null)}
           onEdit={id => { const link = linkedExercises.find(link => link.id === id); if (link) openEditExercise(link); }}
-          onRemove={id => { if (confirm("Rimuovere l'esercitazione da questa seduta?")) removeLinkMutation.mutate(id); }}
+          onRemove={id => { if (confirm("Rimuovere la stazione da questa seduta?")) removeLinkMutation.mutate(id); }}
           recovery={<div className="space-y-2">
             {planQuery.isLoading?<p role="status">Caricamento tempi della seduta...</p>:planQuery.isError?<p role="alert">Tempi non disponibili. <Button variant="link" onClick={()=>void planQuery.refetch()}>Riprova</Button></p>:<>
-              <p>Esercitazioni: <strong>{formatMinutes(plannedExerciseMinutes)}</strong> · Recuperi: <strong>{formatMinutes(recoveryMinutes)}</strong></p>
-              <p>Base iniziale: 6 esercitazioni × 15 min, senza recuperi automatici.</p>
+              <p>Stazioni: <strong>{formatMinutes(plannedExerciseMinutes)}</strong> · Recuperi: <strong>{formatMinutes(recoveryMinutes)}</strong></p>
+              <p>Base iniziale: due stazioni per fase. Nei turni contemporanei il tempo viene contato una sola volta; le rotazioni aggiungono i turni successivi.</p>
               <p>Tempo residuo: <strong>{formatMinutes(Math.max(0,residualMinutes))}</strong></p>
               {!readOnly&&<Button type="button" variant="outline" disabled={!recoveriesDirty||savePlan.isPending||planQuery.isLoading} onClick={()=>savePlan.mutate(false)}>Salva recuperi</Button>}
-              {residualMinutes<0&&<div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950"><p>Tempo limite superato di {formatMinutes(-residualMinutes)}. Vuoi ricalcolare il minutaggio delle esercitazioni?</p><p className="mt-1 text-xs">({session.durationMinutes} − {recoveryMinutes}) ÷ {linkedExercises.length} esercitazioni{linkedExercises.length>0&&session.durationMinutes&&session.durationMinutes>recoveryMinutes?` = circa ${formatMinutes((session.durationMinutes-recoveryMinutes)/linkedExercises.length)} ciascuna`:""}. Le stazioni interne saranno riproporzionate. I tempi valgono solo per questa seduta.</p>{!readOnly&&<Button type="button" className="mt-2" disabled={savePlan.isPending||planQuery.isLoading||!linkedExercises.length||!session.durationMinutes||session.durationMinutes<=recoveryMinutes} onClick={()=>{if(confirm("Ricalcolare i tempi delle esercitazioni e delle relative stazioni solo per questa seduta?"))savePlan.mutate(true);}}>Ricalcola minutaggio</Button>}</div>}
+              {residualMinutes<0&&<div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950"><p>Tempo limite superato di {formatMinutes(-residualMinutes)}. Vuoi ricalcolare il minutaggio delle stazioni?</p><p className="mt-1 text-xs">{planQuery.data?.rotations!==undefined?"Il tempo utile verrà ripartito tra i turni; le stazioni contemporanee avranno la stessa durata.":<>({session.durationMinutes} − {recoveryMinutes}) ÷ {linkedExercises.length} stazioni{linkedExercises.length>0&&session.durationMinutes&&session.durationMinutes>recoveryMinutes?` = circa ${formatMinutes((session.durationMinutes-recoveryMinutes)/linkedExercises.length)} ciascuna`:""}. Gli esercizi interni saranno riproporzionati. I tempi valgono solo per questa seduta.</>}</p>{!readOnly&&<Button type="button" className="mt-2" disabled={savePlan.isPending||planQuery.isLoading||!linkedExercises.length||!session.durationMinutes||session.durationMinutes<=recoveryMinutes} onClick={()=>{if(confirm("Ricalcolare i tempi delle stazioni e dei relativi esercizi solo per questa seduta?"))savePlan.mutate(true);}}>Ricalcola minutaggio</Button>}</div>}
             </>}
           </div>}
+          rotation={<details className="rounded-xl border p-3"><DisclosureSummary>Gruppi e rotazioni</DisclosureSummary><div className="mt-3">{!planQuery.isLoading&&!planQuery.isError&&<StationTurnPlanner activities={linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??"")}))} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione della seduta salvata"});}}/>}</div></details>}
+          phaseMinutes={planQuery.data?.rotations?Object.fromEntries(Object.entries(planQuery.data.rotations).map(([phase,turns])=>[phase,turns.reduce((sum,turn)=>sum+Math.max(0,...turn.stations.map(s=>s.seconds)),0)/60])):undefined}
           organization={<div className="space-y-2 border-t pt-3">
+
             <p><span className="text-muted-foreground">Squadra: </span>{session.teamName || "Da indicare"}</p>
             <p><span className="text-muted-foreground">Luogo: </span>{session.location || "Da indicare"}</p>
             {session.creatorName && <p><span className="text-muted-foreground">Creata da: </span>{session.creatorName}</p>}
@@ -2161,14 +2162,14 @@ function SessionDetailsDialog({
       <Dialog open={!!viewingLink} onOpenChange={(open) => { if (!open) setViewingLink(null); }}>
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{viewingLink?.exercise?.title ?? "Esercitazione"}</DialogTitle>
+            <DialogTitle>{viewingLink?.exercise?.title ?? "Stazione"}</DialogTitle>
           </DialogHeader>
           {viewingLink?.exercise ? (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 {viewingLink.exercise.principio && <Badge variant="secondary">{principioLabel(viewingLink.exercise.principio)}</Badge>}
                 {viewingLink.exercise.trainingPhase && <Badge variant="outline">{phaseLabel(viewingLink.exercise.trainingPhase)}</Badge>}
-                {viewingLink.exercise.category && <Badge variant="outline">{categoryLabel(viewingLink.exercise.category)}</Badge>}
+                {viewingLink.exercise.category && <Badge variant="outline">{trainingCategoryLabel(viewingLink.exercise.category, teams.find(team=>team.id===viewingLink.exercise?.teamId)?.clubSection)}</Badge>}
                 <Badge variant="outline">{formatMinutes(effectiveDuration(viewingLink))}</Badge>
               </div>
               {viewingLink.exercise.sourceExerciseId && viewingLink.exercise.originalCreatedByName && <p className="text-xs text-muted-foreground">Originale creato da {viewingLink.exercise.originalCreatedByName}</p>}
@@ -2182,7 +2183,7 @@ function SessionDetailsDialog({
               )}
               {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").stations.length > 0 && (
                 <div className="space-y-2">
-                  <Label>Stazionamenti</Label>
+                  <Label>Esercizi</Label>
                   <div className="space-y-2">
                     {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").stations.map((station, index) => (
                       <div key={station.id} className="rounded-md border bg-muted/30 p-3 text-sm">
@@ -2244,7 +2245,7 @@ function SessionDetailsDialog({
               {viewingLink.exercise.drawingData && (
                 <div className="space-y-1">
                   <Label>Lavagna</Label>
-                  <img src={viewingLink.exercise.drawingData} alt="Disegno esercitazione" className="max-h-[360px] w-full rounded-md border object-contain" />
+                  <img src={viewingLink.exercise.drawingData} alt="Disegno stazione" className="max-h-[360px] w-full rounded-md border object-contain" />
                 </div>
               )}
               {viewingLink.exercise.voiceNoteData && (
@@ -2255,7 +2256,7 @@ function SessionDetailsDialog({
               )}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">Esercitazione non trovata.</p>
+            <p className="text-sm text-muted-foreground">Stazione non trovata.</p>
           )}
         </DialogContent>
       </Dialog>
@@ -2264,7 +2265,7 @@ function SessionDetailsDialog({
         <DialogContent className="max-w-2xl max-h-[92vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle>
-              {editingLink ? "Modifica esercitazione collegata" : "Nuova esercitazione per seduta"}
+              {editingLink ? "Modifica stazione collegata" : "Nuova stazione per seduta"}
             </DialogTitle>
           </DialogHeader>
           <ScrollArea className="flex-1 overflow-auto">
@@ -2313,7 +2314,7 @@ function SessionDetailsDialog({
 
                       />
                       {stationMinutes > 0 && (
-                        <p className="text-[11px] text-muted-foreground">Calcolata dagli stazionamenti: {formatMinutes(stationMinutes)}{Math.ceil(stationMinutes) !== stationMinutes ? " · durata pianificata arrotondata al minuto superiore" : ""}</p>
+                        <p className="text-[11px] text-muted-foreground">Calcolata dagli esercizi: {formatMinutes(stationMinutes)}{Math.ceil(stationMinutes) !== stationMinutes ? " · durata pianificata arrotondata al minuto superiore" : ""}</p>
                       )}
                     </div>
                   </div>
@@ -2334,13 +2335,7 @@ function SessionDetailsDialog({
                     </div>
                     <div className="space-y-2">
                       <Label>Categoria</Label>
-                      <Select value={exerciseForm.category || "_none"} onValueChange={(v) => setExerciseForm((prev) => ({ ...prev, category: v === "_none" ? "" : v }))}>
-                        <SelectTrigger><SelectValue placeholder="Categoria" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">Nessuna</SelectItem>
-                          {EXERCISE_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{categoryLabel(c)}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                      <TrainingCategoryPicker value={exerciseForm.category} onChange={category=>setExerciseForm(prev=>({...prev,category}))} section={teams.find(team=>team.id===Number(exerciseForm.teamId))?.clubSection}/>
                     </div>
                   </div>
 
@@ -2396,7 +2391,7 @@ function SessionDetailsDialog({
                       </div>
                     </div>
 
-                    <TrainingRosterOptions key={exerciseForm.teamId || "all"} teamId={exerciseForm.teamId} onSelect={ids => setExerciseForm(prev => ({ ...prev, playersRequiredMode: "selected", selectedPlayerIdsJson: JSON.stringify(ids) }))} />
+                    <TrainingRosterOptions key={exerciseForm.teamId || "all"} teamId={exerciseForm.teamId} onSelect={ids => setExerciseForm(prev => ({ ...prev, playersRequiredMode: "selected", selectedPlayerIdsJson: JSON.stringify(ids.filter(id=>!reservedPlayers.has(id))) }))} />
                     {exerciseForm.playersRequiredMode === "manual" && (
                       <div className="space-y-2">
                         <Label>Inserisci numero</Label>
@@ -2451,8 +2446,8 @@ function SessionDetailsDialog({
                   </div>
 
                   <div className="space-y-2 rounded-lg border p-3">
-                    <Label>Materiali dell'esercitazione</Label>
-                    <p className="text-xs text-muted-foreground">Dotazione complessiva, disponibile anche senza stazioni. Il riepilogo considera almeno la somma dei materiali delle stazioni.</p>
+                    <Label>Materiali della stazione</Label>
+                    <p className="text-xs text-muted-foreground">Dotazione complessiva, disponibile anche senza esercizi. Il riepilogo considera almeno la somma dei materiali degli esercizi.</p>
                     <MaterialPicker options={availableMaterialOptions} selection={parseEquipmentSelection(exerciseForm.equipment)} onConfirm={selection => setExerciseForm(prev => ({ ...prev, equipment: serializeEquipmentSelection(selection) }))} />
                     {formatEquipmentLabel(exerciseForm.equipment) && <p className="break-words text-xs">{formatEquipmentLabel(exerciseForm.equipment)}</p>}
                     {!Object.keys(parseEquipmentSelection(exerciseForm.equipment)).length && <Input value={exerciseForm.equipment} placeholder="Oppure scrivi materiali liberi" onChange={e => setExerciseForm(prev => ({ ...prev, equipment: e.target.value }))} />}
@@ -2461,8 +2456,8 @@ function SessionDetailsDialog({
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="text-sm font-medium">Stazionamenti</p>
-                        <p className="text-xs text-muted-foreground">Aggiungendo o rimuovendo stazioni il totale viene ripartito. Modificando una durata, il totale viene aggiornato.</p>
+                        <p className="text-sm font-medium">Esercizi</p>
+                        <p className="text-xs text-muted-foreground">Aggiungendo o rimuovendo esercizi il totale viene ripartito. Modificando una durata, il totale viene aggiornato.</p>
                       </div>
                       <Button
                         type="button"
@@ -2471,12 +2466,12 @@ function SessionDetailsDialog({
                         onClick={() => setStations([...exerciseStations, emptyExerciseStation()], "divide")}
                       >
                         <Plus className="mr-1.5 h-3.5 w-3.5" />
-                        Aggiungi stazionamento
+                        Aggiungi esercizio
                       </Button>
                     </div>
                     {exerciseStations.length === 0 ? (
                       <div className="rounded-md border border-dashed bg-background px-3 py-3 text-sm text-muted-foreground">
-                        Nessuno stazionamento inserito. Se lasci vuoto, la durata resta manuale.
+                        Nessun esercizio inserito. Se lasci vuoto, la durata resta manuale.
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -2484,7 +2479,7 @@ function SessionDetailsDialog({
                           <div key={station.id} className="rounded-lg border bg-background p-3">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="h-8">Stazione {index + 1}</Badge>
+                                <Badge variant="outline" className="h-8">Esercizio {index + 1}</Badge>
                                 <Input
                                   type="number"
                                   min={0}
@@ -2508,17 +2503,17 @@ function SessionDetailsDialog({
                             </div>
 
                             <div className="mt-3 space-y-2">
-                              <Label>Titolo stazione</Label>
+                              <Label>Titolo esercizio</Label>
                               <Input
                                 value={station.title}
                                 onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, title: e.target.value } : item))}
-                                placeholder={`Stazione ${index + 1}, es. conduzione e tiro`}
+                                placeholder={`Esercizio ${index + 1}, es. conduzione e finalizzazione`}
                               />
                             </div>
 
                             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(150px,220px)_1fr]">
                               <div className="space-y-2">
-                                <Label>Giocatori richiesti nella stazione</Label>
+                                <Label>Giocatori richiesti nella esercizio</Label>
                                 <Input
                                   type="number"
                                   min={1}
@@ -2543,7 +2538,7 @@ function SessionDetailsDialog({
                                 rows={4}
                                 value={station.exercise}
                                 onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, exercise: e.target.value } : item))}
-                                placeholder="Descrivi svolgimento, rotazioni, regole e tempi della stazione"
+                                placeholder="Descrivi svolgimento, rotazioni, regole e tempi della esercizio"
                               />
                             </div>
 
@@ -2570,7 +2565,7 @@ function SessionDetailsDialog({
                             </details>
 
                             <div className="mt-3 rounded-md border bg-muted/20 p-2">
-                              <Label className="mb-2 block text-xs font-semibold uppercase text-muted-foreground">Materiale stazionamento</Label>
+                              <Label className="mb-2 block text-xs font-semibold uppercase text-muted-foreground">Materiale esercizio</Label>
                               <MaterialPicker options={availableMaterialOptions} selection={parseEquipmentSelection(station.equipment)} onConfirm={selection => setStationEquipmentSelection(station.id, selection)} />
                               {formatEquipmentLabel(station.equipment) && <p className="mt-2 break-words text-xs">{formatEquipmentLabel(station.equipment)}</p>}
                               {!Object.keys(parseEquipmentSelection(station.equipment)).length && <Input className="mt-2" value={station.equipment} placeholder="Oppure scrivi materiali liberi" onChange={e => setStations(exerciseStations.map(item => item.id === station.id ? { ...item, equipment: e.target.value } : item))} />}
@@ -2581,12 +2576,12 @@ function SessionDetailsDialog({
                               rows={2}
                               value={station.notes}
                               onChange={(e) => setStations(exerciseStations.map((item) => item.id === station.id ? { ...item, notes: e.target.value } : item))}
-                              placeholder="Indicazioni della stazione"
+                              placeholder="Indicazioni della esercizio"
                             />
                           </div>
                         ))}
                         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
-                          Totale stazionamenti: {formatMinutes(stationMinutes)}
+                          Totale esercizi: {formatMinutes(stationMinutes)}
                         </div>
                       </div>
                     )}
@@ -2604,7 +2599,7 @@ function SessionDetailsDialog({
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                     <div>
                       <div className="text-sm font-medium">Riepilogo materiale</div>
-                      <p className="text-xs text-muted-foreground">Dotazione complessiva e materiali degli stazionamenti, senza duplicare il riepilogo.</p>
+                      <p className="text-xs text-muted-foreground">Dotazione complessiva e materiali degli esercizi, senza duplicare il riepilogo.</p>
                     </div>
                     {formatEquipmentLabel(stationEquipmentSummary) ? (
                       <div className="rounded-md border bg-background px-3 py-2 text-sm font-medium">
@@ -2620,7 +2615,7 @@ function SessionDetailsDialog({
                   <div className="flex items-center justify-between p-3 rounded-lg border bg-amber-50/50">
                     <div>
                       <p className="text-sm font-medium">Segna come bozza</p>
-                      <p className="text-xs text-muted-foreground">L'esercizio sarà visibile come bozza da completare</p>
+                      <p className="text-xs text-muted-foreground">La stazione sarà visibile come bozza da completare</p>
                     </div>
                     <Switch checked={exerciseForm.isDraft} onCheckedChange={(v) => setExerciseForm((prev) => ({ ...prev, isDraft: v }))} />
                   </div>
@@ -2629,12 +2624,12 @@ function SessionDetailsDialog({
                 <TabsContent value="board" className="pt-4 space-y-3">
                   <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-sm font-medium">Lavagna esercitazione</p>
+                      <p className="text-sm font-medium">Lavagna stazione</p>
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
-                    <ExerciseTacticalBoard title={exerciseForm.title || "Esercitazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds : exerciseForm.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setExerciseForm(prev => ({ ...prev, ...result }))} />
+                    <ExerciseTacticalBoard title={exerciseForm.title || "Stazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds : exerciseForm.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setExerciseForm(prev => ({ ...prev, ...result }))} />
                   </div>
-                  {exerciseForm.statoLavagnaJson && exerciseForm.drawingData ? <img src={exerciseForm.drawingData} alt="Anteprima lavagna esercitazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
+                  {exerciseForm.statoLavagnaJson && exerciseForm.drawingData ? <img src={exerciseForm.drawingData} alt="Anteprima lavagna stazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
                     value={exerciseForm.drawingData || null}
                     onChange={(data) => setExerciseForm((prev) => ({ ...prev, drawingData: data ?? "" }))}
                     onChangeElements={(els) => setExerciseForm((prev) => ({ ...prev, drawingElementsJson: els ? JSON.stringify(els) : "" }))}
@@ -2665,12 +2660,12 @@ function SessionDetailsDialog({
             </Button>
             {editingLink && (
               <Button type="button" variant="outline" onClick={handleSaveAsNewLinkedExercise} disabled={exerciseSaving}>
-                Salva come nuova esercitazione
+                Salva come nuova stazione
               </Button>
             )}
             <Button type="submit" form="ex-form-session" disabled={exerciseSaving}>
               {exerciseSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingLink ? "Salva modifiche" : "Salva esercitazione"}
+              {editingLink ? "Salva modifiche" : "Salva stazione"}
             </Button>
           </div>
         </DialogContent>
@@ -3155,7 +3150,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             />
           </div>
           <div className="space-y-2">
-            <Label>Cerca esercitazioni nelle sedute (titolo, categoria, principio, fase)</Label>
+            <Label>Cerca stazioni nelle sedute (titolo, categoria, principio, fase)</Label>
             <Input
               value={tdExerciseSearch}
               onChange={(e) => setTdExerciseSearch(e.target.value)}

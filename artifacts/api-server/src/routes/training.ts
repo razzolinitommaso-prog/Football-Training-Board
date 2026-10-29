@@ -288,6 +288,7 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
     return;
   }
 
+  if(parsed.data.durationMinutes!=null&&(!Number.isInteger(parsed.data.durationMinutes)||parsed.data.durationMinutes<15||parsed.data.durationMinutes>300)){res.status(400).json({error:"La durata della seduta deve essere un numero intero tra 15 e 300 minuti"});return;}
   const body = req.body as {
     sessionKind?: string;
     sentToUserIds?: number[];
@@ -408,6 +409,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
     updateData = { ...parsed.data };
   }
 
+  if(updateData.durationMinutes!=null&&(!Number.isInteger(updateData.durationMinutes)||Number(updateData.durationMinutes)<15||Number(updateData.durationMinutes)>300)){res.status(400).json({error:"La durata della seduta deve essere un numero intero tra 15 e 300 minuti"});return;}
   if (Object.keys(updateData).length === 0) {
     const enriched = await enrichSession(existing, { clubId, userId, role });
     res.json(enriched);

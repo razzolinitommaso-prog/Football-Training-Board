@@ -1,3 +1,5 @@
+import { TrainingCategoryPicker } from "@/components/training/TrainingCategoryPicker";
+import { trainingCategories, trainingCategoryLabel } from "@workspace/api-zod";
 import { PrinciplePicker } from "@/components/training/PrinciplePicker";
 import { trainingPrincipleLabel } from "@workspace/api-zod";
 import { TrainingRosterPicker } from "@/components/training/TrainingRosterPicker";
@@ -93,7 +95,7 @@ const MATERIAL_OPTIONS = [
   { id: "hurdles_regolabili", label: "Hurdles regolabili", category: "Coordinazione e agility", availability: "youth" },
   { id: "over", label: "Over bassi", category: "Coordinazione e agility", availability: "base" },
   { id: "bastoni_coordinativi", label: "Bastoni coordinativi", category: "Coordinazione e agility", availability: "base" },
-  { id: "stazioni_agility", label: "Stazioni agility", category: "Coordinazione e agility", availability: "base" },
+  { id: "stazioni_agility", label: "Esercizi agility", category: "Coordinazione e agility", availability: "base" },
   { id: "reaction_lights", label: "Luci / reaction lights", category: "Coordinazione e agility", availability: "youth" },
 
   { id: "elastici", label: "Elastici", category: "Preparazione atletica", availability: "performance" },
@@ -157,7 +159,7 @@ async function apiFetch(url: string, options?: RequestInit) {
   return payload;
 }
 
-const CATEGORIES = ["technique", "physical", "tactical", "warmup", "shooting", "passing", "defending"] as const;
+const CATEGORIES = ["technique", "physical", "tactical", "warmup", "shooting", "passing", "defending", "attacking", "with_ball", "without_ball"] as const;
 
 const categoryColors: Record<string, string> = {
   technique: "bg-blue-100 text-blue-700",
@@ -197,7 +199,7 @@ const GUIDELINE_CATEGORIES = [
 ];
 
 function getGlCatColor(cat: string) { return GUIDELINE_CATEGORIES.find(c => c.value === cat)?.color ?? "bg-gray-100 text-gray-700"; }
-function getGlCatLabel(cat: string) { return GUIDELINE_CATEGORIES.find(c => c.value === cat)?.label ?? cat; }
+function getGlCatLabel(cat: string, section?:string|null) { if(cat==="physical"||cat==="tactical")return trainingCategoryLabel(cat,section); return GUIDELINE_CATEGORIES.find(c => c.value === cat)?.label ?? cat; }
 function getPhaseLabel(v: string) { return PHASES.find(p => p.value === v)?.label ?? v; }
 function getPhaseColor(v: string) { return PHASES.find(p => p.value === v)?.color ?? "bg-gray-100 text-gray-700"; }
 function getPrincipioLabel(v: string) { return trainingPrincipleLabel(v); }
@@ -226,12 +228,12 @@ function getExerciseGroupKey(ex: Exercise): string {
 }
 
 function stripExerciseNumberPrefix(title: string): string {
-  return title.replace(/^Esercitazione\s+\d+\s*[-–]\s*/i, "").trim();
+  return title.replace(/^(?:Esercitazione|Stazione)\s+\d+\s*[-–]\s*/i, "").trim();
 }
 
 function getDisplayExerciseTitle(ex: Exercise, orderNumber: number): string {
   const cleanTitle = stripExerciseNumberPrefix(ex.title);
-  return cleanTitle ? `Esercitazione ${orderNumber} - ${cleanTitle}` : `Esercitazione ${orderNumber}`;
+  return cleanTitle ? `Stazione ${orderNumber} - ${cleanTitle}` : `Stazione ${orderNumber}`;
 }
 
 function formatCreatedAt(value: string | null | undefined): string | null {
@@ -358,7 +360,7 @@ function canUseMaterial(
 
 export default function ExercisesPage() {
   const { t } = useLanguage();
-  const { role, user } = useAuth();
+  const { role, user, section: activeSection } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -401,19 +403,19 @@ export default function ExercisesPage() {
 
   const createEx = useMutation({
     mutationFn: (d: object) => apiFetch("/api/exercises", { method: "POST", body: JSON.stringify(d) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/exercises"] }); closeExDialog(); toast({ title: "Esercizio creato" }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/exercises"] }); closeExDialog(); toast({ title: "Stazione creata" }); },
     onError: () => toast({ title: "Errore", variant: "destructive" }),
   });
 
   const updateEx = useMutation({
     mutationFn: ({ id, data }: { id: number; data: object }) => apiFetch(`/api/exercises/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/exercises"] }); closeExDialog(); toast({ title: "Esercizio aggiornato" }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/exercises"] }); closeExDialog(); toast({ title: "Stazione aggiornato" }); },
     onError: () => toast({ title: "Errore", variant: "destructive" }),
   });
 
   const deleteEx = useMutation({
     mutationFn: (id: number) => apiFetch(`/api/exercises/${id}`, { method: "DELETE" }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/exercises"] }); toast({ title: "Esercizio eliminato" }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/exercises"] }); toast({ title: "Stazione eliminato" }); },
   });
 
   const toggleDraft = useMutation({
@@ -622,7 +624,7 @@ export default function ExercisesPage() {
     const inAssignedTeam = ex.teamId == null || assignedTeamIds.has(ex.teamId);
     return (isOwnerOrLegacy || ex.canEdit === true) && inAssignedTeam;
   });
-  const filtered = (filter === "all" ? visibleExercises : visibleExercises.filter(ex => ex.category === filter))
+  const filtered = (filter === "all" ? visibleExercises : visibleExercises.filter(ex => trainingCategories(ex.category).includes(filter)))
     .filter((ex) => {
       if (!normalizedExerciseSearch) return true;
       const trainingYear = (() => {
@@ -682,7 +684,7 @@ export default function ExercisesPage() {
     exerciseGroupCounts.set(groupKey, nextOrder);
     exerciseOrderById.set(ex.id, nextOrder);
   }
-  const guidelinesByCategory = GUIDELINE_CATEGORIES.map(cat => ({ ...cat, items: guidelines.filter(g => g.category === cat.value) })).filter(cat => cat.items.length > 0);
+  const guidelinesByCategory = GUIDELINE_CATEGORIES.map(cat => ({ ...cat, label:getGlCatLabel(cat.value,activeSection), items: guidelines.filter(g => g.category === cat.value) })).filter(cat => cat.items.length > 0);
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -711,7 +713,7 @@ export default function ExercisesPage() {
               <Button size="sm" variant={filter === "all" ? "default" : "outline"} onClick={() => setFilter("all")}>Tutti</Button>
               {CATEGORIES.map(c => (
                 <Button key={c} size="sm" variant={filter === c ? "default" : "outline"} onClick={() => setFilter(c)}>
-                  {t[c as keyof typeof t] as string}
+                  {trainingCategoryLabel(c,activeSection)}
                 </Button>
               ))}
             </div>
@@ -721,7 +723,7 @@ export default function ExercisesPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Cerca esercitazioni</Label>
+            <Label>Cerca stazioni</Label>
             <Input
               value={exerciseSearch}
               onChange={(e) => setExerciseSearch(e.target.value)}
@@ -758,7 +760,7 @@ export default function ExercisesPage() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {ex.category && (
                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${categoryColors[ex.category] ?? "bg-gray-100 text-gray-700"}`}>
-                              {t[ex.category as keyof typeof t] as string ?? ex.category}
+                              {trainingCategoryLabel(ex.category,myTeams.find(team=>team.id===ex.teamId)?.clubSection??activeSection)}
                             </span>
                           )}
                           {ex.principio && (
@@ -820,7 +822,7 @@ export default function ExercisesPage() {
                             <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => openEditEx(ex)} title="Modifica">
                               <Pencil className="w-3.5 h-3.5" />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => { if (confirm("Eliminare l'esercizio?")) deleteEx.mutate(ex.id); }} title="Elimina">
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => { if (confirm("Eliminare la stazione?")) deleteEx.mutate(ex.id); }} title="Elimina">
                               <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                           </>
@@ -914,7 +916,7 @@ export default function ExercisesPage() {
                           {gl.linkedExercise && (
                             <div className="flex items-center gap-2 pt-1 border-t border-border/50">
                               <Link2 className="w-3.5 h-3.5 text-primary" />
-                              <span className="text-xs text-primary font-medium">Esercizio: {gl.linkedExercise.title}</span>
+                              <span className="text-xs text-primary font-medium">Stazione: {gl.linkedExercise.title}</span>
                             </div>
                           )}
                         </CardContent>
@@ -932,13 +934,13 @@ export default function ExercisesPage() {
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {viewingEx ? getDisplayExerciseTitle(viewingEx, exerciseOrderById.get(viewingEx.id) ?? 1) : "Esercitazione"}
+              {viewingEx ? getDisplayExerciseTitle(viewingEx, exerciseOrderById.get(viewingEx.id) ?? 1) : "Stazione"}
             </DialogTitle>
           </DialogHeader>
           {viewingEx ? (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                {viewingEx.category && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${categoryColors[viewingEx.category] ?? "bg-gray-100 text-gray-700"}`}>{t[viewingEx.category as keyof typeof t] as string ?? viewingEx.category}</span>}
+                {viewingEx.category && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${categoryColors[viewingEx.category] ?? "bg-gray-100 text-gray-700"}`}>{trainingCategoryLabel(viewingEx.category,myTeams.find(team=>team.id===viewingEx.teamId)?.clubSection??activeSection)}</span>}
                 {viewingEx.principio && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getPrincipioColor(viewingEx.principio)}`}>{getPrincipioLabel(viewingEx.principio)}</span>}
                 {viewingEx.trainingPhase && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getPhaseColor(viewingEx.trainingPhase)}`}>{getPhaseLabel(viewingEx.trainingPhase)}</span>}
                 {viewingEx.isDraft && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">Bozza</span>}
@@ -974,7 +976,7 @@ export default function ExercisesPage() {
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) closeExDialog(); }}>
         <DialogContent className="max-w-2xl max-h-[92vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-0">
-            <DialogTitle>{editingEx ? "Modifica Esercizio" : t.createExercise}</DialogTitle>
+            <DialogTitle>{editingEx ? "Modifica Stazione" : t.createExercise}</DialogTitle>
           </DialogHeader>
           <ScrollArea className="flex-1 overflow-auto">
             <form id="ex-form" onSubmit={handleSaveEx} className="px-6 pb-4">
@@ -1028,10 +1030,7 @@ export default function ExercisesPage() {
                     </div>
                     <div className="space-y-2">
                       <Label>{t.category}</Label>
-                      <Select value={form.category ?? ""} onValueChange={v => setForm(f => ({ ...f, category: v || null }))}>
-                        <SelectTrigger><SelectValue placeholder={t.category} /></SelectTrigger>
-                        <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{t[c as keyof typeof t] as string}</SelectItem>)}</SelectContent>
-                      </Select>
+                      <TrainingCategoryPicker value={form.category??null} onChange={category=>setForm(prev=>({...prev,category:category||null}))} section={selectedTeam?.clubSection??activeSection}/>
                     </div>
                   </div>
 
@@ -1128,7 +1127,7 @@ export default function ExercisesPage() {
                   </div>
 
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                    <Label>Materiali dell'esercitazione</Label>
+                    <Label>Materiali della stazione</Label>
                     <MaterialPicker options={availableMaterialOptions} selection={materialSelection} onConfirm={selection => setForm(prev => ({ ...prev, equipment: serializeEquipmentSelection(selection) }))} />
                     {formatEquipmentLabel(form.equipment) && <p className="break-words text-sm">{formatEquipmentLabel(form.equipment)}</p>}
                     {!Object.keys(materialSelection).length && <Input value={form.equipment ?? ""} placeholder="Oppure scrivi materiali liberi" onChange={e => setForm(prev => ({ ...prev, equipment: e.target.value }))} />}
@@ -1138,7 +1137,7 @@ export default function ExercisesPage() {
                   <div className="flex items-center justify-between p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/10">
                     <div>
                       <p className="text-sm font-medium">Segna come bozza</p>
-                      <p className="text-xs text-muted-foreground">L'esercizio sarà visibile come bozza da completare</p>
+                      <p className="text-xs text-muted-foreground">La stazione sarà visibile come bozza da completare</p>
                     </div>
                     <Switch checked={!!form.isDraft} onCheckedChange={v => setForm(f => ({ ...f, isDraft: v }))} />
                   </div>
@@ -1148,14 +1147,14 @@ export default function ExercisesPage() {
                 <TabsContent value="board" className="pt-4 space-y-3">
                   <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-sm font-medium">Lavagna esercitazione</p>
+                      <p className="text-sm font-medium">Lavagna stazione</p>
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <ExerciseTacticalBoard title={form.title || "Esercitazione"} teamId={form.teamId} value={form.statoLavagnaJson} rosterPlayerIds={form.playersRequiredMode === "selected" ? selectedPlayerIds : form.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setForm(prev => ({ ...prev, ...result }))} />
+                      <ExerciseTacticalBoard title={form.title || "Stazione"} teamId={form.teamId} value={form.statoLavagnaJson} rosterPlayerIds={form.playersRequiredMode === "selected" ? selectedPlayerIds : form.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setForm(prev => ({ ...prev, ...result }))} />
                     </div>
                   </div>
-                  {form.statoLavagnaJson && form.drawingData ? <img src={form.drawingData} alt="Anteprima lavagna esercitazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
+                  {form.statoLavagnaJson && form.drawingData ? <img src={form.drawingData} alt="Anteprima lavagna stazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
                     value={form.drawingData}
                     onChange={data => setForm(f => ({ ...f, drawingData: data }))}
                     onChangeElements={els => setForm(f => ({ ...f, drawingElementsJson: els ? JSON.stringify(els) : null }))}
@@ -1191,7 +1190,7 @@ export default function ExercisesPage() {
                 onClick={handleSaveAsNewFromEdit}
                 disabled={createEx.isPending || updateEx.isPending}
               >
-                Salva come nuova esercitazione
+                Salva come nuova stazione
               </Button>
             )}
             <Button type="submit" form="ex-form" disabled={createEx.isPending || updateEx.isPending}>
@@ -1215,7 +1214,7 @@ export default function ExercisesPage() {
                 <Label>Categoria</Label>
                 <Select value={glForm.category} onValueChange={v => setGlForm(f => ({ ...f, category: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{GUIDELINE_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+                  <SelectContent>{GUIDELINE_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{getGlCatLabel(c.value,selectedTeam?.clubSection??activeSection)}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
@@ -1228,7 +1227,7 @@ export default function ExercisesPage() {
               <Textarea value={glForm.content} onChange={e => setGlForm(f => ({ ...f, content: e.target.value }))} rows={5} required />
             </div>
             <div className="space-y-2">
-              <Label>Esercizio di riferimento</Label>
+              <Label>Stazione di riferimento</Label>
               <Select value={glForm.linkedExerciseId || "_none"} onValueChange={v => setGlForm(f => ({ ...f, linkedExerciseId: v === "_none" ? "" : v }))}>
                 <SelectTrigger><SelectValue placeholder="Nessuno" /></SelectTrigger>
                 <SelectContent>

@@ -6,7 +6,7 @@ export type ManagerTrainingCalendar = {
   slots: { day: string; startTime: string; endTime: string; campo: string | null }[];
   changes: { id: number; status: string; location: string | null; originalDate: string | null; originalStartTime: string | null; originalEndTime: string | null; newDate: string | null; newStartTime: string | null; newEndTime: string | null }[];
 };
-export type ManagerTrainingSession = { id: number; title: string; scheduledAt: string; location: string | null; status: string };
+export type ManagerTrainingSession = { shared?:boolean|null;durationMinutes?:number|null; id: number; title: string; scheduledAt: string; location: string | null; status: string };
 export type ManagerCalendarEvent = { id: string; title: string; kind: string; date: string | null; location: string | null; endTime?: string | null; status?: string; detail?: string };
 const weekdays: Record<string, number> = { domenica: 0, lunedi: 1, martedi: 2, mercoledi: 3, giovedi: 4, venerdi: 5, sabato: 6 };
 const normalizeDay = (day: string) => day.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -56,6 +56,11 @@ export function managerTrainingEvents(calendar: ManagerTrainingCalendar | null |
   for (const session of sessions) {
     if (["cancelled", "canceled"].includes(session.status)) continue;
     const at = new Date(session.scheduledAt);
+    if(session.shared&&!['cancelled','canceled'].includes(session.status)&&Number.isFinite(at.getTime()))for(const [eventKey,event] of rows){
+      const start=event.date?new Date(event.date):null;
+      const end=start?(event.endTime?new Date(`${format(start,'yyyy-MM-dd')}T${event.endTime}:00`).getTime():start.getTime()+90*60000):0;
+      if(start&&event.status==='regular'&&end>at.getTime()&&start.getTime()<at.getTime()+(session.durationMinutes??90)*60000)rows.delete(eventKey);
+    }
     if (!Number.isFinite(at.getTime())) continue;
     const date = format(at, "yyyy-MM-dd"), time = format(at, "HH:mm");
     if (!inRange(date)) continue;

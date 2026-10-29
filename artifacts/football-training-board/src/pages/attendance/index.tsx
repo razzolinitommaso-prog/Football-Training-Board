@@ -1,3 +1,4 @@
+import { sessionTeamIds } from "@workspace/api-zod";
 import { trainingPrincipleLabel } from "@workspace/api-zod";
 import { Link } from "wouter";
 import { safeTrainingReturnPath } from "@/lib/training-session-slot";
@@ -333,7 +334,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
     if (!teamScope) return [];
     if (teamScope === "__none__") return sessionsByAnnata.filter((s) => s.teamId == null);
     const id = Number(teamScope);
-    return sessionsByAnnata.filter((s) => s.teamId === id);
+    return sessionsByAnnata.filter((s) => sessionTeamIds(s.teamId,s.notes).includes(id));
   }, [sessionsByAnnata, teamScope]);
 
   const visibleSessionKinds = useMemo(() => {
@@ -383,7 +384,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const availabilityDate=selectedSession?new Date(selectedSession.scheduledAt):null;
   const availabilityDay=availabilityDate&&!Number.isNaN(availabilityDate.getTime())?`${availabilityDate.getFullYear()}-${String(availabilityDate.getMonth()+1).padStart(2,"0")}-${String(availabilityDate.getDate()).padStart(2,"0")}`:null;
   const availabilityStart=availabilityDate&&!Number.isNaN(availabilityDate.getTime())?`${String(availabilityDate.getHours()).padStart(2,"0")}:${String(availabilityDate.getMinutes()).padStart(2,"0")}`:null;
-  const {data:parentAvailability,error:parentAvailabilityError,isLoading:parentAvailabilityLoading}=useTrainingAvailability(selectedSession?.teamId,availabilityDay,availabilityStart);
+  const {data:parentAvailability,error:parentAvailabilityError,isLoading:parentAvailabilityLoading}=useTrainingAvailability(selectedSession?.teamId,availabilityDay,availabilityStart,sessionTeamIds(selectedSession?.teamId,selectedSession?.notes));
 
   const sessionAnnata = useMemo(() => {
     const source = `${selectedSession?.title ?? ""} ${selectedSession?.teamName ?? ""}`;
@@ -395,7 +396,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const filteredPlayers = useMemo(() => {
     if (!selectedSession) return players;
     if (selectedSession.teamId != null) {
-      return players.filter((p) => p.teamId === selectedSession.teamId || p.supplementalTeamId === selectedSession.teamId);
+      return players.filter((p) => sessionTeamIds(selectedSession.teamId,selectedSession.notes).includes(p.teamId??0) || sessionTeamIds(selectedSession.teamId,selectedSession.notes).includes(p.supplementalTeamId??0));
     }
     if (sessionAnnata) {
       return players.filter((p) => (p.teamName ?? "").toLowerCase().includes(sessionAnnata));
@@ -650,7 +651,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
             </div>
           )}
 
-          {selectedSession?.teamId&&<TrainingAvailabilityPanel teamId={selectedSession.teamId} date={availabilityDay} start={availabilityStart}/>}
+          {selectedSession?.teamId&&<TrainingAvailabilityPanel teamId={selectedSession.teamId} teamIds={sessionTeamIds(selectedSession.teamId,selectedSession.notes)} date={availabilityDay} start={availabilityStart}/>}
           {attLoading ? (
             <div className="text-center py-8 text-muted-foreground">{t.loading}</div>
           ) : (

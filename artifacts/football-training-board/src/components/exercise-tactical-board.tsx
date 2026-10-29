@@ -34,11 +34,11 @@ export function ExerciseTacticalBoard({ title, teamId, value, rosterPlayerIds, o
       sessionStorage.setItem(`ftb-exercise-board:${key}`, JSON.stringify({ title, board, rosterPlayerIds }));
       setToken(key);
     }}>Apri lavagna tattica</button>
-    <p className="text-xs text-muted-foreground">Salva la lavagna per riportarla qui, poi salva la scheda esercitazione.</p>
+    <p className="text-xs text-muted-foreground">Salva la lavagna per riportarla qui, poi salva la scheda stazione.</p>
     <Dialog open={!!token} onOpenChange={open => { if (!open && window.confirm("Chiudere la lavagna? Le modifiche non salvate andranno perse.")) setToken(null); }}>
       <DialogContent className="h-[95dvh] max-w-[98vw] gap-0 overflow-hidden p-0 [&>button]:hidden" onInteractOutside={event => event.preventDefault()}>
-        <DialogTitle className="sr-only">Lavagna esercitazione</DialogTitle>
-        {token && <iframe ref={frame} title="Lavagna esercitazione" className="h-full w-full border-0" src={`/tactical-board?source=exercise&draftToken=${encodeURIComponent(token)}${teamId ? `&teamId=${teamId}` : ""}`} />}
+        <DialogTitle className="sr-only">Lavagna stazione</DialogTitle>
+        {token && <iframe ref={frame} title="Lavagna stazione" className="h-full w-full border-0" src={`/tactical-board?source=exercise&draftToken=${encodeURIComponent(token)}${teamId ? `&teamId=${teamId}` : ""}`} />}
       </DialogContent>
     </Dialog>
   </>;

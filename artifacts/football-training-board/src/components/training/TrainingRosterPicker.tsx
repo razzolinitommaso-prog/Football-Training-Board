@@ -35,7 +35,7 @@ export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId }
     <div className="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" onClick={() => { setDraft([...selectedIds]); setSearch(""); setYear(""); setGroup(""); setOnlySelected(false); setOpen(true); }}>Scegli giocatori</Button><span className="text-sm">{selectedIds.length} selezionati</span></div>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent style={dialogViewport} className="flex h-[90dvh] max-h-[90dvh] w-[calc(100%-1rem)] max-w-5xl flex-col overflow-hidden sm:w-[calc(100%-3rem)]">
-        <DialogHeader><DialogTitle>Rosa dell'esercitazione</DialogTitle><DialogDescription>Nomi completi, squadra e annata. La scelta viene applicata solo alla conferma.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Rosa della stazione</DialogTitle><DialogDescription>Nomi completi, squadra e annata. La scelta viene applicata solo alla conferma.</DialogDescription></DialogHeader>
         <Input aria-label="Cerca giocatori" placeholder="Cerca per nome, cognome o squadra" value={search} onChange={e => setSearch(e.target.value)} />
         <div className="grid grid-cols-2 gap-2">
           <ScrollableSelect className="w-full" aria-label="Filtra annata" value={year} onValueChange={setYear}><option value="">Tutte le annate</option>{years.map(y => <option key={y} value={y}>{y}</option>)}</ScrollableSelect>

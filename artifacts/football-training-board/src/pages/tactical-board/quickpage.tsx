@@ -1646,7 +1646,7 @@ const QuickPage = () => {
     if (draftPayload.board?.data) {
       applyBoardState({ id: draftPayload.board.boardId, title: draftPayload.title, data: draftPayload.board.data });
     } else {
-      setBoardTitle(draftPayload.title || "Esercitazione");
+      setBoardTitle(draftPayload.title || "Stazione");
       setBoardType("Exercise");
       setBoardNotes("");
       setSaveState("Unsaved");
@@ -2040,7 +2040,7 @@ const QuickPage = () => {
   const boardActionTools = [
     { id: "load" as const, label: "Carica", icon: Folder },
     { id: "create" as const, label: "Crea", icon: Play },
-    { id: "exercise" as const, label: "Esercitazione", icon: Upload },
+    { id: "exercise" as const, label: "Stazione", icon: Upload },
     { id: "tactics" as const, label: "Tattica", icon: MoreHorizontal },
     { id: "match" as const, label: "Prepara partita", icon: Calendar },
   ];
@@ -3419,7 +3419,7 @@ const QuickPage = () => {
         drawingData: pitchRef.current ? await capturePitch(pitchRef.current) : undefined,
       }),
     });
-    if (!response.ok) throw new Error("Errore collegamento lavagna esercitazione");
+    if (!response.ok) throw new Error("Errore collegamento lavagna stazione");
   };
 
   const copyBoardSnapshot = async () => {
@@ -5406,12 +5406,12 @@ const QuickPage = () => {
                           type="button"
                           onClick={() => {
                             setBoardType("Exercise");
-                            setBoardTitle(boardTitle === "Nuova lavagna" ? "Esercitazione libera" : boardTitle);
+                            setBoardTitle(boardTitle === "Nuova lavagna" ? "Stazione libera" : boardTitle);
                             setSaveState("Unsaved");
                           }}
                           className="rounded-lg bg-white/10 px-2 py-2 text-left text-[11px] font-semibold text-white/85 transition hover:bg-white/15"
                         >
-                          Imposta tipo Esercitazione
+                          Imposta tipo Stazione
                         </button>
                         <button
                           type="button"

@@ -300,7 +300,7 @@ export default function FitnessPrograms() {
                 <div className="flex items-center justify-between gap-3">
                   <Label className="text-base font-semibold">Programmazione settimane e giorni</Label>
                   <Button type="button" variant="outline" size="sm" asChild>
-                    <Link href="/exercises"><ClipboardList className="w-4 h-4 mr-2" />Libreria esercitazioni</Link>
+                    <Link href="/exercises"><ClipboardList className="w-4 h-4 mr-2" />Libreria stazioni</Link>
                   </Button>
                 </div>
                 {daysByWeek.map(({ week, days }) => (
@@ -317,7 +317,7 @@ export default function FitnessPrograms() {
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>{WEEK_DAYS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
                         </Select>
-                        <Input value={day.title} onChange={(e) => updatePlanDay(day.originalIndex, { title: e.target.value })} placeholder="Esercitazione o lavoro atletico" />
+                        <Input value={day.title} onChange={(e) => updatePlanDay(day.originalIndex, { title: e.target.value })} placeholder="Attività o lavoro atletico" />
                         <Input value={day.durationMinutes} onChange={(e) => updatePlanDay(day.originalIndex, { durationMinutes: e.target.value })} type="number" min={0} placeholder="Min" />
                         <Input value={day.materials} onChange={(e) => updatePlanDay(day.originalIndex, { materials: e.target.value })} placeholder="Materiali" />
                         <Textarea className="md:col-span-2" value={day.instructions} onChange={(e) => updatePlanDay(day.originalIndex, { instructions: e.target.value })} rows={2} placeholder="Indicazioni operative" />
@@ -375,7 +375,7 @@ export default function FitnessPrograms() {
                   <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" />{prog.teamName ?? t.allTeamsProgram}</span>
                     <span className="flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5" />{prog.durationWeeks ?? 1} {t.weeks}</span>
-                    <span>{summary.sessions} esercitazioni</span>
+                    <span>{summary.sessions} attività</span>
                     <span>{summary.minutes || "-"} minuti</span>
                   </div>
                   {prog.materials && <p className="mt-3 rounded-md bg-muted/30 p-2 text-xs text-muted-foreground">Materiali: {prog.materials}</p>}

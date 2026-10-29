@@ -2312,7 +2312,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       </Link>
       <Link href="/exercises">
         <Button variant="secondary" className="w-full h-12 text-sm font-semibold">
-          ➕ Nuova Esercitazione
+          ➕ Nuova stazione
         </Button>
       </Link>
     </>
@@ -3774,7 +3774,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                         Apri sedute
                       </Button>
                       <Button type="button" variant="outline" onClick={() => setLocation("/exercises")}>
-                        Prepara esercitazione
+                        Prepara stazione
                       </Button>
                     </div>
                   )}
@@ -3787,7 +3787,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                     Pianifica attività
                   </Button>
                   <Button type="button" variant="outline" onClick={() => setLocation("/exercises")}>
-                    Prepara esercitazione
+                    Prepara stazione
                   </Button>
                 </div>
               )}
@@ -4217,7 +4217,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                 {draftExercises.length === 1 ? "1 bozza allenamento da completare" : `${draftExercises.length} bozze allenamento da completare`}
               </h3>
               <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5 mb-2">
-                {draftExercises.length === 1 ? "C'è un'esercitazione in bozza che richiede la tua attenzione." : "Ci sono esercitazioni in bozza che richiedono la tua attenzione."}
+                {draftExercises.length === 1 ? "C'è una stazione in bozza che richiede la tua attenzione." : "Ci sono stazioni in bozza che richiedono la tua attenzione."}
               </p>
               <div className="flex flex-wrap gap-2 mb-3">
                 {draftExercises.slice(0, 4).map(ex => (
