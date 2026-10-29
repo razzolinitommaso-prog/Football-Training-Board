@@ -1273,7 +1273,7 @@ function CreateSessionDialog({
             </div>
           </div>
 
-          {sessionKind === "regular" && <TrainingAvailabilityPanel teamId={teamId} teamIds={sharedTeamIds} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)}/> }
+          {sessionKind === "regular" && <TrainingAvailabilityPanel teamId={teamId} teamIds={sharedTeamIds} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)} durationMinutes={duration}/> }
 
           {isTD && sessionKind === "tipo" && (
             <div className="space-y-2">
@@ -1462,7 +1462,7 @@ function EditSessionDialog({
             </div>
           </div>
 
-          <TrainingAvailabilityPanel teamId={teamId} teamIds={sharedTeamIds} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)}/>
+          <TrainingAvailabilityPanel teamId={teamId} teamIds={sharedTeamIds} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)} durationMinutes={duration}/>
 
           {onManageExercises && (
             <Button type="button" variant="outline" className="w-full justify-center" onClick={onManageExercises}>

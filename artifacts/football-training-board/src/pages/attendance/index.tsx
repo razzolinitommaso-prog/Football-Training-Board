@@ -17,6 +17,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { withApi } from "@/lib/api-base";
 
 interface TrainingSession {
+  durationMinutes?: number | null;
   id: number;
   scheduledAt: string;
   title?: string;
@@ -384,7 +385,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const availabilityDate=selectedSession?new Date(selectedSession.scheduledAt):null;
   const availabilityDay=availabilityDate&&!Number.isNaN(availabilityDate.getTime())?`${availabilityDate.getFullYear()}-${String(availabilityDate.getMonth()+1).padStart(2,"0")}-${String(availabilityDate.getDate()).padStart(2,"0")}`:null;
   const availabilityStart=availabilityDate&&!Number.isNaN(availabilityDate.getTime())?`${String(availabilityDate.getHours()).padStart(2,"0")}:${String(availabilityDate.getMinutes()).padStart(2,"0")}`:null;
-  const {data:parentAvailability,error:parentAvailabilityError,isLoading:parentAvailabilityLoading}=useTrainingAvailability(selectedSession?.teamId,availabilityDay,availabilityStart,sessionTeamIds(selectedSession?.teamId,selectedSession?.notes));
+  const {data:parentAvailability,error:parentAvailabilityError,isLoading:parentAvailabilityLoading}=useTrainingAvailability(selectedSession?.teamId,availabilityDay,availabilityStart,sessionTeamIds(selectedSession?.teamId,selectedSession?.notes),selectedSession?.durationMinutes);
 
   const sessionAnnata = useMemo(() => {
     const source = `${selectedSession?.title ?? ""} ${selectedSession?.teamName ?? ""}`;
@@ -651,7 +652,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
             </div>
           )}
 
-          {selectedSession?.teamId&&<TrainingAvailabilityPanel teamId={selectedSession.teamId} teamIds={sessionTeamIds(selectedSession.teamId,selectedSession.notes)} date={availabilityDay} start={availabilityStart}/>}
+          {selectedSession?.teamId&&<TrainingAvailabilityPanel teamId={selectedSession.teamId} teamIds={sessionTeamIds(selectedSession.teamId,selectedSession.notes)} date={availabilityDay} start={availabilityStart} durationMinutes={selectedSession.durationMinutes}/>}
           {attLoading ? (
             <div className="text-center py-8 text-muted-foreground">{t.loading}</div>
           ) : (

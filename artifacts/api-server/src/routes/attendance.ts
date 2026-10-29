@@ -106,6 +106,8 @@ async function playerCanAttend(playerId: number, clubId: number): Promise<{ ok: 
 router.get("/training-availability", requireAuth, async (req,res):Promise<void>=>{
   const clubId=req.session.clubId!, teamId=Number(req.query.teamId);
   const date=String(req.query.date??""),start=String(req.query.start??"");
+  const duration=req.query.duration===undefined?undefined:Number(req.query.duration);
+  if(duration!==undefined&&(!Number.isInteger(duration)||duration<15||duration>300)){res.status(400).json({error:"Durata seduta non valida"});return;}
   if(!Number.isInteger(teamId)||teamId<=0||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(start)||!Number.isFinite(Date.parse(date))){res.status(400).json({error:"Squadra, data e orario richiesti"});return;}
   const [team]=await db.select({id:teamsTable.id,coachId:teamsTable.coachId}).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),eq(teamsTable.id,teamId))).limit(1);
   if(!team){res.status(403).json({error:"Squadra non autorizzata"});return;}
@@ -120,7 +122,7 @@ router.get("/training-availability", requireAuth, async (req,res):Promise<void>=
   const allowedTeamIds=ATTENDANCE_MANAGE_ALL_ROLES.includes(req.session.role??"")?clubTeams.map(t=>t.id):clubTeams.filter(t=>t.coachId===req.session.userId||assignments.some(a=>a.teamId===t.id)).map(t=>t.id);
   const requested=String(req.query.teamIds??teamId).split(",").map(Number);
   if(requested.length>20||requested.some(id=>!Number.isInteger(id)||!allowedTeamIds.includes(id))){res.status(403).json({error:"Annate non autorizzate"});return;}
-  res.json(await trainingAvailability(clubId,teamId,date,start,allowedTeamIds,requested));
+  res.json(await trainingAvailability(clubId,teamId,date,start,allowedTeamIds,requested,duration));
 });
 
 router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
