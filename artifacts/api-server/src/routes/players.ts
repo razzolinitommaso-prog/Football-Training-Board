@@ -1,3 +1,4 @@
+import { sessionTeamScope } from "../lib/session-team-scope";
 import { Router, type IRouter } from "express";
 import {
   db,
@@ -973,7 +974,7 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
     ? (await db
         .select()
         .from(trainingSessionsTable)
-        .where(and(eq(trainingSessionsTable.clubId, clubId), eq(trainingSessionsTable.teamId, player.teamId)))
+        .where(and(eq(trainingSessionsTable.clubId, clubId), sessionTeamScope(player.teamId)))
         .orderBy(desc(trainingSessionsTable.scheduledAt)))
         .filter((session) => new Date(session.scheduledAt).getTime() <= now.getTime() && session.status !== "cancelled")
     : [];

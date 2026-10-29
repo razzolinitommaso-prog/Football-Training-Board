@@ -1,3 +1,5 @@
+import { sessionTeamScope, sessionTeamIds } from "../lib/session-team-scope";
+import { overlaySharedTrainingRows, trainingReplyMatches } from "@workspace/api-zod";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
 import bcrypt from "bcryptjs";
@@ -447,6 +449,12 @@ router.get("/parent/children", requireParentSession, async (req, res): Promise<v
   res.json(enriched);
 });
 
+async function parentTrainingCalendarForTeam(team:typeof teamsTable.$inferSelect,fromDate:Date) {
+ const rows=generateParentTrainingCalendar(team,fromDate);
+ const sessions=await db.select({teamId:trainingSessionsTable.teamId,notes:trainingSessionsTable.notes,scheduledAt:trainingSessionsTable.scheduledAt,durationMinutes:trainingSessionsTable.durationMinutes,location:trainingSessionsTable.location}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,team.clubId),sessionTeamScope(team.id),eq(trainingSessionsTable.sessionKind,"regular"),sql`${trainingSessionsTable.status} NOT IN ('cancelled','canceled')`,sql`${trainingSessionsTable.notes} LIKE '%[FTB_SESSION_TEAMS]%'`,gte(trainingSessionsTable.scheduledAt,new Date(fromDate.getTime()-86400000)),lte(trainingSessionsTable.scheduledAt,new Date(fromDate.getTime()+46*86400000))));
+ return overlaySharedTrainingRows(rows,sessions,team.id,team.name);
+}
+
 router.get("/parent/training", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
   const parentPlayerId = getParentPlayerId(req);
@@ -468,7 +476,7 @@ router.get("/parent/training", requireParentSession, async (req, res): Promise<v
     return;
   }
 
-  const trainingRows = generateParentTrainingCalendar(team, now);
+  const trainingRows = await parentTrainingCalendarForTeam(team, now);
   await ensureParentTrainingAvailabilityTable();
   const availabilityRows = trainingRows.length > 0
     ? sqlRows<{
@@ -539,7 +547,7 @@ router.patch("/parent/training-availability/:sessionId/:playerId", requireParent
     .where(and(eq(teamsTable.id, player.teamId), eq(teamsTable.clubId, clubId)));
   if (!team) { res.status(403).json({ error: "Squadra non trovata" }); return; }
 
-  const trainingRows = generateParentTrainingCalendar(team, new Date());
+  const trainingRows = await parentTrainingCalendarForTeam(team, new Date());
   const occurrence = trainingRows.find((row) => String(row.id) === occurrenceId);
   if (!occurrence) {
     res.status(404).json({ error: "Allenamento non trovato nel calendario generale" }); return;
@@ -588,14 +596,14 @@ router.get("/parent/activity", requireParentSession, async (req, res): Promise<v
   const playerId = getParentPlayerId(req);
   const empty: ParentActivity = { playerName: null, trainings: [], matches: [] };
   if (!playerId) { res.json(empty); return; }
-  const [player] = await db.select({ firstName: playersTable.firstName, lastName: playersTable.lastName }).from(playersTable)
+  const [player] = await db.select({ firstName: playersTable.firstName, lastName: playersTable.lastName, teamId:playersTable.teamId }).from(playersTable)
     .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, playerId)));
   if (!player) { res.json(empty); return; }
   const now = new Date();
   await ensureParentTrainingAvailabilityTable();
   const [attendance, availabilities, playedMatches] = await Promise.all([
     db.select({ id: trainingAttendancesTable.id, status: trainingAttendancesTable.status, notes: trainingAttendancesTable.notes,
-      teamId: trainingSessionsTable.teamId, scheduledAt: trainingSessionsTable.scheduledAt,
+      teamId: trainingSessionsTable.teamId, scheduledAt: trainingSessionsTable.scheduledAt, sessionNotes:trainingSessionsTable.notes, durationMinutes:trainingSessionsTable.durationMinutes,
       objectives: trainingSessionsTable.objectives, teamName: teamsTable.name })
       .from(trainingAttendancesTable)
       .innerJoin(trainingSessionsTable, and(eq(trainingSessionsTable.id, trainingAttendancesTable.trainingSessionId), eq(trainingSessionsTable.clubId, clubId)))
@@ -617,13 +625,18 @@ router.get("/parent/activity", requireParentSession, async (req, res): Promise<v
     history.set(row.occurrenceId, { id: row.occurrenceId, scheduledAt: new Date(row.scheduledAt).toISOString(), teamName: row.teamName,
       trainingType: null, attendance: null, conduct: null, availability: row.status, availabilityReason: parentAvailabilityReasonLabel(row.reason) });
   }
+  const scheduleTeams=attendance.some(row=>sessionTeamIds(row.teamId,row.sessionNotes).length>1)?await db.select({id:teamsTable.id,trainingSchedule:teamsTable.trainingSchedule}).from(teamsTable).where(eq(teamsTable.clubId,clubId)):[];
   const seen = new Set<string>();
   for (const row of attendance) {
     const key = row.teamId ? parentTrainingOccurrence(row.teamId, row.scheduledAt) : `attendance-${row.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const availability = history.get(key);
-    history.set(key, { id: key, scheduledAt: row.scheduledAt.toISOString(), teamName: row.teamName ?? "Squadra",
+    const ids=sessionTeamIds(row.teamId,row.sessionNotes);
+    const candidates=ids.length>1?[...history.entries()].filter(([id])=>{const owner=Number(id.split('-')[0]);return (ids.includes(owner)||owner===player.teamId)&&trainingReplyMatches(id,{...row,notes:row.sessionNotes},scheduleTeams.find(team=>team.id===owner)?.trainingSchedule??[]);}):[];
+    const matched=candidates.length===1?candidates[0]:undefined;
+    const availability = history.get(key)??matched?.[1];
+    if(matched&&matched[0]!==key)history.delete(matched[0]);
+    history.set(key, { id: key, scheduledAt: row.scheduledAt.toISOString(), teamName: availability?.teamName ?? row.teamName ?? "Squadra",
       trainingType: parentTrainingType(row.objectives), attendance: row.status, conduct: parseAttendanceConduct(row.notes),
       availability: availability?.availability ?? null, availabilityReason: availability?.availabilityReason ?? null });
   }
@@ -973,7 +986,7 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
     ? (await db
         .select()
         .from(trainingSessionsTable)
-        .where(and(eq(trainingSessionsTable.clubId, clubId), eq(trainingSessionsTable.teamId, player.teamId)))
+        .where(and(eq(trainingSessionsTable.clubId, clubId), sessionTeamScope(player.teamId)))
         .orderBy(desc(trainingSessionsTable.scheduledAt)))
         .filter((session) => new Date(session.scheduledAt).getTime() <= now.getTime() && session.status !== "cancelled" && session.sessionKind !== "tipo")
     : [];

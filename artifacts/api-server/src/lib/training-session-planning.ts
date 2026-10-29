@@ -1,8 +1,9 @@
+import { type TrainingRotations, TRAINING_ROTATION_PHASES } from "@workspace/api-zod";
 import { createHash } from "node:crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
-export type SessionPlan = { recoveries: [number, number]; timings: Record<string, { seconds: number; stations: number[]; signature: string }> };
+export type SessionPlan = { rotations?:TrainingRotations; recoveries: [number, number]; timings: Record<string, { seconds: number; stations: number[]; signature: string }> };
 export const EMPTY_PLAN: SessionPlan = { recoveries: [0, 0], timings: {} };
 let ready: Promise<unknown> | undefined;
 export function ensureSessionPlans() {
@@ -18,7 +19,7 @@ export async function readSessionPlan(sessionId: number, clubId: number): Promis
   const [row] = resultRows<{plan:SessionPlan}>(await db.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${sessionId} AND club_id=${clubId}`));
   return row?.plan ?? {recoveries:[0,0],timings:{}};
 }
-export type PlanningExercise = { id: number; duration: number | null; description: string | null; title: string | null };
+export type PlanningExercise = { id: number; duration: number | null; description: string | null; title: string | null; phase?:string|null };
 export const timingSignature = (exercise: PlanningExercise) => createHash("sha256").update(JSON.stringify([exercise.duration,exercise.description])).digest("hex");
 const MARKER = "\n\n[FTB_EXERCISE_STATIONS]";
 export function stationMinutes(description: string | null): number[] {
@@ -46,4 +47,29 @@ export function recalculatePlan(duration: number, recoveries: [number,number], e
   const allocations=distributeSeconds(available,exercises.map(()=>1));
   if(allocations.some(seconds=>seconds<=0)) throw new Error("Tempo insufficiente per le esercitazioni");
   return {recoveries,timings:Object.fromEntries(exercises.map((exercise,index)=>[String(exercise.id),{seconds:allocations[index],stations:distributeSeconds(allocations[index],stationMinutes(exercise.description)),signature:timingSignature(exercise)}]))};
+}
+
+export function recalculateRotationPlan(duration:number,recoveries:[number,number],exercises:PlanningExercise[],rotations:TrainingRotations):SessionPlan {
+ const turns=TRAINING_ROTATION_PHASES.flatMap(phase=>rotations[phase]??[]);
+ const available=Math.round((duration-recoveries[0]-recoveries[1])*60);
+ if(available<=0||!turns.length||exercises.some(ex=>!ex.title?.trim()))throw Error("Tempo utile o stazioni non validi");
+ const allocations=distributeSeconds(available,turns.map(()=>1));if(allocations.some(s=>s<=0))throw Error("Tempo insufficiente per i turni");
+ let index=0;const next:TrainingRotations={},timings:SessionPlan["timings"]={};
+ for(const phase of TRAINING_ROTATION_PHASES)if(rotations[phase])next[phase]=rotations[phase]!.map(turn=>{
+  const seconds=allocations[index++];
+  return {...turn,stations:turn.stations.map(station=>{const exercise=exercises.find(ex=>ex.id===station.linkId)!;
+   timings[String(exercise.id)]??={seconds,stations:distributeSeconds(seconds,stationMinutes(exercise.description)),signature:timingSignature(exercise)};
+   return {...station,seconds};
+  })};
+ });
+ return {recoveries,timings,rotations:next};
+}
+
+export function planningVersion(plan:SessionPlan):string { return createHash("sha256").update(JSON.stringify(plan)).digest("hex"); }
+export function rotationTimings(exercises:PlanningExercise[],rotations:TrainingRotations):SessionPlan["timings"] {
+ const timings:SessionPlan["timings"]={};
+ for(const phase of TRAINING_ROTATION_PHASES)for(const turn of rotations[phase]??[])for(const station of turn.stations){
+  const exercise=exercises.find(ex=>ex.id===station.linkId);if(exercise&&!timings[String(exercise.id)])timings[String(exercise.id)]={seconds:station.seconds,stations:distributeSeconds(station.seconds,stationMinutes(exercise.description)),signature:timingSignature(exercise)};
+ }
+ return timings;
 }

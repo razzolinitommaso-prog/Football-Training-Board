@@ -1,3 +1,7 @@
+import { validateTrainingRotations, type TrainingRotations } from "@workspace/api-zod";
+import { rosterMembers } from "../lib/training-roster-policy";
+import { recalculateRotationPlan, planningVersion, rotationTimings } from "../lib/training-session-planning";
+import { sessionTeamScope, sessionTeamIds, consolidateSharedDrafts } from "../lib/session-team-scope";
 import { ensureTrainingSuppressions, sameTrainingMinute, trainingDeletionSummary } from "../lib/training-session-integrity";
 import { readSessionPlan, ensureSessionPlans, resultRows, recalculatePlan, timingSignature, type PlanningExercise } from "../lib/training-session-planning";
 import { AUTO_TRAINING_MARKER } from "../lib/automatic-training-drafts";
@@ -100,6 +104,20 @@ async function canManageSession(
   return primaryCoachTeamIds.includes(session.teamId);
 }
 
+async function validSessionTeams(req: import("express").Request,teamId:number|null,notes:string|null|undefined,previous?:string|null) {
+ const ids=sessionTeamIds(teamId,notes);if(ids.length<2)return true;
+ const clubId=req.session.clubId!,role=normalizeSessionRole(req.session.role);
+ const teams=await db.select().from(teamsTable).where(and(eq(teamsTable.clubId,clubId),inArray(teamsTable.id,ids)));
+ const sections=await resolveAllowedClubSections(req,undefined);
+ if(teams.length!==ids.length||teams.some(t=>sections&&!sections.includes(t.clubSection))||new Set(teams.map(t=>t.clubSection)).size!==1||new Set(teams.map(t=>t.seasonId)).size!==1)return false;
+ if(STAFF_RESTRICTED_ROLES.includes(role)){const assigned=await getAssignedTeamIds(clubId,req.session.userId!);if(ids.some(id=>!assigned.includes(id)))return false;}
+ if(previous&&JSON.stringify(sessionTeamIds(teamId,previous).sort())===JSON.stringify([...ids].sort()))return true;
+ const exists=resultRows<{present:boolean}>(await db.execute(sql`SELECT to_regclass('training_roster_groups') IS NOT NULL AND to_regclass('training_roster_group_teams') IS NOT NULL AS present`))[0]?.present;
+ if(!exists)return false;
+ const groups=resultRows<{ids:number[]}>(await db.execute(sql`SELECT array_agg(l.team_id ORDER BY l.team_id) AS ids FROM training_roster_groups g JOIN training_roster_group_teams l ON l.group_id=g.id WHERE g.club_id=${clubId} AND g.kind='shared' AND NOT g.archived GROUP BY g.id`));
+ return groups.some(g=>g.ids.length===ids.length&&g.ids.every(id=>ids.includes(id)));
+}
+
 async function enrichSession(
   session: typeof trainingSessionsTable.$inferSelect,
   viewer?: { clubId: number; userId: number; role: string },
@@ -177,7 +195,7 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
   if (canViewAllClubTrainingSessions(role)) {
     let conditions: ReturnType<typeof eq>[] = [eq(trainingSessionsTable.clubId, clubId) as any];
     if (queryParams.success && queryParams.data.teamId) {
-      conditions.push(eq(trainingSessionsTable.teamId, queryParams.data.teamId) as any);
+      conditions.push(sessionTeamScope(queryParams.data.teamId) as any);
     }
     if (sectionScope) conditions.push(sectionScope as any);
     if (!requestedSection && req.session.section && !isClubWideListRole(role)) {
@@ -230,6 +248,7 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
       .orderBy(desc(trainingSessionsTable.scheduledAt));
   }
 
+  sessions=sessions.filter(session=>session.notes!==AUTO_TRAINING_MARKER+" GROUPED");
   const [teamRows,creatorRows,primaryIds,assignedIds]=await Promise.all([
     db.select({id:teamsTable.id,name:teamsTable.name}).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),inArray(teamsTable.id,[...new Set(sessions.flatMap(session=>session.teamId?[session.teamId]:[]))]))),
     db.select({id:usersTable.id,firstName:usersTable.firstName,lastName:usersTable.lastName}).from(usersTable).where(inArray(usersTable.id,[...new Set(sessions.flatMap(session=>session.createdByUserId?[session.createdByUserId]:[]))])),
@@ -284,15 +303,17 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
     }
   }
 
+  if(!await validSessionTeams(req,body.teamId??null,parsed.data.notes)){res.status(403).json({error:"Unione di annate non autorizzata o non configurata"});return;}
   const [session] = await db.transaction(async tx=>{
     const values={...parsed.data,clubId:req.session.clubId!,createdByUserId:userId,sessionKind:body.sessionKind??"regular",sentToUserIds:body.sentToUserIds??null};
+    if(values.sessionKind==="regular"&&!await consolidateSharedDrafts(tx,req.session.clubId!,null,sessionTeamIds(body.teamId,values.notes),parsed.data.scheduledAt,parsed.data.durationMinutes??90))return [];
     if(body.teamId&&values.sessionKind==="regular"){
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${req.session.clubId}|${body.teamId}`}))`);
-      const slotRows=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),sameTrainingMinute(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.sessionKind,"regular")));
+      const slotRows=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),sameTrainingMinute(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),sql`${trainingSessionsTable.status} NOT IN ('cancelled','canceled')`,eq(trainingSessionsTable.sessionKind,"regular")));
       if(slotRows.length>1)return [];
       const [draft]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),sameTrainingMinute(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.notes,AUTO_TRAINING_MARKER),eq(trainingSessionsTable.title,"Allenamento da preparare"),eq(trainingSessionsTable.status,"scheduled"),sql`${trainingSessionsTable.objectives} IS NULL`,sql`NOT EXISTS(SELECT 1 FROM training_session_exercises e WHERE e.training_session_id=${trainingSessionsTable.id})`,sql`NOT EXISTS(SELECT 1 FROM training_attendances a WHERE a.training_session_id=${trainingSessionsTable.id})`)).limit(1);
       if(draft)return tx.update(trainingSessionsTable).set({...values,notes:parsed.data.notes??draft.notes}).where(eq(trainingSessionsTable.id,draft.id)).returning();
-      const [occupied]=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),sameTrainingMinute(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),eq(trainingSessionsTable.sessionKind,"regular"))).limit(1);
+      const [occupied]=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),sameTrainingMinute(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),sql`${trainingSessionsTable.status} NOT IN ('cancelled','canceled')`,eq(trainingSessionsTable.sessionKind,"regular"))).limit(1);
       if(occupied)return [];
     }
     return tx.insert(trainingSessionsTable).values(values).returning();
@@ -399,21 +420,39 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
     const sections=await resolveAllowedClubSections(req,undefined);
     if(!team||(sections&&!sections.includes(team.clubSection))||(STAFF_RESTRICTED_ROLES.includes(role)&&!await canAccessTeamForRestrictedRole(clubId,userId,targetTeam))){res.status(403).json({error:"Squadra non accessibile"});return;}
   }
+  if(!await validSessionTeams(req,targetTeam,(updateData.notes===undefined?existing.notes:updateData.notes) as string|null,existing.notes)){res.status(403).json({error:"Unione di annate non autorizzata o non configurata"});return;}
   if(existing.notes===AUTO_TRAINING_MARKER&&STAFF_RESTRICTED_ROLES.includes(role))updateData.createdByUserId=userId;
+  let moveIssue:string|null=null;
   const [session] = await db.transaction(async tx=>{
-    for(const teamId of [...new Set([existing.teamId,targetTeam])].sort((a,b)=>(a??0)-(b??0)))await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${clubId}|${teamId}`}))`);
+    for(const teamId of [...new Set([...sessionTeamIds(existing.teamId,existing.notes),...sessionTeamIds(targetTeam,(updateData.notes===undefined?existing.notes:updateData.notes) as string|null)])].sort((a,b)=>(a??0)-(b??0)))await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${clubId}|${teamId}`}))`);
     const [current]=await tx.select({notes:trainingSessionsTable.notes}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,params.data.id),eq(trainingSessionsTable.clubId,clubId))).limit(1);
     if(!current||(existing.notes===AUTO_TRAINING_MARKER&&current.notes===AUTO_TRAINING_MARKER+" REMOVED"))return [];
     const targetAt=updateData.scheduledAt instanceof Date?updateData.scheduledAt:existing.scheduledAt;
     const targetKind=String(updateData.sessionKind??existing.sessionKind);
+    const nextTeamIds=sessionTeamIds(targetTeam,(updateData.notes===undefined?existing.notes:updateData.notes) as string|null);
+    if(targetTeam&&sessionTeamIds(existing.teamId,existing.notes).some(id=>!nextTeamIds.includes(id))){
+      const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,clubId));
+      const allowed=new Set(rosterMembers(players,nextTeamIds).map(player=>player.id));
+      const recorded=resultRows<{playerId:number}>(await tx.execute(sql`SELECT player_id AS "playerId" FROM training_attendances WHERE club_id=${clubId} AND training_session_id=${existing.id}`));
+      const plansExist=resultRows<{present:boolean}>(await tx.execute(sql`SELECT to_regclass('training_session_plans') IS NOT NULL AS present`))[0]?.present;
+      const plan=plansExist?resultRows<{plan:Awaited<ReturnType<typeof readSessionPlan>>}>(await tx.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${existing.id} AND club_id=${clubId}`))[0]?.plan:{rotations:undefined};
+      const planned=Object.values(plan?.rotations??{}).flatMap(turns=>turns.flatMap(turn=>turn.stations.flatMap(station=>station.playerIds)));
+      if([...recorded.map(row=>row.playerId),...planned].some(id=>!allowed.has(id))){moveIssue="La seduta contiene presenze o gruppi di giocatori delle annate che stai togliendo. Mantieni l'unione o verifica prima questi dati: nessuna modifica è stata salvata.";return [];}
+    }
+    if(targetKind==="regular"&&!await consolidateSharedDrafts(tx,clubId,existing.id,sessionTeamIds(targetTeam,(updateData.notes===undefined?existing.notes:updateData.notes) as string|null),targetAt,(updateData.durationMinutes??existing.durationMinutes??90) as number))return [];
     const moved=targetTeam!==existing.teamId||Math.floor(targetAt.getTime()/60000)!==Math.floor(existing.scheduledAt.getTime()/60000)||targetKind!==existing.sessionKind;
     if(moved&&targetTeam&&targetKind==="regular"){
-      const occupied=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),eq(trainingSessionsTable.teamId,targetTeam),sameTrainingMinute(trainingSessionsTable.scheduledAt,targetAt),eq(trainingSessionsTable.sessionKind,"regular"),sql`${trainingSessionsTable.id}<>${existing.id}`)).limit(1);
+      const occupied=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),eq(trainingSessionsTable.teamId,targetTeam),sameTrainingMinute(trainingSessionsTable.scheduledAt,targetAt),eq(trainingSessionsTable.sessionKind,"regular"),sql`${trainingSessionsTable.status} NOT IN ('cancelled','canceled')`,sql`${trainingSessionsTable.id}<>${existing.id}`)).limit(1);
       if(occupied.length)return [];
+    }
+    // A moved session must not be automatically regenerated in its old slot.
+    if(moved&&existing.teamId&&existing.sessionKind==="regular") {
+      await ensureTrainingSuppressions(tx);
+      await tx.execute(sql`INSERT INTO training_session_suppressions(club_id,team_id,scheduled_at) VALUES(${clubId},${existing.teamId},date_trunc('minute',${existing.scheduledAt.toISOString()}::timestamptz)) ON CONFLICT DO NOTHING`);
     }
     return tx.update(trainingSessionsTable).set(updateData).where(and(eq(trainingSessionsTable.id,params.data.id),eq(trainingSessionsTable.clubId,clubId))).returning();
   });
-  if(!session){res.status(409).json({error:"Orario già occupato oppure programmazione cambiata. Riapri la seduta prima di modificarla."});return;}
+  if(!session){res.status(409).json({error:moveIssue??"La squadra di destinazione ha già una seduta in questo orario, oppure la programmazione è cambiata. Nessuna modifica è stata salvata: apri la seduta già presente nel calendario."});return;}
 
   const enriched = await enrichSession(session, { clubId, userId, role });
   res.json(enriched);
@@ -440,7 +479,7 @@ async function planningAccess(req: Parameters<typeof resolveAllowedClubSections>
   return session;
 }
 async function planningExercises(sessionId:number,clubId:number) {
-  return resultRows<PlanningExercise>(await db.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title
+  return resultRows<PlanningExercise>(await db.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title, exercise.training_phase AS phase
     FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${clubId}
     WHERE link.training_session_id=${sessionId} ORDER BY link."order",link.id`));
 }
@@ -451,7 +490,7 @@ router.get("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
   if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
   const plan=await readSessionPlan(id,session.clubId);
   const exercises=await planningExercises(id,session.clubId);
-  res.json({...plan,timings:Object.fromEntries(exercises.filter(ex=>plan.timings[String(ex.id)]?.signature===timingSignature(ex)).map(ex=>[String(ex.id),plan.timings[String(ex.id)]]))});
+  res.json({...plan,version:planningVersion(plan),timings:Object.fromEntries(exercises.filter(ex=>plan.timings[String(ex.id)]?.signature===timingSignature(ex)).map(ex=>[String(ex.id),plan.timings[String(ex.id)]]))});
 });
 router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<void>=>{
   const id=Number(req.params.id), recoveries=req.body?.recoveries;
@@ -465,14 +504,22 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
       const [current]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,id),eq(trainingSessionsTable.clubId,session.clubId)));
       if(!current) throw new Error("Seduta non disponibile");
       const [stored]=resultRows<{plan:Awaited<ReturnType<typeof readSessionPlan>>}>(await tx.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${id} AND club_id=${session.clubId}`));
-      const old=stored?.plan??{recoveries:[0,0],timings:{}};
-      const exercises=resultRows<PlanningExercise>(await tx.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${session.clubId} WHERE link.training_session_id=${id} ORDER BY link."order",link.id`));
-      const next=req.body.recalculate?recalculatePlan(current.durationMinutes??0,recoveries as [number,number],exercises):{...old,recoveries};
+      const old:Awaited<ReturnType<typeof readSessionPlan>>=stored?.plan??{recoveries:[0,0],timings:{}};
+      const exercises=resultRows<PlanningExercise>(await tx.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title, exercise.training_phase AS phase FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${session.clubId} WHERE link.training_session_id=${id} ORDER BY link."order",link.id`));
+      if(req.body.version!==undefined&&req.body.version!==planningVersion(old))throw Error("CONFLICT:La pianificazione è cambiata. Riapri la seduta prima di salvare i turni.");
+      const rotations=req.body.rotations===undefined?old.rotations:req.body.rotations;
+      if(rotations!==undefined){
+        const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
+        const allowed=rosterMembers(players,sessionTeamIds(current.teamId,current.notes)).map(player=>player.id);
+        const issue=validateTrainingRotations(rotations,exercises.map(ex=>({id:ex.id,phase:ex.phase??null})),allowed);
+        if(issue)throw Error(issue);
+      }
+      const next=req.body.recalculate?(rotations!==undefined?recalculateRotationPlan(current.durationMinutes??0,recoveries as [number,number],exercises,rotations as TrainingRotations):recalculatePlan(current.durationMinutes??0,recoveries as [number,number],exercises)):{...old,recoveries:recoveries as [number,number],...(rotations!==undefined?{rotations,timings:rotationTimings(exercises,rotations as TrainingRotations)}:{})};
       await tx.execute(sql`INSERT INTO training_session_plans(session_id,club_id,plan) VALUES(${id},${session.clubId},${JSON.stringify(next)}::jsonb) ON CONFLICT(session_id) DO UPDATE SET plan=EXCLUDED.plan,updated_at=now() WHERE training_session_plans.club_id=${session.clubId}`);
       return next;
     });
-    res.json(plan);
-  } catch(error) {res.status(400).json({error:error instanceof Error?error.message:"Pianificazione non valida"});}
+    res.json({...plan,version:planningVersion(plan)});
+  } catch(error) {const message=error instanceof Error?error.message:"Pianificazione non valida";res.status(message.startsWith("CONFLICT:")?409:400).json({error:message.replace(/^CONFLICT:/,"")});}
 });
 
 // Confirmation snapshot is checked again under the same lock as deletion.

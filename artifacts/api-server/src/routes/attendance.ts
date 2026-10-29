@@ -1,3 +1,4 @@
+import { sessionTeamIds } from "@workspace/api-zod";
 import { saveAttendanceAndNotify } from "../lib/attendance-notifications";
 import { trainingAvailability } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
@@ -76,7 +77,8 @@ async function playerIsValidForSession(playerId: number, clubId: number, session
     .limit(1);
   if (!player) return false;
   if (!session.teamId) return true;
-  return player.teamId === session.teamId || extractSupplementalTeamId(player.notes) === session.teamId;
+  const ids=sessionTeamIds(session.teamId,session.notes);
+  return ids.includes(player.teamId??0) || ids.includes(extractSupplementalTeamId(player.notes)??0);
 }
 
 function playerHasActiveAvailabilityOverride(player: typeof playersTable.$inferSelect): boolean {
@@ -113,7 +115,12 @@ router.get("/training-availability", requireAuth, async (req,res):Promise<void>=
     allowed=Boolean(assignment)||team.coachId===req.session.userId;
   }
   if(!allowed){res.status(403).json({error:"Squadra non autorizzata"});return;}
-  res.json(await trainingAvailability(clubId,teamId,date,start));
+  const clubTeams=await db.select({id:teamsTable.id,coachId:teamsTable.coachId}).from(teamsTable).where(eq(teamsTable.clubId,clubId));
+  const assignments=await db.select({teamId:teamStaffAssignmentsTable.teamId}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,clubId),eq(teamStaffAssignmentsTable.userId,req.session.userId!)));
+  const allowedTeamIds=ATTENDANCE_MANAGE_ALL_ROLES.includes(req.session.role??"")?clubTeams.map(t=>t.id):clubTeams.filter(t=>t.coachId===req.session.userId||assignments.some(a=>a.teamId===t.id)).map(t=>t.id);
+  const requested=String(req.query.teamIds??teamId).split(",").map(Number);
+  if(requested.length>20||requested.some(id=>!Number.isInteger(id)||!allowedTeamIds.includes(id))){res.status(403).json({error:"Annate non autorizzate"});return;}
+  res.json(await trainingAvailability(clubId,teamId,date,start,allowedTeamIds,requested));
 });
 
 router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
@@ -156,7 +163,7 @@ router.get("/attendance-summary", requireAuth, async (req, res): Promise<void> =
       .from(playersTable)
       .where(eq(playersTable.clubId, req.session.clubId!));
     const total = session.teamId
-      ? players.filter((player) => player.teamId === session.teamId || extractSupplementalTeamId(player.notes) === session.teamId).length
+      ? players.filter((player) => sessionTeamIds(session.teamId,session.notes).includes(player.teamId??0) || sessionTeamIds(session.teamId,session.notes).includes(extractSupplementalTeamId(player.notes)??0)).length
       : players.length;
 
     const records = await db

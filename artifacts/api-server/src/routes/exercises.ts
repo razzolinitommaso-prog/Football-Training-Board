@@ -222,7 +222,7 @@ router.get("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
   if (STAFF_RESTRICTED_ROLES.includes(role)) {
     const hasTeamAccess = await canAccessTeamForRestrictedRole(clubId, userId, exercise.teamId ?? null);
     if (!hasTeamAccess) {
-      res.status(403).json({ error: "La squadra di questa esercitazione non è assegnata al tuo profilo" });
+      res.status(403).json({ error: "La squadra di questa stazione non è assegnata al tuo profilo" });
       return;
     }
   }
@@ -246,7 +246,7 @@ router.post("/exercises", requireAuth, async (req, res): Promise<void> => {
   if (STAFF_RESTRICTED_ROLES.includes(role)) {
     const hasTeamAccess = await canAccessTeamForRestrictedRole(clubId, userId, teamId ?? null);
     if (!hasTeamAccess) {
-      res.status(403).json({ error: "Puoi creare esercitazioni solo sulle annate assegnate" });
+      res.status(403).json({ error: "Puoi creare stazioni solo sulle annate assegnate" });
       return;
     }
   }
@@ -262,7 +262,7 @@ router.post("/exercises", requireAuth, async (req, res): Promise<void> => {
       .from(exercisesTable)
       .where(and(eq(exercisesTable.id, sourceId), eq(exercisesTable.clubId, clubId)));
     if (!source) {
-      res.status(404).json({ error: "Esercitazione origine non trovata" });
+      res.status(404).json({ error: "Stazione origine non trovata" });
       return;
     }
     normalizedSourceExerciseId = source.sourceExerciseId ?? source.id;
@@ -313,14 +313,14 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
   if (!existing) { res.status(404).json({ error: "Exercise not found" }); return; }
   const canManage = await canManageExercise(existing, clubId, userId, role);
   if (!canManage) {
-    res.status(403).json({ error: "Puoi modificare solo le tue esercitazioni" });
+    res.status(403).json({ error: "Puoi modificare solo le tue stazioni" });
     return;
   }
   if (STAFF_RESTRICTED_ROLES.includes(role)) {
     const requestedTeamId = teamId !== undefined ? (teamId ?? null) : (existing.teamId ?? null);
     const hasTeamAccess = await canAccessTeamForRestrictedRole(clubId, userId, requestedTeamId);
     if (!hasTeamAccess) {
-      res.status(403).json({ error: "Puoi modificare solo esercitazioni delle annate assegnate" });
+      res.status(403).json({ error: "Puoi modificare solo stazioni delle annate assegnate" });
       return;
     }
   }
@@ -366,7 +366,7 @@ router.delete("/exercises/:id", requireAuth, async (req, res): Promise<void> => 
   if (!existing) { res.status(404).json({ error: "Exercise not found" }); return; }
   const canManage = await canManageExercise(existing, clubId, userId, role);
   if (!canManage) {
-    res.status(403).json({ error: "Puoi eliminare solo le tue esercitazioni" });
+    res.status(403).json({ error: "Puoi eliminare solo le tue stazioni" });
     return;
   }
   const [exercise] = await db.delete(exercisesTable)
