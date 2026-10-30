@@ -37,6 +37,7 @@ type Props = {
   recovery: ReactNode;
   organization: ReactNode;
   onAdd: (phase: string) => void;
+  onReuse?: (phase: string) => void;
   onView: (id: number) => void;
   onEdit: (id: number) => void;
   onRemove: (id: number) => void;
@@ -72,7 +73,7 @@ export function TrainingSessionOverview(props: Props) {
           return <div key={phase.key || "unassigned"} className="space-y-3"><section className="rounded-xl border bg-background">
             <div className="flex items-center justify-between gap-2 px-3 pt-3">
               <h3 className="text-sm font-semibold">{phase.label}</h3>
-              {!props.readOnly && <div className="flex shrink-0 items-center gap-1"><Button type="button" size="sm" variant="outline" className="h-8 gap-1 px-2" onClick={() => props.onAdd(phase.key)} aria-label={`Aggiungi stazione: ${phase.label}`}><Plus className="h-3.5 w-3.5"/><span className="hidden min-[400px]:inline">Aggiungi</span></Button>{!props.phaseContent?.[phase.key]&&<Button type="button" size="icon" variant={removePhase === phase.key ? "secondary" : "ghost"} className="h-8 w-8" disabled={exercises.length === 0} aria-label={`Gestisci rimozione: ${phase.label}`} aria-pressed={removePhase === phase.key} onClick={() => setRemovePhase(removePhase === phase.key ? null : phase.key)}>−</Button>}</div>}
+              {!props.readOnly && <div className="flex shrink-0 items-center gap-1">{props.onReuse && <Button type="button" size="sm" variant="outline" className="h-8 px-2" onClick={() => props.onReuse?.(phase.key)} aria-label={`Cerca stazioni precedenti: ${phase.label}`}>Cerca</Button>}<Button type="button" size="sm" variant="outline" className="h-8 gap-1 px-2" onClick={() => props.onAdd(phase.key)} aria-label={`Aggiungi stazione: ${phase.label}`}><Plus className="h-3.5 w-3.5"/><span className="hidden min-[400px]:inline">Aggiungi</span></Button>{!props.phaseContent?.[phase.key]&&<Button type="button" size="icon" variant={removePhase === phase.key ? "secondary" : "ghost"} className="h-8 w-8" disabled={exercises.length === 0} aria-label={`Gestisci rimozione: ${phase.label}`} aria-pressed={removePhase === phase.key} onClick={() => setRemovePhase(removePhase === phase.key ? null : phase.key)}>−</Button>}</div>}
             </div>
             <details open={props.phaseContent?.[phase.key]?phaseIndex===0:true} className="group/phase">
               <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground outline-offset-2 [&::-webkit-details-marker]:hidden" indicator={false}><span>{exercises.length} {exercises.length === 1 ? "stazione" : "stazioni"} · {durationLabel(minutes)}</span><span className="flex items-center gap-1">Apri / chiudi<ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open/phase:rotate-180"/></span></DisclosureSummary>

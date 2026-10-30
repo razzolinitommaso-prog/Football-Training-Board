@@ -1,3 +1,4 @@
+import { prepareReusedBoard } from "@/lib/reuse-training-station";
 import { useSessionParticipants } from "@/hooks/use-session-participants";
 import { attendanceExerciseView } from "@workspace/api-zod";
 import { StationTurnPlanner } from "@/components/training/StationTurnPlanner";
@@ -1823,6 +1824,15 @@ function SessionDetailsDialog({
   const planQuery=useQuery<{version?:string;rotations?:TrainingRotations;recoveries:[number,number];timings:Record<string,{seconds:number;stations:number[]}>}>({queryKey:["/api/training-sessions",session.id,"planning"],queryFn:()=>apiFetch(`/api/training-sessions/${session.id}/planning`)});
   useEffect(()=>{if(planQuery.data&&!recoveriesDirty){setRecoveries(planQuery.data.recoveries);setRecoveriesVersion(planQuery.data.version);}},[planQuery.data,recoveriesDirty]);
   const savePlan=useMutation({mutationFn:(recalculate:boolean)=>apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,version:recoveriesVersion})}),onSuccess:async()=>{setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Tempi della seduta salvati"});},onError:()=>toast({title:"Impossibile salvare i tempi",variant:"destructive"})});
+  const [reusePhase, setReusePhase] = useState<string | null>(null);
+  const [reuseTargetPhase, setReuseTargetPhase] = useState("");
+  const [reuseSearch, setReuseSearch] = useState("");
+  const reuseQuery = useQuery<(LinkedExercise & { usedAt: string; sessionTitle: string })[]>({
+    queryKey: ["/api/exercises", "reuse", session.id],
+    queryFn: () => apiFetch(`/api/exercises?reuseForSessionId=${session.id}`),
+    enabled: reusePhase !== null && !readOnly,
+    staleTime: 0,
+  });
   const [exerciseFormOpen, setExerciseFormOpen] = useState(false);
   const [viewingLink, setViewingLink] = useState<SessionExerciseLink | null>(null);
   const [editingLink, setEditingLink] = useState<SessionExerciseLink | null>(null);
@@ -1972,6 +1982,18 @@ function SessionDetailsDialog({
   const initialPhaseOpened=useRef(false);
   useEffect(()=>{if(initialAddPhase&&!initialPhaseOpened.current&&!linkedExercisesQuery.isLoading){initialPhaseOpened.current=true;openAddExercise(initialAddPhase);}},[initialAddPhase,linkedExercisesQuery.isLoading]);
 
+  function reuseExercise(source: LinkedExercise) {
+    const form = formFromLinkedExercise({ id: 0, trainingSessionId: session.id, exerciseId: source.id, order: 0, exercise: source });
+    const defaults = emptyExerciseFormFromSession(session, linkedExercises.length);
+    setEditingLink(null);
+    setDuplicateSourceExerciseId(source.sourceExerciseId ?? source.id);
+    setExerciseForm({ ...form, teamId: defaults.teamId, trainingDay: defaults.trainingDay, trainingSession: defaults.trainingSession,
+      trainingPhase: reuseTargetPhase, playersRequiredMode: "manual", selectedPlayerIdsJson: "", notes: "",
+      statoLavagnaJson: prepareReusedBoard(source.statoLavagnaJson, session.teamId), drawingData: "", drawingElementsJson: "", isDraft: false });
+    setReusePhase(null);
+    setExerciseFormOpen(true);
+  }
+
   function openEditExercise(link: SessionExerciseLink) {
     const sourceId = link.exercise ? (link.exercise.sourceExerciseId ?? link.exercise.id) : null;
     setDuplicateSourceExerciseId(sourceId);
@@ -2120,6 +2142,24 @@ function SessionDetailsDialog({
           </div>
         </DialogHeader>
 
+        <Dialog open={reusePhase !== null} onOpenChange={open => { if (!open) setReusePhase(null); }}>
+          <DialogContent className="max-h-[85dvh] w-[calc(100%-1rem)] max-w-xl overflow-hidden p-4 flex flex-col">
+            <DialogHeader><DialogTitle>Cerca stazioni nelle sedute precedenti</DialogTitle></DialogHeader>
+            <p className="text-xs text-muted-foreground">La copia è indipendente. Rosa e appello saranno quelli della seduta attuale.</p>
+            <Select value={reusePhase || "tutte"} onValueChange={value => setReusePhase(value === "tutte" ? "" : value)}><SelectTrigger aria-label="Fase da cercare"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tutte">Tutte le fasi</SelectItem><SelectItem value="iniziale">Fase iniziale</SelectItem><SelectItem value="centrale">Fase centrale</SelectItem><SelectItem value="finale">Fase finale</SelectItem></SelectContent></Select>
+            <Input aria-label="Cerca stazione per titolo o principio" placeholder="Cerca titolo o principio…" value={reuseSearch} onChange={e => setReuseSearch(e.target.value)} />
+            <div className="min-h-0 overflow-y-auto overscroll-contain space-y-2 pr-1">
+              {reuseQuery.isLoading ? <p role="status">Caricamento stazioni…</p> : reuseQuery.isError ? <div role="alert"><p>Archivio non disponibile.</p><Button type="button" onClick={() => void reuseQuery.refetch()}>Riprova</Button></div> : (() => {
+                const matches = (reuseQuery.data ?? []).filter(ex => (!reusePhase || ex.trainingPhase === reusePhase) && [ex.title, ex.principio ? principioLabel(ex.principio) : "", ex.sessionTitle].join(" ").toLocaleLowerCase("it").includes(reuseSearch.toLocaleLowerCase("it")));
+                return matches.length ? matches.map(ex => <article key={ex.id} className="flex items-center gap-3 rounded-lg border p-2">
+                  {ex.drawingData && <img src={ex.drawingData} alt="Anteprima stazione" className="h-20 w-16 shrink-0 object-contain"/>}
+                  <div className="min-w-0 flex-1 text-sm"><p className="break-words font-medium">{ex.title}</p><p className="text-xs text-muted-foreground">{format(new Date(ex.usedAt), "dd/MM/yyyy")} · {ex.sessionTitle}</p><p className="text-xs">{ex.trainingPhase || "Fase non indicata"}{ex.durationMinutes ? ` · ${ex.durationMinutes} min` : ""}</p><Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => reuseExercise(ex)}>Usa una copia</Button></div>
+                </article>) : <p className="py-4 text-sm text-muted-foreground">Nessuna stazione trovata per questi filtri.</p>;
+              })()}
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <StationTurnPlanner sessionId={session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined} activities={linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??""),preview:link.exercise?.drawingData??null,attendanceAdjusted:link.exercise?.attendanceAdjusted,principle:link.exercise?.principio?principioLabel(link.exercise.principio):null}))} blockedPlayerIds={blockedPlayerIds} attendanceLoading={participants.isLoading||participants.isError} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly||planQuery.isLoading||planQuery.isError} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione della seduta salvata"});}} onPreviewChange={setRotationPreview} onView={id=>setViewingLink(linkedExercises.find(link=>link.id===id)??null)} onEdit={id=>{const link=linkedExercises.find(link=>link.id===id);if(link)openEditExercise(link);}} onRemove={id=>{if(confirm("Rimuovere la stazione da questa seduta?"))removeLinkMutation.mutate(id);}}>
         {({toolbar,phases})=><TrainingSessionOverview
           editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>{setEditingMetadata(false);setMetadataDirty(false);}} onSaved={()=>{setMetadataDirty(false);void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
@@ -2151,6 +2191,7 @@ function SessionDetailsDialog({
           duration={session.durationMinutes}
           plannedMinutes={Math.round((plannedExerciseMinutes+recoveryMinutes)*100)/100}
           onAdd={openAddExercise}
+          onReuse={phase => { setReuseSearch(""); setReuseTargetPhase(phase); setReusePhase(phase); }}
           onView={id => setViewingLink(linkedExercises.find(link => link.id === id) ?? null)}
           onEdit={id => { const link = linkedExercises.find(link => link.id === id); if (link) openEditExercise(link); }}
           onRemove={id => { if (confirm("Rimuovere la stazione da questa seduta?")) removeLinkMutation.mutate(id); }}

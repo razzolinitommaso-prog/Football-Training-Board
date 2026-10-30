@@ -11,7 +11,7 @@ import {
   usersTable,
   clubMembershipsTable,
 } from "@workspace/db";
-import { eq, and, desc, asc, inArray, isNull, or } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, isNull, or, lt } from "drizzle-orm";
 import { attendanceExerciseView } from "@workspace/api-zod";
 import { readSessionEligibility } from "../lib/training-session-attendance";
 import { resolveAllowedClubSections, normalizeSessionRole, isClubWideListRole } from "../lib/club-scope";
@@ -166,7 +166,31 @@ router.get("/exercises", requireAuth, async (req, res): Promise<void> => {
       (!!ex.teamId && primaryCoachTeamIds.includes(ex.teamId))
     ));
   }
-  const enriched = await Promise.all(exercises.map((ex) => enrichExercise(ex, { clubId, userId, role })));
+  // Reuse only authorized source exercises actually linked to an earlier session.
+  let previousUses = new Map<number, { usedAt: string; sessionTitle: string }>();
+  if (req.query.reuseForSessionId !== undefined) {
+    if (!isClubWideListRole(role) && !STAFF_RESTRICTED_ROLES.includes(role)) { res.status(403).json({ error: "Archivio non accessibile" }); return; }
+    const sessionId = Number(req.query.reuseForSessionId);
+    if (!Number.isSafeInteger(sessionId) || sessionId <= 0) { res.status(400).json({ error: "Seduta non valida" }); return; }
+    const [target] = await db.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id, sessionId), eq(trainingSessionsTable.clubId, clubId)));
+    if (!target) { res.status(404).json({ error: "Seduta non trovata" }); return; }
+    const [team] = target.teamId ? await db.select().from(teamsTable).where(and(eq(teamsTable.id, target.teamId), eq(teamsTable.clubId, clubId))) : [];
+    const allowedSections = await resolveAllowedClubSections(req, undefined);
+    if ((allowedSections && (!team?.clubSection || !allowedSections.includes(team.clubSection))) ||
+      (STAFF_RESTRICTED_ROLES.includes(role) && !await canAccessTeamForRestrictedRole(clubId, userId, target.teamId) && !await assignedTrainingProgram(clubId, userId, target))) {
+      res.status(403).json({ error: "Seduta non accessibile" }); return;
+    }
+    if (!team?.clubSection || !exercises.length) { res.json([]); return; }
+    const uses = await db.select({ exerciseId: trainingSessionExercisesTable.exerciseId, usedAt: trainingSessionsTable.scheduledAt, sessionTitle: trainingSessionsTable.title, status: trainingSessionsTable.status })
+      .from(trainingSessionExercisesTable)
+      .innerJoin(trainingSessionsTable, eq(trainingSessionExercisesTable.trainingSessionId, trainingSessionsTable.id))
+      .innerJoin(teamsTable, eq(trainingSessionsTable.teamId, teamsTable.id))
+      .where(and(eq(trainingSessionsTable.clubId, clubId), eq(teamsTable.clubId, clubId), eq(teamsTable.clubSection, team.clubSection), lt(trainingSessionsTable.scheduledAt, target.scheduledAt), inArray(trainingSessionExercisesTable.exerciseId, exercises.map(ex => ex.id))))
+      .orderBy(desc(trainingSessionsTable.scheduledAt));
+    for (const use of uses) if (!previousUses.has(use.exerciseId) && !["cancelled", "canceled"].includes(use.status)) previousUses.set(use.exerciseId, { usedAt: use.usedAt.toISOString(), sessionTitle: use.sessionTitle });
+    exercises = exercises.filter(ex => previousUses.has(ex.id));
+  }
+  const enriched = await Promise.all(exercises.map(async (ex) => ({ ...await enrichExercise(ex, { clubId, userId, role }), ...previousUses.get(ex.id) })));
   res.json(enriched);
 });
 
