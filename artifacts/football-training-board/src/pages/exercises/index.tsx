@@ -1,3 +1,4 @@
+import { mergeBoardMaterials, readMaterialSelection, writeMaterialSelection, materialNotes, writeMaterialNotes } from "@/lib/board-materials";
 import { parseStationDescription, composeStationDescription } from "@/lib/station-description";
 import { StationVariants, StationVariantsView } from "@/components/training/StationVariants";
 import { TrainingCategoryPicker } from "@/components/training/TrainingCategoryPicker";
@@ -110,6 +111,7 @@ const MATERIAL_OPTIONS = [
   { id: "giubbotti_zavorrati", label: "Giubbotti zavorrati", category: "Preparazione atletica", availability: "performance" },
   { id: "med_ball", label: "Med Ball / palle mediche", category: "Preparazione atletica", availability: "performance" },
   { id: "fitball", label: "Fitball", category: "Preparazione atletica", availability: "performance" },
+  { id: "meduse", label: "Meduse", category: "Coordinazione e agility", availability: "base" },
   { id: "bosu", label: "Bosu", category: "Preparazione atletica", availability: "performance" },
   { id: "tappetini", label: "Tappetini", category: "Preparazione atletica", availability: "performance" },
   { id: "box_pliometrico", label: "Box pliometrico", category: "Preparazione atletica", availability: "performance" },
@@ -284,31 +286,12 @@ function parseSelectedPlayerIds(raw: string | null | undefined): number[] {
   }
 }
 
-function parseEquipmentSelection(raw: string | null | undefined): Partial<Record<MaterialId, number>> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as { items?: Record<string, number> };
-    const source = parsed?.items ?? {};
-    const next: Partial<Record<MaterialId, number>> = {};
-    for (const option of MATERIAL_OPTIONS) {
-      const value = Number(source[option.id]);
-      if (Number.isFinite(value) && value > 0) next[option.id] = value;
-    }
-    return next;
-  } catch {
-    return {};
-  }
+function parseEquipmentSelection(raw?: string | null): Partial<Record<MaterialId, number>> {
+  return readMaterialSelection(raw);
 }
 
-function serializeEquipmentSelection(selection: Partial<Record<MaterialId, number>>): string | null {
-  const compact = Object.entries(selection)
-    .filter(([, qty]) => Number.isFinite(Number(qty)) && Number(qty) > 0)
-    .reduce<Record<string, number>>((acc, [key, qty]) => {
-      acc[key] = Number(qty);
-      return acc;
-    }, {});
-  if (Object.keys(compact).length === 0) return null;
-  return JSON.stringify({ version: 1, items: compact });
+function serializeEquipmentSelection(selection: Partial<Record<MaterialId, number>>, previous?: string | null): string {
+  return writeMaterialSelection(selection, previous);
 }
 
 function formatEquipmentLabel(raw: string | null | undefined): string | null {
@@ -316,8 +299,7 @@ function formatEquipmentLabel(raw: string | null | undefined): string | null {
   const chips = MATERIAL_OPTIONS
     .filter((option) => (selection[option.id] ?? 0) > 0)
     .map((option) => `${option.label}: ${selection[option.id]}`);
-  if (chips.length > 0) return chips.join(" · ");
-  return raw || null;
+  return [...chips, materialNotes(raw)].filter(Boolean).join(" · ") || null;
 }
 
 function formatTrainingSession(value: string | null | undefined): string | null {
@@ -481,7 +463,7 @@ export default function ExercisesPage() {
   const selectedMaterialSection = normalizeClubSection(selectedTeam?.clubSection);
 
   const availableMaterialOptions = MATERIAL_OPTIONS.filter((option) =>
-    canUseMaterial(option.availability, selectedMaterialSection, role)
+    canUseMaterial(option.availability, selectedMaterialSection, role) || (materialSelection[option.id] ?? 0) > 0
   );
 
 
@@ -1137,9 +1119,10 @@ export default function ExercisesPage() {
 
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                     <Label>Materiali della stazione</Label>
-                    <MaterialPicker options={availableMaterialOptions} selection={materialSelection} onConfirm={selection => setForm(prev => ({ ...prev, equipment: serializeEquipmentSelection(selection) }))} />
+                    <MaterialPicker options={availableMaterialOptions} selection={materialSelection} onConfirm={selection => setForm(prev => ({ ...prev, equipment: serializeEquipmentSelection(selection, prev.equipment) }))} />
+                    {Object.keys(materialSelection).length > 0 && materialNotes(form.equipment) && <Input aria-label="Note materiali della stazione" value={materialNotes(form.equipment)} onChange={e => setForm(prev => ({ ...prev, equipment: writeMaterialNotes(prev.equipment, e.target.value) }))} />}
                     {formatEquipmentLabel(form.equipment) && <p className="break-words text-sm">{formatEquipmentLabel(form.equipment)}</p>}
-                    {!Object.keys(materialSelection).length && <Input value={form.equipment ?? ""} placeholder="Oppure scrivi materiali liberi" onChange={e => setForm(prev => ({ ...prev, equipment: e.target.value }))} />}
+                    {!Object.keys(materialSelection).length && <Input value={materialNotes(form.equipment)} placeholder="Oppure scrivi materiali liberi" onChange={e => setForm(prev => ({ ...prev, equipment: e.target.value }))} />}
                   </div>
 
                   {/* Draft flag */}
@@ -1160,7 +1143,7 @@ export default function ExercisesPage() {
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <ExerciseTacticalBoard title={form.title || "Stazione"} teamId={form.teamId} value={form.statoLavagnaJson} rosterPlayerIds={form.playersRequiredMode === "selected" ? selectedPlayerIds : form.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setForm(prev => ({ ...prev, ...result }))} />
+                      <ExerciseTacticalBoard title={form.title || "Stazione"} teamId={form.teamId} value={form.statoLavagnaJson} rosterPlayerIds={form.playersRequiredMode === "selected" ? selectedPlayerIds : form.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setForm(prev => ({ ...prev, ...result, equipment: mergeBoardMaterials(prev.equipment, result.statoLavagnaJson) }))} />
                     </div>
                   </div>
                   {form.statoLavagnaJson && form.drawingData ? <img src={form.drawingData} alt="Anteprima lavagna stazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard

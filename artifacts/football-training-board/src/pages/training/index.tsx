@@ -1,3 +1,4 @@
+import { mergeBoardMaterials, readMaterialSelection, writeMaterialSelection, materialNotes, writeMaterialNotes } from "@/lib/board-materials";
 import { parseStationDescription, composeStationDescription } from "@/lib/station-description";
 import { StationVariants, StationVariantsView } from "@/components/training/StationVariants";
 import { prepareReusedBoard } from "@/lib/reuse-training-station";
@@ -244,6 +245,7 @@ const MATERIAL_OPTIONS = [
   { id: "giubbotti_zavorrati", label: "Giubbotti zavorrati", category: "Preparazione atletica", availability: "performance" },
   { id: "med_ball", label: "Med Ball / palle mediche", category: "Preparazione atletica", availability: "performance" },
   { id: "fitball", label: "Fitball", category: "Preparazione atletica", availability: "performance" },
+  { id: "meduse", label: "Meduse", category: "Coordinazione e agility", availability: "base" },
   { id: "bosu", label: "Bosu", category: "Preparazione atletica", availability: "performance" },
   { id: "tappetini", label: "Tappetini", category: "Preparazione atletica", availability: "performance" },
   { id: "box_pliometrico", label: "Box pliometrico", category: "Preparazione atletica", availability: "performance" },
@@ -574,20 +576,8 @@ function getTrainingCalendarNote(session: TrainingSession): string | null {
   return note.slice(idx + TRAINING_CALENDAR_NOTE_MARKER.length).split(SESSION_TEAMS_MARKER)[0].trim() || null;
 }
 
-function parseEquipmentSelection(raw: string): Partial<Record<MaterialId, number>> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as { items?: Record<string, number> };
-    const source = parsed?.items ?? {};
-    const next: Partial<Record<MaterialId, number>> = {};
-    for (const option of MATERIAL_OPTIONS) {
-      const value = Number(source[option.id]);
-      if (Number.isFinite(value) && value > 0) next[option.id] = value;
-    }
-    return next;
-  } catch {
-    return {};
-  }
+function parseEquipmentSelection(raw?: string | null): Partial<Record<MaterialId, number>> {
+  return readMaterialSelection(raw);
 }
 
 function sumStationEquipment(stations: ExerciseStation[]): Partial<Record<MaterialId, number>> {
@@ -605,15 +595,8 @@ function sumStationEquipment(stations: ExerciseStation[]): Partial<Record<Materi
   return totals;
 }
 
-function serializeEquipmentSelection(selection: Partial<Record<MaterialId, number>>): string {
-  const compact = Object.entries(selection)
-    .filter(([, qty]) => Number.isFinite(Number(qty)) && Number(qty) > 0)
-    .reduce<Record<string, number>>((acc, [key, qty]) => {
-      acc[key] = Number(qty);
-      return acc;
-    }, {});
-  if (Object.keys(compact).length === 0) return "";
-  return JSON.stringify({ version: 1, items: compact });
+function serializeEquipmentSelection(selection: Partial<Record<MaterialId, number>>, previous?: string | null): string {
+  return writeMaterialSelection(selection, previous);
 }
 
 function formatEquipmentLabel(raw: string | null | undefined): string | null {
@@ -621,8 +604,7 @@ function formatEquipmentLabel(raw: string | null | undefined): string | null {
   const items = MATERIAL_OPTIONS
     .filter((option) => (selection[option.id] ?? 0) > 0)
     .map((option) => `${option.label}: ${selection[option.id]}`);
-  if (items.length > 0) return items.join(" · ");
-  return raw || null;
+  return [...items, materialNotes(raw)].filter(Boolean).join(" · ") || null;
 }
 
 function emptyExerciseStation(): ExerciseStation {
@@ -1867,7 +1849,7 @@ function SessionDetailsDialog({
   const createAndLinkExerciseMutation = useMutation({
     mutationFn: async ({ form, sourceExerciseId }: { form: ExerciseFormState; sourceExerciseId?: number | null }) => {
       const stations = parseExerciseStations(form.stationsJson);
-      const stationEquipment = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(form.equipment), sumStationEquipment(stations)));
+      const stationEquipment = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(form.equipment), sumStationEquipment(stations)), form.equipment);
       const created = await apiFetch("/api/exercises", {
         method: "POST",
         body: JSON.stringify({
@@ -1922,7 +1904,7 @@ function SessionDetailsDialog({
     mutationFn: async ({ link, form }: { link: SessionExerciseLink; form: ExerciseFormState }) => {
       if (!link.exercise?.id) throw new Error("Stazione non valida");
       const stations = parseExerciseStations(form.stationsJson);
-      const stationEquipment = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(form.equipment), sumStationEquipment(stations)));
+      const stationEquipment = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(form.equipment), sumStationEquipment(stations)), form.equipment);
       return apiFetch(`/api/exercises/${link.exercise.id}`, {
         method: "PATCH",
         body: JSON.stringify({
@@ -2073,10 +2055,10 @@ function SessionDetailsDialog({
   const exerciseSaving = createAndLinkExerciseMutation.isPending || updateExerciseMutation.isPending;
   const selectedTeam = exerciseForm.teamId ? teams.find((team) => team.id === Number(exerciseForm.teamId)) : null;
   const selectedMaterialSection = normalizeClubSection(selectedTeam?.clubSection);
-  const availableMaterialOptions = MATERIAL_OPTIONS.filter((option) => canUseMaterial(option.availability, selectedMaterialSection, role));
+  const availableMaterialOptions = MATERIAL_OPTIONS.filter((option) => canUseMaterial(option.availability, selectedMaterialSection, role) || (parseEquipmentSelection(exerciseForm.equipment)[option.id] ?? 0) > 0);
   const exerciseStations = parseExerciseStations(exerciseForm.stationsJson);
   const stationMinutes = totalStationMinutes(exerciseStations);
-  const stationEquipmentSummary = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(exerciseForm.equipment), sumStationEquipment(exerciseStations)));
+  const stationEquipmentSummary = serializeEquipmentSelection(mergeExerciseMaterials(parseEquipmentSelection(exerciseForm.equipment), sumStationEquipment(exerciseStations)), exerciseForm.equipment);
   const selectedPlayerIds = parseSelectedPlayerIds(exerciseForm.selectedPlayerIdsJson);
   const phaseTurns=planQuery.data?.rotations?.[exerciseForm.trainingPhase as "iniziale"|"centrale"|"finale"];
   const savedTurn=editingLink?(phaseTurns?.find(turn=>turn.stations.some(station=>station.linkId===editingLink.id&&station.playerIds.length>0))??phaseTurns?.[0]):phaseTurns?.[0];
@@ -2107,7 +2089,7 @@ function SessionDetailsDialog({
 
   function setStationEquipmentSelection(stationId: string, selection: Partial<Record<MaterialId, number>>) {
     setStations(exerciseStations.map((item) =>
-      item.id === stationId ? { ...item, equipment: serializeEquipmentSelection(selection) } : item,
+      item.id === stationId ? { ...item, equipment: serializeEquipmentSelection(selection, item.equipment) } : item,
     ));
   }
 
@@ -2513,9 +2495,10 @@ function SessionDetailsDialog({
                   <div className="space-y-2 rounded-lg border p-3">
                     <Label>Materiali della stazione</Label>
                     <p className="text-xs text-muted-foreground">Dotazione complessiva, disponibile anche senza esercizi. Il riepilogo considera almeno la somma dei materiali degli esercizi.</p>
-                    <MaterialPicker options={availableMaterialOptions} selection={parseEquipmentSelection(exerciseForm.equipment)} onConfirm={selection => setExerciseForm(prev => ({ ...prev, equipment: serializeEquipmentSelection(selection) }))} />
+                    <MaterialPicker options={availableMaterialOptions} selection={parseEquipmentSelection(exerciseForm.equipment)} onConfirm={selection => setExerciseForm(prev => ({ ...prev, equipment: serializeEquipmentSelection(selection, prev.equipment) }))} />
+                    {Object.keys(parseEquipmentSelection(exerciseForm.equipment)).length > 0 && materialNotes(exerciseForm.equipment) && <Input aria-label="Note materiali della stazione" value={materialNotes(exerciseForm.equipment)} onChange={e => setExerciseForm(prev => ({ ...prev, equipment: writeMaterialNotes(prev.equipment, e.target.value) }))} />}
                     {formatEquipmentLabel(exerciseForm.equipment) && <p className="break-words text-xs">{formatEquipmentLabel(exerciseForm.equipment)}</p>}
-                    {!Object.keys(parseEquipmentSelection(exerciseForm.equipment)).length && <Input value={exerciseForm.equipment} placeholder="Oppure scrivi materiali liberi" onChange={e => setExerciseForm(prev => ({ ...prev, equipment: e.target.value }))} />}
+                    {!Object.keys(parseEquipmentSelection(exerciseForm.equipment)).length && <Input value={materialNotes(exerciseForm.equipment)} placeholder="Oppure scrivi materiali liberi" onChange={e => setExerciseForm(prev => ({ ...prev, equipment: e.target.value }))} />}
                   </div>
 
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
@@ -2633,7 +2616,7 @@ function SessionDetailsDialog({
                               <Label className="mb-2 block text-xs font-semibold uppercase text-muted-foreground">Materiale esercizio</Label>
                               <MaterialPicker options={availableMaterialOptions} selection={parseEquipmentSelection(station.equipment)} onConfirm={selection => setStationEquipmentSelection(station.id, selection)} />
                               {formatEquipmentLabel(station.equipment) && <p className="mt-2 break-words text-xs">{formatEquipmentLabel(station.equipment)}</p>}
-                              {!Object.keys(parseEquipmentSelection(station.equipment)).length && <Input className="mt-2" value={station.equipment} placeholder="Oppure scrivi materiali liberi" onChange={e => setStations(exerciseStations.map(item => item.id === station.id ? { ...item, equipment: e.target.value } : item))} />}
+                              {!Object.keys(parseEquipmentSelection(station.equipment)).length && <Input className="mt-2" value={materialNotes(station.equipment)} placeholder="Oppure scrivi materiali liberi" onChange={e => setStations(exerciseStations.map(item => item.id === station.id ? { ...item, equipment: e.target.value } : item))} />}
 
                             </div>
                             <Textarea
@@ -2693,7 +2676,7 @@ function SessionDetailsDialog({
                       <p className="text-sm font-medium">Lavagna stazione</p>
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
-                    <ExerciseTacticalBoard programSessionId={session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined} title={exerciseForm.title || "Stazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds.filter(id=>!blockedPlayerIds.includes(id)) : selectablePlayers.map(player => player.id)} onSave={result => setExerciseForm(prev => {const safe=attendanceExerciseView(result,blockedPlayerIds);return {...prev,statoLavagnaJson:safe.statoLavagnaJson??"",drawingData:safe.drawingData??"",drawingElementsJson:safe.drawingElementsJson??""};})} />
+                    <ExerciseTacticalBoard programSessionId={session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined} title={exerciseForm.title || "Stazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds.filter(id=>!blockedPlayerIds.includes(id)) : selectablePlayers.map(player => player.id)} onSave={result => setExerciseForm(prev => {const safe=attendanceExerciseView(result,blockedPlayerIds);return {...prev,equipment:mergeBoardMaterials(prev.equipment,result.statoLavagnaJson),statoLavagnaJson:safe.statoLavagnaJson??"",drawingData:safe.drawingData??"",drawingElementsJson:safe.drawingElementsJson??""};})} />
                   </div>
                   {exerciseForm.statoLavagnaJson && exerciseForm.drawingData ? <img src={exerciseForm.drawingData} alt="Anteprima lavagna stazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
                     value={exerciseForm.drawingData || null}

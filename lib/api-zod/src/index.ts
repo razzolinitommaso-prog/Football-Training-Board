@@ -16,3 +16,5 @@ export * from "./shared-training-occurrences";
 export * from "./training-attendance";
 
 export * from "./training-program-schedule";
+
+export * from "./exercise-board-materials";

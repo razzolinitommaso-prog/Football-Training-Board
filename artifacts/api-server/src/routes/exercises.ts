@@ -12,7 +12,7 @@ import {
   clubMembershipsTable,
 } from "@workspace/db";
 import { eq, and, desc, asc, inArray, isNull, or, lt } from "drizzle-orm";
-import { attendanceExerciseView } from "@workspace/api-zod";
+import { mergeBoardMaterials, attendanceExerciseView } from "@workspace/api-zod";
 import { readSessionEligibility } from "../lib/training-session-attendance";
 import { resolveAllowedClubSections, normalizeSessionRole, isClubWideListRole } from "../lib/club-scope";
 import { requireAuth } from "../lib/auth";
@@ -307,7 +307,7 @@ router.post("/exercises", requireAuth, async (req, res): Promise<void> => {
   }
   const [exercise] = await db.insert(exercisesTable).values({
     clubId, title, category: category ?? null, description: description ?? null,
-    durationMinutes: durationMinutes ?? null, playersRequired: playersRequired ?? null, equipment: equipment ?? null,
+    durationMinutes: durationMinutes ?? null, playersRequired: playersRequired ?? null, equipment: typeof statoLavagnaJson === "string" ? mergeBoardMaterials(equipment, statoLavagnaJson) || null : equipment ?? null,
     // Legacy (deprecated) — scritti solo se presenti nel body per retrocompatibilità client precedenti
     drawingData: drawingData ?? null,
     drawingElementsJson: drawingElementsJson ?? null,
@@ -387,8 +387,16 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
   if (principio !== undefined) updates.principio = principio;
   if (trainingPhase !== undefined) updates.trainingPhase = trainingPhase;
   if (sourceExerciseId !== undefined) updates.sourceExerciseId = sourceExerciseId;
-  const [exercise] = await db.update(exercisesTable).set(updates)
-    .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).returning();
+  // A direct board save has no equipment field. Merge with the current row under lock.
+  const [exercise] = typeof statoLavagnaJson === "string"
+    ? await db.transaction(async tx => {
+      const [current] = await tx.select({ equipment: exercisesTable.equipment }).from(exercisesTable)
+        .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).for("update");
+      if (!current) return [];
+      updates.equipment = mergeBoardMaterials(equipment !== undefined ? equipment : current.equipment, statoLavagnaJson) || null;
+      return tx.update(exercisesTable).set(updates).where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).returning();
+    })
+    : await db.update(exercisesTable).set(updates).where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).returning();
   if (!exercise) { res.status(404).json({ error: "Exercise not found" }); return; }
   res.json(await enrichExercise(exercise, { clubId, userId, role }));
 });
