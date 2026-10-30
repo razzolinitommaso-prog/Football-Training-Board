@@ -1,3 +1,4 @@
+import { trainingSlotOnDate } from "@workspace/api-zod";
 import { sessionTeamScope, sessionTeamIds } from "../lib/session-team-scope";
 import { overlaySharedTrainingRows, trainingReplyMatches } from "@workspace/api-zod";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
@@ -161,6 +162,7 @@ function generateParentTrainingCalendar(team: typeof teamsTable.$inferSelect, fr
     if (endLimit && date > endLimit) continue;
 
     for (const slot of schedule) {
+      if (slot.jointTeamId || !trainingSlotOnDate(slot,localDateKey(date))) continue;
       const dayIndex = TRAINING_DAY_INDEX[normalizeTrainingDay(slot.day)];
       if (dayIndex === undefined || date.getDay() !== dayIndex) continue;
       const startTime = String(slot.startTime ?? "").trim() || "00:00";

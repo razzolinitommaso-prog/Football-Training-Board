@@ -155,6 +155,9 @@ export interface UpdateMemberRoleRequest {
 }
 
 export interface TrainingSlot {
+  validFrom?: string | null;
+  validUntil?: string | null;
+  jointTeamId?: number | null;
   day: string;
   startTime: string;
   endTime: string;
@@ -165,6 +168,7 @@ export interface TrainingSlot {
 }
 
 export interface Team {
+  updatedAt?: string;
   id: number;
   clubId: number;
   name: string;

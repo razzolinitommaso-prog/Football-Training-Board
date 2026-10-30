@@ -581,6 +581,47 @@ paths:
 
 components:
   schemas:
+    TrainingProgramRequest:
+      type: object
+      required: [effectiveFrom, referenceTeamId, expectedUpdatedAt]
+      properties:
+        expectedUpdatedAt:
+          type: string
+          format: date-time
+        expectedReferenceUpdatedAt:
+          type: string
+          format: date-time
+        effectiveFrom:
+          type: string
+          format: date
+        referenceTeamId:
+          type: [integer, "null"]
+        trainingSchedule:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProgramTrainingSlot"
+    ProgramTrainingSlot:
+      type: object
+      required: [day, startTime, endTime]
+      properties:
+        day:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        campo:
+          type: [string, "null"]
+        lockerRoom:
+          type: [string, "null"]
+        validFrom:
+          type: [string, "null"]
+          format: date
+        validUntil:
+          type: [string, "null"]
+          format: date
+        jointTeamId:
+          type: [integer, "null"]
     HealthStatus:
       type: object
       properties:
@@ -775,6 +816,13 @@ components:
     Team:
       type: object
       properties:
+        updatedAt:
+          type: string
+          format: date-time
+        trainingSchedule:
+          type: [array, "null"]
+          items:
+            $ref: "#/components/schemas/ProgramTrainingSlot"
         id:
           type: integer
         clubId:

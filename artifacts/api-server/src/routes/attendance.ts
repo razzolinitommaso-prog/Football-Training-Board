@@ -1,9 +1,10 @@
+import { assignedTrainingProgram } from "../lib/training-program-access";
 import { sessionTeamIds } from "@workspace/api-zod";
 import { saveAttendanceAndNotify } from "../lib/attendance-notifications";
 import { trainingAvailability } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
 import { db, trainingAttendancesTable, playersTable, teamStaffAssignmentsTable, teamsTable, trainingSessionsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
@@ -47,6 +48,7 @@ async function userCanManageAttendanceForSession(userId: number, clubId: number,
   if (!ATTENDANCE_TEAM_ROLES.includes(role)) return false;
   const session = await getSessionForAttendance(sessionId, clubId);
   if (!session?.teamId) return false;
+  if(await assignedTrainingProgram(clubId,userId,session))return true;
 
   const [assignment] = await db
     .select({ id: teamStaffAssignmentsTable.id })
@@ -116,10 +118,13 @@ router.get("/training-availability", requireAuth, async (req,res):Promise<void>=
     const [assignment]=await db.select({id:teamStaffAssignmentsTable.id}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,clubId),eq(teamStaffAssignmentsTable.teamId,teamId),eq(teamStaffAssignmentsTable.userId,req.session.userId!))).limit(1);
     allowed=Boolean(assignment)||team.coachId===req.session.userId;
   }
+  const programSessions=await db.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),eq(trainingSessionsTable.teamId,teamId),sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date=${date}::date`,sql`to_char(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome','HH24:MI')=${start}`,sql`${trainingSessionsTable.status} NOT IN ('cancelled','canceled')`));
+  const programIds:number[]=[];
+  if(ATTENDANCE_TEAM_ROLES.includes(req.session.role??""))for(const session of programSessions)if(await assignedTrainingProgram(clubId,req.session.userId!,session)){allowed=true;programIds.push(...sessionTeamIds(session.teamId,session.notes));}
   if(!allowed){res.status(403).json({error:"Squadra non autorizzata"});return;}
   const clubTeams=await db.select({id:teamsTable.id,coachId:teamsTable.coachId}).from(teamsTable).where(eq(teamsTable.clubId,clubId));
   const assignments=await db.select({teamId:teamStaffAssignmentsTable.teamId}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,clubId),eq(teamStaffAssignmentsTable.userId,req.session.userId!)));
-  const allowedTeamIds=ATTENDANCE_MANAGE_ALL_ROLES.includes(req.session.role??"")?clubTeams.map(t=>t.id):clubTeams.filter(t=>t.coachId===req.session.userId||assignments.some(a=>a.teamId===t.id)).map(t=>t.id);
+  const allowedTeamIds=ATTENDANCE_MANAGE_ALL_ROLES.includes(req.session.role??"")?clubTeams.map(t=>t.id):clubTeams.filter(t=>t.coachId===req.session.userId||assignments.some(a=>a.teamId===t.id)).map(t=>t.id).concat(programIds);
   const requested=String(req.query.teamIds??teamId).split(",").map(Number);
   if(requested.length>20||requested.some(id=>!Number.isInteger(id)||!allowedTeamIds.includes(id))){res.status(403).json({error:"Annate non autorizzate"});return;}
   res.json(await trainingAvailability(clubId,teamId,date,start,allowedTeamIds,requested,duration));

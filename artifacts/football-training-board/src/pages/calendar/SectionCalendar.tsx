@@ -1,3 +1,4 @@
+import { trainingSlotOnDate } from "@workspace/api-zod";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -30,7 +31,7 @@ import { withApi } from "@/lib/api-base";
 
 type Section = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 
-interface TrainingSlot { day: string; startTime: string; endTime: string; }
+interface TrainingSlot { day: string; startTime: string; endTime: string; jointTeamId?:number|null; validFrom?:string|null; validUntil?:string|null; }
 interface Team {
   id: number;
   name: string;
@@ -344,14 +345,20 @@ export default function SectionCalendar({ section }: { section: Section }) {
         if (trainingStart && isBefore(day, trainingStart)) return;
         if (trainingEnd && isAfter(day, trainingEnd)) return;
         (team.trainingSchedule ?? []).forEach(slot => {
+          if (!trainingSlotOnDate(slot,format(day,"yyyy-MM-dd"))) return;
           const slotDay = ITALIAN_DAY_MAP[slot.day];
           if (slotDay === jsDay) {
             const at = combineLocalDayWithHHmm(day, slot.startTime ?? "00:00");
+            const root=slot.jointTeamId??team.id;
+            if(map.get(format(day,"yyyy-MM-dd"))?.some(event=>event.type==="training"&&event.teamId===root&&event.time===`${slot.startTime}–${slot.endTime}`))return;
+            const leader=allTeams.find(item=>item.id===root);
+            const followers=allTeams.filter(item=>item.trainingSchedule?.some(candidate=>candidate.jointTeamId===root&&trainingSlotOnDate(candidate,format(day,"yyyy-MM-dd"))));
+            const label=followers.length?"Congiunto · "+[leader?.name??team.name,...followers.map(item=>item.name)].join(" + "):team.name;
             addEvent(day, {
               type: "training",
-              teamId: team.id,
-              teamName: team.name,
-              label: team.name,
+              teamId: root,
+              teamName: label,
+              label,
               time: `${slot.startTime}–${slot.endTime}`,
               at,
             });

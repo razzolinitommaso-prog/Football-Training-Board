@@ -1,9 +1,10 @@
+import { trainingSlotOnDate, type ProgramTrainingSlot } from "@workspace/api-zod";
 import { eachDayOfInterval, format } from "date-fns";
 
 export type ManagerTrainingCalendar = {
   start: string | null;
   end: string | null;
-  slots: { day: string; startTime: string; endTime: string; campo: string | null }[];
+  slots: (ProgramTrainingSlot & {campo:string|null})[];
   changes: { id: number; status: string; location: string | null; originalDate: string | null; originalStartTime: string | null; originalEndTime: string | null; newDate: string | null; newStartTime: string | null; newEndTime: string | null }[];
 };
 export type ManagerTrainingSession = { shared?:boolean|null;durationMinutes?:number|null; id: number; title: string; scheduledAt: string; location: string | null; status: string };
@@ -27,8 +28,8 @@ export function managerTrainingEvents(calendar: ManagerTrainingCalendar | null |
     const date = format(day, "yyyy-MM-dd");
     if ((calendar?.start && date < calendar.start) || (calendar?.end && date > calendar.end)) continue;
     for (const slot of calendar?.slots ?? []) {
-      if (weekdays[normalizeDay(slot.day)] !== day.getDay()) continue;
-      put(date, slot.startTime, { id: `schedule-${date}-${slot.startTime}`, title: "Allenamento", kind: "Allenamento", location: slot.campo, endTime: slot.endTime, status: "regular" });
+      if (slot.jointTeamId || !trainingSlotOnDate(slot,date) || weekdays[normalizeDay(slot.day)] !== day.getDay()) continue;
+      put(date, slot.startTime, { id: `schedule-${date}-${slot.startTime}`, title: slot.jointTeamId ? "Allenamento congiunto · preparazione condivisa" : "Allenamento", kind: "Allenamento", location: slot.campo, endTime: slot.endTime, status: "regular" });
     }
   }
   // Apply changes independently of the visible source month, so a recovery

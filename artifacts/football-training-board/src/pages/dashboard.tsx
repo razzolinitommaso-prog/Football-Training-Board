@@ -1,3 +1,4 @@
+import { trainingSlotOnDate, sessionTeamIds } from "@workspace/api-zod";
 import { championshipMatchPath } from "@/lib/championship-match-links";
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -106,6 +107,7 @@ type DashboardTrainingOverride = {
 };
 
 type DashboardTrainingSession = {
+  notes?: string | null;
   id: number;
   title?: string | null;
   scheduledAt?: string | null;
@@ -929,7 +931,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         const targetDay = dayMap[String(slot.day ?? "")];
         if (targetDay == null) return [];
         return days
-          .filter((day) => day.getDay() === targetDay)
+          .filter((day) => trainingSlotOnDate(slot,format(day,"yyyy-MM-dd"))&&day.getDay() === targetDay)
           .map((day) => {
             const date = format(day, "yyyy-MM-dd");
             const start = String(slot.startTime ?? "");
@@ -1159,7 +1161,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         if (targetDay == null) return;
         const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
         monthDays.forEach((day) => {
-          if (day.getDay() !== targetDay) return;
+          if (!trainingSlotOnDate(slot,format(day,"yyyy-MM-dd")) || day.getDay() !== targetDay) return;
           const dayStart = startOfDay(day);
           if (trainingStart && dayStart < startOfDay(trainingStart)) return;
           if (trainingEnd && dayStart > startOfDay(trainingEnd)) return;
@@ -1168,6 +1170,9 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           const originalDate = format(day, "yyyy-MM-dd");
           const originalStartTime = String(slot.startTime ?? "");
           const originalEndTime = String(slot.endTime ?? "");
+          const referenceId=slot.jointTeamId??team.id;
+          const programSession=trainingSessionsForDash.find(session=>session.sessionKind==="regular"&&session.status!=="cancelled"&&sessionTeamIds(session.teamId,session.notes).includes(team.id)&&session.teamId===referenceId&&format(new Date(session.scheduledAt??""),"yyyy-MM-dd|HH:mm")===originalDate+"|"+originalStartTime);
+          if(slot.jointTeamId)return; // Reference sessions below are the single source, including moved appointments.
           const override = overrideByOccurrence.get(`${team.id}|${originalDate}|${originalStartTime}`);
           const joinedIntoThis =
             joinedByTargetOccurrence.get(`${team.id}|${originalDate}|${originalStartTime}`) ??
@@ -1278,7 +1283,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
             key: `training-${team.id}-${format(day, "yyyy-MM-dd")}-${slot.startTime}`,
             date: at,
             time: `${slot.startTime ?? ""}${slot.endTime ? `-${slot.endTime}` : ""}`,
-            title: `Allenamento ${team.name}`,
+            title: programSession?.notes?.includes("[FTB_PROGRAM_TEAMS]") ? `Allenamento congiunto ${team.name}` : `Allenamento ${team.name}`,
             subtitle: team.name,
             teamId: team.id,
             teamName: team.name,
@@ -1291,6 +1296,8 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       });
     });
 
+    const programKeys=new Set<string>();
+    for(let i=items.length-1;i>=0;i--){const item=items[i];if(item.kind!=="training"||!item.teamId||!item.originalDate||!item.originalStartTime)continue;const shared=trainingSessionsForDash.find(session=>session.teamId===item.teamId&&session.notes?.includes("[FTB_PROGRAM_TEAMS]")&&session.status!=="cancelled"&&format(new Date(session.scheduledAt??""),"yyyy-MM-dd|HH:mm")===item.originalDate+"|"+item.originalStartTime);if(!shared)continue;const key=shared.id+"";if(programKeys.has(key)){items.splice(i,1);continue;}programKeys.add(key);item.trainingSession=shared;item.trainingStatus="prepared";item.title="Allenamento congiunto · "+(shared.teamName??item.teamName);}
     const generatedTrainingKeys = new Set(
       items
         .filter((item): item is Extract<DashboardCalendarItem, { kind: "training" | "extra" }> =>
@@ -1306,7 +1313,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       if (session.status === "cancelled") return;
       const sessionDate = parseLocalDateTime(session.scheduledAt);
       if (!sessionDate || sessionDate < monthStart || sessionDate > monthEnd) return;
-      if (!allowedTeamIds.has(Number(session.teamId))) return;
+      if (!sessionTeamIds(session.teamId,session.notes).some(id=>allowedTeamIds.has(id))) return;
       const originalDate = format(sessionDate, "yyyy-MM-dd");
       const originalStartTime = format(sessionDate, "HH:mm");
       const duplicateKey = `${session.teamId}|${originalDate}|${originalStartTime}`;
@@ -1317,7 +1324,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         key: `training-session-${session.id}`,
         date: sessionDate,
         time: matchTimeLabel(sessionDate),
-        title: session.title?.trim() || `Seduta preparata ${team?.name ?? session.teamName ?? "Squadra"}`,
+        title: session.notes?.includes("[FTB_PROGRAM_TEAMS]")?`Allenamento congiunto · ${session.teamName??team?.name??"Squadra di riferimento"}`:session.title?.trim() || `Seduta preparata ${team?.name ?? session.teamName ?? "Squadra"}`,
         subtitle: [team?.name ?? session.teamName ?? "Squadra", "Seduta preparata"].filter(Boolean).join(" - "),
         teamId: Number(session.teamId),
         teamName: team?.name ?? session.teamName ?? undefined,
@@ -3753,6 +3760,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                       <Button
                         type="button"
                         onClick={() => {
+                          if(selectedCalendarItem.trainingSession){setLocation(`/attendance?sessionId=${selectedCalendarItem.trainingSession.id}`);return;}
                           const query = selectedCalendarItem.teamId && selectedCalendarItem.originalDate
                             ? `?teamId=${selectedCalendarItem.teamId}&date=${selectedCalendarItem.originalDate}${selectedCalendarItem.originalStartTime ? `&start=${encodeURIComponent(selectedCalendarItem.originalStartTime)}` : ""}`
                             : "";
@@ -3765,6 +3773,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                         type="button"
                         variant="outline"
                         onClick={() => {
+                          if(selectedCalendarItem.trainingSession){setLocation(`/training?sessionId=${selectedCalendarItem.trainingSession.id}`);return;}
                           const query = selectedCalendarItem.teamId && selectedCalendarItem.originalDate
                             ? `?newSession=1&teamId=${selectedCalendarItem.teamId}&date=${selectedCalendarItem.originalDate}${selectedCalendarItem.originalStartTime ? `&start=${encodeURIComponent(selectedCalendarItem.originalStartTime)}` : ""}`
                             : "?newSession=1";

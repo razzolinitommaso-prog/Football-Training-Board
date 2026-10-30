@@ -1564,7 +1564,7 @@ const QuickPage = () => {
     setFieldElementMenuOpen(false);
   }, [animation.activeFrame, animation.mode]);
   const effectiveTeamId = boardMode === "assigned" ? boardTeamId : null;
-  const { players: fetchedTeamPlayers } = useTeamPlayers(effectiveTeamId, selectedMatchId, isExerciseBoard);
+  const { players: fetchedTeamPlayers } = useTeamPlayers(effectiveTeamId, selectedMatchId, isExerciseBoard, isExerciseBoard?Number(draftPayload?.programSessionId)||null:null);
   const [teamPlayers, setTeamPlayers] = useState<TeamPlayer[]>([]);
   const [freeRosterPlayers, setFreeRosterPlayers] = useState<TeamPlayer[]>([]);
   const didHydrateBoardFromUrlRef = React.useRef(false);

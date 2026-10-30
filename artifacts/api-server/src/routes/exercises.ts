@@ -1,3 +1,4 @@
+import { assignedTrainingProgram } from "../lib/training-program-access";
 import { Router, type IRouter } from "express";
 import {
   db,
@@ -96,6 +97,15 @@ async function getPrimaryCoachTeamIds(clubId: number, userId: number): Promise<n
     .map((team) => team.id);
 
   return [...new Set([...coached.map((team) => team.id), ...primaryByRole])];
+}
+
+
+async function programExerciseAccess(clubId:number,userId:number,role:string,rawSession:unknown,teamId:number|null,exerciseId?:number){
+ if(!STAFF_RESTRICTED_ROLES.includes(role))return false;const id=Number(rawSession);if(!Number.isInteger(id)||id<=0)return false;
+ const [session]=await db.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,id),eq(trainingSessionsTable.clubId,clubId)));
+ if(!session||session.teamId!==teamId||!await assignedTrainingProgram(clubId,userId,session))return false;
+ if(exerciseId){const [link]=await db.select({id:trainingSessionExercisesTable.id}).from(trainingSessionExercisesTable).where(and(eq(trainingSessionExercisesTable.trainingSessionId,id),eq(trainingSessionExercisesTable.exerciseId,exerciseId)));if(!link)return false;}
+ return true;
 }
 
 async function canManageExercise(
@@ -248,7 +258,7 @@ router.post("/exercises", requireAuth, async (req, res): Promise<void> => {
   } = req.body;
   if (!title) { res.status(400).json({ error: "title required" }); return; }
   if (STAFF_RESTRICTED_ROLES.includes(role)) {
-    const hasTeamAccess = await canAccessTeamForRestrictedRole(clubId, userId, teamId ?? null);
+    const hasTeamAccess = await canAccessTeamForRestrictedRole(clubId, userId, teamId ?? null)||await programExerciseAccess(clubId,userId,role,req.body.programSessionId,teamId??null);
     if (!hasTeamAccess) {
       res.status(403).json({ error: "Puoi creare stazioni solo sulle annate assegnate" });
       return;
@@ -315,14 +325,14 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
     .from(exercisesTable)
     .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId)));
   if (!existing) { res.status(404).json({ error: "Exercise not found" }); return; }
-  const canManage = await canManageExercise(existing, clubId, userId, role);
+  const canManage = await canManageExercise(existing, clubId, userId, role)||await programExerciseAccess(clubId,userId,role,req.body.programSessionId,existing.teamId,existing.id);
   if (!canManage) {
     res.status(403).json({ error: "Puoi modificare solo le tue stazioni" });
     return;
   }
   if (STAFF_RESTRICTED_ROLES.includes(role)) {
     const requestedTeamId = teamId !== undefined ? (teamId ?? null) : (existing.teamId ?? null);
-    const hasTeamAccess = await canAccessTeamForRestrictedRole(clubId, userId, requestedTeamId);
+    const hasTeamAccess = await canAccessTeamForRestrictedRole(clubId, userId, requestedTeamId)||await programExerciseAccess(clubId,userId,role,req.body.programSessionId,requestedTeamId,existing.id);
     if (!hasTeamAccess) {
       res.status(403).json({ error: "Puoi modificare solo stazioni delle annate assegnate" });
       return;
@@ -452,13 +462,14 @@ router.get("/training-sessions/:id/exercises", requireAuth, async (req, res): Pr
   if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
   const sections=await resolveAllowedClubSections(req,undefined);
   if(session.teamId){const [team]=await db.select().from(teamsTable).where(and(eq(teamsTable.id,session.teamId),eq(teamsTable.clubId,clubId)));if(!team||(sections&&!sections.includes(team.clubSection))){res.status(403).json({error:"Seduta non accessibile"});return;}}
-  if(!isClubWideListRole(role)&&(!STAFF_RESTRICTED_ROLES.includes(role)||!(await canAccessTeamForRestrictedRole(clubId,userId,session.teamId))||(!session.teamId&&session.createdByUserId!==userId&&!session.sentToUserIds?.includes(userId)))){res.status(403).json({error:"Seduta non accessibile"});return;}
+  if(!isClubWideListRole(role)&&(!STAFF_RESTRICTED_ROLES.includes(role)||!(await canAccessTeamForRestrictedRole(clubId,userId,session.teamId)||await assignedTrainingProgram(clubId,userId,session))||(!session.teamId&&session.createdByUserId!==userId&&!session.sentToUserIds?.includes(userId)))){res.status(403).json({error:"Seduta non accessibile"});return;}
   const attendance=await readSessionEligibility(clubId,session);
+  const sharedEditable=STAFF_RESTRICTED_ROLES.includes(role)&&await assignedTrainingProgram(clubId,userId,session);
   const links = await db.select().from(trainingSessionExercisesTable)
     .where(eq(trainingSessionExercisesTable.trainingSessionId, sessionId));
   const enriched = await Promise.all(links.map(async (l) => {
     const [ex] = await db.select().from(exercisesTable).where(and(eq(exercisesTable.id,l.exerciseId),eq(exercisesTable.clubId,clubId)));
-    return { ...l, exercise: ex ? await enrichExercise(attendanceExerciseView(ex,attendance.blockedPlayerIds),{clubId,userId,role}) : null };
+    const exercise=ex?await enrichExercise(attendanceExerciseView(ex,attendance.blockedPlayerIds),{clubId,userId,role}):null;return {...l,exercise:exercise&&sharedEditable?{...exercise,canEdit:true}:exercise};
   }));
   res.json(enriched);
 });

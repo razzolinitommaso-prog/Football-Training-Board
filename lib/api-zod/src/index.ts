@@ -14,3 +14,5 @@ export * from "./training-rotations";
 export * from "./shared-training-occurrences";
 
 export * from "./training-attendance";
+
+export * from "./training-program-schedule";

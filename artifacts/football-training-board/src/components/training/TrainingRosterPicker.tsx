@@ -10,8 +10,8 @@ import { ScrollableSelect } from "@/components/ui/scrollable-select";
 
 type Player = { id: number; firstName: string; lastName: string; teamName?: string | null; dateOfBirth?: string | null; available?: boolean };
 type Roster = { workGroups: { id: number; name: string; playerIds?: number[] }[] };
-export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId, buttonLabel="Scegli giocatori", showCount=true, disabled=false, excludedIds=[] }: {
-  players: Player[]; selectedIds: number[]; onConfirm: (ids: number[]) => void; teamId?: string | number | null; buttonLabel?:string;showCount?:boolean;disabled?:boolean;excludedIds?:number[];
+export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId, sessionId, buttonLabel="Scegli giocatori", showCount=true, disabled=false, excludedIds=[] }: {
+  players: Player[]; sessionId?:number; selectedIds: number[]; onConfirm: (ids: number[]) => void; teamId?: string | number | null; buttonLabel?:string;showCount?:boolean;disabled?:boolean;excludedIds?:number[];
 }) {
   const uid = useId();
   const [open, setOpen] = useState(false);
@@ -22,8 +22,8 @@ export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId, 
   const [year, setYear] = useState("");
   const [group, setGroup] = useState("");
   const [onlySelected, setOnlySelected] = useState(false);
-  const groups = useQuery({ queryKey: ["training-rosters", Number(teamId), "shared"], enabled: open && !!teamId, queryFn: async (): Promise<Roster> => {
-    const response = await fetch(withApi(`/api/training-rosters/${teamId}?scope=shared`), { credentials: "include" });
+  const groups = useQuery({ queryKey: ["training-rosters", Number(teamId), "shared",sessionId], enabled: open && !!teamId, queryFn: async (): Promise<Roster> => {
+    const response = await fetch(withApi(sessionId?`/api/training-sessions/${sessionId}/roster?groups=1`:`/api/training-rosters/${teamId}?scope=shared`), { credentials: "include" });
     if (!response.ok) throw new Error("Impossibile caricare i gruppi della rosa");
     return response.json();
   }});

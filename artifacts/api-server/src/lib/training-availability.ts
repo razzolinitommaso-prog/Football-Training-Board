@@ -1,3 +1,4 @@
+import { trainingSlotOnDate } from "@workspace/api-zod";
 import { and, eq, sql } from "drizzle-orm";
 import { db, playersTable, teamsTable } from "@workspace/db";
 import { rosterMembers } from "./training-roster-policy";
@@ -26,7 +27,7 @@ export async function trainingAvailability(clubId:number,teamId:number,date:stri
   const weekdays=['domenica','lunedi','martedi','mercoledi','giovedi','venerdi','sabato'];
   const weekday=weekdays[new Date(`${date}T12:00:00Z`).getUTCDay()];
   const sameDay=(day:string)=>day.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()===weekday;
-  const targetSlot=target?.trainingSchedule?.find(slot=>sameDay(slot.day)&&slot.startTime===start);
+  const targetSlot=target?.trainingSchedule?.find(slot=>trainingSlotOnDate(slot,date)&&sameDay(slot.day)&&slot.startTime===start);
   // The prepared session may start before/after its recurring calendar slot.
   // Use its explicit duration to recover replies from the overlapping occurrence.
   const startMinute=Number(start.slice(0,2))*60+Number(start.slice(3));
@@ -34,7 +35,7 @@ export async function trainingAvailability(clubId:number,teamId:number,date:stri
   const overlaps=(slot:{startTime:string;endTime:string})=>{const a=Number(slot.startTime.slice(0,2))*60+Number(slot.startTime.slice(3)),b=Number(slot.endTime.slice(0,2))*60+Number(slot.endTime.slice(3));return a===startMinute||(a<endMinute&&b>startMinute);};
   const relatedOccurrences=roster.flatMap(player=>{
     const owner=teams.find(team=>team.id===player.teamId);
-    return (owner?.trainingSchedule??[]).filter(slot=>sameDay(slot.day)&&overlaps(slot))
+    return (owner?.trainingSchedule??[]).filter(slot=>trainingSlotOnDate(slot,date)&&sameDay(slot.day)&&overlaps(slot))
       .map(slot=>`${owner!.id}-${date}-${slot.startTime}`);
   });
   // Retain replies attached to the original occurrence when that occurrence

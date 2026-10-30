@@ -309,8 +309,9 @@ export const ListTeamsResponseItem = zod.object({
   officialTrainingEndDate: zod.string().nullish(),
   playerCount: zod.number(),
   assignedStaff: zod.array(TeamAssignedStaff).optional(),
-  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string(), campo: zod.string().nullish(), lockerRoom: zod.string().nullish() })).nullish(),
+  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string(), campo: zod.string().nullish(), validFrom: zod.string().nullish(), validUntil: zod.string().nullish(), jointTeamId: zod.number().int().positive().nullish(), lockerRoom: zod.string().nullish() })).nullish(),
   createdAt: zod.date(),
+  updatedAt: zod.date().optional(),
 });
 export const ListTeamsResponse = zod.array(ListTeamsResponseItem);
 
@@ -322,7 +323,7 @@ export const TrainingSlot = zod.object({
   startTime: zod.string(),
   endTime: zod.string(),
   campo: zod.string().nullish(),
-  lockerRoom: zod.string().nullish(),
+  validFrom: zod.string().nullish(), validUntil: zod.string().nullish(), jointTeamId: zod.number().int().positive().nullish(), lockerRoom: zod.string().nullish(),
 });
 
 export const CreateTeamBody = zod.object({
@@ -356,8 +357,9 @@ export const GetTeamResponse = zod.object({
   officialTrainingEndDate: zod.string().nullish(),
   playerCount: zod.number(),
   assignedStaff: zod.array(TeamAssignedStaff).optional(),
-  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string(), campo: zod.string().nullish(), lockerRoom: zod.string().nullish() })).nullish(),
+  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string(), campo: zod.string().nullish(), validFrom: zod.string().nullish(), validUntil: zod.string().nullish(), jointTeamId: zod.number().int().positive().nullish(), lockerRoom: zod.string().nullish() })).nullish(),
   createdAt: zod.date(),
+  updatedAt: zod.date().optional(),
 });
 
 /**
@@ -391,8 +393,9 @@ export const UpdateTeamResponse = zod.object({
   officialTrainingEndDate: zod.string().nullish(),
   playerCount: zod.number(),
   assignedStaff: zod.array(TeamAssignedStaff).optional(),
-  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string(), campo: zod.string().nullish(), lockerRoom: zod.string().nullish() })).nullish(),
+  trainingSchedule: zod.array(zod.object({ day: zod.string(), startTime: zod.string(), endTime: zod.string(), campo: zod.string().nullish(), validFrom: zod.string().nullish(), validUntil: zod.string().nullish(), jointTeamId: zod.number().int().positive().nullish(), lockerRoom: zod.string().nullish() })).nullish(),
   createdAt: zod.date(),
+  updatedAt: zod.date().optional(),
 });
 
 /**

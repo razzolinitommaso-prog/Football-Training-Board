@@ -49,7 +49,7 @@ function normalizePlayer(raw: any): TeamPlayer | null {
   };
 }
 
-export function useTeamPlayers(teamId: number | null, matchId?: number | null, training = false) {
+export function useTeamPlayers(teamId: number | null, matchId?: number | null, training = false, programSessionId?: number | null) {
   const [players, setPlayers] = useState<TeamPlayer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -66,12 +66,12 @@ export function useTeamPlayers(teamId: number | null, matchId?: number | null, t
       setIsLoading(true);
       try {
         const [playersRes, membersRes] = await Promise.all([
-          fetch(withApi(training && !matchId ? `/api/training-rosters/${teamId}?scope=shared` : `/api/players?teamId=${teamId}${matchId ? `&matchId=${matchId}` : ""}`), { credentials: "include" }),
-          training && !matchId ? Promise.resolve(null) : fetch(withApi(`/api/teams/${teamId}/members`), { credentials: "include" }),
+          fetch(withApi(programSessionId ? `/api/training-sessions/${programSessionId}/roster` : training && !matchId ? `/api/training-rosters/${teamId}?scope=shared` : `/api/players?teamId=${teamId}${matchId ? `&matchId=${matchId}` : ""}`), { credentials: "include" }),
+          programSessionId || training && !matchId ? Promise.resolve(null) : fetch(withApi(`/api/teams/${teamId}/members`), { credentials: "include" }),
         ]);
 
         const payload = playersRes.ok ? await playersRes.json() : [];
-        const playersData = training && !matchId ? payload.players ?? [] : payload;
+        const playersData = programSessionId ? payload : training && !matchId ? payload.players ?? [] : payload;
         const membersData = membersRes?.ok ? ((await membersRes.json()) as TeamMembersApiPlayer[]) : [];
 
         const merged = new Map<number, TeamPlayer>();
@@ -122,7 +122,7 @@ export function useTeamPlayers(teamId: number | null, matchId?: number | null, t
     return () => {
       cancelled = true;
     };
-  }, [teamId, matchId, training]);
+  }, [teamId, matchId, training, programSessionId]);
 
   return {
     players,

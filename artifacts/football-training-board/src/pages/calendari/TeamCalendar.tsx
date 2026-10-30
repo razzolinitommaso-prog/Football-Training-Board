@@ -1,3 +1,4 @@
+import { trainingSlotOnDate } from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { splitMatchLineup, changeMatchLineupStatus } from "@/lib/match-lineup";
@@ -1990,7 +1991,7 @@ function MatchCard({
       const dayNumber = italianTrainingDayNumber(slot.day);
       if (dayNumber == null) continue;
       for (let day = new Date(attendanceWeekRange.start); day < attendanceWeekRange.end; day = addLocalDays(day, 1)) {
-        if (day.getDay() !== dayNumber) continue;
+        if (!trainingSlotOnDate(slot,localDateKey(day)) || day.getDay() !== dayNumber) continue;
         const key = localDateKey(day);
         plannedDays.set(key, {
           key,

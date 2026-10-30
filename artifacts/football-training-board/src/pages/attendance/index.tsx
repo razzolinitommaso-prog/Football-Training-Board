@@ -188,15 +188,15 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const sectionTeamIds = useMemo(() => new Set(sectionTeams.map((team) => Number(team.id))), [sectionTeams]);
   const sessions = useMemo(() => {
     if (!section) return rawSessions;
-    return rawSessions.filter((session) => session.teamId != null && sectionTeamIds.has(Number(session.teamId)));
+    return rawSessions.filter((session) => session.teamId != null && sessionTeamIds(session.teamId,session.notes).some(id=>sectionTeamIds.has(id)));
   }, [rawSessions, section, sectionTeamIds]);
   const sessionsByAnnata = useMemo(() => {
     if (directSessionMode || !annataScope) return sessions;
     return sessions.filter((session) => teamAnnataKey(teamsById.get(Number(session.teamId))) === annataScope);
   }, [annataScope, directSessionMode, sessions, teamsById]);
   const { data: players = [] } = useQuery<Player[]>({
-    queryKey: ["/api/players", section || "all", "attendance"],
-    queryFn: () => apiFetch(section ? `/api/players?section=${encodeURIComponent(section)}` : "/api/players"),
+    queryKey: ["/api/players", section || "all", "attendance",rawSessions.find(s=>s.id===sessionId)?.notes?.includes("[FTB_PROGRAM_TEAMS]")?sessionId:null],
+    queryFn: () => apiFetch(rawSessions.find(s=>s.id===sessionId)?.notes?.includes("[FTB_PROGRAM_TEAMS]")?`/api/training-sessions/${sessionId}/roster`:section ? `/api/players?section=${encodeURIComponent(section)}` : "/api/players"),
   });
   const { data: attendance = [], isLoading: attLoading } = useQuery<AttendanceRecord[]>({
     queryKey: ["/api/attendance", sessionId],

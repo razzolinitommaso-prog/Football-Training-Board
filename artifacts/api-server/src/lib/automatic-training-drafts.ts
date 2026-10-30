@@ -1,3 +1,5 @@
+import { trainingSlotOnDate } from "@workspace/api-zod";
+import { automaticProgramNotes } from "./joint-training-program";
 import { ensureTrainingSuppressions } from "./training-session-integrity";
 import { sql } from "drizzle-orm";
 import { db, type Team } from "@workspace/db";
@@ -19,7 +21,7 @@ export async function syncTrainingDrafts(tx:Tx,team:Team,userId:number) {
     if(day===undefined||!/^([01]\d|2[0-3]):[0-5]\d$/.test(slot.startTime)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(slot.endTime))continue;
     const minutes=(time:string)=>Number(time.slice(0,2))*60+Number(time.slice(3));const duration=minutes(slot.endTime)-minutes(slot.startTime);if(duration<=0)continue;
     const rows=resultRows<{at:Date|string}>(await tx.execute(sql`SELECT ((d::date+${slot.startTime}::time) AT TIME ZONE 'Europe/Rome') AS at FROM generate_series(${start}::date,${end}::date,'1 day'::interval) d WHERE EXTRACT(DOW FROM d)=${day}`));
-    for(const row of rows){const at=new Date(row.at).toISOString();if(Date.parse(at)<Date.now())continue;desired.set(at,{at,duration:90,location:slot.campo??null});}
+    for(const row of rows){const at=new Date(row.at).toISOString();const date=new Date(row.at).toLocaleDateString("sv-SE",{timeZone:"Europe/Rome"});if(slot.jointTeamId||!trainingSlotOnDate(slot,date)||Date.parse(at)<Date.now())continue;desired.set(at,{at,duration:90,location:slot.campo??null});}
   }
   const changes=resultRows<{own:boolean;status:string;originalAt:Date|string;at:Date|string|null;duration:number|null;location:string|null}>(await tx.execute(sql`SELECT team_id=${team.id} AS own,status,
     ((original_date+original_start_time::time) AT TIME ZONE 'Europe/Rome') AS "originalAt",
@@ -45,10 +47,10 @@ export async function syncTrainingDrafts(tx:Tx,team:Team,userId:number) {
     }
     const exactAt=new Date(row.at).toISOString();
     const at=[...desired.keys()].find(key=>key.slice(0,16)===exactAt.slice(0,16))??exactAt;
-    if(row.title===title&&!row.protected&&row.notes===AUTO_TRAINING_MARKER&&row.untouched&&!desired.has(at))await tx.execute(sql`UPDATE training_sessions SET status='cancelled',notes=${AUTO_TRAINING_MARKER+' REMOVED'},updated_at=NOW() WHERE id=${row.id} AND club_id=${team.clubId}`);
-    if(row.title===title&&!row.protected&&row.notes===AUTO_TRAINING_MARKER+' REMOVED'&&desired.has(at))await tx.execute(sql`UPDATE training_sessions SET status='scheduled',notes=${AUTO_TRAINING_MARKER},updated_at=created_at WHERE id=${row.id} AND club_id=${team.clubId}`);
+    if(row.title===title&&!row.protected&&automaticProgramNotes(row.notes)&&row.untouched&&!desired.has(at))await tx.execute(sql`UPDATE training_sessions SET status='cancelled',notes=${AUTO_TRAINING_MARKER+' REMOVED'},updated_at=NOW() WHERE id=${row.id} AND club_id=${team.clubId}`);
+    if(row.title===title&&!row.protected&&[AUTO_TRAINING_MARKER+' REMOVED',AUTO_TRAINING_MARKER+' PROGRAM'].includes(row.notes??'')&&desired.has(at))await tx.execute(sql`UPDATE training_sessions SET status='scheduled',notes=${AUTO_TRAINING_MARKER},updated_at=created_at WHERE id=${row.id} AND club_id=${team.clubId}`);
     const planned=desired.get(at);
-    if(planned&&row.title===title&&!row.protected&&row.notes===AUTO_TRAINING_MARKER&&row.untouched)await tx.execute(sql`UPDATE training_sessions SET duration_minutes=${planned.duration},location=${planned.location} WHERE id=${row.id} AND club_id=${team.clubId}`);
+    if(planned&&row.title===title&&!row.protected&&automaticProgramNotes(row.notes)&&row.untouched)await tx.execute(sql`UPDATE training_sessions SET duration_minutes=${planned.duration},location=${planned.location} WHERE id=${row.id} AND club_id=${team.clubId}`);
     desired.delete(at);
   }
   await ensureTrainingSuppressions(tx);

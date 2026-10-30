@@ -1,3 +1,6 @@
+import { TrainingProgramBody } from "@workspace/api-zod";
+import { lockTrainingPrograms, setTrainingProgram, reconcileProgramSessions, TrainingProgramError } from "../lib/joint-training-program";
+import { ensureSessionPlans } from "../lib/training-session-planning";
 import { syncTrainingDrafts } from "../lib/automatic-training-drafts";
 import { Router, type IRouter, type Request } from "express";
 import { db, teamsTable, playersTable, usersTable, teamStaffAssignmentsTable, seasonsTable, clubMembershipsTable } from "@workspace/db";
@@ -284,7 +287,9 @@ router.post("/teams", requireAuth, async (req, res): Promise<void> => {
 
   const teamData = teamPayloadForSession(parsed.data, req);
 
+  if((teamData.trainingSchedule as any[])?.some(slot=>slot.validFrom||slot.validUntil||slot.jointTeamId)){res.status(400).json({error:"I programmi congiunti si configurano dopo la creazione della squadra"});return;}
   const [team] = await db.transaction(async tx=>{
+    await lockTrainingPrograms(tx,req.session.clubId!);
     const rows=await tx.insert(teamsTable).values({...teamData,clubId:req.session.clubId!}).returning();
     if(rows[0]?.trainingSchedule?.length)await syncTrainingDrafts(tx,rows[0],req.session.userId!);
     return rows;
@@ -348,6 +353,37 @@ router.get("/teams/:id", requireAuth, async (req, res): Promise<void> => {
   }));
 });
 
+const programBody = TrainingProgramBody;
+router.put("/teams/:id/training-program",requireAuth,async(req,res):Promise<void>=>{
+ const id=Number(req.params.id),body=programBody.safeParse(req.body),clubId=req.session.clubId!,userId=req.session.userId!;
+ if(!Number.isInteger(id)||id<=0||!body.success){res.status(400).json({error:"Programma non valido"});return;}
+ if(!canManageTeams(req)&&!canEditTeamSchedule(req)){res.status(403).json({error:"Non autorizzato a gestire i programmi"});return;}
+ const sections=await resolveAllowedClubSections(req,undefined);
+ try {
+  await ensureSessionPlans();
+  await db.transaction(async tx=>{
+   const teams=await lockTrainingPrograms(tx,clubId),team=teams.find(team=>team.id===id);
+   const targets=teams.filter(team=>team.id===id||team.id===body.data.referenceTeamId);
+   if(!team||targets.some(team=>sections&&!sections.includes(team.clubSection)))throw new TrainingProgramError("Squadra non accessibile",403);
+   if(!canManageTeams(req))for(const target of targets){
+    const [assignment]=await tx.select({id:teamStaffAssignmentsTable.id}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,clubId),eq(teamStaffAssignmentsTable.teamId,target.id),eq(teamStaffAssignmentsTable.userId,userId)));
+    if(target.coachId!==userId&&!assignment)throw new TrainingProgramError("Puoi collegare solo squadre assegnate. Per altre squadre interviene la segreteria.",403);
+   }
+   if(new Date(body.data.expectedUpdatedAt).getTime()!==new Date(team.updatedAt).getTime())throw new TrainingProgramError("Il programma è cambiato. Riapri la scheda squadra prima di salvare.");
+   const reference=teams.find(item=>item.id===body.data.referenceTeamId);
+   if(reference&&(!body.data.expectedReferenceUpdatedAt||new Date(body.data.expectedReferenceUpdatedAt).getTime()!==new Date(reference.updatedAt).getTime()))throw new TrainingProgramError("Il programma della squadra di riferimento è cambiato. Riapri la scheda prima di collegarla.");
+   const before=new Map(teams.map(team=>[team.id,JSON.stringify(team.trainingSchedule)]));
+   const next=await setTrainingProgram(tx,teams,team,body.data.referenceTeamId,body.data.effectiveFrom,body.data.trainingSchedule);
+   // Reconcile first to reject prepared-source conflicts before creating any new drafts.
+   await reconcileProgramSessions(tx,next,clubId);
+   const affected=new Set([id,...next.filter(team=>before.get(team.id)!==JSON.stringify(team.trainingSchedule)).map(team=>team.id),...next.filter(team=>team.trainingSchedule?.some(slot=>slot.jointTeamId===id)).map(team=>team.id),...(body.data.referenceTeamId?[body.data.referenceTeamId]:[])]);
+   for(const current of next.filter(team=>affected.has(team.id))){const result=await syncTrainingDrafts(tx,current,userId);if(result.reason)throw new TrainingProgramError("Imposta prima le date degli allenamenti o una stagione attiva per "+current.name+". "+result.reason,400);}
+   await reconcileProgramSessions(tx,next,clubId);
+  });
+  res.json({ok:true});
+ }catch(error){if(error instanceof TrainingProgramError){res.status(error.status).json({error:error.message});return;}throw error;}
+});
+
 router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
   const params = UpdateTeamParams.safeParse(req.params);
   if (!params.success) {
@@ -378,13 +414,23 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
     if(!target||(!assignment&&target.coachId!==req.session.userId)){res.status(403).json({error:"Puoi modificare gli orari solo delle squadre assegnate"});return;}
   }
 
+  if(Object.prototype.hasOwnProperty.call(teamData,"trainingSchedule")){
+    const teams=await db.select().from(teamsTable).where(eq(teamsTable.clubId,req.session.clubId!));
+    if(teams.some(team=>team.id===params.data.id?team.trainingSchedule?.some(slot=>slot.validFrom||slot.validUntil||slot.jointTeamId):team.trainingSchedule?.some(slot=>slot.jointTeamId===params.data.id))){res.status(409).json({error:"Questo programma ha uno storico o squadre congiunte: modifica da Giorni e orari di allenamento, indicando la data di decorrenza."});return;}
+    if((teamData.trainingSchedule as any[])?.some(slot=>slot.validFrom||slot.validUntil||slot.jointTeamId)){res.status(400).json({error:"I collegamenti si configurano da Programma allenamenti"});return;}
+  }
+
+  let programConflict=false;
   const [team] = await db.transaction(async tx=>{
+    const currentTeams=await lockTrainingPrograms(tx,req.session.clubId!);
+    if(Object.prototype.hasOwnProperty.call(teamData,"trainingSchedule")&&currentTeams.some(team=>team.id===params.data.id?team.trainingSchedule?.some(slot=>slot.validFrom||slot.validUntil||slot.jointTeamId):team.trainingSchedule?.some(slot=>slot.jointTeamId===params.data.id))){programConflict=true;return [];}
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${req.session.clubId}|${params.data.id}`}))`);
     const rows=await tx.update(teamsTable).set(teamData).where(and(eq(teamsTable.id,params.data.id),eq(teamsTable.clubId,req.session.clubId!))).returning();
     if(rows[0]&&["trainingSchedule","seasonTrainingStartDate","officialTrainingEndDate","seasonId"].some(key=>Object.prototype.hasOwnProperty.call(teamData,key)))await syncTrainingDrafts(tx,rows[0],req.session.userId!);
     return rows;
   });
 
+  if(programConflict){res.status(409).json({error:"Il programma è cambiato: riapri Giorni e orari dalla scheda squadra."});return;}
   if (!team) {
     res.status(404).json({ error: "Team not found" });
     return;

@@ -1,7 +1,10 @@
+import { programParticipants, PROGRAM_MARKER } from "../lib/joint-training-program";
+import { trainingLocalDate, trainingProgramLeader } from "@workspace/api-zod";
+import { assignedTrainingProgram } from "../lib/training-program-access";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
 import { readSessionEligibility } from "../lib/training-session-attendance";
 import { excludeTrainingPlayers, validateTrainingRotations, type TrainingRotations } from "@workspace/api-zod";
-import { rosterMembers } from "../lib/training-roster-policy";
+import { rosterMembers, playerBirthYear } from "../lib/training-roster-policy";
 import { recalculateRotationPlan, planningVersion, rotationTimings } from "../lib/training-session-planning";
 import { sessionTeamScope, sessionTeamIds, consolidateSharedDrafts } from "../lib/session-team-scope";
 import { ensureTrainingSuppressions, sameTrainingMinute, trainingDeletionSummary } from "../lib/training-session-integrity";
@@ -100,6 +103,7 @@ async function canManageSession(
 ): Promise<boolean> {
   if (["secretary", "technical_director"].includes(role)) return true;
   if (session.createdByUserId === userId) return true;
+  if(STAFF_RESTRICTED_ROLES.includes(role)&&await assignedTrainingProgram(clubId,userId,session))return true;
   if (!STAFF_RESTRICTED_ROLES.includes(role) || !session.teamId) return false;
   if(session.notes?.startsWith(AUTO_TRAINING_MARKER)&&await canAccessTeamForRestrictedRole(clubId,userId,session.teamId))return true;
   const primaryCoachTeamIds = await getPrimaryCoachTeamIds(clubId, userId);
@@ -112,8 +116,9 @@ async function validSessionTeams(req: import("express").Request,teamId:number|nu
  const teams=await db.select().from(teamsTable).where(and(eq(teamsTable.clubId,clubId),inArray(teamsTable.id,ids)));
  const sections=await resolveAllowedClubSections(req,undefined);
  if(teams.length!==ids.length||teams.some(t=>sections&&!sections.includes(t.clubSection))||new Set(teams.map(t=>t.clubSection)).size!==1||new Set(teams.map(t=>t.seasonId)).size!==1)return false;
- if(STAFF_RESTRICTED_ROLES.includes(role)){const assigned=await getAssignedTeamIds(clubId,req.session.userId!);if(ids.some(id=>!assigned.includes(id)))return false;}
  if(previous&&JSON.stringify(sessionTeamIds(teamId,previous).sort())===JSON.stringify([...ids].sort()))return true;
+ if(STAFF_RESTRICTED_ROLES.includes(role)){const assigned=await getAssignedTeamIds(clubId,req.session.userId!);if(ids.some(id=>!assigned.includes(id)))return false;}
+
  const exists=resultRows<{present:boolean}>(await db.execute(sql`SELECT to_regclass('training_roster_groups') IS NOT NULL AND to_regclass('training_roster_group_teams') IS NOT NULL AS present`))[0]?.present;
  if(!exists)return false;
  const groups=resultRows<{ids:number[]}>(await db.execute(sql`SELECT array_agg(l.team_id ORDER BY l.team_id) AS ids FROM training_roster_groups g JOIN training_roster_group_teams l ON l.group_id=g.id WHERE g.club_id=${clubId} AND g.kind='shared' AND NOT g.archived GROUP BY g.id`));
@@ -217,7 +222,7 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
     const assignedTeamIds = await getAssignedTeamIds(clubId, userId);
     const teamScope =
       assignedTeamIds.length > 0
-        ? or(inArray(trainingSessionsTable.teamId, assignedTeamIds), sql`${trainingSessionsTable.teamId} is null`)
+        ? or(or(...assignedTeamIds.map(sessionTeamScope)), sql`${trainingSessionsTable.teamId} is null`)
         : sql`${trainingSessionsTable.teamId} is null`;
     const primaryCoachTeamIds = await getPrimaryCoachTeamIds(clubId, userId);
     const collaboratorScope =
@@ -226,7 +231,7 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
         : sql`false`;
     const assignedSessionsScope =
       assignedTeamIds.length > 0
-        ? inArray(trainingSessionsTable.teamId, assignedTeamIds)
+        ? or(...assignedTeamIds.map(sessionTeamScope))
         : sql`false`;
     sessions = await db
       .select()
@@ -250,14 +255,15 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
       .orderBy(desc(trainingSessionsTable.scheduledAt));
   }
 
-  sessions=sessions.filter(session=>session.notes!==AUTO_TRAINING_MARKER+" GROUPED");
+  sessions=sessions.filter(session=>![AUTO_TRAINING_MARKER+" GROUPED",AUTO_TRAINING_MARKER+" PROGRAM"].includes(session.notes??""));
   const [teamRows,creatorRows,primaryIds,assignedIds]=await Promise.all([
     db.select({id:teamsTable.id,name:teamsTable.name}).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),inArray(teamsTable.id,[...new Set(sessions.flatMap(session=>session.teamId?[session.teamId]:[]))]))),
     db.select({id:usersTable.id,firstName:usersTable.firstName,lastName:usersTable.lastName}).from(usersTable).where(inArray(usersTable.id,[...new Set(sessions.flatMap(session=>session.createdByUserId?[session.createdByUserId]:[]))])),
     STAFF_RESTRICTED_ROLES.includes(role)?getPrimaryCoachTeamIds(clubId,userId):Promise.resolve([] as number[]),
     STAFF_RESTRICTED_ROLES.includes(role)?getAssignedTeamIds(clubId,userId):Promise.resolve([] as number[]),
   ]);
-  const lookup={teams:new Map(teamRows.map(team=>[team.id,team.name])),creators:new Map(creatorRows.map(user=>[user.id,`${user.firstName} ${user.lastName}`])),canEdit:(session:typeof trainingSessionsTable.$inferSelect)=>["secretary","technical_director"].includes(role)||session.createdByUserId===userId||Boolean(STAFF_RESTRICTED_ROLES.includes(role)&&session.teamId&&(primaryIds.includes(session.teamId)||(session.notes?.startsWith(AUTO_TRAINING_MARKER)&&assignedIds.includes(session.teamId))))};
+  const programEditable=new Set(sessions.filter(session=>session.notes?.includes("[FTB_PROGRAM_TEAMS]")&&sessionTeamIds(session.teamId,session.notes).some(id=>assignedIds.includes(id))).map(session=>session.id));
+  const lookup={teams:new Map(teamRows.map(team=>[team.id,team.name])),creators:new Map(creatorRows.map(user=>[user.id,`${user.firstName} ${user.lastName}`])),canEdit:(session:typeof trainingSessionsTable.$inferSelect)=>STAFF_RESTRICTED_ROLES.includes(role)&&programEditable.has(session.id)||["secretary","technical_director"].includes(role)||session.createdByUserId===userId||Boolean(STAFF_RESTRICTED_ROLES.includes(role)&&session.teamId&&(primaryIds.includes(session.teamId)||(session.notes?.startsWith(AUTO_TRAINING_MARKER)&&assignedIds.includes(session.teamId))))};
   const enriched = await Promise.all(sessions.map((session) => enrichSession(session, { clubId, userId, role },lookup)));
   if (req.query.includePreparation === "1" && sessions.length > 0) {
     const result = await db.execute(sql`
@@ -306,6 +312,10 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
     }
   }
 
+  if(body.teamId&&body.sessionKind!=="tipo"){
+    const [team]=await db.select().from(teamsTable).where(and(eq(teamsTable.clubId,req.session.clubId!),eq(teamsTable.id,body.teamId)));
+    if(trainingProgramLeader(team?.trainingSchedule,trainingLocalDate(parsed.data.scheduledAt))){res.status(409).json({error:"La squadra segue un programma congiunto: apri la seduta della squadra di riferimento dal calendario."});return;}
+  }
   if(!await validSessionTeams(req,body.teamId??null,parsed.data.notes)){res.status(403).json({error:"Unione di annate non autorizzata o non configurata"});return;}
   const [session] = await db.transaction(async tx=>{
     const values={...parsed.data,clubId:req.session.clubId!,createdByUserId:userId,sessionKind:body.sessionKind??"regular",sentToUserIds:body.sentToUserIds??null};
@@ -341,7 +351,7 @@ router.get("/training-sessions/:id", requireAuth, async (req, res): Promise<void
   if (!session) { res.status(404).json({ error: "Training session not found" }); return; }
 
   if (!canViewAllClubTrainingSessions(role)) {
-    const hasTeamAccess = await canAccessTeamForRestrictedRole(req.session.clubId!, req.session.userId!, session.teamId ?? null);
+    const hasTeamAccess = await canAccessTeamForRestrictedRole(req.session.clubId!, req.session.userId!, session.teamId ?? null) || STAFF_RESTRICTED_ROLES.includes(role)&&await assignedTrainingProgram(req.session.clubId!,req.session.userId!,session);
     const sentToCurrentUser = Array.isArray(session.sentToUserIds) && session.sentToUserIds.includes(req.session.userId!);
     const canSeeSession =
       hasTeamAccess &&
@@ -424,12 +434,21 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
     const sections=await resolveAllowedClubSections(req,undefined);
     if(!team||(sections&&!sections.includes(team.clubSection))||(STAFF_RESTRICTED_ROLES.includes(role)&&!await canAccessTeamForRestrictedRole(clubId,userId,targetTeam))){res.status(403).json({error:"Squadra non accessibile"});return;}
   }
+  const programLine=existing.notes?.split("\n").find(line=>line.startsWith(PROGRAM_MARKER));
+  if(programLine){
+    const nextIds=sessionTeamIds(targetTeam,(updateData.notes===undefined?existing.notes:updateData.notes) as string|null);
+    const programIds=programLine.slice(PROGRAM_MARKER.length).split(",").map(Number);
+    if(targetTeam!==existing.teamId||programIds.some(id=>!nextIds.includes(id))){res.status(409).json({error:"Questa seduta segue un programma congiunto. Separa o cambia la squadra di riferimento da Squadre, indicando la data."});return;}
+    if(updateData.scheduledAt instanceof Date){const teams=await db.select().from(teamsTable).where(eq(teamsTable.clubId,clubId));const expected=programParticipants(teams,existing.teamId!,trainingLocalDate(updateData.scheduledAt),"");if(programIds.some(id=>!expected.includes(id))){res.status(409).json({error:"La nuova data non appartiene allo stesso programma congiunto. Verifica la separazione delle annate da Squadre."});return;}}
+    if(typeof updateData.notes==="string")updateData.notes=updateData.notes.split("\n").filter(line=>!line.startsWith(PROGRAM_MARKER)).join("\n")+"\n"+programLine;
+  }
   if(!await validSessionTeams(req,targetTeam,(updateData.notes===undefined?existing.notes:updateData.notes) as string|null,existing.notes)){res.status(403).json({error:"Unione di annate non autorizzata o non configurata"});return;}
   if(existing.notes===AUTO_TRAINING_MARKER&&STAFF_RESTRICTED_ROLES.includes(role))updateData.createdByUserId=userId;
   let moveIssue:string|null=null;
   const [session] = await db.transaction(async tx=>{
     for(const teamId of [...new Set([...sessionTeamIds(existing.teamId,existing.notes),...sessionTeamIds(targetTeam,(updateData.notes===undefined?existing.notes:updateData.notes) as string|null)])].sort((a,b)=>(a??0)-(b??0)))await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`training-team|${clubId}|${teamId}`}))`);
     const [current]=await tx.select({notes:trainingSessionsTable.notes}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,params.data.id),eq(trainingSessionsTable.clubId,clubId))).limit(1);
+    if(current?.notes?.split("\n").find(line=>line.startsWith(PROGRAM_MARKER))!==programLine){moveIssue="Il programma congiunto è cambiato. Riapri la seduta prima di salvare.";return [];}
     if(!current||(existing.notes===AUTO_TRAINING_MARKER&&current.notes===AUTO_TRAINING_MARKER+" REMOVED"))return [];
     const targetAt=updateData.scheduledAt instanceof Date?updateData.scheduledAt:existing.scheduledAt;
     const targetKind=String(updateData.sessionKind??existing.sessionKind);
@@ -476,12 +495,26 @@ async function planningAccess(req: Parameters<typeof resolveAllowedClubSections>
   if(write) {
     if(!CAN_CREATE_ROLES.includes(role)||!(await canManageSession(session,clubId,userId,role))) return null;
   } else if(!canViewAllClubTrainingSessions(role)) {
-    const assigned=await canAccessTeamForRestrictedRole(clubId,userId,session.teamId);
+    const assigned=await canAccessTeamForRestrictedRole(clubId,userId,session.teamId)||await assignedTrainingProgram(clubId,userId,session);
     const visible=session.createdByUserId===userId||await canManageSession(session,clubId,userId,role)||(session.sessionKind==="tipo"&&session.sentToUserIds?.includes(userId));
     if(!assigned||!visible) return null;
   }
   return session;
 }
+
+router.get("/training-sessions/:id/roster",requireAuth,async(req,res):Promise<void>=>{
+ const session=await planningAccess(req,Number(req.params.id),false);if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
+ const players=await db.select().from(playersTable).where(eq(playersTable.clubId,session.clubId));
+ const teams=await db.select({id:teamsTable.id,name:teamsTable.name}).from(teamsTable).where(eq(teamsTable.clubId,session.clubId));
+ if(req.query.groups==="1"){
+   const ids=sessionTeamIds(session.teamId,session.notes),roster=rosterMembers(players,ids);
+   const exists=resultRows<{present:boolean}>(await db.execute(sql`SELECT to_regclass('training_roster_groups') IS NOT NULL AND to_regclass('training_roster_group_players') IS NOT NULL AS present`))[0]?.present;
+   const groups=exists&&ids.length?resultRows<{id:number;name:string;criterion:string;birthYear:number|null;playerIds:number[]}>(await db.execute(sql`SELECT g.id,g.name,g.criterion,g.birth_year AS "birthYear",coalesce(array_agg(m.player_id) FILTER (WHERE m.player_id IS NOT NULL),'{}'::int[]) AS "playerIds" FROM training_roster_groups g LEFT JOIN training_roster_group_players m ON m.group_id=g.id WHERE g.club_id=${session.clubId} AND g.kind='work' AND NOT g.archived AND g.anchor_team_id IN (${sql.join(ids.map(id=>sql`${id}`),sql`,`)}) GROUP BY g.id,g.name,g.criterion,g.birth_year`)):[];
+   res.json({workGroups:groups.map(group=>({...group,playerIds:roster.filter(player=>group.criterion==="year"?playerBirthYear(player.dateOfBirth)===group.birthYear:group.playerIds.includes(player.id)).map(player=>player.id)}))});return;
+ }
+ res.json(rosterMembers(players,sessionTeamIds(session.teamId,session.notes)).map(player=>({id:player.id,firstName:player.firstName,lastName:player.lastName,dateOfBirth:player.dateOfBirth,teamId:player.teamId,teamName:teams.find(team=>team.id===player.teamId)?.name??null,available:player.available,position:player.position,jerseyNumber:player.jerseyNumber,status:player.status,unavailabilityReason:player.unavailabilityReason,availabilityOverrideActive:player.availabilityOverrideActive,availabilityOverrideFrom:player.availabilityOverrideFrom,availabilityOverrideUntil:player.availabilityOverrideUntil})));
+});
+
 async function planningExercises(sessionId:number,clubId:number) {
   return resultRows<PlanningExercise>(await db.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title, exercise.training_phase AS phase
     FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${clubId}

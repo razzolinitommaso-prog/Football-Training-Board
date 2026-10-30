@@ -16,7 +16,7 @@ export const teamsTable = pgTable("teams", {
   clubSection: text("club_section").notNull().default("scuola_calcio"),
   seasonTrainingStartDate: date("season_training_start_date"),
   officialTrainingEndDate: date("official_training_end_date"),
-  trainingSchedule: jsonb("training_schedule").$type<{ day: string; startTime: string; endTime: string; campo?: string | null }[]>(),
+  trainingSchedule: jsonb("training_schedule").$type<{ day: string; startTime: string; endTime: string; campo?: string | null; lockerRoom?: string | null; validFrom?: string | null; validUntil?: string | null; jointTeamId?: number | null }[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

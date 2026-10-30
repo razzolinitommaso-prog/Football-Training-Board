@@ -1,10 +1,10 @@
-import { sessionTeamIds } from "@workspace/api-zod";
+import { sessionTeamIds, type ProgramTrainingSlot } from "@workspace/api-zod";
 import { format } from "date-fns";
 import { managerTrainingEvents, type ManagerTrainingCalendar } from "@/lib/team-manager-training-calendar";
 
 export type SessionPreparation = { exerciseCount: number; phases: string[]; complete: boolean };
 export type CalendarSession = { id: number; teamId: number | null; notes?:string|null; durationMinutes?:number|null; title: string; scheduledAt: string; status: string; sessionKind: string; preparation?: SessionPreparation };
-export type SessionCalendarTeam = { id: number; name: string; clubSection?: string | null; trainingSchedule?: {day: string; startTime: string; endTime: string; campo?: string | null}[] | null; seasonTrainingStartDate?: string | null; officialTrainingEndDate?: string | null };
+export type SessionCalendarTeam = { id: number; name: string; clubSection?: string | null; trainingSchedule?: ProgramTrainingSlot[] | null; seasonTrainingStartDate?: string | null; officialTrainingEndDate?: string | null };
 export type SessionCalendarRow = { id: string; date: string; time: string; title: string; status: "complete" | "pending" | "cancelled" | "relocated" | "planned" | "unknown"; sessionId?: number; detail?: string; exerciseCount?: number; endTime?: string };
 const key = (date: Date) => format(date, "yyyy-MM-dd|HH:mm");
 
@@ -22,7 +22,7 @@ export function sessionCalendarRows(team: SessionCalendarTeam | null, sessions: 
   const rows: SessionCalendarRow[] = [];
   const append = (session: CalendarSession) => {
     const at = new Date(session.scheduledAt);
-    rows.push({id: `session-${session.id}`, date: format(at, "yyyy-MM-dd"), time: format(at, "HH:mm"), title: session.title,
+    rows.push({id: `session-${session.id}`, date: format(at, "yyyy-MM-dd"), time: format(at, "HH:mm"), title: session.notes?.includes("[FTB_PROGRAM_TEAMS]") ? `Congiunto · ${session.title}` : session.title,
       status: ["cancelled", "canceled"].includes(session.status) ? "cancelled" : !session.preparation ? "unknown" : session.preparation.complete ? "complete" : "pending",
       sessionId: session.id, exerciseCount: session.preparation?.exerciseCount,
     });

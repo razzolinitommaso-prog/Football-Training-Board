@@ -1,3 +1,5 @@
+import { trainingProgramLeader } from "@workspace/api-zod";
+import { programParticipants } from "../lib/joint-training-program";
 import { Router, type IRouter } from "express";
 import { and, eq, gte, lte, sql, or } from "drizzle-orm";
 import {
@@ -311,6 +313,10 @@ router.post("/training-calendar-overrides", requireAuth, async (req, res): Promi
       ),
     );
 
+  const programTeams=await db.select().from(teamsTable).where(eq(teamsTable.clubId,clubId));
+  const sourceProgram=trainingProgramLeader(programTeams.find(team=>team.id===teamId)?.trainingSchedule,originalDate);
+  if(sourceProgram){res.status(409).json({error:"Questa squadra segue un programma congiunto: modifica l'appuntamento della squadra di riferimento."});return;}
+  if((status==="moved"||status==="joined")&&newDate){const before=programParticipants(programTeams,teamId,originalDate,originalStartTime),after=programParticipants(programTeams,teamId,newDate,newStartTime??"");if(before.some(id=>!after.includes(id))||after.some(id=>!before.includes(id))){res.status(409).json({error:"La modifica attraversa una variazione del programma congiunto. Gestisci prima le annate da Squadre."});return;}}
   const values = {
     clubId,
     teamId,

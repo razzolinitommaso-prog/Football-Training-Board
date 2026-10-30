@@ -1,8 +1,9 @@
+import { trainingLocalDate, trainingSlotOnDate, trainingSlotPeriodsOverlap, trainingProgramLeader } from "@workspace/api-zod";
 import { TrainingRosterManager } from "@/components/training-roster-groups";
 import { useState, useEffect } from "react";
 import { useListTeams, useCreateTeam, useDeleteTeam, useUpdateTeam, useCreatePlayer } from "@workspace/api-client-react";
 import type { Team, TrainingSlot } from "@workspace/api-client-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -262,6 +263,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const [selectedTeamIds, setSelectedTeamIds] = useState<number[]>([]);
   const [scheduleTeam, setScheduleTeam] = useState<{ id: number; name: string } | null>(null);
   const [scheduleRows, setScheduleRows] = useState<TeamTrainingSlot[]>([]);
+  const [programFrom,setProgramFrom]=useState(trainingLocalDate());
+  const [programReference,setProgramReference]=useState("independent");
   const [editTeam, setEditTeam] = useState<any | null>(null);
   const [editScheduleRows, setEditScheduleRows] = useState<TeamTrainingSlot[]>([]);
   const [createScheduleRows, setCreateScheduleRows] = useState<TeamTrainingSlot[]>([]);
@@ -329,26 +332,21 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
   };
 
-  const updateScheduleMutation = useUpdateTeam({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["/api/teams"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/training-sessions"] });
-        setScheduleTeam(null);
-        toast({ title: "Orari salvati" });
-      },
-      onError: (err: any) => {
-        if (import.meta.env.DEV) console.error("[updateScheduleMutation] error:", err);
-        toast({ title: "Errore nel salvataggio orari", description: err?.message ?? String(err), variant: "destructive" });
-      },
-    }
+  const updateScheduleMutation = useMutation({
+    mutationFn:async({id,data}:{id:number;data:{effectiveFrom:string;referenceTeamId:number|null;trainingSchedule:TeamTrainingSlot[];expectedUpdatedAt:string;expectedReferenceUpdatedAt?:string}})=>{
+      const response=await fetch(withApi(`/api/teams/${id}/training-program`),{method:"PUT",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+      if(!response.ok){const error=await response.json().catch(()=>({}));throw Error(error.error??"Programma non salvato");}return response.json();
+    },onSuccess:async()=>{await queryClient.invalidateQueries();setScheduleTeam(null);toast({title:"Programma allenamenti salvato"});},
+    onError:(error:Error)=>toast({title:"Programma non salvato",description:error.message,variant:"destructive"})
   });
-
-  function openScheduleDialog(team: { id: number; name: string; trainingSchedule?: TeamTrainingSlot[] | null }) {
-    setScheduleTeam({ id: team.id, name: team.name });
-    setScheduleRows(team.trainingSchedule ? [...team.trainingSchedule] : []);
+  function openScheduleDialog(team: {id:number;name:string;trainingSchedule?:TeamTrainingSlot[]|null}) {
+    const date=trainingLocalDate();setScheduleTeam({id:team.id,name:team.name});setProgramFrom(date);
+    setProgramReference(String(trainingProgramLeader(team.trainingSchedule,date)??"independent"));
+    setScheduleRows((team.trainingSchedule??[]).filter(slot=>trainingSlotOnDate(slot,date)).map(({validFrom,validUntil,jointTeamId,...slot})=>slot));
   }
-
+  const nextProgramChange=teams.find(team=>team.id===scheduleTeam?.id)?.trainingSchedule?.map(slot=>slot.validFrom).filter((date):date is string=>!!date&&date>programFrom).sort()[0];
+  const referenceTeam=teams.find(team=>String(team.id)===programReference);
+  const displayedSchedule=referenceTeam?(referenceTeam.trainingSchedule??[]).filter(slot=>trainingSlotOnDate(slot,programFrom)):scheduleRows;
   function normalizeScheduleRows(rows: TeamTrainingSlot[]) {
     return rows.map((row) => ({ ...row, campo: row.campo?.trim() || null, lockerRoom: row.lockerRoom?.trim() || null }));
   }
@@ -366,10 +364,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   }
 
   function saveSchedule() {
-    if (!scheduleTeam) return;
-    if (!assertScheduleAvailable(scheduleRows, scheduleTeam.id)) return;
-    if (import.meta.env.DEV) console.log("[saveSchedule] id=", scheduleTeam.id, "scheduleRows=", scheduleRows);
-    updateScheduleMutation.mutate({ id: scheduleTeam.id, data: { trainingSchedule: normalizeScheduleRows(scheduleRows) } });
+    if(!scheduleTeam)return;
+    updateScheduleMutation.mutate({id:scheduleTeam.id,data:{expectedUpdatedAt:(allTeams.find(team=>team.id===scheduleTeam.id) as Team&{updatedAt:string}).updatedAt,expectedReferenceUpdatedAt:(referenceTeam as Team&{updatedAt?:string}|undefined)?.updatedAt,effectiveFrom:programFrom,referenceTeamId:programReference==="independent"?null:Number(programReference),trainingSchedule:normalizeScheduleRows(scheduleRows)}});
   }
 
   const updateTeamMutation = useUpdateTeam({
@@ -400,7 +396,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   function openEditDialog(team: any) {
     setEditTeam(team);
-    setEditScheduleRows(team.trainingSchedule ? [...team.trainingSchedule] : []);
+    setEditScheduleRows((team.trainingSchedule??[]).filter((slot:TeamTrainingSlot)=>trainingSlotOnDate(slot,trainingLocalDate())));
     editForm.reset({
       name: team.name ?? "",
       ageGroup: team.ageGroup ?? "",
@@ -426,9 +422,10 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
   function saveEditTeam(data: z.infer<typeof teamSchema>) {
     if (!editTeam) return;
-    if (!assertScheduleAvailable(editScheduleRows, editTeam.id)) return;
+    const managed=!!editTeam.trainingSchedule?.some((slot:TeamTrainingSlot)=>slot.validFrom||slot.validUntil||slot.jointTeamId)||allTeams.some(team=>team.trainingSchedule?.some(slot=>slot.jointTeamId===editTeam.id));
+    if (!managed&&!assertScheduleAvailable(editScheduleRows, editTeam.id)) return;
     if (import.meta.env.DEV) console.log("[saveEditTeam] id=", editTeam.id, "editScheduleRows=", editScheduleRows, "formData=", data);
-    updateTeamMutation.mutate({ id: editTeam.id, data: { ...normalizeTeamFormData(data), trainingSchedule: normalizeScheduleRows(editScheduleRows) } });
+    updateTeamMutation.mutate({ id: editTeam.id, data: { ...normalizeTeamFormData(data), ...(managed?{}:{trainingSchedule: normalizeScheduleRows(editScheduleRows)}) } });
   }
 
   function addEditScheduleRow() {
@@ -479,10 +476,11 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
 
     ((allTeams as any[] | undefined) ?? []).forEach((team) => {
       if (ignoreTeamId && Number(team.id) === Number(ignoreTeamId)) return;
-      const teamSchedule = (team.trainingSchedule ?? []) as TeamTrainingSlot[];
+      const teamSchedule = (team.trainingSchedule ?? []).filter((slot:TeamTrainingSlot)=>!slot.validUntil||slot.validUntil>=trainingLocalDate()) as TeamTrainingSlot[];
       normalizedRows.forEach((row) => {
         teamSchedule.forEach((slot) => {
-          if (!scheduleOverlaps(row, slot)) return;
+          if (!trainingSlotPeriodsOverlap(row,slot) || !scheduleOverlaps(row, slot)) return;
+          if(ignoreTeamId&&(slot.jointTeamId===ignoreTeamId||row.jointTeamId===team.id||row.jointTeamId&&row.jointTeamId===slot.jointTeamId))return;
           if (fieldResourceConflicts(row.campo, slot.campo)) {
             messages.push(`${row.day} ${row.startTime}-${row.endTime}: ${row.campo} gia occupato da ${team.name}`);
           }
@@ -988,19 +986,20 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                         </div>
                       </div>
                       <div className="flex gap-1">
-                        {canEditTeam ? (
+                        {canEditTeam && (
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
                             title="Modifica squadra"
                             onClick={() => openEditDialog(team)}>
                             <Pencil className="w-4 h-4" />
                           </Button>
-                        ) : canEditSchedule ? (
+                        )}
+                        {(canEditSchedule||canEditTeam) && (
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
-                            title="Giorni e orari di allenamento"
+                            title="Giorni e orari di allenamento" aria-label={`Programma allenamenti ${displayName}`}
                             onClick={() => openScheduleDialog({ id: team.id, name: displayName, trainingSchedule: (team as any).trainingSchedule })}>
                             <Clock className="w-4 h-4" />
                           </Button>
-                        ) : null}
+                        )}
                         {canEditTeam && (
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                             onClick={() => { if (confirm(t.deleteTeam)) deleteMutation.mutate({ id: team.id }) }}>
@@ -1064,8 +1063,9 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                         <Clock className="w-3.5 h-3.5" />
                         Giorni e orari di allenamento
                       </div>
+                      {trainingProgramLeader(team.trainingSchedule,trainingLocalDate())&&<p className="mb-2 text-xs font-medium text-primary">Allenamento congiunto con {teams.find(item=>item.id===trainingProgramLeader(team.trainingSchedule,trainingLocalDate()))?.name??"squadra di riferimento"} · preparazione unica</p>}
                       <div className="space-y-1.5">
-                        {((team as any).trainingSchedule as TeamTrainingSlot[]).map((slot, idx) => (
+                        {((team as any).trainingSchedule as TeamTrainingSlot[]).filter(slot=>trainingSlotOnDate(slot,trainingLocalDate())).map((slot, idx) => (
                           <div key={idx} className="grid grid-cols-[80px_1fr] items-center gap-3 text-sm">
                             <span className="font-medium text-foreground">{slot.day}</span>
                             <span className="text-right text-xs tabular-nums text-muted-foreground">
@@ -1216,7 +1216,9 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                 </p>
               )}
               <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
-                {editScheduleRows.map((row, idx) => (
+                {editTeam?.trainingSchedule?.some((slot:TeamTrainingSlot)=>slot.validFrom||slot.validUntil||slot.jointTeamId)&&<p className="text-sm text-muted-foreground">Per modificare il programma e le annate congiunte usa Giorni e orari nella scheda squadra: qui le modifiche agli orari non vengono applicate.</p>}
+                {(editTeam?.trainingSchedule?.some((slot:TeamTrainingSlot)=>slot.validFrom||slot.validUntil||slot.jointTeamId)||allTeams.some(team=>team.trainingSchedule?.some(slot=>slot.jointTeamId===editTeam?.id)))&&editScheduleRows.map((row,idx)=><p key={idx} className="rounded-lg border px-3 py-2 text-sm">{row.day} · {row.startTime}–{row.endTime} · {row.campo} · Spogliatoio {row.lockerRoom}</p>)}
+                {!(editTeam?.trainingSchedule?.some((slot:TeamTrainingSlot)=>slot.validFrom||slot.validUntil||slot.jointTeamId)||allTeams.some(team=>team.trainingSchedule?.some(slot=>slot.jointTeamId===editTeam?.id)))&&editScheduleRows.map((row, idx) => (
                   <div key={idx} className="grid grid-cols-1 gap-1.5 bg-muted/40 border rounded-lg px-3 py-2 md:grid-cols-[130px_96px_12px_96px_auto] md:items-center">
                     <Select value={row.day} onValueChange={(val) => updateEditScheduleRow(idx, "day", val)}>
                       <SelectTrigger className="h-8 text-sm">
@@ -1278,7 +1280,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                   </div>
                 ))}
               </div>
-              <Button type="button" variant="outline" size="sm" className="w-full gap-2 border-dashed" onClick={addEditScheduleRow}>
+              <Button type="button" variant="outline" size="sm" className="w-full gap-2 border-dashed" disabled={!!(editTeam?.trainingSchedule?.some((slot:TeamTrainingSlot)=>slot.validFrom||slot.validUntil||slot.jointTeamId)||allTeams.some(team=>team.trainingSchedule?.some(slot=>slot.jointTeamId===editTeam?.id)))} onClick={addEditScheduleRow}>
                 <PlusCircle className="w-4 h-4" />
                 Aggiungi seduta
               </Button>
@@ -1302,14 +1304,21 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               Giorni e orari di allenamento — {scheduleTeam?.name}
             </DialogTitle>
           </DialogHeader>
-          <p className="text-xs text-muted-foreground">Il salvataggio prepara le sedute vuote future entro le date di allenamento o della stagione configurata. Le sedute già compilate vengono conservate.</p>
+          <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+            <div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="program-from">Valido dal</Label><Input id="program-from" type="date" min={trainingLocalDate()} value={programFrom} onChange={e=>{const date=e.target.value;setProgramFrom(date);const slots=teams.find(team=>team.id===scheduleTeam?.id)?.trainingSchedule??[];setProgramReference(String(trainingProgramLeader(slots,date)??"independent"));setScheduleRows(slots.filter(slot=>trainingSlotOnDate(slot,date)).map(({validFrom,validUntil,jointTeamId,...slot})=>slot));}}/></div>
+            <div><Label>Programma allenamenti</Label><Select value={programReference} onValueChange={value=>{setProgramReference(value);if(value==="independent"&&programReference!=="independent")setScheduleRows([]);}}><SelectTrigger aria-label="Programma allenamenti"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="independent">Programma autonomo</SelectItem>{teams.filter(team=>team.id!==scheduleTeam?.id&&team.clubSection===teams.find(current=>current.id===scheduleTeam?.id)?.clubSection&&!trainingProgramLeader(team.trainingSchedule,programFrom)).map(team=><SelectItem key={team.id} value={String(team.id)}>Congiunto con {team.name}</SelectItem>)}</SelectContent></Select></div></div>
+            <p className="text-xs text-muted-foreground">{referenceTeam?`Giorni, orari, campo e spogliatoio sono quelli di ${referenceTeam.name}. Un'unica seduta da preparare e un unico appello per entrambe le rose.`:"Indica giorni, orari, campo e spogliatoio del programma autonomo. Le modifiche valgono dalla data scelta."}</p>
+            {nextProgramChange&&<p className="text-xs font-medium text-primary">La variazione già programmata dal {nextProgramChange.split("-").reverse().join("/")} resta conservata. Questa modifica vale fino al giorno precedente.</p>}
+            <p className="text-xs text-muted-foreground">Le sedute passate restano conservate. Se una seduta futura è già compilata, il sistema segnala cosa gestire prima di separare i gruppi.</p>
+          </div>
           <div className="space-y-3 pt-2 max-h-[55vh] overflow-y-auto pr-1">
             {scheduleRows.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-6">
                 Nessun orario impostato. Aggiungi una seduta.
               </p>
             )}
-            {scheduleRows.map((row, idx) => (
+            {referenceTeam&&displayedSchedule.map((row,idx)=><div key={idx} className="rounded-lg border px-3 py-2 text-sm"><strong>{row.day} · {row.startTime}–{row.endTime}</strong><p className="text-muted-foreground">{row.campo??"Campo da impostare"} · Spogliatoio {row.lockerRoom??"da impostare"}</p></div>)}
+            {!referenceTeam&&scheduleRows.map((row, idx) => (
               <div key={idx} className="grid grid-cols-1 gap-1.5 bg-muted/40 border rounded-lg px-3 py-2 md:grid-cols-[130px_96px_12px_96px_auto] md:items-center">
                 <Select value={row.day} onValueChange={(val) => updateScheduleRow(idx, "day", val)}>
                   <SelectTrigger className="h-8 text-sm">
@@ -1369,7 +1378,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                 </Button>
               </div>
             ))}
-            <Button variant="outline" size="sm" className="w-full gap-2 border-dashed" onClick={addScheduleRow}>
+            <Button disabled={!!referenceTeam} variant="outline" size="sm" className="w-full gap-2 border-dashed" onClick={addScheduleRow}>
               <PlusCircle className="w-4 h-4" />
               Aggiungi seduta
             </Button>
@@ -1377,7 +1386,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
           <DialogFooter className="pt-2">
             <Button variant="ghost" onClick={() => setScheduleTeam(null)}>Annulla</Button>
             <Button onClick={saveSchedule} disabled={updateScheduleMutation.isPending} className="min-w-[120px]">
-              {updateScheduleMutation.isPending ? "Salvataggio..." : "Salva orari"}
+              {updateScheduleMutation.isPending ? "Salvataggio..." : "Salva programma"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1457,7 +1457,7 @@ function EditSessionDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Squadra</Label>
-              <SessionTeamPicker teams={teams} teamId={teamId} sharedIds={sharedTeamIds} onChange={(id,ids)=>{setTeamId(id);setSharedTeamIds(ids);}}/>
+              {session.notes?.includes("[FTB_PROGRAM_TEAMS]")?<div className="rounded-lg border bg-muted/30 p-3 text-sm"><p className="font-medium">Congiunto · {session.teamName??"Squadra di riferimento"}</p><p className="text-xs text-muted-foreground">Preparazione condivisa delle annate. Il programma si modifica da Squadre.</p></div>:<SessionTeamPicker teams={teams} teamId={teamId} sharedIds={sharedTeamIds} onChange={(id,ids)=>{setTeamId(id);setSharedTeamIds(ids);}}/>}
             </div>
             <div className="space-y-2">
               <Label>Luogo</Label>
@@ -1838,7 +1838,7 @@ function SessionDetailsDialog({
   });
   const selectablePlayersQuery = useQuery<PlayerOption[]>({
     queryKey: ["training-rosters", "training-session-exercise-selection", exerciseForm.teamId || "all", exerciseFormOpen, exerciseForm.playersRequiredMode,session.notes],
-    queryFn: async () => {const ids=sessionTeamIds(session.teamId,session.notes);if(!ids.length)return apiFetch("/api/players");const lists=await Promise.all(ids.map(id=>apiFetch(`/api/training-rosters/${id}?scope=team`)));return [...new Map(lists.flatMap(list=>list.players as PlayerOption[]).map(player=>[player.id,player])).values()];},
+    queryFn: async () => {if(session.notes?.includes("[FTB_PROGRAM_TEAMS]"))return apiFetch(`/api/training-sessions/${session.id}/roster`);const ids=sessionTeamIds(session.teamId,session.notes);if(!ids.length)return apiFetch("/api/players");const lists=await Promise.all(ids.map(id=>apiFetch(`/api/training-rosters/${id}?scope=team`)));return [...new Map(lists.flatMap(list=>list.players as PlayerOption[]).map(player=>[player.id,player])).values()];},
     enabled: exerciseFormOpen,
   });
 
@@ -1859,6 +1859,7 @@ function SessionDetailsDialog({
       const created = await apiFetch("/api/exercises", {
         method: "POST",
         body: JSON.stringify({
+          programSessionId: session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined,
           title: form.title,
           category: form.category || null,
           description: composeExerciseDescription(form.description, stations),
@@ -1913,6 +1914,7 @@ function SessionDetailsDialog({
       return apiFetch(`/api/exercises/${link.exercise.id}`, {
         method: "PATCH",
         body: JSON.stringify({
+          programSessionId: session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined,
           title: form.title,
           category: form.category || null,
           description: composeExerciseDescription(form.description, stations),
@@ -2118,7 +2120,7 @@ function SessionDetailsDialog({
           </div>
         </DialogHeader>
 
-        <StationTurnPlanner activities={linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??""),preview:link.exercise?.drawingData??null,attendanceAdjusted:link.exercise?.attendanceAdjusted,principle:link.exercise?.principio?principioLabel(link.exercise.principio):null}))} blockedPlayerIds={blockedPlayerIds} attendanceLoading={participants.isLoading||participants.isError} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly||planQuery.isLoading||planQuery.isError} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione della seduta salvata"});}} onPreviewChange={setRotationPreview} onView={id=>setViewingLink(linkedExercises.find(link=>link.id===id)??null)} onEdit={id=>{const link=linkedExercises.find(link=>link.id===id);if(link)openEditExercise(link);}} onRemove={id=>{if(confirm("Rimuovere la stazione da questa seduta?"))removeLinkMutation.mutate(id);}}>
+        <StationTurnPlanner sessionId={session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined} activities={linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??""),preview:link.exercise?.drawingData??null,attendanceAdjusted:link.exercise?.attendanceAdjusted,principle:link.exercise?.principio?principioLabel(link.exercise.principio):null}))} blockedPlayerIds={blockedPlayerIds} attendanceLoading={participants.isLoading||participants.isError} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly||planQuery.isLoading||planQuery.isError} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione della seduta salvata"});}} onPreviewChange={setRotationPreview} onView={id=>setViewingLink(linkedExercises.find(link=>link.id===id)??null)} onEdit={id=>{const link=linkedExercises.find(link=>link.id===id);if(link)openEditExercise(link);}} onRemove={id=>{if(confirm("Rimuovere la stazione da questa seduta?"))removeLinkMutation.mutate(id);}}>
         {({toolbar,phases})=><TrainingSessionOverview
           editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>{setEditingMetadata(false);setMetadataDirty(false);}} onSaved={()=>{setMetadataDirty(false);void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
           phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 text-sm"><Label htmlFor={`recovery-${session.id}-${index}`}>Recupero tra fase {index+1} e {index+2}</Label><Input id={`recovery-${session.id}-${index}`} aria-label={`Recupero tra fase ${index+1} e ${index+2}`} className="w-20" type="number" min={0} max={300} step={1} disabled={readOnly||planQuery.isLoading||planQuery.isError||savePlan.isPending} value={recoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300){setRecoveries(previous=>index===0?[value,previous[1]]:[previous[0],value]);setRecoveriesDirty(true);}}}/><span>min</span></div>)}
@@ -2370,10 +2372,11 @@ function SessionDetailsDialog({
                     </div>
                     <div className="space-y-2">
                       <Label className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Squadra</Label>
-                      <Select value={exerciseForm.teamId || "_none"} onValueChange={(v) => setExerciseForm((prev) => ({ ...prev, teamId: v === "_none" ? "" : v, selectedPlayerIdsJson: "" }))}>
+                      <Select disabled={!!session.notes?.includes("[FTB_PROGRAM_TEAMS]")} value={exerciseForm.teamId || "_none"} onValueChange={(v) => setExerciseForm((prev) => ({ ...prev, teamId: v === "_none" ? "" : v, selectedPlayerIdsJson: "" }))}>
                         <SelectTrigger><SelectValue placeholder="Seleziona squadra" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">Nessuna</SelectItem>
+                          {session.teamId&&!teams.some(team=>team.id===session.teamId)&&<SelectItem value={String(session.teamId)}>{session.teamName??"Squadra della seduta congiunta"}</SelectItem>}
                           {teams.map((team) => <SelectItem key={team.id} value={String(team.id)}>{team.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
@@ -2457,7 +2460,7 @@ function SessionDetailsDialog({
                         ) : selectablePlayers.length === 0 ? (
                           <p className="text-sm text-muted-foreground italic">Nessun giocatore disponibile per la selezione.</p>
                         ) : (
-                          <TrainingRosterPicker excludedIds={blockedPlayerIds} players={selectablePlayers} selectedIds={selectedPlayerIds} teamId={exerciseForm.teamId} onConfirm={ids => setExerciseForm(prev => ({ ...prev, selectedPlayerIdsJson: JSON.stringify(ids.filter(id=>!blockedPlayerIds.includes(id)&&!reservedPlayers.has(id))) }))} />
+                          <TrainingRosterPicker sessionId={session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined} excludedIds={blockedPlayerIds} players={selectablePlayers} selectedIds={selectedPlayerIds} teamId={exerciseForm.teamId} onConfirm={ids => setExerciseForm(prev => ({ ...prev, selectedPlayerIdsJson: JSON.stringify(ids.filter(id=>!blockedPlayerIds.includes(id)&&!reservedPlayers.has(id))) }))} />
                         )}
                       </div>
                     )}
@@ -2645,7 +2648,7 @@ function SessionDetailsDialog({
                       <p className="text-sm font-medium">Lavagna stazione</p>
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
-                    <ExerciseTacticalBoard title={exerciseForm.title || "Stazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds.filter(id=>!blockedPlayerIds.includes(id)) : selectablePlayers.map(player => player.id)} onSave={result => setExerciseForm(prev => {const safe=attendanceExerciseView(result,blockedPlayerIds);return {...prev,statoLavagnaJson:safe.statoLavagnaJson??"",drawingData:safe.drawingData??"",drawingElementsJson:safe.drawingElementsJson??""};})} />
+                    <ExerciseTacticalBoard programSessionId={session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined} title={exerciseForm.title || "Stazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds.filter(id=>!blockedPlayerIds.includes(id)) : selectablePlayers.map(player => player.id)} onSave={result => setExerciseForm(prev => {const safe=attendanceExerciseView(result,blockedPlayerIds);return {...prev,statoLavagnaJson:safe.statoLavagnaJson??"",drawingData:safe.drawingData??"",drawingElementsJson:safe.drawingElementsJson??""};})} />
                   </div>
                   {exerciseForm.statoLavagnaJson && exerciseForm.drawingData ? <img src={exerciseForm.drawingData} alt="Anteprima lavagna stazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
                     value={exerciseForm.drawingData || null}
@@ -2870,7 +2873,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
     if (!coachTeamScope) return mySessionsForCoach;
     if (coachTeamScope === "__none__") return mySessionsForCoach.filter((s) => s.teamId == null);
     const targetId = Number(coachTeamScope);
-    return mySessionsForCoach.filter((s) => s.teamId === targetId);
+    return mySessionsForCoach.filter((s) => sessionTeamIds(s.teamId,s.notes).includes(targetId));
   }, [mySessionsForCoach, coachTeamOptions.length, coachTeamScope]);
   const coachDateOptions = useMemo(() => {
     const dates = new Set<string>();

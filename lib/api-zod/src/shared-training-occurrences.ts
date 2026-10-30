@@ -1,6 +1,7 @@
+import { trainingSlotOnDate, type ProgramTrainingSlot } from "./training-program-schedule";
 import { parentTrainingOccurrence } from "./parent-activity";
 import { sessionTeamIds } from "./training-session-teams";
-type Slot={day:string;startTime:string;endTime:string};
+type Slot=ProgramTrainingSlot;
 export type SharedTrainingSession={teamId:number|null;notes:string|null;scheduledAt:Date|string;durationMinutes:number|null;location?:string|null};
 const minutes=(time:string)=>Number(time.slice(0,2))*60+Number(time.slice(3,5));
 export function trainingLocalSlot(at:Date|string){const key=parentTrainingOccurrence(1,new Date(at));return {date:key.slice(2,12),start:key.slice(-5)};}
@@ -8,7 +9,7 @@ export function trainingReplyMatches(occurrenceId:string,session:SharedTrainingS
  const match=/^\d+-(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2})$/.exec(occurrenceId);if(!match)return false;
  const {date,start}=trainingLocalSlot(session.scheduledAt);if(match[1]!==date)return false;if(match[2]===start)return true;
  const days=['domenica','lunedi','martedi','mercoledi','giovedi','venerdi','sabato'];const day=days[new Date(`${date}T12:00:00Z`).getUTCDay()];
- return schedule.some(slot=>slot.day.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()===day&&slot.startTime===match[2]&&minutes(slot.startTime)<minutes(start)+(session.durationMinutes??90)&&minutes(slot.endTime)>minutes(start));
+ return schedule.some(slot=>trainingSlotOnDate(slot,date)&&slot.day.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()===day&&slot.startTime===match[2]&&minutes(slot.startTime)<minutes(start)+(session.durationMinutes??90)&&minutes(slot.endTime)>minutes(start));
 }
 /** Preserve the parent's original occurrence ID, so an existing reply is retained. */
 export function overlaySharedTrainingRows(rows:Record<string,unknown>[],sessions:SharedTrainingSession[],teamId:number,teamName:string):Record<string,unknown>[] {
