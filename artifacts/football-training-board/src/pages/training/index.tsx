@@ -1,3 +1,5 @@
+import { parseStationDescription, composeStationDescription } from "@/lib/station-description";
+import { StationVariants, StationVariantsView } from "@/components/training/StationVariants";
 import { prepareReusedBoard } from "@/lib/reuse-training-station";
 import { useSessionParticipants } from "@/hooks/use-session-participants";
 import { attendanceExerciseView } from "@workspace/api-zod";
@@ -128,6 +130,7 @@ type AttendanceSummary = {
 };
 
 type ExerciseFormState = {
+  stationVariants: string[];
   title: string;
   category: string;
   description: string;
@@ -413,6 +416,7 @@ function normalizePrincipio(value: string | null | undefined): string {
 function emptyExerciseFormFromSession(session: TrainingSession, existingCount: number): ExerciseFormState {
   const inheritedTrainingSession = getSessionTrainingSession(session) ?? "";
   return {
+    stationVariants: [],
     title: `Stazione ${existingCount + 1} - ${session.title}`,
     category: "",
     description: "",
@@ -447,6 +451,7 @@ function formFromLinkedExercise(link: SessionExerciseLink): ExerciseFormState {
     title: link.exercise?.title ?? "",
     category: link.exercise?.category ?? "",
     description: parsedDescription.description,
+    stationVariants: parsedDescription.variants,
     durationMinutes: link.exercise?.durationMinutes ? String(link.exercise.durationMinutes) : "",
     playersRequired: link.exercise?.playersRequired ? String(link.exercise.playersRequired) : "",
     equipment: link.exercise?.equipment ?? "",
@@ -499,16 +504,13 @@ function parseExerciseStations(raw: string): ExerciseStation[] {
   }
 }
 
-function splitExerciseDescriptionAndStations(raw: string): { description: string; stations: ExerciseStation[] } {
-  const idx = raw.indexOf(EXERCISE_STATIONS_MARKER);
-  if (idx < 0) return { description: raw, stations: [] };
-  const description = raw.slice(0, idx).trim();
-  const json = raw.slice(idx + EXERCISE_STATIONS_MARKER.length).trim();
-  return { description, stations: parseExerciseStations(json) };
+function splitExerciseDescriptionAndStations(raw: string): { description: string; variants: string[]; stations: ExerciseStation[] } {
+  const parsed = parseStationDescription(raw);
+  return { description: parsed.description, variants: parsed.variants, stations: parseExerciseStations(parsed.suffix.slice(EXERCISE_STATIONS_MARKER.length).trim()) };
 }
 
-function composeExerciseDescription(description: string, stations: ExerciseStation[]): string | null {
-  const cleanDescription = description.trim();
+function composeExerciseDescription(description: string, stations: ExerciseStation[], variants: string[] = []): string | null {
+  const cleanDescription = composeStationDescription(description, variants) ?? "";
   const cleanStations = stations.filter((station) =>
     station.title.trim() ||
     station.exercise.trim() ||
@@ -1872,7 +1874,7 @@ function SessionDetailsDialog({
           programSessionId: session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined,
           title: form.title,
           category: form.category || null,
-          description: composeExerciseDescription(form.description, stations),
+          description: composeExerciseDescription(form.description, stations, form.stationVariants),
           durationMinutes: Math.ceil(totalStationMinutes(stations)) || (form.durationMinutes ? Number(form.durationMinutes) : null),
           playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
           equipment: stationEquipment || form.equipment || null,
@@ -1927,7 +1929,7 @@ function SessionDetailsDialog({
           programSessionId: session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined,
           title: form.title,
           category: form.category || null,
-          description: composeExerciseDescription(form.description, stations),
+          description: composeExerciseDescription(form.description, stations, form.stationVariants),
           durationMinutes: Math.ceil(totalStationMinutes(stations)) || (form.durationMinutes ? Number(form.durationMinutes) : null),
           playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
           equipment: stationEquipment || form.equipment || null,
@@ -2242,6 +2244,7 @@ function SessionDetailsDialog({
                   </p>
                 </div>
               )}
+              <StationVariantsView value={parseStationDescription(viewingLink.exercise.description).variants} />
               {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").stations.length > 0 && (
                 <div className="space-y-2">
                   <Label>Esercizi</Label>
@@ -2657,6 +2660,7 @@ function SessionDetailsDialog({
                       rows={3}
                     />
                   </div>
+                  <StationVariants value={exerciseForm.stationVariants} onChange={stationVariants => setExerciseForm(prev => ({ ...prev, stationVariants }))} />
 
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                     <div>

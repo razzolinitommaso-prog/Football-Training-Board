@@ -1,3 +1,5 @@
+import { parseStationDescription, composeStationDescription } from "@/lib/station-description";
+import { StationVariants, StationVariantsView } from "@/components/training/StationVariants";
 import { TrainingCategoryPicker } from "@/components/training/TrainingCategoryPicker";
 import { trainingCategories, trainingCategoryLabel } from "@workspace/api-zod";
 import { PrinciplePicker } from "@/components/training/PrinciplePicker";
@@ -35,6 +37,8 @@ import { ExerciseVideoRecorder } from "./ExerciseVideoRecorder";
 import { withApi } from "@/lib/api-base";
 
 interface Exercise {
+  stationVariants?: string[];
+  internalExercisesSuffix?: string;
   id: number; title: string; category?: string | null; description?: string | null;
   createdAt?: string | null;
   durationMinutes?: number | null; playersRequired?: number | null; equipment?: string | null;
@@ -454,6 +458,9 @@ export default function ExercisesPage() {
     setForm({
       ...emptyForm(),
       ...ex,
+      description: parseStationDescription(ex.description).description,
+      stationVariants: parseStationDescription(ex.description).variants,
+      internalExercisesSuffix: parseStationDescription(ex.description).suffix,
       statoLavagnaJson: asDuplicate ? detachExerciseBoard(ex.statoLavagnaJson) : ex.statoLavagnaJson,
       trainingDay: isLegacySessionInTrainingDay ? null : (ex.trainingDay ?? null),
       trainingSession: ex.trainingSession ?? (isLegacySessionInTrainingDay ? ex.trainingDay : null),
@@ -528,7 +535,7 @@ export default function ExercisesPage() {
     const payload = {
       title: form.title,
       category: form.category || null,
-      description: form.description || null,
+      description: composeStationDescription(form.description ?? "", form.stationVariants ?? [], form.internalExercisesSuffix),
       durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : null,
       playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
       equipment: form.equipment || null,
@@ -577,7 +584,7 @@ export default function ExercisesPage() {
     createEx.mutate({
       title: form.title,
       category: form.category || null,
-      description: form.description || null,
+      description: composeStationDescription(form.description ?? "", form.stationVariants ?? [], form.internalExercisesSuffix),
       durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : null,
       playersRequired: computedPlayersRequired ? Number(computedPlayersRequired) : null,
       equipment: form.equipment || null,
@@ -835,7 +842,7 @@ export default function ExercisesPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    {ex.description && <p className="text-sm text-muted-foreground line-clamp-2">{ex.description}</p>}
+                    {ex.description && <p className="text-sm text-muted-foreground line-clamp-2">{parseStationDescription(ex.description).description}</p>}
                     <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                       {ex.durationMinutes && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{ex.durationMinutes} min</span>}
                       {ex.playersRequired && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{ex.playersRequired} gioc.</span>}
@@ -945,10 +952,11 @@ export default function ExercisesPage() {
                 {viewingEx.trainingPhase && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getPhaseColor(viewingEx.trainingPhase)}`}>{getPhaseLabel(viewingEx.trainingPhase)}</span>}
                 {viewingEx.isDraft && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">Bozza</span>}
               </div>
-              {viewingEx.description && (
+              <StationVariantsView value={parseStationDescription(viewingEx.description).variants} />
+              {parseStationDescription(viewingEx.description).description && (
                 <div className="space-y-1">
                   <Label>Descrizione</Label>
-                  <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">{viewingEx.description}</p>
+                  <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">{parseStationDescription(viewingEx.description).description}</p>
                 </div>
               )}
               <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
@@ -1067,6 +1075,7 @@ export default function ExercisesPage() {
                     <Label>{t.description}</Label>
                     <Textarea value={form.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value || null }))} rows={3} />
                   </div>
+                  <StationVariants value={form.stationVariants ?? []} onChange={stationVariants => setForm(previous => ({ ...previous, stationVariants }))} />
 
                   <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                     <div className="grid grid-cols-2 gap-3">
