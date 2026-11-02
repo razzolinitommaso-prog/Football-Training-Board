@@ -8,7 +8,7 @@ const config: CapacitorConfig = {
     zoomEnabled: true,
   },
   server: {
-    url: "https://football-training-board.onrender.com",
+    url: "https://football-training-board-static.onrender.com",
     cleartext: false,
   },
 };
