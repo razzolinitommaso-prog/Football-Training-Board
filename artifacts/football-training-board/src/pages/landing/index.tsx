@@ -58,6 +58,7 @@ export default function LandingPage() {
           <nav className="hidden md:flex items-center gap-8 text-sm text-gray-400">
             <a href="#features" className="hover:text-white transition-colors">{t.landingNavFeatures}</a>
             <a href="#areas" className="hover:text-white transition-colors">{t.landingNavAreas}</a>
+            <a href="/installa.html" className="hover:text-white transition-colors">{language === "en" ? "Install FTB" : "Installa FTB"}</a>
           </nav>
 
           <div className="hidden md:flex items-center gap-3">
@@ -113,6 +114,9 @@ export default function LandingPage() {
                 🇮🇹 IT
               </button>
             </div>
+            <a href="/installa.html" onClick={() => setMobileMenuOpen(false)} className="block py-2 font-semibold text-emerald-400">
+              {language === "en" ? "Install FTB" : "Installa FTB"}
+            </a>
             <Link href="/login-club" onClick={() => setMobileMenuOpen(false)}>
               <div className="block py-2 text-gray-300 hover:text-white">{t.landingNavLogin}</div>
             </Link>
@@ -261,6 +265,7 @@ export default function LandingPage() {
               <span className="text-gray-600 ml-1 text-xs">Football Training Board</span>
             </div>
           </div>
+          <a href="/installa.html" className="text-emerald-400 hover:text-emerald-300">{language === "en" ? "Install FTB" : "Installa FTB"}</a>
           <span>© {new Date().getFullYear()} Football Training Board. {t.landingFooterRights}</span>
         </div>
       </footer>
