@@ -156,6 +156,9 @@ export default function LoginClubPage() {
                 <span className="text-emerald-400 hover:text-emerald-300 font-medium cursor-pointer">{t.createOneFree}</span>
               </Link>
             </p>
+            <a href="/installa.html" className="mt-4 inline-block text-sm font-medium text-emerald-400 hover:text-emerald-300">
+              {language === "en" ? "Install FTB on your phone" : "Installa FTB sul telefono"}
+            </a>
           </div>
         </div>
       </div>

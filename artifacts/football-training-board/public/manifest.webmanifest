@@ -1,0 +1,25 @@
+{
+  "background_color": "#080f1b",
+  "icons": [
+    {
+      "type": "image/png",
+      "src": "/icons/ftb-192.png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "type": "image/png",
+      "src": "/icons/ftb-512.png",
+      "sizes": "512x512",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#0f172a",
+  "lang": "it",
+  "scope": "/",
+  "short_name": "FTB",
+  "display": "standalone",
+  "start_url": "/login-club",
+  "id": "/",
+  "name": "Football Training Board"
+}
