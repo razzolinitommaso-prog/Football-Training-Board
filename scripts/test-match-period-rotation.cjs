@@ -1,0 +1,381 @@
+// Executes the actual rotation helpers and the existing normalizers, with no DB/session access.
+const fs = require("fs"),
+  path = require("path"),
+  vm = require("vm"),
+  assert = require("assert/strict"),
+  { createRequire } = require("module");
+const root = process.env.FTB_TEST_ROOT || path.resolve(__dirname, "..");
+const ts = require(path.join(root, "node_modules/typescript"));
+const lib = path.join(root, "artifacts/football-training-board/src/lib");
+function load(file, extra = {}) {
+  const module = { exports: {} };
+  const localRequire = createRequire(file);
+  vm.runInNewContext(
+    ts.transpileModule(fs.readFileSync(file, "utf8"), {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.CommonJS,
+      },
+    }).outputText,
+    {
+      module,
+      exports: module.exports,
+      require: (name) =>
+        name === "./match-lineup"
+          ? load(path.join(lib, "match-lineup.ts"))
+          : localRequire(name),
+      ...extra,
+    },
+  );
+  return module.exports;
+}
+function extract(file, names, extra = {}) {
+  const text = fs.readFileSync(file, "utf8"),
+    ast = ts.createSourceFile(
+      file,
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+  const source =
+    ast.statements
+      .filter(
+        (n) => ts.isFunctionDeclaration(n) && names.includes(n.name?.text),
+      )
+      .map((n) => n.getText(ast))
+      .join("\n") +
+    "\nmodule.exports={" +
+    names.join(",") +
+    "};";
+  const module = { exports: {} };
+  vm.runInNewContext(
+    ts.transpileModule(source, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.CommonJS,
+      },
+    }).outputText,
+    { module, exports: module.exports, ...extra },
+  );
+  return module.exports;
+}
+const rotation = load(path.join(lib, "match-period-rotation.ts"));
+const actual = extract(
+  path.join(
+    root,
+    "artifacts/football-training-board/src/pages/calendari/TeamCalendar.tsx",
+  ),
+  ["defaultPeriodsForTeam", "ensurePlanPeriods", "copyLineupAlternative"],
+  { periodMinutes: rotation.periodMinutes },
+);
+const backend = extract(
+  path.join(root, "artifacts/api-server/src/routes/matches.ts"),
+  ["normalizeMatchPlan", "preserveMatchReport"],
+);
+const zodReq = createRequire(path.join(root, "lib/api-zod/package.json"));
+const reportFile = path.join(root, "lib/api-zod/src/match-report.ts");
+const reportModule = { exports: {} };
+vm.runInNewContext(
+  ts.transpileModule(fs.readFileSync(reportFile, "utf8"), {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.CommonJS,
+    },
+  }).outputText,
+  { module: reportModule, exports: reportModule.exports, require: zodReq },
+);
+const json = (x) => JSON.parse(JSON.stringify(x)),
+  same = (a, b, message) => assert.deepEqual(json(a), json(b), message);
+const defaults = actual.defaultPeriodsForTeam(
+  "scuola_calcio",
+  "Primi Calci",
+  "",
+);
+const saved = {
+  fourthTime: true,
+  periods: [
+    ...defaults.map((p, i) => ({
+      ...p,
+      minutes: i === 0 ? "18" : p.minutes,
+      lineupPlayerIds: [i + 1],
+    })),
+    {
+      key: "t4",
+      label: "4° tempo",
+      minutes: "17",
+      module: "2-2",
+      lineupPlayerIds: [8, 9],
+      lineupStarterCount: 1,
+      lineupPositions: { 8: { x: 25, y: 50 } },
+      lineupDrawings: [],
+      lineupAlternatives: [
+        {
+          id: "alt",
+          title: "Alternativa",
+          module: "2-2",
+          lineupPlayerIds: [9, 8],
+          lineupStarterCount: 1,
+          lineupPositions: { 9: { x: 40, y: 50 } },
+          lineupDrawings: [],
+        },
+      ],
+    },
+  ],
+};
+let reopened = actual.ensurePlanPeriods(json(saved), defaults);
+assert.equal(reopened.periods.length, 4);
+assert.equal(reopened.periods[0].minutes, "18");
+assert.equal(reopened.periods[3].minutes, "17");
+same(reopened.periods[3].lineupPlayerIds, [8, 9]);
+same(reopened.periods[3].lineupPositions, saved.periods[3].lineupPositions);
+same(
+  reopened.periods[3].lineupAlternatives,
+  saved.periods[3].lineupAlternatives,
+);
+const selected = new Set(Array.from({ length: 10 }, (_, i) => i + 1)),
+  limit = () => 5;
+const initial = defaults.map((p, i) => ({
+  ...p,
+  ...(i === 0 ? { lineupPlayerIds: [...selected], lineupStarterCount: 5 } : {}),
+}));
+const three = rotation.rotateMatchPeriods(initial, selected, limit);
+const units = rotation.rotationUnits(three);
+same(
+  units.map((u) => u.minutes),
+  [12, 12, 6, 6],
+);
+same(
+  units.map((u) => u.period.lineupPlayerIds.slice(0, 5)),
+  [
+    [1, 2, 3, 4, 5],
+    [6, 7, 8, 9, 10],
+    [1, 2, 3, 4, 5],
+    [6, 7, 8, 9, 10],
+  ],
+);
+const totals = rotation.plannedPlayerMinutes(three, selected, limit);
+assert.ok(Object.values(totals).every((value) => value === 18));
+assert.equal(
+  Object.values(totals).reduce((a, b) => a + b, 0),
+  180,
+);
+same(
+  rotation.rotateMatchPeriods(three, selected, limit),
+  three,
+  "Repeated rotation is stable",
+);
+const linked = rotation.rotateMatchPeriods(
+  initial.map((p) =>
+    p.key === "t3"
+      ? { ...p, boardId: 90, boardUrl: "/board/90", module: "2-2" }
+      : p,
+  ),
+  selected,
+  limit,
+);
+assert.equal(
+  linked[2].secondPart.boardId,
+  undefined,
+  "Second part does not impersonate first-part board",
+);
+assert.equal(linked[2].secondPart.module, "2-2");
+const custom = three.map((p) =>
+  p.key === "t3" ? { ...p, thirdPartMinutes: 4 } : p,
+);
+same(
+  rotation.rotationUnits(custom).map((u) => u.minutes),
+  [12, 12, 4, 8],
+);
+const splitSaved = actual.ensurePlanPeriods(
+  { periods: three, fourthTime: false },
+  defaults,
+);
+same(splitSaved.periods[2].secondPart, three[2].secondPart);
+let four = rotation.toggleFourthPeriod(
+  { periods: three, fourthTime: false },
+  true,
+);
+four = {
+  ...four,
+  periods: rotation.rotateMatchPeriods(four.periods, selected, limit),
+};
+same(
+  rotation.rotationUnits(four.periods).map((u) => u.minutes),
+  [12, 12, 12, 12],
+);
+assert.ok(
+  Object.values(
+    rotation.plannedPlayerMinutes(four.periods, selected, limit),
+  ).every((v) => v === 24),
+);
+four.periods[3] = {
+  ...four.periods[3],
+  lineupPositions: { 6: { x: 25, y: 75 } },
+};
+const disabled = rotation.toggleFourthPeriod(four, false),
+  enabled = rotation.toggleFourthPeriod(disabled, true);
+same(
+  enabled.periods[3],
+  four.periods[3],
+  "Disabling and enabling preserves t4",
+);
+same(
+  disabled.periods[2].secondPart,
+  three[2].secondPart,
+  "Dormant split lineup retained",
+);
+const manual = three.map((p, i) =>
+  i === 1
+    ? {
+        ...p,
+        lineupPlayerIds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        lineupStarterCount: 5,
+        rotationAuto: false,
+      }
+    : p,
+);
+const kept = rotation.rotateMatchPeriods(manual, selected, limit);
+same(
+  kept[1].lineupPlayerIds.slice(0, 5),
+  [1, 2, 3, 4, 5],
+  "Manual selection protected",
+);
+const forced = rotation.rotateMatchPeriods(
+  manual,
+  selected,
+  limit,
+  new Set(),
+  true,
+);
+same(forced[1].lineupPlayerIds.slice(0, 5), [6, 7, 8, 9, 10]);
+const emptyBench = manual.map((p, i) =>
+  i === 1 ? { ...p, lineupStarterCount: 0 } : p,
+);
+assert.equal(
+  rotation.rotateMatchPeriods(emptyBench, selected, limit)[1]
+    .lineupStarterCount,
+  0,
+  "Explicit empty field remains empty",
+);
+const removed = rotation.rotateMatchPeriods(
+  three,
+  new Set([...selected].filter((id) => id !== 8)),
+  limit,
+);
+assert.ok(
+  rotation
+    .rotationUnits(removed)
+    .every((u) => !u.period.lineupPlayerIds.includes(8)),
+);
+const keepers = rotation.rotateMatchPeriods(
+  initial,
+  selected,
+  limit,
+  new Set([1, 6]),
+);
+assert.ok(
+  rotation
+    .rotationUnits(keepers)
+    .every(
+      (u) =>
+        u.period.lineupPlayerIds
+          .slice(0, u.period.lineupStarterCount)
+          .filter((id) => [1, 6].includes(id)).length === 1,
+    ),
+);
+const odd = rotation.rotateMatchPeriods(
+  initial.map((p, i) => (i ? { ...p, lineupPlayerIds: undefined } : p)),
+  new Set([1, 2, 3, 4, 5, 6, 7]),
+  limit,
+);
+const oddTotals = Object.values(
+  rotation.plannedPlayerMinutes(odd, new Set([1, 2, 3, 4, 5, 6, 7]), limit),
+);
+assert.equal(
+  oddTotals.reduce((a, b) => a + b, 0),
+  180,
+);
+assert.ok(Math.max(...oddTotals) - Math.min(...oddTotals) <= 12);
+const report = rotation.seedMatchReport(three, selected, limit);
+assert.equal(report.periods.length, 3);
+assert.equal(report.substitutions.length, 5);
+assert.ok(report.substitutions.every((e) => e.period === 2 && e.minute === 6));
+const analysis = reportModule.exports.analyseMatchReport(
+  report,
+  [...selected],
+  5,
+);
+same(analysis.errors, []);
+same(
+  analysis.minutes,
+  totals,
+  "Actual report seeding agrees with planned minutes",
+);
+assert.equal(
+  rotation.seedMatchReport(four.periods, selected, limit).substitutions.length,
+  0,
+);
+const reported = { periods: three, fourthTime: false, postMatchReport: report };
+const added = rotation.toggleFourthPeriod(reported, true);
+assert.equal(added.postMatchReport.periods.length, 4);
+same(added.postMatchReport.substitutions, report.substitutions);
+same(rotation.toggleFourthPeriod(added, false).postMatchReport, report);
+assert.throws(
+  () =>
+    rotation.toggleFourthPeriod(
+      {
+        ...added,
+        postMatchReport: {
+          ...added.postMatchReport,
+          periods: added.postMatchReport.periods.map((p, i) =>
+            i === 3 ? { ...p, starters: [1] } : p,
+          ),
+        },
+      },
+      false,
+    ),
+  /resoconto/,
+);
+const oldClient = {
+  periods: three.map(({ secondPart, thirdPartMinutes, ...p }) => p),
+};
+backend.preserveMatchReport(oldClient, {
+  periods: custom,
+  fourthPeriodDraft: four.periods[3],
+});
+same(oldClient.periods[2].secondPart, custom[2].secondPart);
+assert.equal(oldClient.periods[2].thirdPartMinutes, 4);
+same(oldClient.fourthPeriodDraft, four.periods[3]);
+const adult = actual.defaultPeriodsForTeam(
+  "prima_squadra",
+  "Prima squadra",
+  "",
+);
+assert.equal(adult.length, 2);
+assert.equal(
+  actual.ensurePlanPeriods({ periods: adult }, adult).periods.length,
+  2,
+);
+assert.equal(rotation.periodMinutes("15,5"), 15.5);
+const reordered = actual.ensurePlanPeriods(
+  { periods: [three[1], three[0], three[2]] },
+  defaults,
+);
+same(
+  reordered.periods.map((p) => p.key),
+  ["t2", "t1", "t3"],
+  "Saved order retained",
+);
+const formatSource = three.map((p) =>
+  p.key === "t3" ? { ...p, module: "2-2", format: "5v5" } : p,
+);
+const formatFourth = rotation.toggleFourthPeriod(
+  { periods: formatSource },
+  true,
+).periods[3];
+assert.equal(formatFourth.module, "2-2");
+assert.equal(formatFourth.format, "5v5");
+console.log(
+  "PASS match rotation: saved t4/minutes/positions/alternatives, split third, 4 full periods, unequal split, uneven rosters, keepers, manual overrides, roster removal, report minutes, protected completed reports, older clients, two-period legacy plans. No real data used.",
+);

@@ -298,12 +298,14 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
   if (next && next.postMatchReport === undefined && old?.postMatchReport !== undefined) {
     next.postMatchReport = old.postMatchReport;
   }
+  if(next&&next.fourthPeriodDraft===undefined&&old?.fourthPeriodDraft!==undefined)next.fourthPeriodDraft=old.fourthPeriodDraft;
   // Older clients do not know about alternatives: omission must not erase them.
   if (next && Array.isArray(next.periods) && Array.isArray(old?.periods)) {
     const previousPeriods = new Map(old.periods.filter((period): period is Record<string, unknown> => Boolean(period) && typeof period === "object").map(period => [period.key, period]));
     for (const period of next.periods) {
       if (!period || typeof period !== "object" || Array.isArray(period)) continue;
       const previousPeriod = previousPeriods.get(period.key);
+      for(const field of ["secondPart","thirdPartMinutes"]){if(!Object.prototype.hasOwnProperty.call(period,field)&&previousPeriod?.[field]!==undefined)period[field]=previousPeriod[field];}
       // Keep an explicit bench boundary when an older client resaves the same lineup.
       if (period.lineupStarterCount === undefined && typeof previousPeriod?.lineupStarterCount === "number"
         && JSON.stringify(period.lineupPlayerIds) === JSON.stringify(previousPeriod.lineupPlayerIds)) {

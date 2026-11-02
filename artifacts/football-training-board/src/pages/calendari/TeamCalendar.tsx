@@ -1,3 +1,4 @@
+import {rotateMatchPeriods, periodMinutes, thirdPartDuration, plannedPlayerMinutes, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
 import SharedTournamentHub from "./SharedTournamentHub";
 import { trainingSlotOnDate } from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
@@ -291,6 +292,9 @@ type MatchSection = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 type MatchPlanPeriod = { key: string; label: string; minutes: string; formation?: string; module?: string; format?: MatchFormat; };
 type MatchFormat = "3v3" | "5v5" | "7v7" | "9v9" | "11v11";
 type MatchPlanPeriodRuntime = MatchPlanPeriod & {
+  secondPart?: MatchPlanPeriodRuntime;
+  thirdPartMinutes?: number;
+  rotationAuto?: boolean;
   lineupPlayerIds?: number[];
   lineupStarterCount?: number;
   lineupPositions?: LineupPositionMap;
@@ -345,6 +349,7 @@ type MatchPlanData = {
   postMatchReport?: MatchReport;
   boardLink?: string;
   fourthTime?: boolean;
+  fourthPeriodDraft?: MatchPlanPeriodRuntime;
   convocationAt?: string;
   convocationPlace?: string;
   disciplineCards?: MatchDisciplineCard[];
@@ -1120,23 +1125,8 @@ function reorderIds(ids: number[], draggedId: number, targetId: number): number[
   return next;
 }
 
-function applyScuolaCalcioSecondPeriodAuto(
-  periods: MatchPlanPeriodRuntime[],
-  selectedIds: Set<number>,
-  defaultFormat: MatchFormat,
-): MatchPlanPeriodRuntime[] {
-  if (periods.length < 2) return periods;
-  const first = periods[0];
-  const second = periods[1];
-  const startersLimit = startersLimitForPeriod(first, defaultFormat);
-  const firstReserves = splitMatchLineup(first, startersLimit, selectedIds).reserves;
-  const secondCurrent = second.lineupPlayerIds ?? [];
-  if (second.lineupStarterCount === Math.min(firstReserves.length, startersLimitForPeriod(second, defaultFormat)) && secondCurrent.length === firstReserves.length && secondCurrent.every((id, idx) => id === firstReserves[idx])) {
-    return periods;
-  }
-  const next = [...periods];
-  next[1] = { ...second, lineupPlayerIds: [...firstReserves], lineupStarterCount: Math.min(firstReserves.length, startersLimitForPeriod(second, defaultFormat)) };
-  return next;
+function applyScuolaCalcioPeriodRotation(periods:MatchPlanPeriodRuntime[], selectedIds:Set<number>, defaultFormat:MatchFormat, players?:Map<number,Player>, force=false):MatchPlanPeriodRuntime[]{
+ return rotateMatchPeriods(periods,selectedIds,p=>startersLimitForPeriod(p,defaultFormat),new Set([...(players?.values()??[])].filter(isGoalkeeperPlayer).map(p=>p.id)),force);
 }
 
 function movePlayerBetweenPeriods(
@@ -1150,18 +1140,18 @@ function movePlayerBetweenPeriods(
   return periods.map((period, idx) => {
     const current = [...(period.lineupPlayerIds ?? [])];
     if (idx === sourceIndex) {
-      return { ...period, lineupPlayerIds: current.filter((id) => id !== draggedId), lineupStarterCount: period.lineupStarterCount == null ? undefined : Math.max(0, period.lineupStarterCount - (current.indexOf(draggedId) >= 0 && current.indexOf(draggedId) < period.lineupStarterCount ? 1 : 0)) };
+      return { ...period, rotationAuto:false, lineupPlayerIds: current.filter((id) => id !== draggedId), lineupStarterCount: period.lineupStarterCount == null ? undefined : Math.max(0, period.lineupStarterCount - (current.indexOf(draggedId) >= 0 && current.indexOf(draggedId) < period.lineupStarterCount ? 1 : 0)) };
     }
     if (idx === targetIndex) {
       const withoutDragged = current.filter((id) => id !== draggedId);
       if (targetId == null) {
-        return { ...period, lineupPlayerIds: [...withoutDragged, draggedId] };
+        return { ...period, rotationAuto:false, lineupPlayerIds: [...withoutDragged, draggedId] };
       }
       const targetPos = withoutDragged.indexOf(targetId);
       if (targetPos < 0) return { ...period, lineupPlayerIds: [...withoutDragged, draggedId] };
       const next = [...withoutDragged];
       next.splice(targetPos, 0, draggedId);
-      return { ...period, lineupPlayerIds: next, lineupStarterCount: period.lineupStarterCount == null ? undefined : period.lineupStarterCount + (targetPos < period.lineupStarterCount && !current.includes(draggedId) ? 1 : 0) };
+      return { ...period, rotationAuto:false, lineupPlayerIds: next, lineupStarterCount: period.lineupStarterCount == null ? undefined : period.lineupStarterCount + (targetPos < period.lineupStarterCount && !current.includes(draggedId) ? 1 : 0) };
     }
     return period;
   });
@@ -1458,15 +1448,21 @@ function defaultPeriodsForTeam(section: MatchSection, teamName: string, teamCate
 
 function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: MatchPlanPeriodRuntime[]): MatchPlanData {
   const map = new Map((base?.periods ?? []).map((p) => [p.key, p]));
+  const templates=base?.fourthTime?[...defaults,{key:"t4",label:"4° tempo",minutes:String(periodMinutes(defaults[2]?.minutes??defaults[0]?.minutes??"12"))}]:defaults;
+  const ordered=[...(base?.periods??[]).filter(p=>templates.some(d=>d.key===p.key)).map(p=>templates.find(d=>d.key===p.key)!),...templates.filter(d=>!(base?.periods??[]).some(p=>p.key===d.key))];
   return {
+    ...base,
     boardLink: base?.boardLink ?? "",
     postMatchReport: base?.postMatchReport,
     fourthTime: !!base?.fourthTime,
+    fourthPeriodDraft:base?.fourthPeriodDraft??map.get("t4"),
     convocationAt: base?.convocationAt ?? "",
     convocationPlace: base?.convocationPlace ?? "",
     disciplineCards: Array.isArray(base?.disciplineCards) ? base.disciplineCards : [],
-    periods: defaults.map((d) => ({
+    periods: ordered.map((d) => ({
       ...d,
+      ...map.get(d.key),
+      minutes:map.get(d.key)?.minutes??d.minutes,
       formation: map.get(d.key)?.formation ?? "",
       module: map.get(d.key)?.module ?? "",
       format: map.get(d.key)?.format ?? undefined,
@@ -1488,7 +1484,7 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
 }
 
 function normalizePlanPeriodsForSection(plan: MatchPlanData, section: MatchSection): MatchPlanData {
-  if (section === "scuola_calcio") return plan;
+  if (section === "scuola_calcio") return {...plan,periods:plan.periods.map(p=>p.key!=="t3"?p:{...p,secondPart:p.secondPart??{key:"t3-second",label:"3° tempo · seconda parte",minutes:String(periodMinutes(p.minutes)/2),lineupPlayerIds:[]}})};
   const defaultFormat: MatchFormat = "11v11";
   const validModules = moduleOptionsForFormat(defaultFormat);
   return {
@@ -2234,6 +2230,7 @@ function MatchCard({
               const { lineupPlayerIds } = normalized;
               return {
               ...period,
+              rotationAuto:false,
               module: lineupDialog.module,
               ...normalized,
               lineupPlayerIds,
@@ -2253,8 +2250,8 @@ function MatchCard({
           : period,
       );
       const adjusted =
-        autoReserveRuleEnabled && lineupDialog.periodIndex === 0
-          ? applyScuolaCalcioSecondPeriodAuto(periods, selectedPlayerIds, matchFormat)
+        autoReserveRuleEnabled
+          ? applyScuolaCalcioPeriodRotation(periods, selectedPlayerIds, matchFormat, convokedById)
           : periods;
       return { ...prev, periods: adjusted };
     });
@@ -2266,11 +2263,13 @@ function MatchCard({
       const periods = previous.periods.map((period, index) => {
         if (index !== periodIndex) return period;
         if (alternativeId) return { ...period, lineupAlternatives: (period.lineupAlternatives ?? []).map(alternative => alternative.id === alternativeId ? { ...alternative, ...changes } : alternative) };
-        return { ...period, ...changes, lineupDetectedModule: null, boardConfirmed: false };
+        return { ...period, ...changes, rotationAuto:false, lineupDetectedModule: null, boardConfirmed: false };
       });
-      return { ...previous, periods: !alternativeId && autoReserveRuleEnabled && periodIndex === 0 ? applyScuolaCalcioSecondPeriodAuto(periods, selectedPlayerIds, matchFormat) : periods };
+      return { ...previous, periods: !alternativeId && autoReserveRuleEnabled ? applyScuolaCalcioPeriodRotation(periods, selectedPlayerIds, matchFormat, convokedById) : periods };
     });
   }
+
+  function updateThirdPart(periodIndex:number,changes:Partial<MatchPlanPeriodRuntime>){setPlanDraft(previous=>{const periods=previous.periods.map((p,i)=>i!==periodIndex?p:{...p,secondPart:{...(p.secondPart??{key:"t3-second",label:"3° tempo · seconda parte",minutes:String(periodMinutes(p.minutes)/2)}),...changes,rotationAuto:false,boardConfirmed:false}});return {...previous,periods:applyScuolaCalcioPeriodRotation(periods,selectedPlayerIds,matchFormat,convokedById)};});}
 
   function addLineupAlternatives(periodIndex: number, minimum = false) {
     const stamp = Date.now();
@@ -2288,9 +2287,9 @@ function MatchCard({
       const periods = previous.periods.map((period, index) => {
         if (index !== periodIndex) return period;
         const alternative = period.lineupAlternatives?.find(item => item.id === alternativeId);
-        return alternative ? applyLineupAlternative(period, alternative) : period;
+        return alternative ? {...applyLineupAlternative(period, alternative),rotationAuto:false} : period;
       });
-      return { ...previous, periods: autoReserveRuleEnabled && periodIndex === 0 ? applyScuolaCalcioSecondPeriodAuto(periods, selectedPlayerIds, matchFormat) : periods };
+      return { ...previous, periods: autoReserveRuleEnabled ? applyScuolaCalcioPeriodRotation(periods, selectedPlayerIds, matchFormat, convokedById) : periods };
     });
   }
 
@@ -2304,11 +2303,11 @@ function MatchCard({
         { ...first, lineupPlayerIds: first.lineupPlayerIds ?? selectedPlayersOrdered }, limit, playerId, reserve, selected,
       );
       const nextPeriods = prev.periods.map((period, index) =>
-        index === periodIndex ? { ...period, lineupPlayerIds, lineupStarterCount, boardConfirmed: false } : period,
+        index === periodIndex ? { ...period, lineupPlayerIds, lineupStarterCount, rotationAuto:false, boardConfirmed: false } : period,
       );
       const adjusted =
-        autoReserveRuleEnabled && periodIndex === 0
-          ? applyScuolaCalcioSecondPeriodAuto(nextPeriods, selectedPlayerIds, matchFormat)
+        autoReserveRuleEnabled
+          ? applyScuolaCalcioPeriodRotation(nextPeriods, selectedPlayerIds, matchFormat, convokedById)
           : nextPeriods;
       return { ...prev, periods: adjusted };
     });
@@ -2382,21 +2381,13 @@ function MatchCard({
         return { ...period, lineupPlayerIds: lineup, lineupStarterCount: count, ...(lineupChanged ? { boardConfirmed: false } : {}) };
       });
 
-      // 2nd period starters auto-populate from 1st period reserves (except 11v11 flows).
+      // Refresh automatic units across the whole game; preserve manual choices.
       if (autoReserveRuleEnabled && nextPeriods.length >= 2) {
-        const adjusted = applyScuolaCalcioSecondPeriodAuto(nextPeriods, selectedPlayerIds, matchFormat);
+        const adjusted = applyScuolaCalcioPeriodRotation(nextPeriods, selectedPlayerIds, matchFormat, convokedById);
         nextPeriods.splice(0, nextPeriods.length, ...adjusted);
       }
 
-      const changed = nextPeriods.some((period, idx) => {
-        const prevLineup = prev.periods[idx]?.lineupPlayerIds ?? [];
-        const nextLineup = period.lineupPlayerIds ?? [];
-        if (prev.periods[idx]?.lineupStarterCount !== period.lineupStarterCount || prevLineup.length !== nextLineup.length) return true;
-        for (let i = 0; i < prevLineup.length; i += 1) {
-          if (prevLineup[i] !== nextLineup[i]) return true;
-        }
-        return false;
-      });
+      const changed=JSON.stringify(nextPeriods)!==JSON.stringify(prev.periods);
       return changed ? { ...prev, periods: nextPeriods } : prev;
     });
   }, [selectionReady, selectedPlayersOrdered, selectedPlayerIds, autoReserveRuleEnabled, matchFormat]);
@@ -2424,6 +2415,7 @@ function MatchCard({
               ...normalizePeriodLineup(alternative, convokedById, startersLimitForPeriod({ ...p, ...alternative }, matchFormat), selected),
               lineupPositions: Object.fromEntries(Object.entries(alternative.lineupPositions ?? {}).filter(([id]) => selectedKeys.has(id))),
             })),
+            ...(p.secondPart?{secondPart:{...p.secondPart,...normalizePeriodLineup(p.secondPart,convokedById,startersLimitForPeriod({...p,...p.secondPart},matchFormat),selected),lineupPositions:Object.fromEntries(Object.entries(p.secondPart.lineupPositions??{}).filter(([id])=>selectedKeys.has(id)))}}:{}),
             lineupDetectedModule: detectLineupModuleLabel(
               lineupPlayerIds,
               lineupPositions,
@@ -2842,7 +2834,7 @@ function MatchCard({
               <div className="rounded-md border border-border/60 bg-muted/20 p-1 sm:p-3 space-y-3">
                 {planDraft.periods.map((previewPeriod, previewPeriodIndex) => (
                   <details key={previewPeriod.key} open={previewPeriodIndex === 0} className="rounded-lg border bg-background/50 p-1 sm:p-3">
-                    <DisclosureSummary className="cursor-pointer py-2 text-sm font-semibold">{previewPeriod.label} · {previewPeriod.minutes} min — apri/chiudi preparazione</DisclosureSummary>
+                    <DisclosureSummary className="cursor-pointer py-2 text-sm font-semibold">{previewPeriod.label}{matchSection==="scuola_calcio"&&previewPeriod.key==="t3"&&!planDraft.fourthTime?" · prima parte":""} · {matchSection==="scuola_calcio"&&previewPeriod.key==="t3"&&!planDraft.fourthTime?thirdPartDuration(previewPeriod):matchSection==="scuola_calcio"?periodMinutes(previewPeriod.minutes):previewPeriod.minutes} min — apri/chiudi preparazione</DisclosureSummary>
                 <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.65fr)]">
                 <div className="min-w-0 space-y-2">
                   <Label className="text-xs text-muted-foreground">Convocazione (rosa utilizzata)</Label>
@@ -2995,6 +2987,130 @@ function MatchCard({
                   <Button type="button" className="w-full" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button>
                 </aside>
                 </div>
+                {matchSection === "scuola_calcio" &&
+                  previewPeriod.key === "t3" &&
+                  !planDraft.fourthTime &&
+                  (() => {
+                    const second: MatchPlanPeriodRuntime = {
+                      module: previewPeriod.module,
+                      format: previewPeriod.format,
+                      ...previewPeriod.secondPart,
+                      lineupPlayerIds: previewPeriod.secondPart?.lineupPlayerIds ?? [],
+                      lineupStarterCount: previewPeriod.secondPart?.lineupStarterCount,
+                      secondPart: undefined,
+                      key: "t3-second",
+                      label: "3° tempo · seconda parte",
+                      minutes: String(
+                        periodMinutes(previewPeriod.minutes) -
+                          thirdPartDuration(previewPeriod),
+                      ),
+                    };
+                    const limit = startersLimitForPeriod(second, matchFormat),
+                      groups = splitMatchLineup(second, limit, selectedPlayerIds);
+                    return (
+                      <section
+                        className="mt-4 space-y-3 rounded-lg border border-primary/30 p-2 sm:p-3"
+                        aria-label="Seconda parte del terzo tempo"
+                      >
+                        <h4 className="font-semibold">
+                          3° tempo · seconda parte · {second.minutes} min
+                        </h4>
+                        <p className="text-xs text-muted-foreground">
+                          Cambio a metà del terzo tempo. Le due parti insieme durano{" "}
+                          {periodMinutes(previewPeriod.minutes)} minuti.
+                        </p>
+                        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.65fr)]">
+                          <div className="divide-y rounded-lg border bg-background">
+                            {selectedPlayersOrdered.map((id) => {
+                              const player = convokedById.get(id);
+                              if (!player) return null;
+                              return (
+                                <div
+                                  key={id}
+                                  className="flex flex-wrap items-center gap-2 px-2 py-2 text-xs"
+                                >
+                                  <span className="min-w-0 flex-1">
+                                    {player.lastName} {player.firstName}
+                                  </span>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={
+                                      groups.starters.includes(id) ? "default" : "outline"
+                                    }
+                                    aria-pressed={groups.starters.includes(id)}
+                                    onClick={() =>
+                                      updateThirdPart(
+                                        previewPeriodIndex,
+                                        changeMatchLineupStatus(
+                                          second,
+                                          limit,
+                                          id,
+                                          false,
+                                          selectedPlayerIds,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    Titolare
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={
+                                      groups.reserves.includes(id) ? "secondary" : "outline"
+                                    }
+                                    aria-pressed={groups.reserves.includes(id)}
+                                    onClick={() =>
+                                      updateThirdPart(
+                                        previewPeriodIndex,
+                                        changeMatchLineupStatus(
+                                          second,
+                                          limit,
+                                          id,
+                                          true,
+                                          selectedPlayerIds,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    Riserva
+                                  </Button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="min-w-0 space-y-2">
+                            <MatchDraftLineupPreview
+                              period={second}
+                              matchFormat={matchFormat}
+                              selectedIds={selectedPlayerIds}
+                              playersById={convokedById}
+                              editorLabel="3° tempo · seconda parte"
+                              onChange={(changes) =>
+                                updateThirdPart(previewPeriodIndex, changes)
+                              }
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => setPreviewBoard(second)}
+                            >
+                              Ingrandisci seconda parte
+                            </Button>
+                            <Button
+                              type="button"
+                              className="w-full"
+                              onClick={saveMatchPlanAndCallups}
+                            >
+                              Salva piano partita
+                            </Button>
+                          </div>
+                        </div>
+                      </section>
+                    );
+                  })()}
                 <Button type="button" variant="outline" className="mt-3 min-h-10 w-full whitespace-normal" aria-expanded={openAlternativePeriods.has(previewPeriod.key)} onClick={() => {
                   if (!openAlternativePeriods.has(previewPeriod.key)) addLineupAlternatives(previewPeriodIndex, true);
                   setOpenAlternativePeriods(previous => { const next = new Set(previous); if (next.has(previewPeriod.key)) next.delete(previewPeriod.key); else next.add(previewPeriod.key); return next; });
@@ -3157,32 +3273,167 @@ function MatchCard({
                   </div>
                 )}
                 {matchSection === "scuola_calcio" && (
+                  <section
+                    className="space-y-3 rounded-lg border p-3"
+                    aria-label="Durata e alternanza dei tempi"
+                  >
+                    <h4 className="text-sm font-semibold">Durata e alternanza</h4>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {planDraft.periods.map((period, index) => (
+                        <div key={period.key}>
+                          <Label
+                            className="text-xs"
+                            htmlFor={"duration-" + match.id + "-" + period.key}
+                          >
+                            {period.label} · minuti totali
+                          </Label>
+                          <Input
+                            id={"duration-" + match.id + "-" + period.key}
+                            type="number"
+                            min={1}
+                            max={180}
+                            step={0.5}
+                            value={periodMinutes(period.minutes)}
+                            onChange={(e) => {
+                              const minutes = Number(e.target.value);
+                              if (minutes >= 1 && minutes <= 180)
+                                setPlanDraft((prev) => ({
+                                  ...prev,
+                                  periods: applyScuolaCalcioPeriodRotation(
+                                    prev.periods.map((p, i) =>
+                                      i === index
+                                        ? {
+                                            ...p,
+                                            minutes: String(minutes),
+                                            thirdPartMinutes:
+                                              p.thirdPartMinutes &&
+                                              p.thirdPartMinutes < minutes
+                                                ? p.thirdPartMinutes
+                                                : undefined,
+                                          }
+                                        : p,
+                                    ),
+                                    selectedPlayerIds,
+                                    matchFormat,
+                                    convokedById,
+                                  ),
+                                }));
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    {!planDraft.fourthTime &&
+                      planDraft.periods.find((p) => p.key === "t3") &&
+                      (() => {
+                        const third = planDraft.periods.find((p) => p.key === "t3")!;
+                        return (
+                          <div className="space-y-1">
+                            <Label className="text-xs" htmlFor={"third-split-" + match.id}>
+                              3° tempo: durata prima parte
+                            </Label>
+                            <Input
+                              id={"third-split-" + match.id}
+                              className="max-w-32"
+                              type="number"
+                              min={0.5}
+                              max={periodMinutes(third.minutes) - 0.5}
+                              step={0.5}
+                              value={thirdPartDuration(third)}
+                              onChange={(e) => {
+                                const minutes = Number(e.target.value);
+                                if (minutes > 0 && minutes < periodMinutes(third.minutes))
+                                  setPlanDraft((prev) => ({
+                                    ...prev,
+                                    periods: applyScuolaCalcioPeriodRotation(
+                                      prev.periods.map((p) =>
+                                        p.key === "t3"
+                                          ? { ...p, thirdPartMinutes: minutes }
+                                          : p,
+                                      ),
+                                      selectedPlayerIds,
+                                      matchFormat,
+                                      convokedById,
+                                    ),
+                                  }));
+                              }}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Seconda parte:{" "}
+                              {periodMinutes(third.minutes) - thirdPartDuration(third)} min.
+                              Totale terzo tempo: {periodMinutes(third.minutes)} min.
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "Ricalcolare l’alternanza dal secondo tempo in avanti? Le scelte manuali successive al primo tempo saranno sostituite.",
+                          )
+                        )
+                          setPlanDraft((prev) => ({
+                            ...prev,
+                            periods: applyScuolaCalcioPeriodRotation(
+                              prev.periods,
+                              selectedPlayerIds,
+                              matchFormat,
+                              convokedById,
+                              true,
+                            ),
+                          }));
+                      }}
+                    >
+                      Ricalcola alternanza
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      L’alternanza si estende a tutti i tempi e alle due parti del terzo
+                      quando non si gioca il quarto. Le modifiche manuali restano fino al
+                      ricalcolo esplicito.
+                    </p>
+                    <details>
+                      <DisclosureSummary className="text-xs font-semibold">
+                        Minuti previsti per ragazzo — apri/chiudi
+                      </DisclosureSummary>
+                      <p className="py-1 text-xs text-muted-foreground">
+                        Previsione del piano. Il resoconto registra i minuti effettivi.
+                      </p>
+                      <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+                        {(() => {
+                          const totals = plannedPlayerMinutes(
+                            planDraft.periods,
+                            selectedPlayerIds,
+                            (p) => startersLimitForPeriod(p, matchFormat),
+                          );
+                          return selectedPlayersOrdered.map((id) => {
+                            const player = convokedById.get(id);
+                            return player ? (
+                              <p
+                                key={id}
+                                className="flex justify-between gap-2 border-b py-1 text-xs"
+                              >
+                                <span>
+                                  {player.lastName} {player.firstName}
+                                </span>
+                                <strong>
+                                  {(totals[id] ?? 0).toLocaleString("it-IT")} min
+                                </strong>
+                              </p>
+                            ) : null;
+                          });
+                        })()}
+                      </div>
+                    </details>
+                  </section>
+                )}
+                {matchSection === "scuola_calcio" && (
                   <div className="flex items-center gap-2">
                     <Checkbox
                       checked={!!planDraft.fourthTime}
-                      onCheckedChange={(v) =>
-                        setPlanDraft((prev) => {
-                          const enabled = v === true;
-                          const hasFourth = prev.periods.some((p) => p.key === "t4");
-                          let periods = prev.periods;
-                          if (enabled && !hasFourth) {
-                            periods = [
-                              ...prev.periods,
-                              {
-                                key: "t4",
-                                label: "4° tempo",
-                                minutes: prev.periods[2]?.minutes || prev.periods[0]?.minutes || "15",
-                                module: prev.periods[2]?.module || prev.periods[0]?.module || "",
-                                lineupPlayerIds: [],
-                              },
-                            ];
-                          }
-                          if (!enabled && hasFourth) {
-                            periods = prev.periods.filter((p) => p.key !== "t4");
-                          }
-                          return { ...prev, fourthTime: enabled, periods };
-                        })
-                      }
+                      onCheckedChange={v=>{try{const next=toggleFourthPeriod(planDraft,v===true);setPlanDraft({...next,periods:applyScuolaCalcioPeriodRotation(next.periods,selectedPlayerIds,matchFormat,convokedById)});if(next.postMatchReport)setPostReportDraft(next.postMatchReport);}catch(error){toast({title:(error as Error).message,variant:"destructive"});}}}
                     />
                     <Label className="text-xs cursor-pointer">Abilita 4° tempo</Label>
                   </div>
@@ -3203,7 +3454,7 @@ function MatchCard({
                     return (
                       <div key={p.key} className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">
                         <div className="grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-2 items-end">
-                          <div className="text-[11px] text-muted-foreground">{p.label} ({p.minutes} min)</div>
+                          <div className="text-[11px] text-muted-foreground">{p.label} ({matchSection==="scuola_calcio"?periodMinutes(p.minutes):p.minutes} min)</div>
                           <div className="space-y-1">
                             {friendlyNextFormat && (
                               <label className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -3219,8 +3470,8 @@ function MatchCard({
                                         return { ...x, format: nextFormat, module: currentModule, lineupAlternatives: (x.lineupAlternatives ?? []).map(alternative => ({ ...alternative, module: valid.includes(alternative.module) ? alternative.module : "" })), boardConfirmed: false };
                                       });
                                       const adjusted =
-                                        autoReserveRuleEnabled && i === 0
-                                          ? applyScuolaCalcioSecondPeriodAuto(nextPeriods, selectedPlayerIds, matchFormat)
+                                        autoReserveRuleEnabled
+                                          ? applyScuolaCalcioPeriodRotation(nextPeriods, selectedPlayerIds, matchFormat, convokedById)
                                           : nextPeriods;
                                       return { ...prev, periods: adjusted };
                                     })
@@ -3249,8 +3500,8 @@ function MatchCard({
                                     ix === i ? { ...x, lineupPlayerIds: [...selectedPlayersOrdered], lineupStarterCount: Math.min(selectedPlayersOrdered.length, startersLimit), boardConfirmed: false } : x,
                                   );
                                   const adjusted =
-                                    autoReserveRuleEnabled && i === 0
-                                      ? applyScuolaCalcioSecondPeriodAuto(nextPeriods, selectedPlayerIds, matchFormat)
+                                    autoReserveRuleEnabled
+                                      ? applyScuolaCalcioPeriodRotation(nextPeriods, selectedPlayerIds, matchFormat, convokedById)
                                       : nextPeriods;
                                   return { ...prev, periods: adjusted };
                                 })
@@ -3289,8 +3540,8 @@ function MatchCard({
                                           sourceIndex === i
                                             ? prev.periods
                                             : movePlayerBetweenPeriods(prev.periods, sourceIndex, i, dragged);
-                                        if (autoReserveRuleEnabled && (sourceIndex === 0 || i === 0)) {
-                                          return applyScuolaCalcioSecondPeriodAuto(moved, selectedPlayerIds, matchFormat);
+                                        if (autoReserveRuleEnabled) {
+                                          return applyScuolaCalcioPeriodRotation(moved, selectedPlayerIds, matchFormat, convokedById);
                                         }
                                         return moved;
                                       })(),
@@ -3336,11 +3587,11 @@ function MatchCard({
                                             ? prev.periods.map((x, ix) => {
                                                 if (ix !== i) return x;
                                                 const current = (x.lineupPlayerIds ?? []).filter((id) => selectedPlayerIds.has(id));
-                                                return { ...x, lineupPlayerIds: reorderIds(current, dragged, playerId) };
+                                                return { ...x, rotationAuto:false, lineupPlayerIds: reorderIds(current, dragged, playerId) };
                                               })
                                             : movePlayerBetweenPeriods(prev.periods, sourceIndex, i, dragged, playerId);
-                                        if (autoReserveRuleEnabled && (sourceIndex === 0 || i === 0)) {
-                                          return applyScuolaCalcioSecondPeriodAuto(moved, selectedPlayerIds, matchFormat);
+                                        if (autoReserveRuleEnabled) {
+                                          return applyScuolaCalcioPeriodRotation(moved, selectedPlayerIds, matchFormat, convokedById);
                                         }
                                         return moved;
                                       })(),
@@ -3390,8 +3641,8 @@ function MatchCard({
                                     sourceIndex === i
                                       ? prev.periods
                                       : movePlayerBetweenPeriods(prev.periods, sourceIndex, i, dragged);
-                                  if (autoReserveRuleEnabled && (sourceIndex === 0 || i === 0)) {
-                                    return applyScuolaCalcioSecondPeriodAuto(moved, selectedPlayerIds, matchFormat);
+                                  if (autoReserveRuleEnabled) {
+                                    return applyScuolaCalcioPeriodRotation(moved, selectedPlayerIds, matchFormat, convokedById);
                                   }
                                   return moved;
                                 })(),
@@ -3643,10 +3894,7 @@ function MatchCard({
                         players={reportPlayers} limit={reportPlayerLimits} /> :
                       <Button type="button" variant="outline" size="sm" disabled={reportPlayers.length === 0} onClick={() => {
                         const called = new Set(reportPlayers.map(player => player.id));
-                        setPostReportDraft({ version: 1, goals: [], substitutions: [], periods: planDraft.periods.map(period => ({
-                          minutes: Number.parseFloat(period.minutes) || 40,
-                          starters: splitMatchLineup(period, startersLimitForPeriod(period, matchFormat), called).starters,
-                        })) });
+                        try{setPostReportDraft(seedMatchReport(planDraft.periods,called,p=>startersLimitForPeriod(p,matchFormat)));}catch(error){toast({title:(error as Error).message,variant:"destructive"});}
                       }}>Inserisci marcatori, minutaggio e sostituzioni</Button>
                     )}
                     {canManageMatchPlan && usesChampionshipSeason(matchSection) && (
