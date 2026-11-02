@@ -1,3 +1,4 @@
+import {buildMatchRotationSummary,defaultRotationCapacity} from "@workspace/api-zod";
 import { sessionTeamScope } from "../lib/session-team-scope";
 import { Router } from "express";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
@@ -62,7 +63,7 @@ router.get("/dirigenti/overview", requireAuth, async (req, res): Promise<void> =
     const date = match.isPostponed ? match.rescheduleTbd ? null : match.rescheduleDate : match.date;
     comparison = await managerMatchComparison(clubId,selectedTeamId,date,coachCallups.filter(callup=>callup.matchId===match.id).map(callup=>callup.id));
   }
-  const matches = matchRows.map(({matchPlan,...match})=>({...match, convocationAt:typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null, convocationPlace:typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null, callups:coachCallups.filter(callup=>callup.matchId===match.id).map(({status,...callup})=>callup)}));
+  const matches = matchRows.map(({matchPlan,...match})=>({...match, rotation:buildMatchRotationSummary(matchPlan,coachCallups.filter(callup=>callup.matchId===match.id).map(callup=>({...callup,jerseyNumber:players.find(p=>p.id===callup.id)?.jerseyNumber})),defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), convocationAt:typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null, convocationPlace:typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null, callups:coachCallups.filter(callup=>callup.matchId===match.id).map(({status,...callup})=>callup)}));
   res.json({ teams, selectedTeamId, players, training, matches, trainingCalendar, ...(comparison ? {comparison} : {}) });
 });
 export default router;

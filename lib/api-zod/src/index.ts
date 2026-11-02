@@ -19,3 +19,5 @@ export * from "./training-program-schedule";
 
 export * from "./exercise-board-materials";
 export * from "./shared-tournaments";
+
+export * from "./match-rotation-summary";

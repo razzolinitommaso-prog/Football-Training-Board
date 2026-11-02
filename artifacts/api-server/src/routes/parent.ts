@@ -1,3 +1,4 @@
+import {buildMatchRotationSummary,parentPublicMatch,defaultRotationCapacity} from "@workspace/api-zod";
 import { trainingSlotOnDate } from "@workspace/api-zod";
 import { sessionTeamScope, sessionTeamIds } from "../lib/session-team-scope";
 import { overlaySharedTrainingRows, trainingReplyMatches } from "@workspace/api-zod";
@@ -616,9 +617,9 @@ router.get("/parent/activity", requireParentSession, async (req, res): Promise<v
     db.execute(sql`SELECT a.occurrence_id AS "occurrenceId", a.scheduled_at AS "scheduledAt", a.status, a.reason, t.name AS "teamName"
       FROM parent_training_availabilities a JOIN teams t ON t.id = a.team_id AND t.club_id = ${clubId}
       WHERE a.club_id = ${clubId} AND a.player_id = ${playerId} AND a.scheduled_at <= ${now.toISOString()}`),
-    db.select({ id: matchesTable.id, date: matchesTable.date, opponent: matchesTable.opponent, plan: matchesTable.matchPlan })
-      .from(callUpsTable).innerJoin(matchesTable, and(eq(matchesTable.id, callUpsTable.matchId), eq(matchesTable.clubId, clubId)))
-      .where(and(eq(callUpsTable.playerId, playerId), lte(matchesTable.date, now),
+    db.select({ id: matchesTable.id, date: matchesTable.date, opponent: matchesTable.opponent, plan: matchesTable.matchPlan, teamName:teamsTable.name,teamCategory:teamsTable.category,section:teamsTable.clubSection })
+      .from(callUpsTable).innerJoin(matchesTable, and(eq(matchesTable.id, callUpsTable.matchId), eq(matchesTable.clubId, clubId))).leftJoin(teamsTable,and(eq(teamsTable.id,matchesTable.teamId),eq(teamsTable.clubId,clubId)))
+      .where(and(eq(callUpsTable.playerId, playerId),
         sql`lower(${callUpsTable.status}) NOT IN ('available','unavailable','availability','absent','declined','not_called')`))
       .orderBy(desc(matchesTable.date)),
   ]);
@@ -647,7 +648,7 @@ router.get("/parent/activity", requireParentSession, async (req, res): Promise<v
     playerName: `${player.firstName} ${player.lastName}`,
     trainings: [...history.values()].sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt)),
     matches: uniqueMatches.map(match => ({ id: match.id, date: match.date.toISOString(), opponent: match.opponent,
-      minutes: parentPlayedMinutes(match.plan, playerId) })),
+      minutes: parentPlayedMinutes(match.plan, playerId), rotation:buildMatchRotationSummary(match.plan,[{id:playerId,firstName:player.firstName,lastName:player.lastName}],defaultRotationCapacity(match.teamName,match.teamCategory,match.section)) })),
   };
   res.json(response);
 });
@@ -715,7 +716,7 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
     const callUpsWithNames = await Promise.all(callUps.map(async (cu) => {
       const [player] = await db.select({ firstName: playersTable.firstName, lastName: playersTable.lastName })
         .from(playersTable).where(and(eq(playersTable.id, cu.playerId), eq(playersTable.clubId, clubId)));
-      return { ...cu, playerName: player ? `${player.firstName} ${player.lastName}` : `#${cu.playerId}` };
+      return { id:cu.id,matchId:cu.matchId,playerId:cu.playerId,status:cu.status,playerName: player ? `${player.firstName} ${player.lastName}` : `#${cu.playerId}` };
     }));
     const ownCallUpRows = parentPlayerId
       ? sqlRows<ParentAvailabilityMeta>(await db.execute(sql`
@@ -731,9 +732,9 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
     const ownCallUp = ownCallUpRows[0] ?? null;
     const deadline = parentAvailabilityDeadline(match.date);
     return {
-      ...match,
+      ...parentPublicMatch(match),
       teamName,
-      callUps: callUpsWithNames,
+      callUps: [...new Map(callUpsWithNames.filter(cu=>isCoachCallupStatus(cu.status)).map(cu=>[cu.playerId,cu])).values()],
       parentPlayerId,
       parentAvailability: ownCallUp
         ? {
@@ -826,7 +827,7 @@ router.get("/parent/callups", requireParentSession, async (req, res): Promise<vo
     return { id: callUp.id, status: callUp.status, teamName, calledPlayers, match: {
       id: match.id, opponent: match.opponent, date: match.date, homeAway: match.homeAway,
       competition: match.competition, location: match.location,
-      notes: match.notes, preMatchNotes: match.preMatchNotes,
+      notes: parentPublicMatch(match).notes, preMatchNotes: match.preMatchNotes,
       isPostponed: match.isPostponed, rescheduleDate: match.rescheduleDate, rescheduleTbd: match.rescheduleTbd,
       convocationAt: typeof plan?.convocationAt === "string" ? plan.convocationAt : null,
       convocationPlace: typeof plan?.convocationPlace === "string" ? plan.convocationPlace : null,

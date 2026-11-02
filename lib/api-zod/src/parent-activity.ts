@@ -1,3 +1,4 @@
+import type {MatchRotationSummary} from "./match-rotation-summary";
 import { trainingPrinciple, sessionObjectiveLabel } from "./training-principles";
 import { analyseMatchReport, matchReportSchema } from "./match-report";
 
@@ -6,7 +7,7 @@ export type ParentTrainingActivity = {
   attendance: string | null; conduct: "ottima" | "buona" | "insufficiente" | null;
   availability: string | null; availabilityReason: string | null;
 };
-export type ParentMatchActivity = { id: number; date: string; opponent: string; minutes: number | null };
+export type ParentMatchActivity = { id: number; date: string; opponent: string; rotation?: MatchRotationSummary; minutes: number | null };
 export type ParentActivity = {
   playerName: string | null; trainings: ParentTrainingActivity[]; matches: ParentMatchActivity[];
 };

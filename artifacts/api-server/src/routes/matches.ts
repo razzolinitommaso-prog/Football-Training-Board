@@ -564,6 +564,7 @@ router.get("/match-callup-summary", requireAuth, async (req, res): Promise<void>
 });
 
 router.get("/matches", requireAuth, async (req, res): Promise<void> => {
+  if(["parent","team_manager"].includes(req.session.role??"")){res.status(403).json({error:"Usa la consultazione dedicata al tuo profilo"});return;}
   const teamId = req.query.teamId ? parseInt(req.query.teamId as string) : null;
   const conditions: ReturnType<typeof eq>[] = [eq(matchesTable.clubId, req.session.clubId!) as any];
   if (teamId && !isNaN(teamId)) conditions.push(eq(matchesTable.teamId, teamId) as any);

@@ -1,4 +1,6 @@
-import {rotateMatchPeriods, periodMinutes, thirdPartDuration, plannedPlayerMinutes, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
+import {MatchRotationComparison} from "@/components/calendar/MatchRotationComparison";
+import {buildMatchRotationSummary} from "@workspace/api-zod";
+import {rotationUnits, rotateMatchPeriods, periodMinutes, thirdPartDuration, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
 import SharedTournamentHub from "./SharedTournamentHub";
 import { trainingSlotOnDate } from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
@@ -1828,7 +1830,6 @@ function MatchCard({
   const [openAlternativePeriods, setOpenAlternativePeriods] = useState<Set<string>>(new Set());
   const [activeAlternative, setActiveAlternative] = useState<Record<string, string>>({});
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<number>>(new Set());
-  const [callupSearch, setCallupSearch] = useState("");
   const [exportingCallupPdf, setExportingCallupPdf] = useState(false);
   const [generatedCallupPdf, setGeneratedCallupPdf] = useState<{ filename: string; url: string; downloadUrl: string } | null>(null);
   const [planDraft, setPlanDraft] = useState<MatchPlanData>(() =>
@@ -1869,15 +1870,6 @@ function MatchCard({
     }
     return map;
   }, [callupRows]);
-  const filteredTeamPlayers = useMemo(() => {
-    const needle = callupSearch.trim().toLowerCase();
-    if (!needle) return sortedTeamPlayers;
-    return sortedTeamPlayers.filter((p) => {
-      const full = `${p.firstName} ${p.lastName}`.toLowerCase();
-      const reverse = `${p.lastName} ${p.firstName}`.toLowerCase();
-      return full.includes(needle) || reverse.includes(needle);
-    });
-  }, [sortedTeamPlayers, callupSearch]);
   const selectableTeamPlayers = useMemo(
     () => sortedTeamPlayers.filter((p) => p.available !== false && !parentUnavailableCallupsByPlayer.has(p.id)),
     [sortedTeamPlayers, parentUnavailableCallupsByPlayer],
@@ -2832,286 +2824,25 @@ function MatchCard({
             </div>
             {planOpen && canManageMatchPlan && (
               <div className="rounded-md border border-border/60 bg-muted/20 p-1 sm:p-3 space-y-3">
-                {planDraft.periods.map((previewPeriod, previewPeriodIndex) => (
-                  <details key={previewPeriod.key} open={previewPeriodIndex === 0} className="rounded-lg border bg-background/50 p-1 sm:p-3">
-                    <DisclosureSummary className="cursor-pointer py-2 text-sm font-semibold">{previewPeriod.label}{matchSection==="scuola_calcio"&&previewPeriod.key==="t3"&&!planDraft.fourthTime?" · prima parte":""} · {matchSection==="scuola_calcio"&&previewPeriod.key==="t3"&&!planDraft.fourthTime?thirdPartDuration(previewPeriod):matchSection==="scuola_calcio"?periodMinutes(previewPeriod.minutes):previewPeriod.minutes} min — apri/chiudi preparazione</DisclosureSummary>
-                <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.65fr)]">
-                <div className="min-w-0 space-y-2">
-                  <Label className="text-xs text-muted-foreground">Convocazione (rosa utilizzata)</Label>
-                  <p className="text-xs text-muted-foreground">Titolari e riserve: {previewPeriod?.label}. Le modifiche restano in bozza fino a Salva piano partita.</p>
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      className="h-8 pl-8 text-xs"
-                      value={callupSearch}
-                      onChange={(e) => setCallupSearch(e.target.value)}
-                      placeholder="Ricerca rapida giocatore (cognome o nome)"
+                <MatchRotationComparison
+                  summary={buildMatchRotationSummary(planDraft,selectedPlayersOrdered.map(id=>convokedById.get(id)).filter((p):p is Player=>!!p),playerLimitForFormat(matchFormat))}
+                  roster={sortedTeamPlayers.map(p=>({id:p.id,name:(p.jerseyNumber? p.jerseyNumber+' · ':'')+p.lastName+' '+p.firstName,called:selectedPlayerIds.has(p.id),disabled:p.available===false||parentUnavailableCallupsByPlayer.has(p.id),note:parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':playerUnavailableLabel(p).replace(/^\s*-\s*/,'')}))}
+                  onCallup={(id,called)=>setSelectedPlayerIds(previous=>{const next=new Set(previous);if(called)next.add(id);else next.delete(id);return next;})}
+                  onStatus={(id,key,reserve)=>{const unit=rotationUnits(planDraft.periods).find(u=>u.period.key===key);if(!unit)return;if(unit.second)updateThirdPart(unit.index,changeMatchLineupStatus(unit.period,startersLimitForPeriod(unit.period,matchFormat),id,reserve,selectedPlayerIds));else setPeriodPlayerReserveStatus(id,reserve,unit.index);}}
+                  controls={<div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-2 text-xs"><span>{planDraft.periods.length} tempi · {planDraft.periods.map(p=>periodMinutes(p.minutes)).join(' / ')} min</span>{!planDraft.fourthTime&&planDraft.periods.some(p=>p.key==='t3')&&<span>3°: {thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} + {periodMinutes(planDraft.periods.find(p=>p.key==='t3')!.minutes)-thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} min</span>}                {matchSection === "scuola_calcio" && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={!!planDraft.fourthTime}
+                      onCheckedChange={v=>{try{const next=toggleFourthPeriod(planDraft,v===true);setPlanDraft({...next,periods:applyScuolaCalcioPeriodRotation(next.periods,selectedPlayerIds,matchFormat,convokedById)});if(next.postMatchReport)setPostReportDraft(next.postMatchReport);}catch(error){toast({title:(error as Error).message,variant:"destructive"});}}}
                     />
+                    <Label className="text-xs cursor-pointer">Abilita 4° tempo</Label>
                   </div>
-                  <div className="@container min-w-0 divide-y rounded border bg-background px-2">
-                    {filteredTeamPlayers.map((p) => {
-                      const parentUnavailable = parentUnavailableCallupsByPlayer.get(p.id);
-                      const parentUnavailableLabel = parentUnavailable
-                        ? ` - non disponibile (${parentAvailabilityReasonLabel(parentUnavailable.parentAvailabilityReason)}${parentUnavailable.parentAvailabilityNotes ? `: ${parentUnavailable.parentAvailabilityNotes}` : ""})`
-                        : "";
-                      const disabled = p.available === false || Boolean(parentUnavailable);
-                      return (
-                      <div key={p.id} className={cn("grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5 px-1 py-1.5 text-xs", disabled && "opacity-50")}>
-                        <Checkbox
-                          className="my-1"
-                          aria-label={`Convoca ${p.firstName} ${p.lastName}`}
-                          checked={selectedPlayerIds.has(p.id)}
-                          disabled={disabled}
-                          onCheckedChange={(v) =>
-                            setSelectedPlayerIds((prev) => {
-                              const next = new Set(prev);
-                              if (v === true) next.add(p.id);
-                              else next.delete(p.id);
-                              return next;
-                            })
-                          }
-                        />
-                        <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_7rem] items-center gap-x-3 gap-y-0.5 @min-[34rem]:grid-cols-[minmax(0,1fr)_6rem_7rem_10rem]">
-                          <span className="contents">
-                          <span className="col-start-1 row-start-1 min-w-0 break-words font-medium leading-tight text-foreground">
-                            {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
-                          </span>
-                          <span className="col-start-1 row-start-2 min-w-0 break-words text-[11px] leading-tight text-muted-foreground @min-[34rem]:col-start-2 @min-[34rem]:row-start-1 @min-[34rem]:max-w-28">
-                            <span className="block">{p.position || "Ruolo non indicato"}</span>
-                            {(parentUnavailable ? parentUnavailableLabel : playerUnavailableLabel(p)) && <span className="block">{(parentUnavailable ? parentUnavailableLabel : playerUnavailableLabel(p)).replace(/^\s*-\s*/, "")}</span>}
-                          </span>
-                          </span>
-                          {selectedPlayerIds.has(p.id) && (
-                            <span className="col-start-2 row-start-1 flex items-center gap-1 @min-[34rem]:col-start-3">
-                              {(() => {
-                                const firstPeriod = previewPeriod;
-                                const limit = firstPeriod ? startersLimitForPeriod(firstPeriod, matchFormat) : 0;
-                                const groups = splitMatchLineup(firstPeriod ?? { lineupPlayerIds: selectedPlayersOrdered }, limit, selectedPlayerIds);
-                                const firstLineup = groups.lineupPlayerIds;
-                                const playerIndex = firstLineup.indexOf(p.id);
-                                const isReserve = groups.reserves.includes(p.id);
-                                return (
-                                  <>
-                                    <button
-                                      type="button"
-                                      aria-pressed={playerIndex >= 0 && !isReserve}
-                                      className={cn(
-                                        "min-h-9 rounded border px-1.5 py-1 text-[11px] font-semibold",
-                                        playerIndex >= 0 && !isReserve
-                                          ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                                          : "border-border bg-background text-muted-foreground",
-                                      )}
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        setPeriodPlayerReserveStatus(p.id, false, previewPeriodIndex);
-                                      }}
-                                    >
-                                      Titolare
-                                    </button>
-                                    <button
-                                      type="button"
-                                      aria-pressed={isReserve}
-                                      className={cn(
-                                        "min-h-9 rounded border px-1.5 py-1 text-[11px] font-semibold",
-                                        isReserve
-                                          ? "border-amber-300 bg-amber-50 text-amber-700"
-                                          : "border-border bg-background text-muted-foreground",
-                                      )}
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        setPeriodPlayerReserveStatus(p.id, true, previewPeriodIndex);
-                                      }}
-                                    >
-                                      Riserva
-                                    </button>
-                                  </>
-                                );
-                              })()}
-                            </span>
-                          )}
-                          {matchWeekTrainingDays.length > 0 && (
-                            <span className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center justify-end gap-0.5 @min-[34rem]:col-start-4 @min-[34rem]:row-start-1 @min-[34rem]:grid @min-[34rem]:grid-cols-3" aria-label="Presenze allenamenti settimana partita">
-                              {matchWeekTrainingDays.map((day) => {
-                                const status = day.sessionId ? matchWeekAttendanceByPlayer.get(`${p.id}:${day.sessionId}`) : null;
-                                const tone = trainingAttendanceTone(status);
-                                return (
-                                  <span
-                                    key={day.key}
-                                    title={`${format(day.date, "EEE dd/MM", { locale: itLocale })}: ${
-                                      tone === "present"
-                                        ? "presente"
-                                        : tone === "absent"
-                                        ? "assente"
-                                        : tone === "requested"
-                                        ? "giustificato"
-                                        : tone === "injured"
-                                        ? "infortunato"
-                                        : day.sessionId
-                                        ? "non segnato"
-                                        : "allenamento previsto, presenze non registrate"
-                                    }`}
-                                    className={cn(
-                                      "inline-flex h-5 min-w-9 items-center justify-center rounded-full border px-1 text-[10px] leading-none",
-                                      tone === "present" && "border-emerald-300 bg-emerald-50 text-emerald-700",
-                                      tone === "absent" && "border-red-300 bg-red-50 text-red-700",
-                                      tone === "requested" && "border-sky-300 bg-sky-50 text-sky-700",
-                                      tone === "injured" && "border-amber-300 bg-amber-50 text-amber-700",
-                                      tone === "unknown" && "border-muted bg-muted/40 text-muted-foreground",
-                                    )}
-                                  >
-                                    {format(day.date, "EEE d", { locale: itLocale })}
-                                    <span className="ml-0.5 font-semibold">{tone === "present" ? "✓" : tone === "requested" ? "G" : tone === "injured" ? "I" : tone === "unknown" ? "·" : "−"}</span>
-                                  </span>
-                                );
-                              })}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    );})}
-                    {filteredTeamPlayers.length === 0 && (
-                      <p className="col-span-full text-[11px] text-muted-foreground py-1">
-                        Nessun giocatore trovato con questo filtro.
-                      </p>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">Presenze allenamenti: ✓ presente · − assente · G giustificato · I infortunato · · non registrato.</p>
-                </div>
-                <aside className="min-w-0 self-start space-y-3 rounded-lg border bg-background p-1 sm:p-3 lg:sticky lg:top-20">
-                  <h4 className="text-sm font-semibold">Schieramento attuale — {previewPeriod.label}</h4>
-                  <MatchDraftLineupPreview period={previewPeriod} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={`Attuale ${previewPeriod.label}`} onChange={changes => updateInlinePeriod(previewPeriodIndex, changes)} />
-                  <Button type="button" variant="outline" className="w-full" onClick={() => openLineupDialog(previewPeriodIndex, "view")}>Ingrandisci anteprima</Button>
-                  <Button type="button" variant="ghost" className="w-full" onClick={() => openLineupDialog(previewPeriodIndex, "edit")}>Strumenti avanzati</Button>
-                  <Button type="button" className="w-full" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button>
-                </aside>
-                </div>
-                {matchSection === "scuola_calcio" &&
-                  previewPeriod.key === "t3" &&
-                  !planDraft.fourthTime &&
-                  (() => {
-                    const second: MatchPlanPeriodRuntime = {
-                      module: previewPeriod.module,
-                      format: previewPeriod.format,
-                      ...previewPeriod.secondPart,
-                      lineupPlayerIds: previewPeriod.secondPart?.lineupPlayerIds ?? [],
-                      lineupStarterCount: previewPeriod.secondPart?.lineupStarterCount,
-                      secondPart: undefined,
-                      key: "t3-second",
-                      label: "3° tempo · seconda parte",
-                      minutes: String(
-                        periodMinutes(previewPeriod.minutes) -
-                          thirdPartDuration(previewPeriod),
-                      ),
-                    };
-                    const limit = startersLimitForPeriod(second, matchFormat),
-                      groups = splitMatchLineup(second, limit, selectedPlayerIds);
-                    return (
-                      <section
-                        className="mt-4 space-y-3 rounded-lg border border-primary/30 p-2 sm:p-3"
-                        aria-label="Seconda parte del terzo tempo"
-                      >
-                        <h4 className="font-semibold">
-                          3° tempo · seconda parte · {second.minutes} min
-                        </h4>
-                        <p className="text-xs text-muted-foreground">
-                          Cambio a metà del terzo tempo. Le due parti insieme durano{" "}
-                          {periodMinutes(previewPeriod.minutes)} minuti.
-                        </p>
-                        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.65fr)]">
-                          <div className="divide-y rounded-lg border bg-background">
-                            {selectedPlayersOrdered.map((id) => {
-                              const player = convokedById.get(id);
-                              if (!player) return null;
-                              return (
-                                <div
-                                  key={id}
-                                  className="flex flex-wrap items-center gap-2 px-2 py-2 text-xs"
-                                >
-                                  <span className="min-w-0 flex-1">
-                                    {player.lastName} {player.firstName}
-                                  </span>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant={
-                                      groups.starters.includes(id) ? "default" : "outline"
-                                    }
-                                    aria-pressed={groups.starters.includes(id)}
-                                    onClick={() =>
-                                      updateThirdPart(
-                                        previewPeriodIndex,
-                                        changeMatchLineupStatus(
-                                          second,
-                                          limit,
-                                          id,
-                                          false,
-                                          selectedPlayerIds,
-                                        ),
-                                      )
-                                    }
-                                  >
-                                    Titolare
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant={
-                                      groups.reserves.includes(id) ? "secondary" : "outline"
-                                    }
-                                    aria-pressed={groups.reserves.includes(id)}
-                                    onClick={() =>
-                                      updateThirdPart(
-                                        previewPeriodIndex,
-                                        changeMatchLineupStatus(
-                                          second,
-                                          limit,
-                                          id,
-                                          true,
-                                          selectedPlayerIds,
-                                        ),
-                                      )
-                                    }
-                                  >
-                                    Riserva
-                                  </Button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <div className="min-w-0 space-y-2">
-                            <MatchDraftLineupPreview
-                              period={second}
-                              matchFormat={matchFormat}
-                              selectedIds={selectedPlayerIds}
-                              playersById={convokedById}
-                              editorLabel="3° tempo · seconda parte"
-                              onChange={(changes) =>
-                                updateThirdPart(previewPeriodIndex, changes)
-                              }
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="w-full"
-                              onClick={() => setPreviewBoard(second)}
-                            >
-                              Ingrandisci seconda parte
-                            </Button>
-                            <Button
-                              type="button"
-                              className="w-full"
-                              onClick={saveMatchPlanAndCallups}
-                            >
-                              Salva piano partita
-                            </Button>
-                          </div>
-                        </div>
-                      </section>
-                    );
-                  })()}
-                <Button type="button" variant="outline" className="mt-3 min-h-10 w-full whitespace-normal" aria-expanded={openAlternativePeriods.has(previewPeriod.key)} onClick={() => {
+                )}
+{autoReserveRuleEnabled && <Button type="button" size="sm" variant="outline" onClick={()=>{if(window.confirm('Calcolare i tempi successivi mantenendo il primo? Le scelte manuali successive saranno sostituite.'))setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods,selectedPlayerIds,matchFormat,convokedById,true)}));}}>Calcola tempi successivi</Button>}</div>}
+                  renderPitch={unit=>{const runtime=rotationUnits(planDraft.periods).find(u=>u.period.key===unit.key);if(!runtime)return null;const period={...runtime.period,label:unit.label,minutes:String(unit.minutes)},groups=splitMatchLineup(period,startersLimitForPeriod(period,matchFormat),selectedPlayerIds);return <><p className="text-[10px] text-muted-foreground">{runtime.period.rotationAuto?"Automatico":"Manuale"}</p><MatchDraftLineupPreview period={period} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={unit.label} onChange={changes=>runtime.second?updateThirdPart(runtime.index,changes):updateInlinePeriod(runtime.index,changes)}/><p className="text-[10px] text-muted-foreground">Panchina: {groups.reserves.map(id=>convokedById.get(id)?.lastName).filter(Boolean).join(', ')||'—'}</p><Button type="button" variant="ghost" size="sm" className="w-full text-xs" onClick={()=>setPreviewBoard(period)}>Ingrandisci</Button>{!runtime.second&&<Button type="button" variant="ghost" size="sm" className="w-full text-xs" onClick={()=>openLineupDialog(runtime.index,'edit')}>Strumenti avanzati</Button>}</>;}}
+                  footer={<div className="sticky bottom-0 z-10 flex justify-end border-t bg-background p-2"><Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button></div>}
+                />
+                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Dettagli e alternative</DisclosureSummary>{planDraft.periods.map((previewPeriod,previewPeriodIndex)=><div key={previewPeriod.key}>                <Button type="button" variant="outline" className="mt-3 min-h-10 w-full whitespace-normal" aria-expanded={openAlternativePeriods.has(previewPeriod.key)} onClick={() => {
                   if (!openAlternativePeriods.has(previewPeriod.key)) addLineupAlternatives(previewPeriodIndex, true);
                   setOpenAlternativePeriods(previous => { const next = new Set(previous); if (next.has(previewPeriod.key)) next.delete(previewPeriod.key); else next.add(previewPeriod.key); return next; });
                 }}>Lavora sui possibili schieramenti — {previewPeriod.label}</Button>
@@ -3133,8 +2864,9 @@ function MatchCard({
                   </div>
                   <Button type="button" variant="outline" className="min-h-10 gap-2" onClick={() => addLineupAlternatives(previewPeriodIndex)}><Plus className="h-4 w-4" />Aggiungi alternativa</Button>
                 </section>}
-                  </details>
-                ))}
+</div>)}</details>
+                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Durate dei tempi</DisclosureSummary><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{planDraft.periods.map((p,index)=><label key={p.key} className="text-xs">{p.label}<Input type="number" min={1} max={180} step={0.5} value={periodMinutes(p.minutes)} onChange={e=>{const minutes=Number(e.target.value);if(minutes>=1&&minutes<=180)setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods.map((period,i)=>i===index?{...period,minutes:String(minutes),thirdPartMinutes:undefined}:period),selectedPlayerIds,matchFormat,convokedById)}));}}/></label>)}</div>{!planDraft.fourthTime&&planDraft.periods.find(p=>p.key==='t3')&&<label className="mt-2 block text-xs">Prima parte del terzo tempo<Input className="max-w-32" type="number" min={0.25} step={0.25} value={thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} onChange={e=>{const value=Number(e.target.value),third=planDraft.periods.find(p=>p.key==='t3')!;if(value>0&&value<periodMinutes(third.minutes))setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods.map(p=>p.key==='t3'?{...p,thirdPartMinutes:value}:p),selectedPlayerIds,matchFormat,convokedById)}));}}/></label>}</details>
+                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Disponibilità e presenze allenamenti</DisclosureSummary><div className="divide-y">{sortedTeamPlayers.map(p=><div key={p.id} className="flex flex-wrap justify-between gap-2 py-2 text-xs"><span>{p.lastName} {p.firstName} {p.position||''} {playerUnavailableLabel(p)} {parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':''}</span><span>{matchWeekTrainingDays.map(day=>{const status=day.sessionId?matchWeekAttendanceByPlayer.get(p.id+':'+day.sessionId):null;return <span key={day.key} className="ml-2">{format(day.date,'EEE d',{locale:itLocale})}: {status??'non registrato'}</span>;})}</span></div>)}</div></details>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Orario convocazione</Label>
@@ -3270,172 +3002,6 @@ function MatchCard({
                         Aggiungi cartellino
                       </Button>
                     </div>
-                  </div>
-                )}
-                {matchSection === "scuola_calcio" && (
-                  <section
-                    className="space-y-3 rounded-lg border p-3"
-                    aria-label="Durata e alternanza dei tempi"
-                  >
-                    <h4 className="text-sm font-semibold">Durata e alternanza</h4>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      {planDraft.periods.map((period, index) => (
-                        <div key={period.key}>
-                          <Label
-                            className="text-xs"
-                            htmlFor={"duration-" + match.id + "-" + period.key}
-                          >
-                            {period.label} · minuti totali
-                          </Label>
-                          <Input
-                            id={"duration-" + match.id + "-" + period.key}
-                            type="number"
-                            min={1}
-                            max={180}
-                            step={0.5}
-                            value={periodMinutes(period.minutes)}
-                            onChange={(e) => {
-                              const minutes = Number(e.target.value);
-                              if (minutes >= 1 && minutes <= 180)
-                                setPlanDraft((prev) => ({
-                                  ...prev,
-                                  periods: applyScuolaCalcioPeriodRotation(
-                                    prev.periods.map((p, i) =>
-                                      i === index
-                                        ? {
-                                            ...p,
-                                            minutes: String(minutes),
-                                            thirdPartMinutes:
-                                              p.thirdPartMinutes &&
-                                              p.thirdPartMinutes < minutes
-                                                ? p.thirdPartMinutes
-                                                : undefined,
-                                          }
-                                        : p,
-                                    ),
-                                    selectedPlayerIds,
-                                    matchFormat,
-                                    convokedById,
-                                  ),
-                                }));
-                            }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    {!planDraft.fourthTime &&
-                      planDraft.periods.find((p) => p.key === "t3") &&
-                      (() => {
-                        const third = planDraft.periods.find((p) => p.key === "t3")!;
-                        return (
-                          <div className="space-y-1">
-                            <Label className="text-xs" htmlFor={"third-split-" + match.id}>
-                              3° tempo: durata prima parte
-                            </Label>
-                            <Input
-                              id={"third-split-" + match.id}
-                              className="max-w-32"
-                              type="number"
-                              min={0.5}
-                              max={periodMinutes(third.minutes) - 0.5}
-                              step={0.5}
-                              value={thirdPartDuration(third)}
-                              onChange={(e) => {
-                                const minutes = Number(e.target.value);
-                                if (minutes > 0 && minutes < periodMinutes(third.minutes))
-                                  setPlanDraft((prev) => ({
-                                    ...prev,
-                                    periods: applyScuolaCalcioPeriodRotation(
-                                      prev.periods.map((p) =>
-                                        p.key === "t3"
-                                          ? { ...p, thirdPartMinutes: minutes }
-                                          : p,
-                                      ),
-                                      selectedPlayerIds,
-                                      matchFormat,
-                                      convokedById,
-                                    ),
-                                  }));
-                              }}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              Seconda parte:{" "}
-                              {periodMinutes(third.minutes) - thirdPartDuration(third)} min.
-                              Totale terzo tempo: {periodMinutes(third.minutes)} min.
-                            </p>
-                          </div>
-                        );
-                      })()}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "Ricalcolare l’alternanza dal secondo tempo in avanti? Le scelte manuali successive al primo tempo saranno sostituite.",
-                          )
-                        )
-                          setPlanDraft((prev) => ({
-                            ...prev,
-                            periods: applyScuolaCalcioPeriodRotation(
-                              prev.periods,
-                              selectedPlayerIds,
-                              matchFormat,
-                              convokedById,
-                              true,
-                            ),
-                          }));
-                      }}
-                    >
-                      Ricalcola alternanza
-                    </Button>
-                    <p className="text-xs text-muted-foreground">
-                      L’alternanza si estende a tutti i tempi e alle due parti del terzo
-                      quando non si gioca il quarto. Le modifiche manuali restano fino al
-                      ricalcolo esplicito.
-                    </p>
-                    <details>
-                      <DisclosureSummary className="text-xs font-semibold">
-                        Minuti previsti per ragazzo — apri/chiudi
-                      </DisclosureSummary>
-                      <p className="py-1 text-xs text-muted-foreground">
-                        Previsione del piano. Il resoconto registra i minuti effettivi.
-                      </p>
-                      <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
-                        {(() => {
-                          const totals = plannedPlayerMinutes(
-                            planDraft.periods,
-                            selectedPlayerIds,
-                            (p) => startersLimitForPeriod(p, matchFormat),
-                          );
-                          return selectedPlayersOrdered.map((id) => {
-                            const player = convokedById.get(id);
-                            return player ? (
-                              <p
-                                key={id}
-                                className="flex justify-between gap-2 border-b py-1 text-xs"
-                              >
-                                <span>
-                                  {player.lastName} {player.firstName}
-                                </span>
-                                <strong>
-                                  {(totals[id] ?? 0).toLocaleString("it-IT")} min
-                                </strong>
-                              </p>
-                            ) : null;
-                          });
-                        })()}
-                      </div>
-                    </details>
-                  </section>
-                )}
-                {matchSection === "scuola_calcio" && (
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      checked={!!planDraft.fourthTime}
-                      onCheckedChange={v=>{try{const next=toggleFourthPeriod(planDraft,v===true);setPlanDraft({...next,periods:applyScuolaCalcioPeriodRotation(next.periods,selectedPlayerIds,matchFormat,convokedById)});if(next.postMatchReport)setPostReportDraft(next.postMatchReport);}catch(error){toast({title:(error as Error).message,variant:"destructive"});}}}
-                    />
-                    <Label className="text-xs cursor-pointer">Abilita 4° tempo</Label>
                   </div>
                 )}
                 <details className="space-y-2 rounded border p-2">

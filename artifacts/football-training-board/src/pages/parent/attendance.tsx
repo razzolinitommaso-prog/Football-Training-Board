@@ -1,3 +1,5 @@
+import {ScrollableSelect} from "@/components/ui/scrollable-select";
+import {MatchRotationComparison} from "@/components/calendar/MatchRotationComparison";
 import { useEffect, useState } from "react";
 import type { ParentActivity, ParentTrainingActivity } from "@workspace/api-zod";
 import { CheckCircle2, ChevronLeft, ChevronRight, Lock, MapPin, Shirt, Trophy, XCircle } from "lucide-react";
@@ -467,7 +469,9 @@ export default function ParentAttendance() {
       .finally(() => setLoading(false));
   }, []);
 
+  const [rotationMatchId,setRotationMatchId]=useState("");
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div>;
+  const rotationMatch=activity?.matches.find(match=>String(match.id)===rotationMatchId)??activity?.matches[0];
   const recordedMatches = activity?.matches.filter(match => match.minutes !== null) ?? [];
 
   return (
@@ -477,7 +481,8 @@ export default function ParentAttendance() {
         <p className="mt-1 text-sm text-muted-foreground">Allenamenti, partite, disponibilità e riepiloghi di tuo figlio in un solo calendario.</p>
       </div>
       <section id="minutaggio" className="rounded-2xl border bg-card p-4 text-sm space-y-2">
-        <h2 className="font-semibold">Minuti effettivi di gioco · partite</h2>
+        <h2 className="font-semibold">Tempi e minutaggio · partite</h2>
+        {!!activity?.matches.length&&<><ScrollableSelect aria-label="Partita per minutaggio del figlio" value={rotationMatch?String(rotationMatch.id):''} onValueChange={setRotationMatchId}>{activity.matches.map(match=><option key={match.id} value={String(match.id)}>{new Date(match.date).toLocaleDateString('it-IT')} · {match.opponent}</option>)}</ScrollableSelect>{rotationMatch?.rotation&&<MatchRotationComparison summary={rotationMatch.rotation} title="Tempi e minuti di tuo figlio"/>}</>}
         <p>{historyError ? "Riepilogo non disponibile." : recordedMatches.length ? `${recordedMatches.reduce((sum, match) => sum + (match.minutes ?? 0), 0)} minuti su ${recordedMatches.length} ${recordedMatches.length === 1 ? "partita" : "partite"} con resoconto.` : "Nessun minutaggio ancora registrato."}</p>
         <p className="text-xs text-muted-foreground">Apri il giorno della partita per il dettaglio. La convocazione non prova l'ingresso in campo; i dati mancanti non valgono zero.</p>
       </section>
