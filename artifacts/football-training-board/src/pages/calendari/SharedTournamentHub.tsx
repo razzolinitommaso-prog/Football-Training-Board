@@ -1,3 +1,8 @@
+import type { SharedTournamentPhase } from "@workspace/api-zod";
+import TournamentPhasesFields, {
+  newTournamentPhase,
+  phaseDateBounds,
+} from "./TournamentPhasesFields";
 import SharedTournamentCommon from "./SharedTournamentCommon";
 import SharedTournamentProgram from "./SharedTournamentProgram";
 import { useState } from "react";
@@ -26,6 +31,7 @@ type Team = {
 type Tournament = {
   id: number;
   revision: number;
+  phases?: SharedTournamentPhase[];
   name: string;
   location: string;
   startDate: string;
@@ -78,9 +84,10 @@ export default function SharedTournamentHub({
   );
   const selected = query.data?.find((t) => t.id === selectedId);
   const [name, setName] = useState(""),
-    [location, setLocation] = useState(""),
-    [startDate, setStartDate] = useState(""),
-    [endDate, setEndDate] = useState("");
+    [location, setLocation] = useState("");
+  const [phases, setPhases] = useState<SharedTournamentPhase[]>(() => [
+    newTournamentPhase(1),
+  ]);
   const [teamIds, setTeamIds] = useState<number[]>([teamId]);
   const [search, setSearch] = useState("");
   const base = (id: number) =>
@@ -90,8 +97,8 @@ export default function SharedTournamentHub({
       api<Tournament>("/api/shared-tournaments", {
         name,
         location,
-        startDate,
-        endDate: endDate || null,
+        ...phaseDateBounds(phases),
+        phases,
         teamIds,
       }),
     onSuccess: async () => {
@@ -99,8 +106,7 @@ export default function SharedTournamentHub({
       onOpenChange(false);
       setName("");
       setLocation("");
-      setStartDate("");
-      setEndDate("");
+      setPhases([newTournamentPhase(1)]);
       setTeamIds([teamId]);
     },
   });
@@ -152,6 +158,11 @@ export default function SharedTournamentHub({
               {t.location ? ` · ${t.location}` : ""}
             </p>
           </div>
+          {t.phases?.map((p) => (
+            <p key={p.id} className="text-sm">
+              <strong>{p.name}</strong>: {p.startDate} — {p.endDate}
+            </p>
+          ))}
           <p className="text-xs text-muted-foreground">
             Un unico torneo · annate accessibili al tuo profilo
           </p>
@@ -198,6 +209,7 @@ export default function SharedTournamentHub({
             id={selected.id}
             teamId={teamId}
             teamName={current?.name ?? ""}
+            phases={selected.phases ?? []}
             startDate={selected.startDate}
             canManage={canManage}
             basePath={base(teamId)}
@@ -239,28 +251,7 @@ export default function SharedTournamentHub({
                 onChange={(e) => setLocation(e.target.value)}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="shared-start">Data inizio</Label>
-                <Input
-                  id="shared-start"
-                  type="date"
-                  required
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label htmlFor="shared-end">Data fine</Label>
-                <Input
-                  id="shared-end"
-                  type="date"
-                  min={startDate}
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
-              </div>
-            </div>
+            <TournamentPhasesFields value={phases} onChange={setPhases} />
             <fieldset className="space-y-2">
               <legend className="font-medium">Annate partecipanti</legend>
               <p className="text-xs text-muted-foreground">

@@ -38,3 +38,13 @@ Esecuzione con PGlite già disponibile: node scripts/test-shared-tournaments.cjs
 Copertura: creazione unica per più annate, ruoli e isolamento, date non valide, rollback, gare operative e gare tra terzi, riapertura e salvataggio ripetuto, conflitto di revisione, protezione dei dati tecnici, modifica comune delle gare di entrambe le annate, allegati, eliminazione e conservazione del torneo precedente. L'esclusione concorrente del lock PostgreSQL non è simulata da questo test sequenziale.
 
 Controlli aggiuntivi: compilazione degli schemi condivisi, typecheck frontend/API, build web e API. Il collaudo visivo mobile/desktop e il collaudo live autenticato restano da eseguire: il controllo del browser integrato non è disponibile in questa sessione. Non presentarli come verifiche effettuate.
+
+## Più fasi nello stesso torneo
+
+La creazione consente una o più fasi con nome e intervallo di date (ad esempio 12–13 dicembre e 9–10 gennaio). Il periodo complessivo si ricava automaticamente dalle fasi; non vengono create partite nei giorni intermedi. Le fasi sono dati comuni alle annate partecipanti e si possono modificare dai dati comuni.
+
+Nel programma ogni gara sceglie la fase del torneo. Gironi e turni (Gironi, Finale ecc.) restano un campo distinto. Le API rifiutano gare senza fase per i nuovi tornei a fasi, riferimenti inesistenti e date fuori dalla fase scelta. Una fase usata non si può rimuovere né restringere escludendo gare salvate. Gli identificativi rimangono stabili quando cambia il nome della fase.
+
+Compatibilità: i tornei precedenti senza fasi mantengono il comportamento precedente; un client che non invia le fasi non cancella quelle esistenti. L'aggiunta di fasi a un torneo precedente richiede che le gare già salvate rientrino nei nuovi intervalli. Alla lettura si propone l'abbinamento per data solo quando la fase è univoca. Il salvataggio dei risultati conserva il collegamento alla fase.
+
+La migrazione aggiunge soltanto la colonna JSONB phases con valore predefinito vuoto. Test reali degli handler su database isolato coprono anche dicembre/gennaio, intervalli vuoti tra le fasi, ID e date errati, rimozione protetta, rinomina, salvataggio risultati e compatibilità con client precedenti. Nessun test di scrittura è stato eseguito in produzione.

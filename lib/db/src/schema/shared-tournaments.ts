@@ -1,4 +1,5 @@
 import {
+  jsonb,
   pgTable,
   serial,
   integer,
@@ -27,6 +28,10 @@ export const sharedTournamentsTable = pgTable("shared_tournaments", {
   location: text("location"),
   startDate: date("start_date").notNull(),
   endDate: date("end_date"),
+  phases: jsonb("phases")
+    .$type<{ id: string; name: string; startDate: string; endDate: string }[]>()
+    .notNull()
+    .default([]),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

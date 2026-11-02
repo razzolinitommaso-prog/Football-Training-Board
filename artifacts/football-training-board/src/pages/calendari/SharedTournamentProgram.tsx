@@ -1,3 +1,4 @@
+import type { SharedTournamentPhase } from "@workspace/api-zod";
 import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +15,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 type Entry = {
+  tournamentPhaseId?: string;
   id: string;
   date: string;
   homeTeam: string;
@@ -52,6 +54,7 @@ export default function SharedTournamentProgram({
   teamId,
   teamName,
   startDate,
+  phases,
   canManage,
   basePath,
 }: {
@@ -59,6 +62,7 @@ export default function SharedTournamentProgram({
   teamId: number;
   teamName: string;
   startDate: string;
+  phases: SharedTournamentPhase[];
   canManage: boolean;
   basePath: string;
 }) {
@@ -136,8 +140,9 @@ export default function SharedTournamentProgram({
           className="rounded-lg border bg-background p-3 text-sm"
         >
           <p className="text-xs text-muted-foreground">
-            {new Date(entry.date).toLocaleString("it-IT")} · {entry.phase}{" "}
-            {entry.group}
+            {new Date(entry.date).toLocaleString("it-IT")} ·{" "}
+            {phases.find((p) => p.id === entry.tournamentPhaseId)?.name} ·{" "}
+            {entry.phase} {entry.group}
           </p>
           <p className="font-medium">
             {entry.homeTeam} — {entry.awayTeam}
@@ -234,8 +239,33 @@ export default function SharedTournamentProgram({
                     onChange={(e) => change(i, { awayTeam: e.target.value })}
                   />
                 </div>
+                {phases.length > 0 && (
+                  <div>
+                    <Label>Fase del torneo</Label>
+                    <ScrollableSelect
+                      className="w-full"
+                      aria-label={"Fase del torneo gara " + (i + 1)}
+                      value={entry.tournamentPhaseId ?? "__choose__"}
+                      onValueChange={(value) =>
+                        change(i, {
+                          tournamentPhaseId:
+                            value === "__choose__" ? undefined : value,
+                        })
+                      }
+                    >
+                      <option value="__choose__">Scegli fase</option>
+                      {phases.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} · {p.startDate} — {p.endDate}
+                        </option>
+                      ))}
+                    </ScrollableSelect>
+                  </div>
+                )}
                 <div>
-                  <Label htmlFor={`program-phase-${entry.id}`}>Fase</Label>
+                  <Label htmlFor={`program-phase-${entry.id}`}>
+                    Gironi / turno
+                  </Label>
                   <Input
                     id={`program-phase-${entry.id}`}
                     maxLength={100}
@@ -280,7 +310,10 @@ export default function SharedTournamentProgram({
                   ...old,
                   {
                     id: crypto.randomUUID(),
-                    date: new Date(`${startDate}T10:00:00`).toISOString(),
+                    date: new Date(
+                      `${phases[0]?.startDate ?? startDate}T10:00:00`,
+                    ).toISOString(),
+                    tournamentPhaseId: phases[0]?.id,
                     homeTeam: club?.name || teamName,
                     awayTeam: "",
                     phase: "Gironi",

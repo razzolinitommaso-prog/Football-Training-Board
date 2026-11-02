@@ -12,6 +12,7 @@ export type StoredTournamentAttachment = {
 };
 
 export type TournamentProgramEntry = {
+  tournamentPhaseId?: string;
   id: string;
   date: string;
   homeTeam: string;

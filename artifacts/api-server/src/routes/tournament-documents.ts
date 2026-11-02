@@ -17,6 +17,7 @@ const ASSIGNED_TEAM_STATE_UPDATE_ROLES = ["coach", "fitness_coach", "athletic_di
 const MAX_TOURNAMENT_DOC_BYTES = 32 * 1024 * 1024;
 
 type TournamentProgramEntry = {
+  tournamentPhaseId?: string;
   id: string;
   date: string;
   homeTeam: string;
@@ -105,6 +106,7 @@ function normalizeProgram(value: unknown): TournamentProgramEntry[] {
       date,
       homeTeam,
       awayTeam,
+      ...(typeof row.tournamentPhaseId === "string" ? { tournamentPhaseId: row.tournamentPhaseId } : {}),
       phase: row.phase == null ? null : String(row.phase),
       group: row.group == null ? null : String(row.group),
       kind,

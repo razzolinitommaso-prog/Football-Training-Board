@@ -39,13 +39,16 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     await pg.exec(
       fs.readFileSync(path.join(root, "docs/shared-tournaments.sql"), "utf8"),
     );
+    await pg.exec(
+      `ALTER TABLE tournament_states ADD COLUMN points_rule jsonb NOT NULL DEFAULT '{"win":3,"draw":1,"loss":0}', ADD COLUMN finals_rule text NOT NULL DEFAULT 'cross12', ADD COLUMN updated_by_user_id integer, ADD COLUMN created_at timestamptz NOT NULL DEFAULT now();`,
+    );
     globalThis.sharedTournamentTest = { pg, failInsert: false };
     const temp = path.join(root, ".tools/shared-tournament-tests");
     fs.mkdirSync(temp, { recursive: true });
     const fake = path.join(temp, "db.ts");
     fs.writeFileSync(
       fake,
-      `import {drizzle} from 'drizzle-orm/pglite'; export {teamsTable} from '../../lib/db/src/schema/teams';export {teamStaffAssignmentsTable} from '../../lib/db/src/schema/team-assignments';
+      `import {drizzle} from 'drizzle-orm/pglite'; export {tournamentStatesTable,tournamentDocumentsTable} from '../../lib/db/src/schema/tournament-documents'; export {teamsTable} from '../../lib/db/src/schema/teams';export {teamStaffAssignmentsTable} from '../../lib/db/src/schema/team-assignments';
    const fixture=(globalThis as any).sharedTournamentTest; export const db=drizzle(fixture.pg);
    const query=async(text:string,params?:unknown[])=>{if(fixture.failInsert&&text.includes('INSERT INTO shared_tournament_teams'))throw Error('Simulated second write failure');
     if(text.trim().startsWith('CREATE TABLE')){await fixture.pg.exec(text);return {rows:[],rowCount:0};}
@@ -63,13 +66,13 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       `export const normalizeSessionRole=(value:any)=>String(value??'').toLowerCase();export const isClubWideListRole=(role:string)=>['admin','secretary','presidente','director','technical_director','sporting_director'].includes(role);export async function resolveAllowedClubSections(req:any){return isClubWideListRole(req.session.role)?undefined:[req.session.section];}`,
     );
     const bundle = path.join(temp, "route.cjs");
+    const entryFile = path.join(temp, "entry.ts");
+    fs.writeFileSync(
+      entryFile,
+      `export {default} from '../../artifacts/api-server/src/routes/shared-tournaments';export {default as legacy} from '../../artifacts/api-server/src/routes/tournament-documents';`,
+    );
     await esbuild.build({
-      entryPoints: [
-        path.join(
-          root,
-          "artifacts/api-server/src/routes/shared-tournaments.ts",
-        ),
-      ],
+      entryPoints: [path.join(root, ".tools/shared-tournament-tests/entry.ts")],
       outfile: bundle,
       bundle: true,
       platform: "node",
@@ -109,6 +112,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     ];
     compiled._compile(fs.readFileSync(bundle, "utf8"), bundle);
     app.use("/api", compiled.exports.default);
+    app.use("/api", compiled.exports.legacy);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -494,6 +498,159 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       ).rows.length,
       0,
       "Delete cleans programme-only state",
+    );
+
+    const phases = [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        name: "1ª fase",
+        startDate: "2026-12-12",
+        endDate: "2026-12-13",
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        name: "2ª fase",
+        startDate: "2027-01-09",
+        endDate: "2027-01-10",
+      },
+    ];
+    const winterBody = {
+      ...body,
+      name: "Natale e gennaio",
+      startDate: "2026-12-12",
+      endDate: "2027-01-10",
+      phases,
+    };
+    assert.equal(
+      (
+        await call("/shared-tournaments", "POST", {
+          ...winterBody,
+          phases: [phases[0], { ...phases[1], id: phases[0].id }],
+        })
+      ).status,
+      400,
+      "Duplicate phase rejected",
+    );
+    assert.equal(
+      (
+        await call("/shared-tournaments", "POST", {
+          ...winterBody,
+          phases: [{ ...phases[0], endDate: "2026-12-11" }],
+        })
+      ).status,
+      400,
+      "Reversed phase dates rejected",
+    );
+    const winter = await call("/shared-tournaments", "POST", winterBody);
+    assert.equal(winter.status, 201);
+    assert.equal(winter.data.phases.length, 2);
+    const winterId = winter.data.id;
+    const winterProgram = [
+      {
+        ...entry("december"),
+        date: "2026-12-12T09:00:00.000Z",
+        tournamentPhaseId: phases[0].id,
+      },
+      {
+        ...entry("january"),
+        date: "2027-01-10T09:00:00.000Z",
+        tournamentPhaseId: phases[1].id,
+      },
+    ];
+    assert.equal(
+      (
+        await call(`/shared-tournaments/${winterId}/program`, "PUT", {
+          teamId: 11,
+          program: winterProgram,
+        })
+      ).status,
+      200,
+      "December and January same tournament",
+    );
+    let winterPage = (
+      await call(`/shared-tournaments/${winterId}/program?teamId=11`)
+    ).data;
+    assert.deepEqual(
+      winterPage.program.map((e) => e.tournamentPhaseId),
+      phases.map((p) => p.id),
+      "Phase links survive reopening",
+    );
+    const badEntries = [
+      { ...winterProgram[0], date: "2026-12-25T09:00:00.000Z" },
+      { ...winterProgram[0], tournamentPhaseId: phases[1].id },
+      { ...winterProgram[0], tournamentPhaseId: undefined },
+    ];
+    for (const invalid of badEntries)
+      assert.equal(
+        (
+          await call(`/shared-tournaments/${winterId}/program`, "PUT", {
+            teamId: 11,
+            program: [invalid],
+          })
+        ).status,
+        400,
+        "Out-of-phase or unassigned game rejected",
+      );
+    assert.equal(
+      (
+        await call(`/shared-tournaments/${winterId}`, "PATCH", {
+          ...winterBody,
+          phases: [phases[0]],
+        })
+      ).status,
+      409,
+      "Cannot remove phase containing saved games",
+    );
+    const scoreSave = await call("/tournament-documents/state", "PUT", {
+      teamId: 11,
+      competition: "Torneo: Natale e gennaio",
+      program: winterPage.program,
+      scores: { [winterProgram[0].id]: { homeScore: 2, awayScore: 1 } },
+    });
+    assert.equal(
+      scoreSave.status,
+      200,
+      "Existing results editor accepts phased programme",
+    );
+    winterPage = (
+      await call(`/shared-tournaments/${winterId}/program?teamId=11`)
+    ).data;
+    assert.deepEqual(
+      winterPage.program.map((e) => e.tournamentPhaseId),
+      phases.map((p) => p.id),
+      "Saving scores preserves phase IDs",
+    );
+    assert.equal(
+      (
+        await call(`/shared-tournaments/${winterId}`, "PATCH", {
+          ...winterBody,
+          phases: [{ ...phases[0], name: "Qualificazione" }, phases[1]],
+        })
+      ).status,
+      200,
+      "Rename phase without losing fixtures",
+    );
+    assert.equal(
+      (
+        await pg.query(
+          "SELECT count(*)::int AS n FROM shared_tournament_matches WHERE tournament_id=$1",
+          [winterId],
+        )
+      ).rows[0].n,
+      2,
+    );
+    const legacyEdit = await call(`/shared-tournaments/${winterId}`, "PATCH", {
+      ...winterBody,
+      phases: undefined,
+    });
+    assert.equal(legacyEdit.status, 200);
+    assert.equal(
+      legacyEdit.data.phases.length,
+      2,
+      "Older client preserves existing phases",
+    );
+    console.log(
+      "PASS phased tournaments: December/January, dates and stage IDs, score-editor round-trip, protected phase removal and legacy clients.",
     );
     console.log(
       "PASS real handlers + isolated PostgreSQL: multi-team single header, scopes, roles, invalid dates, rollback, own fixtures, external programmes, repeated saves, protected match data, common updates, common files, deletion guards, legacy match preserved. Advisory-lock exclusion is not simulated by this sequential test.",

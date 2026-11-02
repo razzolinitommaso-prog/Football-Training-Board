@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS shared_tournaments (
       created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
     );
     ALTER TABLE shared_tournaments ADD COLUMN IF NOT EXISTS revision integer NOT NULL DEFAULT 0;
+    ALTER TABLE shared_tournaments ADD COLUMN IF NOT EXISTS phases jsonb NOT NULL DEFAULT '[]'::jsonb;
     CREATE TABLE IF NOT EXISTS shared_tournament_teams (
       id serial PRIMARY KEY, tournament_id integer NOT NULL REFERENCES shared_tournaments(id) ON DELETE CASCADE,
       team_id integer NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,

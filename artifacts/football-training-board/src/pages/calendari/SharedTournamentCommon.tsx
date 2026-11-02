@@ -1,3 +1,8 @@
+import type { SharedTournamentPhase } from "@workspace/api-zod";
+import TournamentPhasesFields, {
+  newTournamentPhase,
+  phaseDateBounds,
+} from "./TournamentPhasesFields";
 import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -15,6 +20,7 @@ import {
 type Tournament = {
   id: number;
   revision: number;
+  phases?: SharedTournamentPhase[];
   name: string;
   location: string;
   startDate: string;
@@ -48,9 +54,12 @@ export default function SharedTournamentCommon({
   const qc = useQueryClient(),
     [open, setOpen] = useState(false),
     [name, setName] = useState(t.name),
-    [location, setLocation] = useState(t.location),
-    [start, setStart] = useState(t.startDate),
-    [end, setEnd] = useState(t.endDate ?? "");
+    [location, setLocation] = useState(t.location);
+  const [phases, setPhases] = useState<SharedTournamentPhase[]>(() =>
+    t.phases?.length
+      ? t.phases
+      : [newTournamentPhase(1, t.startDate, t.endDate ?? t.startDate)],
+  );
   const [error, setError] = useState(""),
     [editRevision, setEditRevision] = useState(t.revision);
   const refresh = async () => {
@@ -67,8 +76,8 @@ export default function SharedTournamentCommon({
         expectedRevision: editRevision,
         name,
         location,
-        startDate: start,
-        endDate: end || null,
+        ...phaseDateBounds(phases),
+        phases,
         teamIds: t.teams.map((team) => team.id),
       }),
     onSuccess: async () => {
@@ -121,11 +130,20 @@ export default function SharedTournamentCommon({
               size="sm"
               variant="outline"
               onClick={() => {
+                setPhases(
+                  t.phases?.length
+                    ? structuredClone(t.phases)
+                    : [
+                        newTournamentPhase(
+                          1,
+                          t.startDate,
+                          t.endDate ?? t.startDate,
+                        ),
+                      ],
+                );
                 setEditRevision(t.revision);
                 setName(t.name);
                 setLocation(t.location);
-                setStart(t.startDate);
-                setEnd(t.endDate ?? "");
                 edit.reset();
                 setOpen(true);
               }}
@@ -256,26 +274,7 @@ export default function SharedTournamentCommon({
                 onChange={(e) => setLocation(e.target.value)}
               />
             </div>
-            <div>
-              <Label htmlFor="shared-edit-start">Data inizio</Label>
-              <Input
-                id="shared-edit-start"
-                required
-                type="date"
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="shared-edit-end">Data fine</Label>
-              <Input
-                id="shared-edit-end"
-                type="date"
-                min={start}
-                value={end}
-                onChange={(e) => setEnd(e.target.value)}
-              />
-            </div>
+            <TournamentPhasesFields value={phases} onChange={setPhases} />
             <p className="text-xs text-muted-foreground">
               Annate: {t.teams.map((team) => team.name).join(", ")}
             </p>

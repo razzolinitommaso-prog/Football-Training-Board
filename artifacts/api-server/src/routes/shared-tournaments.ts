@@ -48,6 +48,7 @@ function ensureTables() {
       created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
     );
     ALTER TABLE shared_tournaments ADD COLUMN IF NOT EXISTS revision integer NOT NULL DEFAULT 0;
+    ALTER TABLE shared_tournaments ADD COLUMN IF NOT EXISTS phases jsonb NOT NULL DEFAULT '[]'::jsonb;
     CREATE TABLE IF NOT EXISTS shared_tournament_teams (
       id serial PRIMARY KEY, tournament_id integer NOT NULL REFERENCES shared_tournaments(id) ON DELETE CASCADE,
       team_id integer NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
@@ -69,6 +70,32 @@ function ensureTables() {
       ready = undefined;
       throw error;
     }));
+}
+function phaseError(
+  entry: { date: string; tournamentPhaseId?: string },
+  phases: { id: string; startDate: string; endDate: string }[],
+  requireAssignment: boolean,
+) {
+  const day = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Rome",
+  }).format(new Date(entry.date));
+  if (!phases.length)
+    return entry.tournamentPhaseId
+      ? "La fase selezionata non esiste nel torneo"
+      : null;
+  if (!entry.tournamentPhaseId) {
+    return requireAssignment
+      ? "Scegli la fase del torneo per ogni gara"
+      : phases.some((p) => p.startDate <= day && p.endDate >= day)
+        ? null
+        : "Una gara già programmata non rientra nelle date di alcuna fase";
+  }
+  const phase = phases.find((p) => p.id === entry.tournamentPhaseId);
+  return !phase
+    ? "Non puoi rimuovere una fase usata da una gara del programma"
+    : day < phase.startDate || day > phase.endDate
+      ? "La data della gara deve rientrare nella fase selezionata"
+      : null;
 }
 async function visibleTeams(req: Request) {
   if (!staff.has(normalizeSessionRole(req.session.role))) return [];
@@ -99,6 +126,7 @@ const serialize = (
 ) => ({
   id: row.id,
   revision: row.revision,
+  phases: row.phases ?? [],
   name: row.name,
   location: row.location ?? "",
   startDate: row.start_date,
@@ -147,7 +175,7 @@ router.post(
     if (!parsed.success) {
       res
         .status(400)
-        .json({ error: "Controlla nome, date e annate del torneo" });
+        .json({ error: "Controlla nome, date delle fasi e annate del torneo" });
       return;
     }
     const body = parsed.data,
@@ -214,8 +242,8 @@ router.post(
       const {
         rows: [row],
       } = await client.query(
-        `INSERT INTO shared_tournaments(club_id,season_id,club_section,name,location,start_date,end_date)
-      VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *,start_date::text,end_date::text`,
+        `INSERT INTO shared_tournaments(club_id,season_id,club_section,name,location,start_date,end_date,phases)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING *,start_date::text,end_date::text`,
         [
           req.session.clubId,
           selected[0].seasonId,
@@ -224,6 +252,7 @@ router.post(
           body.location,
           body.startDate,
           body.endDate,
+          JSON.stringify(body.phases ?? []),
         ],
       );
       for (const id of ids)
@@ -334,6 +363,31 @@ router.patch(
         "SELECT program FROM tournament_states WHERE club_id=$1 AND team_id=ANY($2::integer[]) AND normalized_competition=$3",
         [req.session.clubId, memberIds, competitionKey(t.name)],
       );
+      const phases = b.phases ?? t.phases ?? [];
+      if (
+        phases.some(
+          (p: any) =>
+            p.startDate < b.startDate || p.endDate > (b.endDate ?? b.startDate),
+        )
+      ) {
+        await client.query("ROLLBACK");
+        res
+          .status(409)
+          .json({
+            error:
+              "Le date complessive devono comprendere tutte le fasi del torneo",
+          });
+        return;
+      }
+      const phaseConflict = programmes.rows
+        .flatMap((row) => row.program ?? [])
+        .map((entry) => phaseError(entry, phases, false))
+        .find(Boolean);
+      if (phaseConflict) {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: phaseConflict });
+        return;
+      }
       const outsideProgramme = programmes.rows.some((row) =>
         (row.program ?? []).some((entry: any) => {
           const day = new Intl.DateTimeFormat("sv-SE", {
@@ -389,8 +443,15 @@ router.patch(
       const {
         rows: [row],
       } = await client.query(
-        `UPDATE shared_tournaments SET name=$1,location=$2,start_date=$3,end_date=$4,updated_at=now(),revision=revision+1 WHERE id=$5 RETURNING *,start_date::text,end_date::text`,
-        [b.name, b.location, b.startDate, b.endDate, id],
+        `UPDATE shared_tournaments SET name=$1,location=$2,start_date=$3,end_date=$4,phases=$6::jsonb,updated_at=now(),revision=revision+1 WHERE id=$5 RETURNING *,start_date::text,end_date::text`,
+        [
+          b.name,
+          b.location,
+          b.startDate,
+          b.endDate,
+          id,
+          JSON.stringify(phases),
+        ],
       );
       await client.query(
         `UPDATE matches SET competition=$1,location=$2 WHERE club_id=$3 AND id IN(SELECT match_id FROM shared_tournament_matches WHERE tournament_id=$4)`,
@@ -648,7 +709,14 @@ router.get(
     const ownName = teams.find((team) => team.id === teamId)!.name;
     const program = (state?.program ?? []).map((entry: any) => {
       const match = matches.find((m) => m.entry_id === entry.id);
+      const candidates = (t.phases ?? []).filter(
+        (p: any) =>
+          !phaseError({ ...entry, tournamentPhaseId: p.id }, [p], true),
+      );
       return {
+        tournamentPhaseId:
+          entry.tournamentPhaseId ??
+          (candidates.length === 1 ? candidates[0].id : undefined),
         id: entry.id,
         date: entry.date,
         homeTeam: entry.homeTeam,
@@ -722,6 +790,12 @@ router.put(
         return;
       }
       for (const entry of b.program) {
+        const error = phaseError(entry, t.phases ?? [], true);
+        if (error) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error });
+          return;
+        }
         const day = new Intl.DateTimeFormat("sv-SE", {
           timeZone: "Europe/Rome",
         }).format(new Date(entry.date));
