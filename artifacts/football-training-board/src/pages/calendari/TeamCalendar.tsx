@@ -1,3 +1,4 @@
+import SharedTournamentHub from "./SharedTournamentHub";
 import { trainingSlotOnDate } from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
@@ -4342,6 +4343,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
   const [duplicateImportOpen, setDuplicateImportOpen] = useState(false);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
   const [createTournamentOpen, setCreateTournamentOpen] = useState(false);
+  const [createSharedTournamentOpen, setCreateSharedTournamentOpen] = useState(false);
   const [editingTournament, setEditingTournament] = useState<null | {
     originalCompetition: string;
     name: string;
@@ -5538,9 +5540,10 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
     () => campionato.filter((m) => matchPassesListFilters(m, team?.name, listFilterOpts)),
     [campionato, team?.name, listFilterOpts],
   );
+  const selectedSharedTournamentId = Number(new URLSearchParams(window.location.search).get("sharedTournament"));
   const torneiFiltered = useMemo(
-    () => tornei.filter((m) => matchPassesListFilters(m, team?.name, listFilterOpts)),
-    [tornei, team?.name, listFilterOpts],
+    () => tornei.filter((m) => (!selectedSharedTournamentId || m.notes?.includes(`[FTB_SHARED_TOURNAMENT:${selectedSharedTournamentId}]`)) && matchPassesListFilters(m, team?.name, listFilterOpts)),
+    [tornei, team?.name, listFilterOpts, selectedSharedTournamentId],
   );
   const amichevoliFiltered = useMemo(
     () => amichevoli.filter((m) => matchPassesListFilters(m, team?.name, listFilterOpts)),
@@ -5964,7 +5967,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
                 size="sm"
                 className="h-8 text-xs gap-1.5"
                 disabled={importActionsBusy}
-                onClick={() => setCreateTournamentOpen(true)}
+                onClick={() => setCreateSharedTournamentOpen(true)}
               >
                 <Plus className="w-3.5 h-3.5" />
                 Crea torneo
@@ -6417,16 +6420,19 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
 
           {renderPhaseImportToolbar(activePhase.items)}
 
-          {phaseTab === "tornei" && tournamentGroups.length > 0 && team && (
+          {phaseTab === "tornei" && teamId && <SharedTournamentHub key={teamId} teamId={teamId} teams={teams} canManage={canManageTournament} open={createSharedTournamentOpen} onOpenChange={setCreateSharedTournamentOpen} />}
+
+          {phaseTab === "tornei" && team && tournamentGroups.map(group => (
             <TournamentGroupedCards
-              groups={tournamentGroups}
+              key={group.competition}
+              groups={[group]}
               clubLabel={clubLabel}
               programSelection={tournamentProgramSelection}
               onProgramChange={(competition, value) =>
                 setTournamentProgramSelection((prev) => ({ ...prev, [competition]: value }))
               }
-              canUploadDocuments={canImportExport}
-              canManageTournament={canManageTournament}
+              canUploadDocuments={canImportExport && !group.matches.some(match => match.notes?.includes("[FTB_SHARED_TOURNAMENT:"))}
+              canManageTournament={canManageTournament && !group.matches.some(match => match.notes?.includes("[FTB_SHARED_TOURNAMENT:"))}
               canEditTournamentScores={canEditTournamentScores}
               attachmentsByCompetition={tournamentAttachmentsByCompetition}
               programsByCompetition={tournamentProgramsByCompetition}
@@ -6443,7 +6449,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
               onTournamentProgramEntryChange={updateTournamentProgramEntry}
               onTournamentProgramGroupsChange={updateTournamentProgramGroups}
             />
-          )}
+          ))}
 
           {team && teamId && (
             <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
