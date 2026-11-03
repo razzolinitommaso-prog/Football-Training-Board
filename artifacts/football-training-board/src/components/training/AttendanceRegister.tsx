@@ -1,3 +1,4 @@
+import "./mobile-player-table.css";
 import { useAuth } from "@/hooks/use-auth";
 import { withApi } from "@/lib/api-base";
 import { useState } from "react";
@@ -77,12 +78,19 @@ function RegisterTable({
   rows: string[][];
 }) {
   return (
-    <div className="overflow-x-auto print:overflow-visible">
-      <table className="w-full border-collapse text-sm">
+    <div className="min-w-0 max-w-full md:overflow-x-auto print:overflow-visible">
+      <table
+        className="mobile-player-table w-full border-collapse text-sm md:min-w-max print:min-w-0"
+        role="table"
+      >
         <thead className="bg-muted">
           <tr>
             {headers.map((header, index) => (
-              <th key={index} scope="col" className="p-2 text-left">
+              <th
+                key={index}
+                scope="col"
+                className="p-2 text-left sm:max-w-48 sm:whitespace-normal max-sm:max-w-36 max-sm:[overflow-wrap:normal] print:whitespace-normal"
+              >
                 {header}
               </th>
             ))}
@@ -91,7 +99,10 @@ function RegisterTable({
         <tbody>
           {rows.map(([name, ...cells], index) => (
             <tr key={index} className="border-b">
-              <th scope="row" className="p-2 text-left font-medium">
+              <th
+                scope="row"
+                className="whitespace-nowrap p-2 text-left font-medium print:whitespace-normal"
+              >
                 {name}
               </th>
               {cells.map((cell, index) => (
@@ -99,12 +110,18 @@ function RegisterTable({
                   key={index}
                   className={
                     cell === "Presente"
-                      ? "p-2 text-emerald-700"
+                      ? "whitespace-nowrap p-2 text-emerald-700"
                       : cell === "Assente"
-                        ? "p-2 text-red-700"
-                        : "p-2"
+                        ? "whitespace-nowrap p-2 text-red-700"
+                        : "whitespace-nowrap p-2 print:whitespace-normal"
                   }
                 >
+                  <span
+                    aria-hidden="true"
+                    className="mobile-cell-label hidden text-muted-foreground"
+                  >
+                    {headers[index + 1]}
+                  </span>
                   {cell}
                 </td>
               ))}

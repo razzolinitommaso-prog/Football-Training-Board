@@ -1,3 +1,4 @@
+import "@/components/training/mobile-player-table.css";
 import { useState, type ReactNode } from "react";
 import type {
   MatchRotationSummary,
@@ -234,92 +235,137 @@ export function MatchRotationComparison({
               ? "Tocca una cella per cambiare titolare/panchina. Il calcolo resta modificabile."
               : "Consultazione in sola lettura."}
           </p>
-          <table className="w-full table-fixed border-collapse text-[10px] sm:table-auto sm:text-xs">
-            <thead>
-              <tr className="bg-muted/50 text-left">
-                <th className="w-[28%] p-1 sm:p-2">Giocatore</th>
-                {summary.units.map((u) => (
-                  <th key={u.key} className="p-1 text-center sm:p-2">
-                    {u.label.replace(" tempo", "")}
-                    <span className="block text-[10px] font-normal">
-                      {number(u.minutes)}′
-                    </span>
-                  </th>
-                ))}
-                <th className="p-1 text-center">Tempi eq.</th>
-                <th className="p-1 text-center">Previsti</th>
-                {summary.hasReport && (
-                  <th className="p-1 text-center">Effettivi</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {summary.rows.map((row) => (
-                <tr key={row.playerId} className="border-b">
-                  <th className="break-words p-1 text-left font-medium sm:p-2">
-                    {row.name}
-                  </th>
-                  {row.cells.map((cell) => (
-                    <td key={cell.key} className="p-0.5 text-center">
-                      <button
-                        type="button"
-                        disabled={!onStatus}
-                        aria-label={
-                          row.name +
-                          ", " +
-                          summary.units.find((u) => u.key === cell.key)?.label +
-                          ": " +
-                          (cell.status === "T"
-                            ? "titolare"
-                            : cell.status === "P"
-                              ? "panchina"
-                              : "non assegnato")
-                        }
-                        aria-pressed={cell.status === "T"}
-                        onClick={() =>
-                          onStatus?.(
-                            row.playerId,
-                            cell.key,
-                            cell.status === "T",
-                          )
-                        }
-                        className={
-                          "min-h-8 w-full rounded px-1 font-semibold " +
-                          (cell.status === "T"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-slate-100 text-slate-600")
-                        }
-                      >
-                        {cell.status}
-                        {summary.hasReport && (
-                          <small className="block text-[9px] font-normal">
-                            {number(cell.actualMinutes ?? 0)}′ eff.
-                          </small>
-                        )}
-                      </button>
-                    </td>
+          <div className="min-w-0 max-w-full md:overflow-x-auto">
+            {" "}
+            <table className="mobile-player-table mobile-rotation-table w-full border-collapse text-xs md:min-w-max md:whitespace-nowrap">
+              <thead>
+                <tr className="bg-muted/50 text-left">
+                  <th className="w-[28%] p-1 sm:p-2">Giocatore</th>
+                  {summary.units.map((u) => (
+                    <th key={u.key} className="p-1 text-center sm:p-2">
+                      {u.label.replace(" tempo", "")}
+                      <span className="block text-[10px] font-normal">
+                        {number(u.minutes)}′
+                      </span>
+                    </th>
                   ))}
-                  <td className="p-1 text-center font-semibold">
-                    {number(row.plannedPeriods)}
-                  </td>
-                  <td className="p-1 text-center font-semibold">
-                    {number(row.plannedMinutes)}′
-                  </td>
+                  <th
+                    className="p-1 text-center"
+                    aria-label="Tempi equivalenti"
+                  >
+                    Tempi eq.
+                  </th>
+                  <th className="p-1 text-center" aria-label="Minuti previsti">
+                    Prev.′
+                  </th>
                   {summary.hasReport && (
-                    <td className="p-1 text-center font-semibold">
-                      {row.actualMinutes === null
-                        ? "—"
-                        : number(row.actualMinutes) + "′"}
-                    </td>
+                    <th
+                      className="p-1 text-center"
+                      aria-label="Minuti effettivi"
+                    >
+                      Eff.′
+                    </th>
                   )}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {summary.rows.map((row) => (
+                  <tr key={row.playerId} className="border-b">
+                    <th className="break-words p-1 text-left font-medium sm:p-2">
+                      {row.name}
+                    </th>
+                    {row.cells.map((cell) => (
+                      <td key={cell.key} className="p-0.5 text-center">
+                        <span
+                          aria-hidden="true"
+                          className="mobile-cell-label hidden"
+                        >
+                          {
+                            summary.units.find((unit) => unit.key === cell.key)
+                              ?.label
+                          }
+                        </span>
+                        <button
+                          type="button"
+                          disabled={!onStatus}
+                          aria-label={
+                            row.name +
+                            ", " +
+                            summary.units.find((u) => u.key === cell.key)
+                              ?.label +
+                            ": " +
+                            (cell.status === "T"
+                              ? "titolare"
+                              : cell.status === "P"
+                                ? "panchina"
+                                : "non assegnato")
+                          }
+                          aria-pressed={cell.status === "T"}
+                          onClick={() =>
+                            onStatus?.(
+                              row.playerId,
+                              cell.key,
+                              cell.status === "T",
+                            )
+                          }
+                          className={
+                            "min-h-8 w-full rounded px-1 font-semibold " +
+                            (cell.status === "T"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-slate-100 text-slate-600")
+                          }
+                        >
+                          {cell.status}
+                          {summary.hasReport && (
+                            <small className="block text-[9px] font-normal">
+                              {number(cell.actualMinutes ?? 0)}′
+                            </small>
+                          )}
+                        </button>
+                      </td>
+                    ))}
+                    <td className="p-1 text-center font-semibold">
+                      <span
+                        aria-hidden="true"
+                        className="mobile-cell-label hidden"
+                      >
+                        Tempi eq.
+                      </span>
+                      {number(row.plannedPeriods)}
+                    </td>
+                    <td className="p-1 text-center font-semibold">
+                      <span
+                        aria-hidden="true"
+                        className="mobile-cell-label hidden"
+                      >
+                        Previsti
+                      </span>
+                      {number(row.plannedMinutes)}′
+                    </td>
+                    {summary.hasReport && (
+                      <td className="p-1 text-center font-semibold">
+                        <span
+                          aria-hidden="true"
+                          className="mobile-cell-label hidden"
+                        >
+                          Effettivi
+                        </span>
+                        {row.actualMinutes === null
+                          ? "—"
+                          : number(row.actualMinutes) + "′"}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p className="mt-2 text-[10px] text-muted-foreground">
             T = titolare · P = panchina · — = non assegnato. Tempi eq. somma le
-            quote previste: due metà valgono un tempo. Previsti e tempi eq. sono
-            il piano; gli effettivi provengono dal resoconto.
+            quote previste: due metà valgono un tempo. Prev. indica i minuti
+            previsti e Eff. quelli effettivi. I minuti sotto T/P sono effettivi.
+            Previsti e tempi eq. sono il piano; gli effettivi provengono dal
+            resoconto.
           </p>
           {!summary.hasReport && (
             <p className="mt-1 text-[10px] text-muted-foreground">
