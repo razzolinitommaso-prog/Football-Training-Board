@@ -120,6 +120,13 @@ export default function ParentDashboard() {
             <div className="text-xs text-muted-foreground">Convocazioni</div>
           </div>
         </Link>
+        <Link href="/parent/presenze">
+          <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
+            <UserCheck className="w-6 h-6 text-primary mb-2" />
+            <div className="text-lg font-bold">Presenze</div>
+            <div className="text-xs text-muted-foreground">Riepilogo settimanale e totali della stagione</div>
+          </div>
+        </Link>
         <Link href="/parent/attendance">
           <div className="bg-card border rounded-xl p-4 hover:border-primary/50 transition-all cursor-pointer">
             <CalendarDays className="w-6 h-6 text-primary mb-2" />

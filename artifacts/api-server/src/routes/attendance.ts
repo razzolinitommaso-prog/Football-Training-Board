@@ -1,14 +1,17 @@
+import { resolveAllowedClubSections } from "../lib/club-scope";
+import { rosterMembers } from "../lib/training-roster-policy";
 import { assignedTrainingProgram } from "../lib/training-program-access";
-import { sessionTeamIds } from "@workspace/api-zod";
+import { sessionTeamScope } from "../lib/session-team-scope";
+import { parentPlayedMinutes, sessionTeamIds } from "@workspace/api-zod";
 import { saveAttendanceAndNotify } from "../lib/attendance-notifications";
 import { trainingAvailability } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
-import { db, trainingAttendancesTable, playersTable, teamStaffAssignmentsTable, teamsTable, trainingSessionsTable } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { db, seasonsTable, clubMembershipsTable, matchesTable, callUpsTable, trainingAttendancesTable, playersTable, teamStaffAssignmentsTable, teamsTable, trainingSessionsTable } from "@workspace/db";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
-const ATTENDANCE_MANAGE_ALL_ROLES = ["admin", "presidente", "director", "sporting_director", "technical_director", "secretary"];
+const ATTENDANCE_MANAGE_ALL_ROLES = ["admin", "presidente", "director", "sporting_director", "technical_director"];
 const ATTENDANCE_TEAM_ROLES = ["coach", "fitness_coach", "athletic_director"];
 type PlayerAvailabilityOverrideFields = {
   availabilityOverrideActive?: boolean | null;
@@ -69,6 +72,11 @@ async function userCanManageAttendanceForSession(userId: number, clubId: number,
   return !!team;
 }
 
+async function userCanReadAttendance(userId: number, clubId: number, role: string, sessionId: number) {
+  if (role === "secretary") return Boolean(await getSessionForAttendance(sessionId, clubId));
+  return userCanManageAttendanceForSession(userId, clubId, role, sessionId);
+}
+
 async function playerIsValidForSession(playerId: number, clubId: number, sessionId: number): Promise<boolean> {
   const session = await getSessionForAttendance(sessionId, clubId);
   if (!session) return false;
@@ -113,7 +121,8 @@ router.get("/training-availability", requireAuth, async (req,res):Promise<void>=
   if(!Number.isInteger(teamId)||teamId<=0||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(start)||!Number.isFinite(Date.parse(date))){res.status(400).json({error:"Squadra, data e orario richiesti"});return;}
   const [team]=await db.select({id:teamsTable.id,coachId:teamsTable.coachId}).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),eq(teamsTable.id,teamId))).limit(1);
   if(!team){res.status(403).json({error:"Squadra non autorizzata"});return;}
-  let allowed=ATTENDANCE_MANAGE_ALL_ROLES.includes(req.session.role??"");
+  const canReadAll = req.session.role === "secretary" || ATTENDANCE_MANAGE_ALL_ROLES.includes(req.session.role ?? "");
+  let allowed = canReadAll;
   if(!allowed&&ATTENDANCE_TEAM_ROLES.includes(req.session.role??"")){
     const [assignment]=await db.select({id:teamStaffAssignmentsTable.id}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,clubId),eq(teamStaffAssignmentsTable.teamId,teamId),eq(teamStaffAssignmentsTable.userId,req.session.userId!))).limit(1);
     allowed=Boolean(assignment)||team.coachId===req.session.userId;
@@ -124,16 +133,133 @@ router.get("/training-availability", requireAuth, async (req,res):Promise<void>=
   if(!allowed){res.status(403).json({error:"Squadra non autorizzata"});return;}
   const clubTeams=await db.select({id:teamsTable.id,coachId:teamsTable.coachId}).from(teamsTable).where(eq(teamsTable.clubId,clubId));
   const assignments=await db.select({teamId:teamStaffAssignmentsTable.teamId}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,clubId),eq(teamStaffAssignmentsTable.userId,req.session.userId!)));
-  const allowedTeamIds=ATTENDANCE_MANAGE_ALL_ROLES.includes(req.session.role??"")?clubTeams.map(t=>t.id):clubTeams.filter(t=>t.coachId===req.session.userId||assignments.some(a=>a.teamId===t.id)).map(t=>t.id).concat(programIds);
+  const allowedTeamIds=canReadAll?clubTeams.map(t=>t.id):clubTeams.filter(t=>t.coachId===req.session.userId||assignments.some(a=>a.teamId===t.id)).map(t=>t.id).concat(programIds);
   const requested=String(req.query.teamIds??teamId).split(",").map(Number);
   if(requested.length>20||requested.some(id=>!Number.isInteger(id)||!allowedTeamIds.includes(id))){res.status(403).json({error:"Annate non autorizzate"});return;}
   res.json(await trainingAvailability(clubId,teamId,date,start,allowedTeamIds,requested,duration));
 });
 
+router.get("/attendance-register", requireAuth, async (req, res) => {
+  const { clubId, userId, role, parentPlayerId } = req.session;
+  const clubReader = role === "secretary" || ATTENDANCE_MANAGE_ALL_ROLES.includes(role ?? "");
+  const parent = role === "parent";
+  if (!clubId || userId === undefined || (!clubReader && !parent && role !== "team_manager" && !ATTENDANCE_TEAM_ROLES.includes(role ?? ""))) {
+    res.sendStatus(403);
+    return;
+  }
+  const requestedSection = typeof req.query.section === "string" ? req.query.section : undefined;
+  const section = String(req.session.section || requestedSection || "").replace(/-/g, "_");
+  const allowedSections = parent || role === "team_manager" ? undefined : await resolveAllowedClubSections(req, requestedSection);
+  const clubTeams = await db.select().from(teamsTable).where(eq(teamsTable.clubId, clubId));
+  const assignments: { teamId: number }[] = parent || clubReader ? [] :
+    await db.select({ teamId: teamStaffAssignmentsTable.teamId }).from(teamStaffAssignmentsTable)
+      .where(and(eq(teamStaffAssignmentsTable.clubId, clubId), eq(teamStaffAssignmentsTable.userId, userId)));
+  const rosterFields = {
+    id: playersTable.id,
+    teamId: playersTable.teamId,
+    firstName: playersTable.firstName,
+    lastName: playersTable.lastName,
+    notes: playersTable.notes,
+  };
+  const own = parent && parentPlayerId
+    ? await db.select(rosterFields).from(playersTable).where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, parentPlayerId)))
+    : [];
+  const ownTeamId: number | null | undefined = own.at(0)?.teamId;
+  const membership = role === "team_manager" ? (await db.select().from(clubMembershipsTable)
+    .where(and(eq(clubMembershipsTable.clubId, clubId), eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.role, role))))[0] : null;
+  const teams = clubTeams.filter(team => {
+    if (parent) return team.id === ownTeamId;
+    if (role === "team_manager" && section && section !== team.clubSection) return false;
+    if (allowedSections && !allowedSections.includes(team.clubSection)) return false;
+    const assigned = assignments.some(item => item.teamId === team.id);
+    if (role === "team_manager") return assigned && Boolean(membership?.clubSection.some(value => value.replace(/-/g, "_") === team.clubSection));
+    return clubReader || assigned || team.coachId === userId;
+  });
+  const team = req.query.teamId === undefined ? teams[0] : teams.find(item => item.id === Number(req.query.teamId));
+  if (!team && req.query.teamId !== undefined) {
+    res.sendStatus(403);
+    return;
+  }
+  const options = teams.map(({ id, name }) => ({ id, name }));
+  if (!team) {
+    res.json({ teams: options, teamId: null, sessions: [], matches: [], players: [] });
+    return;
+  }
+
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const [season] = team.seasonId ? await db.select().from(seasonsTable).where(and(eq(seasonsTable.clubId, clubId), eq(seasonsTable.id, team.seasonId))) :
+    await db.select().from(seasonsTable).where(and(eq(seasonsTable.clubId, clubId), eq(seasonsTable.isActive, true))).limit(1);
+  const year = Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) < 7 ? 1 : 0);
+  const start = season?.startDate ?? team.seasonTrainingStartDate ?? `${year}-07-01`;
+  const end = season?.endDate ?? `${year + 1}-06-30`;
+  const through = today < end ? today : end;
+  const [sessionRows, matchRows] = await Promise.all([
+    db.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId, clubId),
+      sessionTeamScope(team.id), sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date BETWEEN ${start}::date AND ${end}::date`,
+      sql`${trainingSessionsTable.status} NOT IN ('cancelled','canceled')`,
+      sql`${trainingSessionsTable.notes} IS DISTINCT FROM '[FTB_AUTO_TRAINING] GROUPED'`)),
+    db.select().from(matchesTable).where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, team.id),
+      sql`(COALESCE(${matchesTable.rescheduleDate}, ${matchesTable.date}) AT TIME ZONE 'Europe/Rome')::date BETWEEN ${start}::date AND ${end}::date`)),
+  ]);
+  const sessions = sessionRows.map(session => ({
+    id: session.id, date: session.scheduledAt.toISOString(), title: session.title,
+    teamIds: sessionTeamIds(session.teamId, session.notes).filter(id =>
+      clubTeams.some(candidate => candidate.id === id && candidate.clubSection === team.clubSection)),
+  }));
+  const rosterTeams = [...new Set([team.id, ...sessions.flatMap(session => session.teamIds)])];
+  const [roster, records, callups] = await Promise.all([
+    parent ? Promise.resolve(own) : db.select(rosterFields).from(playersTable).where(eq(playersTable.clubId, clubId)),
+    sessions.length ? db.select().from(trainingAttendancesTable).where(and(eq(trainingAttendancesTable.clubId, clubId),
+      inArray(trainingAttendancesTable.trainingSessionId, sessions.map(session => session.id)),
+      parent ? eq(trainingAttendancesTable.playerId, own[0].id) : undefined)) : Promise.resolve([]),
+    matchRows.length ? db.select().from(callUpsTable).where(and(inArray(callUpsTable.matchId, matchRows.map(match => match.id)),
+      parent ? eq(callUpsTable.playerId, own[0].id) : undefined)) : Promise.resolve([]),
+  ]);
+  const called = (status: string) => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(status.toLowerCase());
+  const publishedIds = matchRows.length ? await db.selectDistinct({ id: callUpsTable.matchId }).from(callUpsTable)
+    .where(and(inArray(callUpsTable.matchId, matchRows.map(match => match.id)),
+      sql`lower(${callUpsTable.status}) NOT IN ('available','unavailable','availability','absent','declined','not_called')`)) : [];
+  const recordMap = new Map(records.map(record => [`${record.trainingSessionId}:${record.playerId}`, record.status]));
+  const calledKeys = new Set(callups.filter(row => called(row.status)).map(row => `${row.matchId}:${row.playerId}`));
+  const rosterIds = new Set(rosterMembers(roster, rosterTeams).map(player => player.id));
+  const membersBySession = new Map(sessions.map(session => [
+    session.id, new Set(rosterMembers(roster, session.teamIds).map(player => player.id)),
+  ]));
+  const eligible = roster.filter(player => rosterIds.has(player.id) ||
+    records.some(record => record.playerId === player.id) ||
+    callups.some(row => row.playerId === player.id && called(row.status)));
+  const matches = matchRows.filter(match => !match.isPostponed || !match.rescheduleTbd && match.rescheduleDate);
+  res.json({
+    teams: options, teamId: team.id, start, through, today,
+    canEdit: !parent && role !== "secretary" && role !== "team_manager" && role !== "technical_director",
+    sessions: sessions.map(({ teamIds, ...session }) => ({ ...session, shared: teamIds.length > 1 })),
+    matches: matches.map(match => ({ id: match.id, date: (match.rescheduleDate ?? match.date).toISOString(), title: match.opponent })),
+    players: eligible.map(player => ({
+      id: player.id,
+      name: `${player.lastName} ${player.firstName}`,
+      teamId: player.teamId,
+      team: clubTeams.find(item => item.id === player.teamId)?.name ?? team.name,
+      attendance: Object.fromEntries(sessions.flatMap(session => {
+        const status = recordMap.get(`${session.id}:${player.id}`);
+        const eligible = membersBySession.get(session.id)?.has(player.id);
+        return status || eligible ? [[session.id, status ?? null]] : [];
+      })),
+      games: Object.fromEntries(matches.flatMap(match => {
+        const called = calledKeys.has(`${match.id}:${player.id}`);
+        if (player.teamId !== team.id && !called) return [];
+        return [[match.id, {
+          called: called ? true : publishedIds.some(row => row.id === match.id) ? false : null,
+          minutes: called ? parentPlayedMinutes(match.matchPlan, player.id) : null,
+        }]];
+      })),
+    })).sort((a, b) => a.name.localeCompare(b.name, "it")),
+  });
+});
+
 router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
   const sessionId = req.query.sessionId ? parseInt(req.query.sessionId as string) : null;
   if (!sessionId || isNaN(sessionId)) { res.status(400).json({ error: "sessionId required" }); return; }
-  if (!(await userCanManageAttendanceForSession(req.session.userId!, req.session.clubId!, req.session.role ?? "", sessionId))) {
+  if (!(await userCanReadAttendance(req.session.userId!, req.session.clubId!, req.session.role ?? "", sessionId))) {
     res.status(403).json({ error: "Non autorizzato a visualizzare presenze di questa seduta" });
     return;
   }
@@ -159,7 +285,7 @@ router.get("/attendance-summary", requireAuth, async (req, res): Promise<void> =
 
   const summaries: Record<number, { present: number; absent: number; requested: number; injured: number; total: number; recorded: number; percentage: number }> = {};
   for (const sessionId of sessionIds) {
-    if (!(await userCanManageAttendanceForSession(req.session.userId!, req.session.clubId!, req.session.role ?? "", sessionId))) {
+    if (!(await userCanReadAttendance(req.session.userId!, req.session.clubId!, req.session.role ?? "", sessionId))) {
       continue;
     }
     const session = await getSessionForAttendance(sessionId, req.session.clubId!);

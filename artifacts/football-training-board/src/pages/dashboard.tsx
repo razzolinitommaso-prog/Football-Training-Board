@@ -2898,6 +2898,14 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
               </CardTitle>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {["admin", "presidente", "secretary", "director", "technical_director"].includes(nr) && (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/${dashboardSection.replace(/_/g, "-")}/calendar`}>Gestisci eventi</Link>
+                </Button>
+              )}
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/${dashboardSection.replace(/_/g, "-")}/attendance`}>Presenze</Link>
+              </Button>
               <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => subMonths(m, 1))}>
                 <ChevronLeft className="w-4 h-4" />
               </Button>

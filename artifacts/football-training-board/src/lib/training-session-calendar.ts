@@ -3,9 +3,9 @@ import { format } from "date-fns";
 import { managerTrainingEvents, type ManagerTrainingCalendar } from "@/lib/team-manager-training-calendar";
 
 export type SessionPreparation = { exerciseCount: number; phases: string[]; complete: boolean };
-export type CalendarSession = { id: number; teamId: number | null; notes?:string|null; durationMinutes?:number|null; title: string; scheduledAt: string; status: string; sessionKind: string; preparation?: SessionPreparation };
+export type CalendarSession = { id: number; teamId: number | null; notes?:string|null; durationMinutes?:number|null; title: string; objectives?: string | null; description?: string | null; scheduledAt: string; status: string; sessionKind: string; preparation?: SessionPreparation };
 export type SessionCalendarTeam = { id: number; name: string; clubSection?: string | null; trainingSchedule?: ProgramTrainingSlot[] | null; seasonTrainingStartDate?: string | null; officialTrainingEndDate?: string | null };
-export type SessionCalendarRow = { id: string; date: string; time: string; title: string; status: "complete" | "pending" | "cancelled" | "relocated" | "planned" | "unknown"; sessionId?: number; detail?: string; exerciseCount?: number; endTime?: string };
+export type SessionCalendarRow = { id: string; date: string; time: string; title: string; status: "complete" | "unstarted" | "pending" | "cancelled" | "relocated" | "planned" | "unknown"; sessionId?: number; detail?: string; exerciseCount?: number; endTime?: string };
 const key = (date: Date) => format(date, "yyyy-MM-dd|HH:mm");
 
 export function sessionCalendarRows(team: SessionCalendarTeam | null, sessions: CalendarSession[], changes: ManagerTrainingCalendar["changes"], from: Date, to: Date, includeSchedule = true): SessionCalendarRow[] {
@@ -23,7 +23,7 @@ export function sessionCalendarRows(team: SessionCalendarTeam | null, sessions: 
   const append = (session: CalendarSession) => {
     const at = new Date(session.scheduledAt);
     rows.push({id: `session-${session.id}`, date: format(at, "yyyy-MM-dd"), time: format(at, "HH:mm"), title: session.notes?.includes("[FTB_PROGRAM_TEAMS]") ? `Congiunto · ${session.title}` : session.title,
-      status: ["cancelled", "canceled"].includes(session.status) ? "cancelled" : !session.preparation ? "unknown" : session.preparation.complete ? "complete" : "pending",
+      status: ["cancelled", "canceled"].includes(session.status) ? "cancelled" : !session.preparation ? "unknown" : session.preparation.complete ? "complete" : session.preparation.exerciseCount === 0 && session.title === "Allenamento da preparare" && !session.objectives?.trim() && !session.description?.trim() ? "unstarted" : "pending",
       sessionId: session.id, exerciseCount: session.preparation?.exerciseCount,
     });
   };

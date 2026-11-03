@@ -32,7 +32,6 @@ import {
   Star,
   School,
   ChevronRight,
-  CalendarRange,
   RefreshCw,
   Bus,
 } from "lucide-react";
@@ -64,13 +63,10 @@ const SEZIONE_SUB_ITEMS: SubItem[] = [
   { label: "Giocatori",            url: "players",    icon: Users,         roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Sedute Allenamento", url: "training",   icon: CalendarDays,  roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Convocazioni",          url: "training/convocazioni", icon: UsersRound, roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
-  { label: "Presenze allenamenti",  url: "training/presenze", icon: ClipboardCheck, roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
-  { label: "Calendario operativo",  url: "training/calendario-operativo", icon: CalendarRange, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Stazioni",          url: "exercises",  icon: BookOpen,      roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Partite",              url: "matches",    icon: Trophy,        roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Stagioni",             url: "seasons",    icon: Layers,        roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"] },
   { label: "Presenze",             url: "attendance", icon: CalendarCheck, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
-  { label: "Calendario",           url: "calendar",   icon: CalendarRange, roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
 ];
 
 const CHAMPIONSHIP_SUB_ITEM: SubItem = {
@@ -112,7 +108,6 @@ const SECTION_OPERATION_URLS = new Set([
 const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof UsersRound }[] = [
   { label: "Squadre", url: "/teams", icon: UsersRound },
   { label: "Giocatori", url: "/players", icon: Users },
-  { label: "Calendario", url: "/scuola-calcio/calendar", icon: CalendarRange },
   { label: "Partite", url: "/matches", icon: Trophy },
   { label: "Presenze", url: "/attendance", icon: CalendarCheck },
   { label: "Stagioni", url: "/seasons", icon: Layers },
@@ -141,8 +136,6 @@ export function AppSidebar() {
     { titleKey: "tacticalBoard",   url: "/tactical-board", icon: Crosshair,     roles: ["coach", "fitness_coach"], group: "main" },
     { label: "Le mie sedute",    url: "/training",     icon: CalendarDays,    roles: ["technical_director", "coach", "fitness_coach"], group: "main" },
     { label: "Convocazioni",       url: "/training/convocazioni", icon: UsersRound, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
-    { label: "Presenze allenamenti", url: "/training/presenze", icon: ClipboardCheck, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
-    { label: "Calendario operativo", url: "/training/calendario-operativo", icon: CalendarRange, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
     { label: "Stazioni",      url: "/exercises",    icon: BookOpen,        roles: ["coach", "fitness_coach", "athletic_director", "director", "technical_director"], group: "main" },
     { titleKey: "clubSettings",    url: "/club",         icon: Building2,       roles: ["admin", "presidente"], group: "main" },
     { titleKey: "members",         url: "/members",      icon: ShieldCheck,     roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
@@ -163,6 +156,7 @@ export function AppSidebar() {
     // Admin
     { titleKey: "billing",       url: "/billing",       icon: CreditCard, roles: ["admin", "presidente"], group: "admin" },
     { label: "Accesso Genitori", url: "/admin/parents", icon: Heart,      roles: ["admin", "presidente"], group: "admin" },
+    { label: "Presenze", url: "/dirigenti/presenze", icon: ClipboardCheck, roles: ["team_manager"], group: "parent" },
     { label: "Calendario", url: "/dirigenti/calendario", icon: CalendarDays, roles: ["team_manager"], group: "parent" },
     { label: "Convocazioni", url: "/dirigenti/convocazioni", icon: ClipboardCheck, roles: ["team_manager"], group: "parent" },
     { label: "Squadra", url: "/dirigenti/squadra", icon: Users, roles: ["team_manager"], group: "parent" },
@@ -172,6 +166,7 @@ export function AppSidebar() {
     { label: "Scheda figlio",      url: "/parent/player-card",    icon: User,            roles: ["parent"], group: "parent" },
     { label: "Comunicazioni",      url: "/parent/communications", icon: MessageSquare,   roles: ["parent"], group: "parent" },
     { label: "Convocazioni",       url: "/parent/callups",        icon: UsersRound,      roles: ["parent"], group: "parent" },
+    { label: "Presenze", url: "/parent/presenze", icon: ClipboardCheck, roles: ["parent"], group: "parent" },
     { label: "Calendario generale", url: "/parent/attendance",    icon: CalendarDays,    roles: ["parent"], group: "parent" },
     { label: "Partite",            url: "/parent/matches",        icon: Trophy,          roles: ["parent"], group: "parent" },
     { label: "Documenti",          url: "/parent/documents",      icon: FileText,        roles: ["parent"], group: "parent" },

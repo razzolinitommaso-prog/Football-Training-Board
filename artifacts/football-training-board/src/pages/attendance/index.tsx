@@ -1,6 +1,7 @@
+import { AttendanceRegister } from "@/components/training/AttendanceRegister";
 import { sessionTeamIds } from "@workspace/api-zod";
 import { trainingPrincipleLabel } from "@workspace/api-zod";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { safeTrainingReturnPath } from "@/lib/training-session-slot";
 import { ParentAvailabilityBadge, useTrainingAvailability, TrainingAvailabilityPanel } from "@/components/calendar/TrainingAvailability";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -158,7 +159,7 @@ function teamAnnataLabel(team: Team | undefined): string {
   return team?.ageGroup || team?.category || team?.name || "Annata non indicata";
 }
 
-export default function AttendancePage({ section }: { section?: ClubSection } = {}) {
+function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { role } = useAuth();
@@ -171,7 +172,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   const initialStart = initialParams.get("start");
   const [sessionId, setSessionId] = useState<number | null>(initialSessionId ? Number(initialSessionId) : null);
   const directSessionMode = !!initialSessionId;
-  const isTechnicalDirector = role === "technical_director";
+  const readOnly = role === "technical_director" || role === "secretary";
   const [annataScope, setAnnataScope] = useState<string>("");
   const [teamScope, setTeamScope] = useState<string>(initialTeamId || "");
   const [sessionDateFilter, setSessionDateFilter] = useState<"all" | string>(initialDate || "all");
@@ -260,6 +261,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/attendance", sessionId] });
       qc.invalidateQueries({ queryKey: ["/api/attendance-summary"] });
+      qc.invalidateQueries({ queryKey: ["attendance-register"] });
       qc.invalidateQueries({queryKey:["training-session-participants"]});
       qc.invalidateQueries({queryKey:["/api/training-sessions",sessionId,"planning"]});
       qc.invalidateQueries({queryKey:["/api/training-sessions",sessionId,"exercises"]});
@@ -276,7 +278,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   }
 
   function handleStatusChange(playerId: number, status: string) {
-    if (!sessionId || isTechnicalDirector) return;
+    if (!sessionId || readOnly) return;
     const existing = getPlayerAttendance(playerId);
     markAttendance.mutate({ trainingSessionId: sessionId, playerId, status, notes: existing?.notes ?? null });
   }
@@ -293,7 +295,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
   }
 
   function handleConductChange(playerId: number, conduct: TrainingConduct) {
-    if (!sessionId || isTechnicalDirector) return;
+    if (!sessionId || readOnly) return;
     const existing = getPlayerAttendance(playerId);
     if (!existing?.status) return;
     markAttendance.mutate({
@@ -680,7 +682,7 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
                           )}
                         </div>
                       </div>
-                      {isTechnicalDirector ? (
+                      {readOnly ? (
                         <Badge variant={status ? "default" : "secondary"}>
                           {status === "requested" ? "Richiesto" : status ? (t[status as keyof typeof t] as string) : "Non segnato"}
                         </Badge>
@@ -730,4 +732,12 @@ export default function AttendancePage({ section }: { section?: ClubSection } = 
       )}
     </div>
   );
+}
+
+export default function AttendancePage({ section }: { section?: "scuola_calcio" | "settore_giovanile" | "prima_squadra" }) {
+  const search = useSearch();
+  const query = new URLSearchParams(search);
+  if (query.has("sessionId") || query.has("date")) return <AttendanceSheet key={search} section={section} />;
+  const path = section ? "/" + section.replace(/_/g, "-") + "/attendance" : "/attendance";
+  return <AttendanceRegister section={section} initialTeamId={query.get("teamId") ?? undefined} attendancePath={path} />;
 }

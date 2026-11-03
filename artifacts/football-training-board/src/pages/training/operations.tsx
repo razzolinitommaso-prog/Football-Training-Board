@@ -1,3 +1,4 @@
+import { AttendanceRegister } from "@/components/training/AttendanceRegister";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarCheck, CalendarDays, ClipboardCheck, Eye, Pencil, UsersRound } from "lucide-react";
@@ -76,7 +77,7 @@ function sessionTime(value?: string | null): number | null {
   return date.getTime();
 }
 
-export default function TrainingOperationsPage({ kind, section }: { kind: TrainingOperationKind; section?: ClubSection }) {
+function TrainingOperations({ kind, section }: { kind: TrainingOperationKind; section?: ClubSection }) {
   const { role } = useAuth();
   const [, setLocation] = useLocation();
   const normalizedRole = normalizeSessionRole(role);
@@ -223,4 +224,12 @@ export default function TrainingOperationsPage({ kind, section }: { kind: Traini
       </Card>
     </div>
   );
+}
+
+export default function TrainingOperationsPage({ kind, section }: Parameters<typeof TrainingOperations>[0]) {
+  if (kind === "attendance") {
+    const path = section ? "/" + section.replace(/_/g, "-") + "/attendance" : "/attendance";
+    return <AttendanceRegister section={section} attendancePath={path} />;
+  }
+  return <TrainingOperations kind={kind} section={section} />;
 }
