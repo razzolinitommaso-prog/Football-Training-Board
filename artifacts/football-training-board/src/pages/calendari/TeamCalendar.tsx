@@ -2839,7 +2839,7 @@ function MatchCard({
                   </div>
                 )}
 {autoReserveRuleEnabled && <Button type="button" size="sm" variant="outline" onClick={()=>{if(window.confirm('Calcolare i tempi successivi mantenendo il primo? Le scelte manuali successive saranno sostituite.'))setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods,selectedPlayerIds,matchFormat,convokedById,true)}));}}>Calcola tempi successivi</Button>}</div>}
-                  renderPitch={unit=>{const runtime=rotationUnits(planDraft.periods).find(u=>u.period.key===unit.key);if(!runtime)return null;const period={...runtime.period,label:unit.label,minutes:String(unit.minutes)},groups=splitMatchLineup(period,startersLimitForPeriod(period,matchFormat),selectedPlayerIds);return <><p className="text-[10px] text-muted-foreground">{runtime.period.rotationAuto?"Automatico":"Manuale"}</p><MatchDraftLineupPreview period={period} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={unit.label} onChange={changes=>runtime.second?updateThirdPart(runtime.index,changes):updateInlinePeriod(runtime.index,changes)}/><p className="text-[10px] text-muted-foreground">Panchina: {groups.reserves.map(id=>convokedById.get(id)?.lastName).filter(Boolean).join(', ')||'—'}</p><Button type="button" variant="ghost" size="sm" className="w-full text-xs" onClick={()=>setPreviewBoard(period)}>Ingrandisci</Button>{!runtime.second&&<Button type="button" variant="ghost" size="sm" className="w-full text-xs" onClick={()=>openLineupDialog(runtime.index,'edit')}>Strumenti avanzati</Button>}</>;}}
+                  renderPitch={unit=>{const runtime=rotationUnits(planDraft.periods).find(u=>u.period.key===unit.key);if(!runtime)return null;const period={...runtime.period,label:unit.label,minutes:String(unit.minutes)},groups=splitMatchLineup(period,startersLimitForPeriod(period,matchFormat),selectedPlayerIds);return <><p className="text-[10px] text-muted-foreground">{runtime.period.rotationAuto?"Automatico":"Manuale"}</p><MatchDraftLineupPreview period={period} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={unit.label} onChange={changes=>runtime.second?updateThirdPart(runtime.index,changes):updateInlinePeriod(runtime.index,changes)}/><p className="text-[10px] text-muted-foreground">Panchina: {groups.reserves.map(id=>convokedById.get(id)?.lastName).filter(Boolean).join(', ')||'—'}</p><Button type="button" variant="ghost" size="sm" className="w-full text-xs" onClick={()=>setPreviewBoard({...period, boardUrl: undefined, boardTitle: undefined})}>Ingrandisci</Button>{!runtime.second&&<Button type="button" variant="ghost" size="sm" className="w-full text-xs" onClick={()=>openLineupDialog(runtime.index,'edit')}>Strumenti avanzati</Button>}</>;}}
                   footer={<div className="sticky bottom-0 z-10 flex justify-end border-t bg-background p-2"><Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button></div>}
                 />
                 <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Dettagli e alternative</DisclosureSummary>{planDraft.periods.map((previewPeriod,previewPeriodIndex)=><div key={previewPeriod.key}>                <Button type="button" variant="outline" className="mt-3 min-h-10 w-full whitespace-normal" aria-expanded={openAlternativePeriods.has(previewPeriod.key)} onClick={() => {
@@ -4077,18 +4077,27 @@ function MatchCard({
       </DialogContent>
     </Dialog>
     <Dialog open={!!previewBoard} onOpenChange={(open) => !open && setPreviewBoard(null)}>
-      <DialogContent className="max-w-6xl p-0 overflow-hidden">
+      <DialogContent className="max-h-[90dvh] w-[calc(100%-1rem)] max-w-6xl overflow-y-auto p-0">
         <DialogHeader className="px-4 pt-4">
           <DialogTitle>{previewBoard?.boardTitle ?? "Lavagna partita"}</DialogTitle>
           <DialogDescription>Anteprima collegata a {previewBoard?.label ?? "tempo partita"}.</DialogDescription>
         </DialogHeader>
-        {previewBoard?.boardUrl && (
+        {previewBoard?.boardUrl ? (
           <iframe
             title={previewBoard.boardTitle ?? "Anteprima lavagna"}
             src={previewBoard.boardUrl}
             className="h-[72vh] w-full border-0"
           />
-        )}
+        ) : previewBoard ? (
+          <div className="mx-auto w-full max-w-xl px-3 pb-4">
+            <MatchDraftLineupPreview
+              period={previewBoard}
+              matchFormat={matchFormat}
+              selectedIds={selectedPlayerIds}
+              playersById={convokedById}
+            />
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
     </>
