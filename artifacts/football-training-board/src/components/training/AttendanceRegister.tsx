@@ -97,7 +97,7 @@ function RegisterTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map(([name, ...cells], index) => (
+          {rows.map(([name, team, ...cells], index) => (
             <tr key={index} className="border-b">
               <th
                 scope="row"
@@ -105,6 +105,9 @@ function RegisterTable({
               >
                 {name}
               </th>
+              <td className="p-2 text-muted-foreground max-md:col-span-full max-md:pt-0 md:whitespace-nowrap">
+                {team}
+              </td>
               {cells.map((cell, index) => (
                 <td
                   key={index}
@@ -120,7 +123,7 @@ function RegisterTable({
                     aria-hidden="true"
                     className="mobile-cell-label hidden text-muted-foreground"
                   >
-                    {headers[index + 1]}
+                    {headers[index + 2]}
                   </span>
                   {cell}
                 </td>
@@ -194,7 +197,8 @@ export function AttendanceRegister({
   const sessions = data.sessions.filter(inWeek).sort(byDate);
   const matches = data.matches.filter(inWeek).sort(byDate);
   const headers = [
-    "Giocatore / annata",
+    "Giocatore",
+    "Annata",
     ...sessions.map(
       (s) =>
         `${shortDate(s.date)} · ${s.title}${s.shared ? " · Congiunto" : ""}`,
@@ -204,7 +208,6 @@ export function AttendanceRegister({
       "Minuti effettivi",
     ]),
   ];
-  const playerLabel = (player: Player) => `${player.name} · ${player.team}`;
   const visible = data.players.filter(
     (player) =>
       family ||
@@ -213,7 +216,8 @@ export function AttendanceRegister({
       matches.some((m) => m.id in player.games),
   );
   const rows = visible.map((player) => [
-    playerLabel(player),
+    player.name,
+    player.team,
     ...sessions.map((s) => {
       if (!(s.id in player.attendance)) return "—";
       const status = player.attendance[s.id];
@@ -242,7 +246,8 @@ export function AttendanceRegister({
     }),
   ]);
   const totalHeaders = [
-    "Giocatore / annata",
+    "Giocatore",
+    "Annata",
     "Presenze",
     "Assenze",
     "Giustificati",
@@ -273,7 +278,8 @@ export function AttendanceRegister({
     );
     return [
       [
-        playerLabel(player),
+        player.name,
+        player.team,
         ...["present", "absent", "requested", "injured", null].map((status) =>
           String(attendance.filter((a) => a === status).length),
         ),
