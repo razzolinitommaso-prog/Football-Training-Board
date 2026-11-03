@@ -1969,11 +1969,18 @@ function SessionDetailsDialog({
   function reuseExercise(source: LinkedExercise) {
     const form = formFromLinkedExercise({ id: 0, trainingSessionId: session.id, exerciseId: source.id, order: 0, exercise: source });
     const defaults = emptyExerciseFormFromSession(session, linkedExercises.length);
+    const sameTeam = source.teamId != null && source.teamId === session.teamId;
+    const preview = sameTeam || !source.statoLavagnaJson
+      ? attendanceExerciseView(source, blockedPlayerIds)
+      : null;
     setEditingLink(null);
     setDuplicateSourceExerciseId(source.sourceExerciseId ?? source.id);
     setExerciseForm({ ...form, teamId: defaults.teamId, trainingDay: defaults.trainingDay, trainingSession: defaults.trainingSession,
       trainingPhase: reuseTargetPhase, playersRequiredMode: "manual", selectedPlayerIdsJson: "", notes: "",
-      statoLavagnaJson: prepareReusedBoard(source.statoLavagnaJson, session.teamId), drawingData: "", drawingElementsJson: "", isDraft: false });
+      statoLavagnaJson: prepareReusedBoard(preview?.statoLavagnaJson ?? source.statoLavagnaJson, session.teamId),
+      drawingData: preview?.drawingData ?? "",
+      drawingElementsJson: source.statoLavagnaJson ? "" : preview?.drawingElementsJson ?? "",
+      isDraft: false });
     setReusePhase(null);
     setExerciseFormOpen(true);
   }
