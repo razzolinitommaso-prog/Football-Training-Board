@@ -1,3 +1,4 @@
+import { useTechnicalScope } from "@/components/technical-scope";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -72,7 +73,8 @@ function matchPhase(match: Match): "autunnale" | "primaverile" | "tornei" | "ami
   return month >= 7 ? "autunnale" : "primaverile";
 }
 
-export default function TrainingCallupsPage({ section }: { section?: ClubSection }) {
+export default function TrainingCallupsPage({ section: pageSection }: { section?: ClubSection }) {
+  const scope = useTechnicalScope(); const section = scope.enabled ? scope.section : pageSection;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [exportingMatchId, setExportingMatchId] = useState<number | null>(null);
@@ -80,11 +82,12 @@ export default function TrainingCallupsPage({ section }: { section?: ClubSection
   const scopeLabel = section ? SECTION_LABELS[section] : "Tutte le sezioni abilitate";
   const sectionQuery = section ? `?section=${section}` : "";
 
-  const { data: rows = [], isLoading, isError } = useQuery<Array<{ match: Match; callups: MatchCallup[] }>>({
+  const { data: allRows = [], isLoading, isError } = useQuery<Array<{ match: Match; callups: MatchCallup[] }>>({
     queryKey: ["/api/matches", "callup-summary", section ?? "session"],
     queryFn: () => apiFetch<Array<{ match: Match; callups: MatchCallup[] }>>(`/api/match-callup-summary${sectionQuery}`),
     staleTime: 30_000,
   });
+  const rows = allRows.filter(row => !scope.enabled || scope.teams.some(team => team.id === row.match.teamId && (!scope.section || team.clubSection === scope.section) && (!scope.teamId || team.id === scope.teamId)));
   const totalCallups = rows.reduce((sum, row) => sum + row.callups.length, 0);
 
   async function exportPdf(match: Match, callups: MatchCallup[]) {

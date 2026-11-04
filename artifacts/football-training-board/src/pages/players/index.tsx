@@ -1,3 +1,4 @@
+import { useTechnicalScope } from "@/components/technical-scope";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { TrainingRosterManager } from "@/components/training-roster-groups";
@@ -1422,7 +1423,9 @@ function importSeasonStartYearFromSeasons(seasons: SeasonOption[]): number | nul
   return years.length > 0 ? Math.max(...years) : null;
 }
 
-export default function PlayersList({ section }: PlayersListProps = {}) {
+export default function PlayersList({ section: pageSection }: PlayersListProps = {}) {
+  const technicalScope = useTechnicalScope();
+  const section = technicalScope.enabled ? technicalScope.section : pageSection;
   const { t } = useLanguage();
   const { role, user, club } = useAuth();
   const nr = normalizeSessionRole(role);
@@ -1789,8 +1792,8 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const fromQuery = new URLSearchParams(window.location.search).get("teamId") || "all";
-    setTeamFilter(fromQuery);
-  }, [location]);
+    setTeamFilter(technicalScope.enabled ? String(technicalScope.teamId ?? "all") : fromQuery);
+  }, [location, technicalScope.enabled, technicalScope.teamId]);
 
   const typedTeams = section
     ? (teams as TeamWithSeason[]).filter((team) => team.clubSection === section)

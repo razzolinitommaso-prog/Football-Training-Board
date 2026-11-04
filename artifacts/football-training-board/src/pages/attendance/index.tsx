@@ -1,3 +1,4 @@
+import { useTechnicalScope } from "@/components/technical-scope";
 import { AttendanceRegister } from "@/components/training/AttendanceRegister";
 import { sessionTeamIds } from "@workspace/api-zod";
 import { trainingPrincipleLabel } from "@workspace/api-zod";
@@ -734,10 +735,11 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
   );
 }
 
-export default function AttendancePage({ section }: { section?: "scuola_calcio" | "settore_giovanile" | "prima_squadra" }) {
+export default function AttendancePage({ section: pageSection }: { section?: "scuola_calcio" | "settore_giovanile" | "prima_squadra" }) {
+  const scope = useTechnicalScope(); const section = scope.enabled ? scope.section : pageSection;
   const search = useSearch();
   const query = new URLSearchParams(search);
   if (query.has("sessionId") || query.has("date")) return <AttendanceSheet key={search} section={section} />;
   const path = section ? "/" + section.replace(/_/g, "-") + "/attendance" : "/attendance";
-  return <AttendanceRegister section={section} initialTeamId={query.get("teamId") ?? undefined} attendancePath={path} />;
+  return <AttendanceRegister key={`${section}:${scope.teamId}`} section={section} lockTeam={scope.enabled && !!scope.teamId} initialTeamId={scope.enabled && scope.teamId ? String(scope.teamId) : query.get("teamId") ?? undefined} attendancePath={path} />;
 }

@@ -28,6 +28,7 @@ import ParentNotifications from "@/pages/parent/notifications";
 import ParentAccess from "@/pages/parent/access";
 import ParentAdminManagement from "@/pages/parent/admin-management";
 import Dashboard from "@/pages/dashboard";
+import TechnicalDashboard from "@/pages/technical-dashboard";
 import TeamsList from "@/pages/teams/index";
 import TeamDetail from "@/pages/teams/detail";
 import PlayersList from "@/pages/players/index";
@@ -81,6 +82,7 @@ const dashboardSections = [
 function DashboardRedirect() {
   const { role, section, sections } = useAuth();
   const normalizedRole = String(role ?? "");
+  if (normalizedRole === "technical_director") return <Redirect to="/technical/dashboard" />;
   const clubWideRoles = ["admin", "presidente", "director", "technical_director"];
   const normalizedSections = Array.from(
     new Set(
@@ -105,6 +107,8 @@ function ProtectedAppRoutes() {
   return (
     <AppLayout>
       <Switch>
+        <Route path="/technical/dashboard"><ProtectedRoute allowedRoles={["technical_director"]}><TechnicalDashboard /></ProtectedRoute></Route>
+        <Route path="/technical/matches"><ProtectedRoute allowedRoles={["technical_director"]}><TechnicalDashboard matches /></ProtectedRoute></Route>
         {["/dirigenti","/dirigenti/calendario","/dirigenti/convocazioni","/dirigenti/squadra","/dirigenti/presenze"].map(path=><Route key={path} path={path}><ProtectedRoute allowedRoles={["team_manager"]}><TeamManagerArea/></ProtectedRoute></Route>)}
         <Route path="/scuola-calcio/dashboard">
           <ProtectedRoute><Dashboard sectionOverride="scuola_calcio" /></ProtectedRoute>

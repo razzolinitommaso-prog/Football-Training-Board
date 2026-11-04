@@ -1,3 +1,4 @@
+import { useTechnicalScope } from "@/components/technical-scope";
 import { trainingLocalDate, trainingSlotOnDate, trainingSlotPeriodsOverlap, trainingProgramLeader } from "@workspace/api-zod";
 import { TrainingRosterManager } from "@/components/training-roster-groups";
 import { useState, useEffect } from "react";
@@ -235,7 +236,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const { t } = useLanguage();
   const { role, section: loginSection } = useAuth();
   const nr = normalizeSessionRole(role);
-  const effectiveSection = (section ?? loginSection ?? "") as ClubSection | "";
+  const technicalScope = useTechnicalScope();
+  const effectiveSection = (technicalScope.enabled ? (technicalScope.section ?? "") : (section ?? loginSection ?? "")) as ClubSection | "";
   const { data: allTeams = [], isLoading } = useQuery<Team[]>({
     queryKey: ["/api/teams", effectiveSection || "all"],
     queryFn: async () => {
@@ -275,7 +277,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const canEditSchedule = nr === "admin" || nr === "coach" || nr === "director" || nr === "secretary";
   const canEditTeam = nr === "admin" || nr === "presidente" || nr === "director" || nr === "secretary" || nr === "sporting_director";
   const canChooseTeamSection = !effectiveSection && canEditTeam;
-  const teams = effectiveSection ? allTeams.filter((t) => t.clubSection === effectiveSection) : allTeams;
+  const teams = allTeams.filter(t => (!effectiveSection || t.clubSection === effectiveSection) && (!technicalScope.enabled || !technicalScope.teamId || t.id === technicalScope.teamId));
 
   const handleExportTeams = () => {
     if (!teams?.length) return;

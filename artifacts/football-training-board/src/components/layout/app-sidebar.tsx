@@ -106,9 +106,10 @@ const SECTION_OPERATION_URLS = new Set([
 
 /** Voci aggiuntive per il direttore tecnico: metodologia, coordinamento staff, lettura attività (non segreteria, non gestione fitness). */
 const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof UsersRound }[] = [
+
   { label: "Squadre", url: "/teams", icon: UsersRound },
   { label: "Giocatori", url: "/players", icon: Users },
-  { label: "Partite", url: "/matches", icon: Trophy },
+  { label: "Partite", url: "/technical/matches", icon: Trophy },
   { label: "Presenze", url: "/attendance", icon: CalendarCheck },
   { label: "Stagioni", url: "/seasons", icon: Layers },
 ];
@@ -126,15 +127,17 @@ export function AppSidebar() {
     if (isMobile) {
       setOpenMobile(false);
     }
-  }, [location, isMobile, setOpenMobile]);
+  }, [location, search, isMobile, setOpenMobile]);
 
   type NavItem = { titleKey?: keyof typeof t; label?: string; url: string; icon: any; roles: string[]; group: string };
 
   const navigation: NavItem[] = [
     // Main
+
     { titleKey: "dashboard",       url: "/dashboard",    icon: LayoutDashboard, roles: ["admin", "presidente", "coach", "secretary", "sporting_director", "technical_director", "fitness_coach", "director", "athletic_director"], group: "main" },
     { titleKey: "tacticalBoard",   url: "/tactical-board", icon: Crosshair,     roles: ["coach", "fitness_coach"], group: "main" },
     { label: "Le mie sedute",    url: "/training",     icon: CalendarDays,    roles: ["technical_director", "coach", "fitness_coach"], group: "main" },
+    { label: "Linee guida sedute", url: "/training?view=guidelines", icon: BookOpen, roles: ["technical_director"], group: "main" },
     { label: "Convocazioni",       url: "/training/convocazioni", icon: UsersRound, roles: ["technical_director", "coach", "fitness_coach", "athletic_director"], group: "main" },
     { label: "Stazioni",      url: "/exercises",    icon: BookOpen,        roles: ["coach", "fitness_coach", "athletic_director", "director", "technical_director"], group: "main" },
     { titleKey: "clubSettings",    url: "/club",         icon: Building2,       roles: ["admin", "presidente"], group: "main" },
@@ -290,7 +293,7 @@ export function AppSidebar() {
             {items.map((item) => {
               const teamId = role === "team_manager" ? new URLSearchParams(search).get("teamId") : null;
               const itemHref = teamId && item.url.startsWith("/dirigenti/") ? `${item.url}?teamId=${encodeURIComponent(teamId)}` : item.url;
-              const isActive = location.startsWith(item.url);
+              const isActive = item.url === "/dashboard" && role === "technical_director" ? location === "/technical/dashboard" : role === "technical_director" && item.url.startsWith("/training") && (item.url === "/training" || item.url.includes("?view=")) ? location === "/training" && (new URLSearchParams(search).get("view") === "guidelines") === item.url.includes("?view=") : location.startsWith(item.url);
               const title = item.label ?? (item.titleKey ? t[item.titleKey] as string : "");
               return (
                 <SidebarMenuItem key={item.url}>
@@ -310,7 +313,7 @@ export function AppSidebar() {
   }
 
   const userHasSectionMenu = role !== "technical_director" && SEZIONI.some(({ key }) => shouldShowSection(key));
-  const topMainUrls = ["/tactical-board", "/training", "/training/convocazioni", "/training/presenze", "/training/calendario-operativo", "/exercises"];
+  const topMainUrls = [...(role === "technical_director" ? ["/dashboard"] : []), "/tactical-board", "/training", "/training?view=guidelines", "/training/convocazioni", "/training/presenze", "/training/calendario-operativo", "/exercises"];
   const topMainItems = mainNav.filter((i) =>
     topMainUrls.includes(i.url) && !(userHasSectionMenu && SECTION_OPERATION_URLS.has(i.url)),
   );
@@ -357,10 +360,10 @@ export function AppSidebar() {
               )}
 
               {topMainItems.map((item) => {
-                const isActive = location.startsWith(item.url);
+                const isActive = item.url === "/dashboard" && role === "technical_director" ? location === "/technical/dashboard" : role === "technical_director" && item.url.startsWith("/training") && (item.url === "/training" || item.url.includes("?view=")) ? location === "/training" && (new URLSearchParams(search).get("view") === "guidelines") === item.url.includes("?view=") : location.startsWith(item.url);
                 const title =
                   item.url === "/training" && role === "technical_director"
-                    ? "Sedute allenamento"
+                    ? "Sedute del mister"
                     : (item.label ?? (item.titleKey ? t[item.titleKey] as string : ""));
                 return (
                   <SidebarMenuItem key={item.url}>
@@ -395,7 +398,7 @@ export function AppSidebar() {
                 ))}
 
               {bottomMainItems.map((item) => {
-                const isActive = location.startsWith(item.url);
+                const isActive = item.url === "/dashboard" && role === "technical_director" ? location === "/technical/dashboard" : role === "technical_director" && item.url.startsWith("/training") && (item.url === "/training" || item.url.includes("?view=")) ? location === "/training" && (new URLSearchParams(search).get("view") === "guidelines") === item.url.includes("?view=") : location.startsWith(item.url);
                 const title = item.label ?? (item.titleKey ? t[item.titleKey] as string : "");
                 return (
                   <SidebarMenuItem key={item.url}>
