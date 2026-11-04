@@ -19,6 +19,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLocation } from "wouter";
 import { withApi } from "@/lib/api-base";
 import { cn } from "@/lib/utils";
+import { AppearanceMenu, useBrandBackground } from "./appearance-menu";
+import { TechnicalScopeBar } from "@/components/technical-scope";
 
 const ROLE_LABELS: Record<string, string> = {
   admin:              "Amministratore",
@@ -110,7 +112,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const workspaceAreaLabel = getWorkspaceAreaLabel(location);
   const [hideTacticalHeader, setHideTacticalHeader] = useState(false);
   const clubLogoUrl = String((activeClub as { logoUrl?: string | null } | null)?.logoUrl ?? "");
-  const backgroundLogoEnabled = Number((activeClub as { backgroundLogoEnabled?: number | null } | null)?.backgroundLogoEnabled ?? 1) !== 0;
+  const [showBrandBackground] = useBrandBackground();
+  const backgroundLogoEnabled = showBrandBackground && Number((activeClub as { backgroundLogoEnabled?: number | null } | null)?.backgroundLogoEnabled ?? 1) !== 0;
   const backgroundLogoMode = String((activeClub as { backgroundLogoMode?: string | null } | null)?.backgroundLogoMode ?? "large");
   const backgroundLogoOpacity = Math.max(0, Math.min(30, Number((activeClub as { backgroundLogoOpacity?: number | null } | null)?.backgroundLogoOpacity ?? 8))) / 100;
   const [unreadNotifications, setUnreadNotifications] = useState<LayoutNotification[]>([]);
@@ -328,6 +331,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4">
+              <AppearanceMenu />
               {role !== "team_manager" && <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -484,6 +488,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 isTacticalBoardRoute ? "relative z-10 w-full min-w-0" : "mobile-contain-x relative z-10 mx-auto w-full min-w-0 max-w-7xl"
               }
             >
+              {!isTacticalBoardRoute && !["/members", "/seasons", "/season-transition", "/workspace", "/club"].some(path => location.startsWith(path)) && <TechnicalScopeBar />}
               {children}
             </div>
           </main>

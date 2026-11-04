@@ -19,7 +19,7 @@ const buttonVariants = cva(
           // @replit Shows the background color of whatever card / sidebar / accent background it is inside of.
           // Inherits the current text color. Uses shadow-xs. no shadow on active
           // No hover state
-          " border [border-color:var(--button-outline)] shadow-xs active:shadow-none ",
+          "border border-input bg-background shadow-none hover:bg-muted",
         secondary:
           // @replit border, no hover, no shadow, secondary border.
           "border bg-secondary text-secondary-foreground border border-secondary-border ",

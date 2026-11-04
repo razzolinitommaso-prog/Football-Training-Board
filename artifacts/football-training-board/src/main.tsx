@@ -10,6 +10,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { withApi } from "@/lib/api-base";
 import { authHeadersFor } from "@/lib/auth-token";
 import "./index.css";
+import { ThemeProvider } from "next-themes";
+import { TechnicalScopeProvider } from "@/components/technical-scope";
 
 const queryClient = new QueryClient();
 
@@ -48,17 +50,21 @@ if (typeof window !== "undefined") {
 
 createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem storageKey="ftb-appearance">
     <TooltipProvider>
       <LanguageProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
           <AuthProvider>
+            <TechnicalScopeProvider>
             <AppErrorBoundary>
               <App />
             </AppErrorBoundary>
+            </TechnicalScopeProvider>
           </AuthProvider>
         </WouterRouter>
         <Toaster />
       </LanguageProvider>
     </TooltipProvider>
+    </ThemeProvider>
   </QueryClientProvider>,
 );

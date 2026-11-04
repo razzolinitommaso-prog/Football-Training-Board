@@ -58,7 +58,7 @@
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
   --font-sans: 'DM Sans', sans-serif;
-  --font-display: 'Outfit', sans-serif;
+  --font-display: 'DM Sans', sans-serif;
   --font-serif: var(--app-font-serif);
   --font-mono: var(--app-font-mono);
 
@@ -81,7 +81,7 @@
   --elevate-2: rgba(0,0,0, .08);
 
   /* Professional Light Theme - Clean white & subtle grays with vibrant Teal primary */
-  --background: 210 20% 98%;
+  --background: 210 35% 98%;
   --foreground: 222 47% 11%;
   
   --border: 214 32% 91%;
@@ -130,7 +130,7 @@
 
   --app-font-serif: Georgia, serif;
   --app-font-mono: Menlo, monospace;
-  --radius: 0.75rem; /* 12px */
+  --radius: 0.875rem;
   
   --shadow-2xs: 0px 2px 0px 0px hsl(222 47% 11% / 0.02);
   --shadow-xs: 0px 2px 0px 0px hsl(222 47% 11% / 0.04);
@@ -168,7 +168,7 @@
   
   --border: 217 32% 17%;
   
-  --card: 222 47% 11%;
+  --card: 221 35% 15%;
   --card-foreground: 210 40% 98%;
   --card-border: 217 32% 17%;
 
@@ -181,7 +181,7 @@
   --sidebar-accent-foreground: 210 40% 98%;
   --sidebar-ring: 160 84% 39%;
 
-  --popover: 222 47% 11%;
+  --popover: 221 35% 15%;
   --popover-foreground: 210 40% 98%;
   --popover-border: 217 32% 17%;
 
@@ -256,8 +256,8 @@
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-display);
-    @apply tracking-tight font-bold text-foreground;
+    font-family: var(--font-sans);
+    @apply tracking-tight font-semibold text-foreground;
   }
 }
 
@@ -385,3 +385,14 @@ summary { list-style: none; }
 summary::-webkit-details-marker { display: none; }
 summary::marker { content: ""; }
 details[open] > summary > [data-disclosure-indicator] { transform: rotate(180deg); }
+
+/* Printed records keep a readable paper palette regardless of the personal theme. */
+@media print {
+  :root, .dark {
+    color-scheme: light !important;
+    --background: 0 0% 100%; --foreground: 222 47% 11%;
+    --card: 0 0% 100%; --card-foreground: 222 47% 11%;
+    --muted: 210 40% 96%; --muted-foreground: 215 16% 40%;
+    --border: 214 25% 80%;
+  }
+}
