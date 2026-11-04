@@ -2725,9 +2725,9 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Panoramica</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 items-start md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link={dashboardTeamsPath}>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+          <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
             <span>Visibili: <strong className="text-foreground">{dashboardTeamCount}</strong></span>
             <span>Area: <strong className="text-foreground">{dashboardSectionLabel}</strong></span>
             <span className="col-span-2 truncate">Annate: <strong className="text-foreground">{dashboardTeamYearsLabel}</strong></span>
@@ -2739,7 +2739,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           </div>
         </StatCard>
         <StatCard title="Giocatori" value={dashboardPlayerSummary.total} icon={Users} link={dashboardPlayersPath}>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+          <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
             <span>Attivi: <strong className="text-foreground">{dashboardPlayerSummary.active}</strong></span>
             <span>Non attivi: <strong className="text-foreground">{dashboardPlayerSummary.inactive}</strong></span>
             <span>Disponibili: <strong className="text-foreground">{dashboardPlayerSummary.available}</strong></span>
@@ -2753,7 +2753,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         </StatCard>
         {(nr === "secretary" || nr === "sporting_director") ? (
           <StatCard title="Area Genitori" value="App" icon={Heart} link="/secretary/parent-app">
-            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+            <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
               <span>Comunicazioni</span>
               <span>Documenti</span>
               <span>Eventi</span>
@@ -2762,7 +2762,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           </StatCard>
         ) : (
           <StatCard title="Sedute" value={dashboardTrainingCardTotal} icon={CalendarDays} link="/training">
-            <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+            <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
               <span>Prossime: <strong className="text-foreground">{dashboardUpcomingCount}</strong></span>
               <span>Complete: <strong className="text-foreground">{dashboardExerciseSummary.completeSessions}</strong></span>
               <span>Assoc.: <strong className="text-foreground">{dashboardExerciseSummary.associated}</strong></span>
@@ -2771,7 +2771,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           </StatCard>
         )}
         <StatCard title={dashboardStaffTitle} value={dashboardStaffCount} icon={ShieldCheck} link="/members">
-          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+          <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
             <span>Appartenenza: <strong className="text-foreground">{dashboardActiveSectionLabel}</strong></span>
             <span>Totale: <strong className="text-foreground">{dashboardStaffCount}</strong></span>
             {dashboardStaffRoleSummary.length > 0 ? (
@@ -4307,15 +4307,15 @@ function StatCard({ title, value, icon: Icon, link, children }: { title: string,
       <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
         <Icon className="w-24 h-24" />
       </div>
-      <CardContent className="p-4 relative z-10 flex min-h-[144px] flex-col">
-        <div className="flex min-h-[36px] items-start justify-between gap-3 pb-1">
+      <CardContent className="p-3 relative z-10 flex min-h-[120px] flex-col">
+        <div className="flex min-h-[32px] items-start justify-between gap-3 pb-1">
           <p className="text-sm font-medium leading-snug text-muted-foreground">{title}</p>
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-            <Icon className="w-5 h-5 text-primary" />
+          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+            <Icon className="w-4 h-4 text-primary" />
           </div>
         </div>
-        <div className="mt-2 flex-1">
-          <div className="min-h-[36px] text-4xl font-display font-bold leading-none">{value}</div>
+        <div className="mt-1 flex-1">
+          <div className="min-h-[32px] text-3xl font-display font-bold leading-none">{value}</div>
           {children}
         </div>
         <Link href={link} className="absolute inset-0 z-20">
