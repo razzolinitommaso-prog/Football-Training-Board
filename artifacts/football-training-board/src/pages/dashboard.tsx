@@ -2725,7 +2725,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Panoramica</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link={dashboardTeamsPath}>
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
             <span>Visibili: <strong className="text-foreground">{dashboardTeamCount}</strong></span>
@@ -4307,15 +4307,15 @@ function StatCard({ title, value, icon: Icon, link, children }: { title: string,
       <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
         <Icon className="w-24 h-24" />
       </div>
-      <CardContent className="p-6 relative z-10 flex min-h-[180px] flex-col">
-        <div className="flex min-h-[44px] items-start justify-between gap-3 pb-2">
+      <CardContent className="p-4 relative z-10 flex min-h-[144px] flex-col">
+        <div className="flex min-h-[36px] items-start justify-between gap-3 pb-1">
           <p className="text-sm font-medium leading-snug text-muted-foreground">{title}</p>
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
             <Icon className="w-5 h-5 text-primary" />
           </div>
         </div>
-        <div className="mt-4 flex-1">
-          <div className="min-h-[48px] text-4xl font-display font-bold leading-none">{value}</div>
+        <div className="mt-2 flex-1">
+          <div className="min-h-[36px] text-4xl font-display font-bold leading-none">{value}</div>
           {children}
         </div>
         <Link href={link} className="absolute inset-0 z-20">
