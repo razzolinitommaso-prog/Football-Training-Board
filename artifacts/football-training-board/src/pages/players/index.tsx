@@ -308,6 +308,7 @@ type ExtraTimeRow = {
 };
 
 type PlayerActivitySummary = {
+  period?: { start: string; through: string };
   conduct: { status: string; reason?: string | null; training?: Record<string, number> };
   trainingAttendance: {
     totalPastSessions: number;
@@ -319,6 +320,9 @@ type PlayerActivitySummary = {
     totalPastMatches: number;
     callups: number;
     appearances: number;
+    recorded?: number;
+    unrecorded?: number;
+    minutes?: number | null;
     percentage: number | null;
   };
   fitnessTests: Array<{
@@ -770,6 +774,7 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
         <p className="mt-3 text-sm text-muted-foreground">Riepilogo non disponibile.</p>
       ) : (
         <div className="mt-3 space-y-3">
+          {data.period && <p className="text-xs text-muted-foreground">Stagione: {data.period.start.split("-").reverse().join("/")} – {data.period.through.split("-").reverse().join("/")}</p>}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div className="rounded-lg border bg-muted/20 p-3">
               <div className="flex items-center gap-2 text-sm font-semibold">
@@ -789,7 +794,11 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
               </div>
               <div className="mt-2 text-2xl font-bold">{percentLabel(data.matchAttendance.percentage)}</div>
               <p className="text-xs text-muted-foreground">
-                {data.matchAttendance.appearances}/{data.matchAttendance.totalPastMatches} partite - {data.matchAttendance.callups} convocazioni
+                {data.matchAttendance.appearances}/{data.matchAttendance.recorded ?? data.matchAttendance.totalPastMatches} partite con resoconto · {data.matchAttendance.callups} convocazioni
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {data.matchAttendance.minutes != null ? `${data.matchAttendance.minutes} minuti effettivi` : "Minuti effettivi non registrati"}
+                {(data.matchAttendance.unrecorded ?? 0) > 0 ? ` · ${data.matchAttendance.unrecorded} convocazioni senza resoconto` : ""}
               </p>
             </div>
           </div>
@@ -1768,11 +1777,11 @@ export default function PlayersList({ section }: PlayersListProps = {}) {
   }) {
     const textClass = tone === "success" ? "text-emerald-800" : "text-muted-foreground";
     return (
-      <DisclosureSummary className={`flex cursor-pointer list-none items-center gap-2 text-xs font-semibold uppercase tracking-wide ${textClass} [&::-webkit-details-marker]:hidden`} indicator={false}>
-        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 group-open:rotate-90" />
+      <DisclosureSummary className={`flex cursor-pointer list-none items-center justify-start gap-2 text-xs font-semibold uppercase tracking-wide ${textClass} [&::-webkit-details-marker]:hidden`} indicator={false}>
         {icon && <span className="flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>}
-        <span className="min-w-0 truncate">{title}</span>
+        <span className="min-w-0 flex-1 truncate">{title}</span>
         {status && <SectionStatusBadge status={status} />}
+        <ChevronRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 group-open:rotate-90" />
       </DisclosureSummary>
     );
   }

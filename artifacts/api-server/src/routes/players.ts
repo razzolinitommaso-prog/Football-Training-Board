@@ -1,7 +1,10 @@
 import { sessionTeamScope } from "../lib/session-team-scope";
+import { supplementalTrainingTeam } from "../lib/training-roster-policy";
+import { playerMatchAttendance } from "../lib/player-match-attendance";
 import { Router, type IRouter } from "express";
 import {
   db,
+  seasonsTable,
   playersTable,
   teamsTable,
   teamStaffAssignmentsTable,
@@ -16,7 +19,7 @@ import {
   callUpsTable,
   playerFitnessDataTable,
 } from "@workspace/db";
-import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, or, asc, desc, inArray, sql } from "drizzle-orm";
 import {
   ListPlayersResponse,
   ListPlayersQueryParams,
@@ -970,13 +973,31 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
   }
 
   const now = new Date();
-  const trainingSessions = player.teamId
+  const clubTeams = await db.select().from(teamsTable).where(eq(teamsTable.clubId, clubId));
+  const team = clubTeams.find(item => item.id === player.teamId);
+  const teamIds = [player.teamId, supplementalTrainingTeam(player.notes)]
+    .filter((id): id is number => id !== null && clubTeams.some(item => item.id === id));
+  const [season] = team?.seasonId
+    ? await db.select().from(seasonsTable).where(and(eq(seasonsTable.clubId, clubId), eq(seasonsTable.id, team.seasonId)))
+    : await db.select().from(seasonsTable).where(and(eq(seasonsTable.clubId, clubId), eq(seasonsTable.isActive, true))).limit(1);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const year = Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) < 7 ? 1 : 0);
+  const start = season?.startDate ?? team?.seasonTrainingStartDate ?? `${year}-07-01`;
+  const end = season?.endDate ?? `${year + 1}-06-30`;
+  const through = today < end ? today : end;
+  const playerRecords = await db.select().from(trainingAttendancesTable)
+    .where(and(eq(trainingAttendancesTable.clubId, clubId), eq(trainingAttendancesTable.playerId, player.id)));
+  const recordedSessionIds = playerRecords.map(record => record.trainingSessionId);
+  const trainingSessions = teamIds.length || recordedSessionIds.length
     ? (await db
         .select()
         .from(trainingSessionsTable)
-        .where(and(eq(trainingSessionsTable.clubId, clubId), sessionTeamScope(player.teamId)))
+        .where(and(eq(trainingSessionsTable.clubId, clubId),
+          or(...teamIds.map(id => sessionTeamScope(id)), recordedSessionIds.length ? inArray(trainingSessionsTable.id, recordedSessionIds) : undefined),
+          sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date BETWEEN ${start}::date AND ${through}::date`,
+          sql`${trainingSessionsTable.notes} IS DISTINCT FROM '[FTB_AUTO_TRAINING] GROUPED'`))
         .orderBy(desc(trainingSessionsTable.scheduledAt)))
-        .filter((session) => new Date(session.scheduledAt).getTime() <= now.getTime() && session.status !== "cancelled")
+        .filter((session) => new Date(session.scheduledAt).getTime() <= now.getTime() && !["cancelled", "canceled"].includes(session.status))
     : [];
   const trainingSessionIds = trainingSessions.map((session) => session.id);
   const trainingAttendanceRows = trainingSessionIds.length > 0
@@ -999,22 +1020,21 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
   const trainingTotal = trainingSessions.length;
   const trainingRecorded = trainingAttendanceRows.length;
 
-  const matches = player.teamId
+  const allPlayerCallups = await db.select({ matchId: callUpsTable.matchId, playerId: callUpsTable.playerId, status: callUpsTable.status })
+    .from(callUpsTable).innerJoin(matchesTable, eq(matchesTable.id, callUpsTable.matchId))
+    .where(and(eq(matchesTable.clubId, clubId), eq(callUpsTable.playerId, player.id)));
+  const historicalMatchIds = allPlayerCallups.map(row => row.matchId);
+  const matches = teamIds.length || historicalMatchIds.length
     ? (await db
         .select()
         .from(matchesTable)
-        .where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, player.teamId)))
+        .where(and(eq(matchesTable.clubId, clubId),
+          or(teamIds.length ? inArray(matchesTable.teamId, teamIds) : undefined, historicalMatchIds.length ? inArray(matchesTable.id, historicalMatchIds) : undefined),
+          sql`(COALESCE(${matchesTable.rescheduleDate}, ${matchesTable.date}) AT TIME ZONE 'Europe/Rome')::date BETWEEN ${start}::date AND ${through}::date`))
         .orderBy(desc(matchesTable.date)))
-        .filter((match) => new Date(match.date).getTime() <= now.getTime())
+        .filter((match) => (!match.isPostponed || !match.rescheduleTbd && match.rescheduleDate) && new Date(match.rescheduleDate ?? match.date).getTime() <= now.getTime())
     : [];
-  const matchIds = matches.map((match) => match.id);
-  const callups = matchIds.length > 0
-    ? await db
-        .select()
-        .from(callUpsTable)
-        .where(and(eq(callUpsTable.playerId, player.id), inArray(callUpsTable.matchId, matchIds)))
-    : [];
-  const matchAppearances = callups.filter((callup) => !["absent", "unavailable", "not_called"].includes(String(callup.status ?? "").toLowerCase())).length;
+  const matchAttendance = playerMatchAttendance(matches, allPlayerCallups, player.id);
   const disciplineCards = matches.flatMap((match) =>
     normalizeDisciplineCards(match.matchPlan)
       .filter((card) => card.playerId === player.id)
@@ -1035,6 +1055,7 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
     .orderBy(desc(playerFitnessDataTable.date));
 
   res.json({
+    period: { start, through },
     conduct: {
       status: conductCounts.insufficiente > 0 ? "Da monitorare" : player.available === false ? "Da monitorare" : "Regolare",
       reason: player.available === false ? player.unavailabilityReason ?? "non_disponibile" : null,
@@ -1049,12 +1070,7 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
       unrecorded: Math.max(trainingTotal - trainingRecorded, 0),
       percentage: trainingTotal > 0 ? Math.round((presentTraining / trainingTotal) * 100) : null,
     },
-    matchAttendance: {
-      totalPastMatches: matches.length,
-      callups: callups.length,
-      appearances: matchAppearances,
-      percentage: matches.length > 0 ? Math.round((matchAppearances / matches.length) * 100) : null,
-    },
+    matchAttendance,
     fitnessTests: fitnessData.slice(0, 5).map((entry) => ({
       id: entry.id,
       date: entry.date,

@@ -213,7 +213,7 @@ router.get("/attendance-register", requireAuth, async (req, res) => {
       inArray(trainingAttendancesTable.trainingSessionId, sessions.map(session => session.id)),
       parent ? eq(trainingAttendancesTable.playerId, own[0].id) : undefined)) : Promise.resolve([]),
     matchRows.length ? db.select().from(callUpsTable).where(and(inArray(callUpsTable.matchId, matchRows.map(match => match.id)),
-      parent ? eq(callUpsTable.playerId, own[0].id) : undefined)) : Promise.resolve([]),
+      parent ? eq(callUpsTable.playerId, own[0].id) : undefined)) : Promise.resolve([] as Array<typeof callUpsTable.$inferSelect>),
   ]);
   const called = (status: string) => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(status.toLowerCase());
   const publishedIds = matchRows.length ? await db.selectDistinct({ id: callUpsTable.matchId }).from(callUpsTable)
