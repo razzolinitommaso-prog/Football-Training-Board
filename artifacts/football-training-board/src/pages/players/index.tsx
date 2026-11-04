@@ -1,3 +1,4 @@
+import "./player-directory.css";
 import { useTechnicalScope } from "@/components/technical-scope";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -3156,18 +3157,37 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     return "orange";
   };
   const toneClasses = {
-    avatar: {
-      green: "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800",
-      orange: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800",
-      red: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800",
-    },
     badge: {
-      green: "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800",
-      orange: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800",
-      red: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800",
+      green: "bg-green-50 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800",
+      orange: "bg-orange-50 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800",
+      red: "bg-red-50 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800",
     },
   } as const;
 
+  const directoryTag = (label: string, classes: string, warning = false) => <span className={`player-directory-tag ${classes}`}>{warning && <AlertTriangle aria-hidden="true" />}{label}</span>;
+  const neutralTag = "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300";
+  function renderAvailabilityTag(player: Player) {
+    return player.available === false ? directoryTag(t.notAvailable,toneClasses.badge[playerHealthTone(player)],true) : directoryTag(t.available,toneClasses.badge.green);
+  }
+  function renderRegistrationTag(player: Player) {
+    return player.registered === true ? directoryTag(t.registered,toneClasses.badge.green) : player.registered === false ? directoryTag("Non tesserato",toneClasses.badge.orange) : directoryTag("Non indicato",neutralTag);
+  }
+  function renderStateTag(player: Player) {
+    return directoryTag(player.status === "pending_transfer" ? "Trasferimento" : statusLabel(player.status),player.status === "inactive" ? neutralTag : toneClasses.badge[playerHealthTone(player)]);
+  }
+  function renderDirectoryPhoto(player: Player, imageUrl: string | null) {
+    return imageUrl ? <img src={imageUrl} alt={playerName(player,nameOrder)} className="player-directory-photo border" /> : <span className="player-directory-photo flex items-center justify-center border bg-muted/30 text-muted-foreground"><User aria-hidden="true" className="h-4 w-4" /></span>;
+  }
+  function renderPlayerSelection(player: Player) {
+    return <Checkbox checked={selectedPlayerIds.includes(player.id)} onCheckedChange={checked=>setSelectedPlayerIds(current=>checked===true?Array.from(new Set([...current,player.id])):current.filter(id=>id!==player.id))} aria-label={`Seleziona ${playerName(player,nameOrder)}`} />;
+  }
+  function renderDirectoryActions(player: Player) {
+    return <div className="player-directory-actions">
+      <Button variant="ghost" size="icon" onClick={()=>openPlayerDialog(player,"view")} title="Visualizza scheda" aria-label={`Visualizza ${playerName(player,nameOrder)}`}><Eye className="h-4 w-4" /></Button>
+      {(canManagePlayers || isPrimaryCoachForPlayer(player)) && <Button variant="ghost" size="icon" onClick={()=>openPlayerDialog(player,"edit")} title={t.editPlayer} aria-label={`Modifica ${playerName(player,nameOrder)}`}><Pencil className="h-4 w-4" /></Button>}
+      <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={!canDeletePlayer} aria-label={`Altre azioni per ${playerName(player,nameOrder)}`}><span className="text-lg leading-none">⋯</span></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" disabled={!canDeletePlayer} onClick={()=>{if(canDeletePlayer&&confirm(t.removePlayer)){setLastDeletedPlayer(player);deleteMutation.mutate({id:player.id});}}}><UserMinus className="mr-2 h-4 w-4" />{t.deletePlayer}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+    </div>;
+  }
   return (
     <div className="max-w-full space-y-8 overflow-hidden animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -5791,266 +5811,54 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         </div>
       )}
 
-      <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
-        <div className="hidden overflow-x-auto md:block">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-muted/50 text-muted-foreground font-medium border-b">
-              <tr>
-                {canDeletePlayer && <th className="px-4 py-4 w-10" />}
-                <th className="px-6 py-4">{t.player}</th>
-                <th className="px-6 py-4">{t.team}</th>
-                <th className="px-6 py-4">{t.position}</th>
-                <th className="px-6 py-4">{t.registered}</th>
-                <th className="px-6 py-4">{t.playerAvailability}</th>
-                <th className="px-6 py-4">{t.status}</th>
-                <th className="px-6 py-4 text-right">{t.actions}</th>
-              </tr>
-            </thead>
+      <div className="player-directory">
+        <div className="hidden overflow-hidden rounded-xl border bg-card xl:block">
+          <table className="player-directory-table">
+            <colgroup>
+              {canDeletePlayer && <col style={{ width: 40 }} />}
+              <col style={{ width: "23%" }} /><col style={{ width: "15%" }} /><col style={{ width: "6%" }} />
+              <col style={{ width: "14%" }} /><col style={{ width: "16%" }} /><col style={{ width: "14%" }} /><col style={{ width: "12%" }} />
+            </colgroup>
+            <thead className="border-b bg-muted/40 text-muted-foreground"><tr>
+              {canDeletePlayer && <th><span className="sr-only">Selezione</span></th>}
+              <th>{t.player}</th><th>Annata</th><th>{t.position}</th><th>Tesseramento</th><th>{t.playerAvailability}</th><th>{t.status}</th><th className="text-right">{t.actions}</th>
+            </tr></thead>
             <tbody className="divide-y divide-border">
-              {isLoading ? (
-                Array(5).fill(0).map((_, i) => (
-                  <tr key={i}>
-                    <td className="px-6 py-4"><Skeleton className="h-6 w-32" /></td>
-                    <td className="px-6 py-4"><Skeleton className="h-6 w-24" /></td>
-                    <td className="px-6 py-4"><Skeleton className="h-6 w-16" /></td>
-                    <td className="px-6 py-4"><Skeleton className="h-6 w-16" /></td>
-                    <td className="px-6 py-4"><Skeleton className="h-6 w-20" /></td>
-                    <td className="px-6 py-4"><Skeleton className="h-6 w-20" /></td>
-                    <td className="px-6 py-4"><Skeleton className="h-8 w-8 ml-auto" /></td>
-                  </tr>
-                ))
-              ) : filteredPlayers?.length === 0 ? (
-                <tr>
-                  <td colSpan={canDeletePlayer ? 8 : 7} className="px-6 py-16 text-center">
-                    {isAssignedStaffRole && !search && (players as any[])?.length === 0 ? (
-                      <div className="flex flex-col items-center gap-2">
-                        <svg className="w-12 h-12 text-muted-foreground/30 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" /></svg>
-                        <p className="font-semibold text-foreground">Nessuna squadra assegnata</p>
-                        <p className="text-sm text-muted-foreground max-w-xs">Non hai ancora squadre assegnate. Contatta l'amministratore per ricevere l'accesso.</p>
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground">{t.noPlayersFound}</span>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                filteredPlayers?.map(player => (
-                  (() => {
-                    const { meta } = splitPlayerMeta(player.notes ?? "");
-                    const imageUrl = player.imageUrl ?? meta.imageUrl ?? null;
-                    const tone = playerHealthTone(player);
-                    return (
-                  <tr key={player.id} className="hover:bg-muted/30 transition-colors">
-                    {canDeletePlayer && (
-                      <td className="px-4 py-4">
-                        <Checkbox
-                          checked={selectedPlayerIds.includes(player.id)}
-                          onCheckedChange={(checked) => {
-                            setSelectedPlayerIds((current) =>
-                              checked === true
-                                ? Array.from(new Set([...current, player.id]))
-                                : current.filter((id) => id !== player.id)
-                            );
-                          }}
-                          aria-label={`Seleziona ${playerName(player, nameOrder)}`}
-                        />
-                      </td>
-                    )}
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        {imageUrl ? (
-                          <img
-                            src={imageUrl}
-                            alt={playerName(player, nameOrder)}
-                            className="w-10 h-10 rounded-md object-cover border shadow-sm"
-                          />
-                        ) : (
-                          <div className={`w-10 h-10 rounded-md flex items-center justify-center border shadow-sm ${
-                            toneClasses.avatar[tone]
-                          }`}>
-                            <User className="w-4 h-4" />
-                          </div>
-                        )}
-                        <div>
-                          <div className="font-semibold text-foreground">{playerName(player, nameOrder)}</div>
-                          {player.jerseyNumber && <div className="text-xs text-muted-foreground">#{player.jerseyNumber}</div>}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-muted-foreground">
-                      {player.teamName || t.unassigned}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="font-mono bg-muted px-2 py-1 rounded text-xs">{player.position || "N/A"}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest ${
-                        player.registered
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                          : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                      }`}>
-                        {player.registered ? t.registered : "—"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      {player.available === false ? (
-                        <div className="space-y-0.5">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${toneClasses.badge[tone]}`}>
-                            <AlertTriangle className="w-3 h-3" />
-                            {t.notAvailable}
-                          </span>
-                          {player.unavailabilityReason && (
-                            <div className="text-xs text-muted-foreground">{reasonLabel(player.unavailabilityReason, t)}</div>
-                          )}
-                          {player.expectedReturn && (
-                            <div className="text-xs text-muted-foreground">{t.expectedReturn}: {player.expectedReturn}</div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800">
-                          {t.available}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
-                        toneClasses.badge[tone]
-                      }`}>
-                        {statusLabel(player.status)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => openPlayerDialog(player, "view")}
-                          title="Visualizza scheda"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        {(canManagePlayers || isPrimaryCoachForPlayer(player)) && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => openPlayerDialog(player, "edit")}
-                            title={t.editPlayer}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </Button>
-                        )}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!canDeletePlayer}>
-                              <span className="text-lg leading-none">⋯</span>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive cursor-pointer"
-                              disabled={!canDeletePlayer}
-                              onClick={() => {
-                                if (!canDeletePlayer) return;
-                                if (confirm(t.removePlayer)) {
-                                  setLastDeletedPlayer(player);
-                                  deleteMutation.mutate({ id: player.id });
-                                }
-                              }}
-                            >
-                              <UserMinus className="w-4 h-4 mr-2" />
-                              {t.deletePlayer}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </td>
-                  </tr>
-                    );
-                  })()
-                ))
-              )}
+              {isLoading ? Array.from({ length: 5 }, (_, i) => <tr key={i}><td colSpan={canDeletePlayer ? 8 : 7}><Skeleton className="h-10 w-full" /></td></tr>) : !filteredPlayers?.length ?
+                <tr><td colSpan={canDeletePlayer ? 8 : 7} className="!py-12 text-center text-muted-foreground">{isAssignedStaffRole && !search && !(players as Player[])?.length ? "Nessuna squadra assegnata. Contatta l’amministratore per ricevere l’accesso." : t.noPlayersFound}</td></tr> :
+                filteredPlayers.map(player => {
+                  const { meta } = splitPlayerMeta(player.notes ?? "");
+                  const imageUrl = player.imageUrl ?? meta.imageUrl ?? null;
+                  return <tr key={player.id} className="transition-colors hover:bg-muted/25">
+                    {canDeletePlayer && <td>{renderPlayerSelection(player)}</td>}
+                    <td><div className="flex items-center gap-3">{renderDirectoryPhoto(player,imageUrl)}<div className="min-w-0"><p className="player-directory-name font-semibold">{playerName(player,nameOrder)}</p>{player.jerseyNumber && <p className="mt-0.5 text-xs text-muted-foreground">#{player.jerseyNumber}</p>}</div></div></td>
+                    <td className="text-muted-foreground">{player.teamName || t.unassigned}</td>
+                    <td><span className="whitespace-nowrap text-xs text-muted-foreground">{player.position || "N/D"}</span></td>
+                    <td>{renderRegistrationTag(player)}</td><td>{renderAvailabilityTag(player)}</td><td>{renderStateTag(player)}</td><td>{renderDirectoryActions(player)}</td>
+                  </tr>;
+                })}
             </tbody>
           </table>
         </div>
-        <div className="divide-y divide-border md:hidden">
-          {isLoading ? (
-            Array(5).fill(0).map((_, i) => (
-              <div key={i} className="p-4">
-                <Skeleton className="h-24 w-full rounded-lg" />
+        <div className="grid gap-3 md:grid-cols-2 xl:hidden">
+          {isLoading ? Array.from({length: 4},(_,i)=><Skeleton key={i} className="h-48 rounded-xl" />) : !filteredPlayers?.length ? <p className="rounded-xl border bg-card px-4 py-12 text-center text-sm text-muted-foreground">{t.noPlayersFound}</p> : filteredPlayers.map(player => {
+            const { meta } = splitPlayerMeta(player.notes ?? "");
+            const imageUrl = player.imageUrl ?? meta.imageUrl ?? null;
+            return <article key={player.id} className="rounded-xl border bg-card p-4">
+              <div className="flex items-start gap-3">
+                {canDeletePlayer && renderPlayerSelection(player)}
+                {renderDirectoryPhoto(player,imageUrl)}
+                <div className="min-w-0 flex-1"><p className="player-directory-name text-sm font-semibold">{playerName(player,nameOrder)}</p>{player.jerseyNumber && <p className="mt-0.5 text-xs text-muted-foreground">#{player.jerseyNumber}</p>}<p className="mt-1 text-xs text-muted-foreground">{player.teamName || t.unassigned}</p></div>
+                {renderDirectoryActions(player)}
               </div>
-            ))
-          ) : filteredPlayers?.length === 0 ? (
-            <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-              {t.noPlayersFound}
-            </div>
-          ) : (
-            filteredPlayers?.map((player) => {
-              const { meta } = splitPlayerMeta(player.notes ?? "");
-              const imageUrl = player.imageUrl ?? meta.imageUrl ?? null;
-              const selected = selectedPlayerIds.includes(player.id);
-              const tone = playerHealthTone(player);
-              return (
-                <div key={player.id} className="p-4">
-                  <div className="flex items-start gap-3">
-                    {canDeletePlayer && (
-                      <Checkbox
-                        checked={selected}
-                        onCheckedChange={(checked) => {
-                          setSelectedPlayerIds((current) =>
-                            checked === true
-                              ? Array.from(new Set([...current, player.id]))
-                              : current.filter((id) => id !== player.id)
-                          );
-                        }}
-                        aria-label={`Seleziona ${playerName(player, nameOrder)}`}
-                        className="mt-2"
-                      />
-                    )}
-                    {imageUrl ? (
-                      <img src={imageUrl} alt={playerName(player, nameOrder)} className="h-11 w-11 rounded-md border object-cover shadow-sm" />
-                    ) : (
-                      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md border shadow-sm ${
-                        toneClasses.avatar[tone]
-                      }`}>
-                        <User className="h-4 w-4" />
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-foreground">{playerName(player, nameOrder)}</p>
-                          <p className="truncate text-xs text-muted-foreground">{player.teamName || t.unassigned}</p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openPlayerDialog(player, "view")}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          {(canManagePlayers || isPrimaryCoachForPlayer(player)) && (
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openPlayerDialog(player, "edit")}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <span className="rounded bg-muted px-2 py-1 font-mono text-xs">{player.position || "N/A"}</span>
-                        <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-                          toneClasses.badge[tone]
-                        }`}>
-                          {player.available === false ? t.notAvailable : t.available}
-                        </span>
-                        <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${toneClasses.badge[tone]}`}>
-                          {statusLabel(player.status)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
+              <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-4 border-t pt-3">
+                <div><dt className="mb-1.5 text-xs text-muted-foreground">{t.position}</dt><dd className="text-xs">{player.position || "Non indicato"}</dd></div>
+                <div><dt className="mb-1.5 text-xs text-muted-foreground">Tesseramento</dt><dd>{renderRegistrationTag(player)}</dd></div>
+                <div><dt className="mb-1.5 text-xs text-muted-foreground">{t.playerAvailability}</dt><dd>{renderAvailabilityTag(player)}</dd></div>
+                <div><dt className="mb-1.5 text-xs text-muted-foreground">{t.status}</dt><dd>{renderStateTag(player)}</dd></div>
+              </dl>
+            </article>;
+          })}
         </div>
       </div>
     </div>
