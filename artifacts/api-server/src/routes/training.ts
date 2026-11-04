@@ -11,7 +11,8 @@ import { ensureTrainingSuppressions, sameTrainingMinute, trainingDeletionSummary
 import { readSessionPlan, ensureSessionPlans, resultRows, recalculatePlan, timingSignature, type PlanningExercise } from "../lib/training-session-planning";
 import { AUTO_TRAINING_MARKER } from "../lib/automatic-training-drafts";
 import { Router, type IRouter } from "express";
-import { db, trainingSessionsTable, trainingDirectivesTable, teamsTable, teamStaffAssignmentsTable, playersTable, usersTable, clubMembershipsTable } from "@workspace/db";
+import { db, trainingSessionsTable, trainingDirectivesTable, teamsTable, teamStaffAssignmentsTable, playersTable, usersTable, clubMembershipsTable, exercisesTable, trainingSessionExercisesTable } from "@workspace/db";
+import { prepareReusedBoard } from "@workspace/api-zod";
 import { eq, and, gte, desc, inArray, sql, or } from "drizzle-orm";
 import {
   ListTrainingSessionsResponse,
@@ -101,7 +102,9 @@ async function canManageSession(
   userId: number,
   role: string,
 ): Promise<boolean> {
-  if (["secretary", "technical_director"].includes(role)) return true;
+  if (role === "secretary") return true;
+  if (role === "technical_director") return session.sessionKind === "tipo" && session.createdByUserId === userId;
+  if (session.sessionKind === "tipo") return session.createdByUserId === userId;
   if (session.createdByUserId === userId) return true;
   if(STAFF_RESTRICTED_ROLES.includes(role)&&await assignedTrainingProgram(clubId,userId,session))return true;
   if (!STAFF_RESTRICTED_ROLES.includes(role) || !session.teamId) return false;
@@ -263,7 +266,16 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
     STAFF_RESTRICTED_ROLES.includes(role)?getAssignedTeamIds(clubId,userId):Promise.resolve([] as number[]),
   ]);
   const programEditable=new Set(sessions.filter(session=>session.notes?.includes("[FTB_PROGRAM_TEAMS]")&&sessionTeamIds(session.teamId,session.notes).some(id=>assignedIds.includes(id))).map(session=>session.id));
-  const lookup={teams:new Map(teamRows.map(team=>[team.id,team.name])),creators:new Map(creatorRows.map(user=>[user.id,`${user.firstName} ${user.lastName}`])),canEdit:(session:typeof trainingSessionsTable.$inferSelect)=>STAFF_RESTRICTED_ROLES.includes(role)&&programEditable.has(session.id)||["secretary","technical_director"].includes(role)||session.createdByUserId===userId||Boolean(STAFF_RESTRICTED_ROLES.includes(role)&&session.teamId&&(primaryIds.includes(session.teamId)||(session.notes?.startsWith(AUTO_TRAINING_MARKER)&&assignedIds.includes(session.teamId))))};
+  const lookup = {
+    teams: new Map(teamRows.map(team => [team.id, team.name])),
+    creators: new Map(creatorRows.map(user => [user.id, `${user.firstName} ${user.lastName}`])),
+    canEdit: (session: typeof trainingSessionsTable.$inferSelect) => {
+      if (role === "technical_director") return session.sessionKind === "tipo" && session.createdByUserId === userId;
+      if (session.sessionKind === "tipo") return session.createdByUserId === userId;
+      return role === "secretary" || session.createdByUserId === userId || STAFF_RESTRICTED_ROLES.includes(role) &&
+        (programEditable.has(session.id) || !!session.teamId && (primaryIds.includes(session.teamId) || !!session.notes?.startsWith(AUTO_TRAINING_MARKER) && assignedIds.includes(session.teamId)));
+    },
+  };
   const enriched = await Promise.all(sessions.map((session) => enrichSession(session, { clubId, userId, role },lookup)));
   if (req.query.includePreparation === "1" && sessions.length > 0) {
     const result = await db.execute(sql`
@@ -303,6 +315,8 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
     teamId?: number | null;
     [key: string]: unknown;
   };
+  if (role === "technical_director") body.sessionKind = "tipo";
+  else if (body.sessionKind && body.sessionKind !== "regular") { res.status(400).json({ error: "Lo staff prepara sedute operative; le linee guida sono proposte dal direttore tecnico" }); return; }
 
   if (STAFF_RESTRICTED_ROLES.includes(role)) {
     const hasTeamAccess = await canAccessTeamForRestrictedRole(req.session.clubId!, userId, body.teamId ?? null);
@@ -335,6 +349,54 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
   if(!session){res.status(409).json({error:"Esiste già una seduta per questa squadra, data e orario. Aprila per modificarla."});return;}
   const enriched = await enrichSession(session, { clubId: req.session.clubId!, userId, role });
   res.status(201).json(enriched);
+});
+
+// Adoption appends independent station copies; it never replaces existing preparation.
+router.post("/training-sessions/:id/adopt", requireAuth, async (req, res): Promise<void> => {
+  const role = normalizeSessionRole(req.session.role), clubId = req.session.clubId!, userId = req.session.userId!;
+  const sourceId = Number(req.params.id), targetId = Number(req.body.targetSessionId);
+  if (!STAFF_RESTRICTED_ROLES.includes(role)) { res.status(403).json({ error: "Solo lo staff della seduta può adottare una proposta" }); return; }
+  if (![sourceId, targetId].every(id => Number.isSafeInteger(id) && id > 0) || sourceId === targetId) { res.status(400).json({ error: "Seduta non valida" }); return; }
+  const [source] = await db.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id, sourceId), eq(trainingSessionsTable.clubId, clubId)));
+  const target = await planningAccess(req, targetId, true);
+  if (!source || source.sessionKind !== "tipo" || !source.sentToUserIds?.includes(userId) || !target || target.sessionKind !== "regular" || !target.teamId || ["cancelled", "canceled"].includes(target.status)) { res.status(403).json({ error: "Proposta o seduta non accessibile" }); return; }
+  if (source.teamId && !sessionTeamIds(target.teamId, target.notes).includes(source.teamId)) { res.status(403).json({ error: "La proposta appartiene a un’altra annata" }); return; }
+  const links = await db.select().from(trainingSessionExercisesTable).where(eq(trainingSessionExercisesTable.trainingSessionId, sourceId));
+  const requested = req.body.exerciseIds;
+  if (requested !== undefined && (!Array.isArray(requested) || !requested.length || requested.some(id => !Number.isSafeInteger(id) || !links.some(link => link.exerciseId === id)))) { res.status(400).json({ error: "Selezione stazioni non valida" }); return; }
+  const selected = links.filter(link => requested === undefined || requested.includes(link.exerciseId)).sort((a,b) => a.order - b.order);
+  if (!selected.length) { res.status(400).json({ error: "La proposta non contiene stazioni" }); return; }
+  const sources = await db.select().from(exercisesTable).where(and(eq(exercisesTable.clubId, clubId), inArray(exercisesTable.id, selected.map(link => link.exerciseId))));
+  if (sources.length !== new Set(selected.map(link => link.exerciseId)).size) { res.status(400).json({ error: "Una stazione della proposta non è disponibile" }); return; }
+  const existing = await db.select().from(trainingSessionExercisesTable).where(eq(trainingSessionExercisesTable.trainingSessionId, targetId));
+  if (!Array.isArray(req.body.expectedExerciseIds) || JSON.stringify([...req.body.expectedExerciseIds].sort((a,b)=>a-b)) !== JSON.stringify(existing.map(link=>link.id).sort((a,b)=>a-b))) { res.status(409).json({ error: "La preparazione è cambiata: rileggi la seduta prima di confermare" }); return; }
+  const result = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT id FROM training_sessions WHERE id=${targetId} AND club_id=${clubId} FOR UPDATE`);
+    const [freshTarget] = await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,targetId),eq(trainingSessionsTable.clubId,clubId)));
+    if (!freshTarget || freshTarget.teamId !== target.teamId || freshTarget.sessionKind !== "regular" || freshTarget.scheduledAt.getTime() !== target.scheduledAt.getTime() || freshTarget.notes !== target.notes || freshTarget.status !== target.status) return null;
+    const current = await tx.select().from(trainingSessionExercisesTable).where(eq(trainingSessionExercisesTable.trainingSessionId, targetId));
+    if (JSON.stringify(current.map(link=>link.id).sort((a,b)=>a-b)) !== JSON.stringify(existing.map(link=>link.id).sort((a,b)=>a-b))) return null;
+    const oldExercises = current.length ? await tx.select().from(exercisesTable).where(inArray(exercisesTable.id, current.map(link=>link.exerciseId))) : [];
+    if (sources.some(source => oldExercises.some(old => old.sourceExerciseId === source.id))) return null;
+    let order = current.reduce((max, link)=>Math.max(max,link.order),-1) + 1;
+    const createdIds: number[] = [];
+    for (const link of selected) {
+      const original = sources.find(ex=>ex.id===link.exerciseId)!;
+      const { id, createdAt, updatedAt, ...values } = original;
+      const [copy] = await tx.insert(exercisesTable).values({ ...values, clubId, teamId: target.teamId, createdByUserId: userId, sourceExerciseId: id,
+        trainingDay: trainingLocalDate(target.scheduledAt), selectedPlayerIdsJson: null, scegliGiocatori: false, caricaRosaIntera: false,
+        statoLavagnaJson: prepareReusedBoard(original.statoLavagnaJson, target.teamId) || null,
+        drawingElementsJson: prepareReusedBoard(original.drawingElementsJson, target.teamId) || null,
+        drawingData: original.statoLavagnaJson || original.drawingElementsJson ? null : original.drawingData,
+        immagineAnteprima: null,
+      }).returning();
+      await tx.insert(trainingSessionExercisesTable).values({ trainingSessionId: targetId, exerciseId: copy.id, order: order++, notes: null });
+      createdIds.push(copy.id);
+    }
+    return createdIds;
+  });
+  if (!result) { res.status(409).json({ error: "Preparazione cambiata o proposta già adottata: rileggi la seduta" }); return; }
+  res.status(201).json({ targetSessionId: targetId, exerciseIds: result });
 });
 
 // GET single training session
@@ -402,10 +464,11 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
     updateData = { ...parsed.data };
   } else if (role === "technical_director") {
     // TD can update comment/guidelines on any session, or edit their own sessions
-    if (existing.createdByUserId === userId) {
+    if (existing.createdByUserId === userId && existing.sessionKind === "tipo") {
       const parsed = UpdateTrainingSessionBody.safeParse(body);
       if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
       updateData = { ...parsed.data };
+      updateData.sessionKind = "tipo";
     }
     // TD can always add/update comment and guidelines
     if ("tdComment" in body) updateData.tdComment = body.tdComment;

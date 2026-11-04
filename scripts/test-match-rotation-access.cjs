@@ -35,7 +35,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "entry.ts"),
-      `export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
+      `export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
     await esbuild.build({
@@ -155,6 +155,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       `INSERT INTO call_ups(id,match_id,player_id,status,created_at) VALUES(1,501,101,'called',now()),(2,501,102,'called',now()),(3,503,201,'called',now());`,
     );
     const app = req("express")();
+    app.use(req("express").json());
     app.use((request, _res, next) => {
       request.session = {
         clubId: Number(request.headers["x-club"] ?? 1),
@@ -165,7 +166,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       };
       next();
     });
-    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players);
+    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.exercises);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -321,6 +322,43 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     assert.equal(sports.data.trainingAttendance.unrecorded,1);
     assert.deepEqual(sports.data.matchAttendance,{totalPastMatches:5,callups:4,appearances:1,recorded:2,unrecorded:2,minutes:12,percentage:50});
     console.log('PASS player activity: supplementary/historical teams, joint sessions once, season boundary, distinct callups, parent availability excluded, report-only participation/minutes, foreign club excluded.');
+    // Technical director proposes; coach explicitly adopts independent station copies.
+    await pg.exec(`INSERT INTO users(id,first_name,last_name) VALUES(3,'Coach','Test'),(4,'Technical','Director');
+      INSERT INTO club_memberships(id,club_id,user_id,role,club_section,staff_role) VALUES(3,1,3,'coach','{scuola_calcio}','primo_allenatore'),(4,1,4,'technical_director','{scuola_calcio,settore_giovanile}',null);
+      UPDATE teams SET coach_id=3 WHERE id=11;
+      INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,status,session_kind,created_by_user_id,sent_to_user_ids,notes,duration_minutes)
+      VALUES(1201,1,11,'Proposal',now(),'scheduled','tipo',4,'[3]','',90),(1202,1,11,'Coach session',now(),'scheduled','regular',3,null,'',90);`);
+    const oldBoard = {boardId:99,data:{teamId:11,elements:[{type:'player',playerId:101,name:'Source identity'}],animation:{frames:[{elements:[{type:'player',playerId:101,name:'Source identity'}]}]}}};
+    await pg.query(`INSERT INTO exercises(id,club_id,title,team_id,created_by_user_id,stato_lavagna_json,drawing_data,equipment,duration_minutes,training_phase) VALUES(1201,1,'Proposal station',11,4,$1,'old-image','Palloni: 4',15,'iniziale'),(1202,1,'Existing station',11,3,null,null,null,10,'centrale')`,[JSON.stringify(oldBoard)]);
+    await pg.exec(`INSERT INTO training_session_exercises(id,training_session_id,exercise_id,"order") VALUES(1201,1201,1201,0),(1202,1202,1202,0);`);
+    const write = async (url, body, who=3, role='coach', method='POST') => {
+      const response=await fetch(base+url,{method,headers:{'Content-Type':'application/json','x-user':String(who),'x-role':role},body:JSON.stringify(body)});
+      return {status:response.status,data:response.status===204?null:await response.json()};
+    };
+    const adoption = {targetSessionId:1202,exerciseIds:[1201],expectedExerciseIds:[1202]};
+    assert.equal((await write('/training-sessions/1201/adopt',adoption,2)).status,403);
+    assert.equal((await write('/training-sessions/1201/adopt',adoption,4,'technical_director')).status,403);
+    assert.equal((await write('/training-sessions/1201/adopt',{...adoption,exerciseIds:[1202]})).status,400);
+    assert.equal((await write('/training-sessions/1201/adopt',{...adoption,expectedExerciseIds:[]})).status,409);
+    const adopted = await write('/training-sessions/1201/adopt',adoption);
+    assert.equal(adopted.status,201,JSON.stringify(adopted.data));
+    const [copied] = (await pg.query('SELECT * FROM exercises WHERE id=$1',[adopted.data.exerciseIds[0]])).rows;
+    assert.equal(copied.created_by_user_id,3); assert.equal(copied.source_exercise_id,1201);
+    assert.equal(copied.equipment,'Palloni: 4'); assert.equal(copied.duration_minutes,15);
+    assert.equal(copied.drawing_data,null); assert.equal(copied.selected_player_ids_json,null);
+    assert.ok(!copied.stato_lavagna_json.includes('Source identity')); assert.ok(!copied.stato_lavagna_json.includes('playerId')); assert.equal(JSON.parse(copied.stato_lavagna_json).boardId,null);
+    const targetLinks=(await pg.query('SELECT * FROM training_session_exercises WHERE training_session_id=1202')).rows;
+    assert.equal(targetLinks.length,2); assert.ok(targetLinks.some(row=>row.exercise_id===1202));
+    assert.equal((await write('/training-sessions/1201/adopt',{...adoption,expectedExerciseIds:targetLinks.map(row=>row.id)})).status,409);
+    assert.equal((await pg.query('SELECT stato_lavagna_json FROM exercises WHERE id=1201')).rows[0].stato_lavagna_json,JSON.stringify(oldBoard));
+    assert.equal((await write('/training-sessions/1202/exercises',{exerciseId:1201},4,'technical_director')).status,403);
+    assert.equal((await write('/exercises/1202',{title:'Forbidden edit'},4,'technical_director','PATCH')).status,403);
+    assert.equal((await write('/exercises/1201',{title:'Forbidden original edit'},3,'coach','PATCH')).status,403);
+    const opEdit=await write('/training-sessions/1202',{title:'Forbidden metadata'},4,'technical_director','PATCH');
+    assert.equal((await pg.query('SELECT title FROM training_sessions WHERE id=1202')).rows[0].title,'Coach session');
+    const tdCreate=await write('/training-sessions',{title:'Proposed only',scheduledAt:new Date().toISOString(),teamId:11,durationMinutes:90,status:'scheduled',sessionKind:'regular'},4,'technical_director');
+    assert.equal(tdCreate.status,201,JSON.stringify(tdCreate.data)); assert.equal(tdCreate.data.sessionKind,'tipo');
+    console.log('PASS technical proposals: explicit adoption, assignment/recipient checks, independent cleaned copies, existing preparation retained, stale/repeat rejection, operational stations protected and TD creation forced to tipo.');
     console.log(
       "PASS training eligibility: parent refusal, global unavailability, dated overrides, staff present/absent, correction and templates.",
     );

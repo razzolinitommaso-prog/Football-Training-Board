@@ -114,6 +114,18 @@ async function canManageExercise(
   userId: number,
   role: string,
 ): Promise<boolean> {
+  if (STAFF_RESTRICTED_ROLES.includes(role) && ex.createdByUserId !== userId) {
+    const proposal = await db.select({ id: trainingSessionsTable.id }).from(trainingSessionExercisesTable)
+      .innerJoin(trainingSessionsTable, eq(trainingSessionsTable.id, trainingSessionExercisesTable.trainingSessionId))
+      .where(and(eq(trainingSessionExercisesTable.exerciseId, ex.id), eq(trainingSessionsTable.clubId, clubId), eq(trainingSessionsTable.sessionKind, "tipo"))).limit(1);
+    if (proposal.length) return false;
+  }
+  if (role === "technical_director") {
+    const operational = await db.select({ id: trainingSessionsTable.id }).from(trainingSessionExercisesTable)
+      .innerJoin(trainingSessionsTable, eq(trainingSessionsTable.id, trainingSessionExercisesTable.trainingSessionId))
+      .where(and(eq(trainingSessionExercisesTable.exerciseId, ex.id), eq(trainingSessionsTable.clubId, clubId), eq(trainingSessionsTable.sessionKind, "regular"))).limit(1);
+    if (operational.length) return false;
+  }
   if (EXERCISE_ELEVATED_ROLES.includes(role)) return true;
   if (ex.createdByUserId === null || ex.createdByUserId === userId) return true;
   if (!STAFF_RESTRICTED_ROLES.includes(role) || !ex.teamId) return false;
@@ -506,11 +518,23 @@ router.get("/training-sessions/:id/exercises", requireAuth, async (req, res): Pr
   res.json(enriched);
 });
 
+async function canChangeSessionLinks(sessionId:number, clubId:number, userId:number, role:string) {
+  const [session] = await db.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,sessionId),eq(trainingSessionsTable.clubId,clubId)));
+  if (!session) return false;
+  if (role === "technical_director") return session.sessionKind === "tipo" && session.createdByUserId === userId;
+  if (STAFF_RESTRICTED_ROLES.includes(role)) return await assignedTrainingProgram(clubId,userId,session) ||
+    (await canAccessTeamForRestrictedRole(clubId,userId,session.teamId) && (session.createdByUserId === userId || !!session.teamId && (await getPrimaryCoachTeamIds(clubId,userId)).includes(session.teamId)));
+  return EXERCISE_ELEVATED_ROLES.includes(role);
+}
 router.post("/training-sessions/:id/exercises", requireAuth, async (req, res): Promise<void> => {
   const sessionId = parseInt(String(req.params.id));
   if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { exerciseId, order, notes } = req.body;
   if (!exerciseId) { res.status(400).json({ error: "exerciseId required" }); return; }
+  const clubId=req.session.clubId!, userId=req.session.userId!, role=normalizeSessionRole(req.session.role);
+  if (!await canChangeSessionLinks(sessionId,clubId,userId,role)) { res.status(403).json({error:"Seduta non modificabile"}); return; }
+  const [exercise] = await db.select().from(exercisesTable).where(and(eq(exercisesTable.id,Number(exerciseId)),eq(exercisesTable.clubId,clubId)));
+  if (!exercise || !await canManageExercise(exercise,clubId,userId,role)) { res.status(403).json({error:"Stazione non modificabile"}); return; }
   const [link] = await db.insert(trainingSessionExercisesTable).values({
     trainingSessionId: sessionId, exerciseId: Number(exerciseId), order: order ?? 0, notes: notes ?? null,
   }).returning();
@@ -520,7 +544,9 @@ router.post("/training-sessions/:id/exercises", requireAuth, async (req, res): P
 router.delete("/training-sessions/:sessionId/exercises/:id", requireAuth, async (req, res): Promise<void> => {
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  await db.delete(trainingSessionExercisesTable).where(eq(trainingSessionExercisesTable.id, id));
+  const sessionId=Number(req.params.sessionId);
+  if (!await canChangeSessionLinks(sessionId,req.session.clubId!,req.session.userId!,normalizeSessionRole(req.session.role))) { res.status(403).json({error:"Seduta non modificabile"}); return; }
+  await db.delete(trainingSessionExercisesTable).where(and(eq(trainingSessionExercisesTable.id, id),eq(trainingSessionExercisesTable.trainingSessionId,sessionId)));
   res.sendStatus(204);
 });
 

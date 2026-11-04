@@ -21,3 +21,4 @@ export * from "./exercise-board-materials";
 export * from "./shared-tournaments";
 
 export * from "./match-rotation-summary";
+export { prepareReusedBoard } from "./reuse-training-station";

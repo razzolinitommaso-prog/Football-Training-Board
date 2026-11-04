@@ -1,3 +1,5 @@
+import { AdoptTrainingProposal } from "@/components/training/AdoptTrainingProposal";
+import { useTechnicalScope } from "@/components/technical-scope";
 import { mergeBoardMaterials, readMaterialSelection, writeMaterialSelection, materialNotes, writeMaterialNotes } from "@/lib/board-materials";
 import { parseStationDescription, composeStationDescription } from "@/lib/station-description";
 import { StationVariants, StationVariantsView } from "@/components/training/StationVariants";
@@ -30,7 +32,7 @@ import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/rea
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/i18n";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -632,7 +634,7 @@ function statusBadge(status: string, timelineState?: SessionTimelineState) {
 function typeBadge(kind: string) {
   if (kind === "tipo") return (
     <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] gap-1">
-      <Star className="w-2.5 h-2.5" /> Seduta Tipo
+      <Star className="w-2.5 h-2.5" /> Linea guida proposta
     </Badge>
   );
   return null;
@@ -868,7 +870,7 @@ function SessionCard({
   });
   const linkedExercises = linkedExercisesQuery.data ?? [];
   const cardTone =
-    timelineState === "next"
+    session.sessionKind === "tipo" ? "border-border bg-card" : timelineState === "next"
       ? "border-emerald-300 bg-emerald-50 shadow-sm"
       : timelineState === "past"
         ? "border-orange-200 bg-orange-50/70"
@@ -880,16 +882,16 @@ function SessionCard({
   return (
     <Card className={`overflow-hidden group hover:shadow-md transition-all ${cardTone}`}>
       <div className={`h-1 w-full ${
-        timelineState === "next" ? "bg-emerald-500" :
+        session.sessionKind === "tipo" ? "bg-primary/30" : timelineState === "next" ? "bg-emerald-500" :
         timelineState === "past" ? "bg-orange-500" :
         session.status === "cancelled" ? "bg-destructive" : "bg-border"
       }`} />
       <CardContent className="p-4 space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-wrap gap-1.5">
-            {statusBadge(session.status, timelineState)}
+            {session.sessionKind !== "tipo" && statusBadge(session.status, timelineState)}
             {typeBadge(session.sessionKind)}
-            {timelineState === "next" && <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">Prossima</Badge>}
+            {session.sessionKind !== "tipo" && timelineState === "next" && <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">Prossima</Badge>}
             {needsReschedule && <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]">Da riassegnare</Badge>}
             {movedBySecretary && <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">Spostata da segreteria</Badge>}
           </div>
@@ -946,12 +948,12 @@ function SessionCard({
         <div className="space-y-1 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
             <Calendar className="w-3 h-3" />
-            <span>{fmtDate(session.scheduledAt)}</span>
+            <span>{session.sessionKind === "tipo" ? "Riferimento: " : ""}{fmtDate(session.scheduledAt)}</span>
           </div>
           {session.durationMinutes && (
             <div className="flex items-center gap-1.5">
               <Clock className="w-3 h-3" />
-              <span>{session.durationMinutes} min</span>
+              <span>{session.sessionKind === "tipo" ? "Durata indicativa: " : ""}{session.durationMinutes} min</span>
             </div>
           )}
           {session.location && (
@@ -960,7 +962,7 @@ function SessionCard({
               <span>{session.location}</span>
             </div>
           )}
-          {attendanceSummary && (
+          {session.sessionKind !== "tipo" && attendanceSummary && (
             <div className="flex items-center gap-1.5">
               <Users className="w-3 h-3" />
               <span>
@@ -1078,8 +1080,8 @@ function CreateSessionDialog({
   const [creationRecoveries,setCreationRecoveries]=useState<[number,number]>([0,0]);
   const createFormRef=useRef<HTMLFormElement>(null);
   const requestedPhase=useRef<string|undefined>(undefined);
-  const [scheduledDate, setScheduledDate] = useState("");
-  const [scheduledTime, setScheduledTime] = useState("");
+  const [scheduledDate, setScheduledDate] = useState(isTD ? format(new Date(), "dd/MM/yyyy") : "");
+  const [scheduledTime, setScheduledTime] = useState(isTD ? "00:00" : "");
   const [duration, setDuration] = useState(90);
   const [location, setLocation] = useState("");
   const [teamId, setTeamId] = useState<number | null>(null);
@@ -1088,15 +1090,15 @@ function CreateSessionDialog({
   const [sessionTrainingSession, setSessionTrainingSession] = useState("");
   const manualSlot = useRef(false);
   const initialDraftApplied=useRef<InitialSessionDraft|null>(null);
-  const [sessionKind, setSessionKind] = useState<"regular" | "tipo">("regular");
+  const [sessionKind, setSessionKind] = useState<"regular" | "tipo">(isTD ? "tipo" : "regular");
   const [recipientMode, setRecipientMode] = useState<"selected" | "all">("selected");
   const [recipients, setRecipients] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
 
   function reset() {
     manualSlot.current = false; initialDraftApplied.current=null;
-    setScheduledDate(""); setScheduledTime(""); setDuration(90);
-    setLocation(""); setTeamId(null); setSharedTeamIds([]); setSessionPrincipio(""); setSessionTrainingSession(""); setSessionKind("regular"); setRecipientMode("selected"); setRecipients([]); requestedPhase.current=undefined;setCreationRecoveries([0,0]);
+    setScheduledDate(isTD ? format(new Date(), "dd/MM/yyyy") : ""); setScheduledTime(isTD ? "00:00" : ""); setDuration(90);
+    setLocation(""); setTeamId(null); setSharedTeamIds([]); setSessionPrincipio(""); setSessionTrainingSession(""); setSessionKind(isTD ? "tipo" : "regular"); setRecipientMode("selected"); setRecipients([]); requestedPhase.current=undefined;setCreationRecoveries([0,0]);
   }
 
   useEffect(() => {
@@ -1113,6 +1115,12 @@ function CreateSessionDialog({
       setTeamId(initialDraft.teamId);
     }
   }, [initialDraft, open, teams]);
+
+  useEffect(() => {
+    if (open && isTD && !initialDraft && teams.length === 1 && teamId === null) {
+      setTeamId(teams[0].id); setSharedTeamIds([teams[0].id]);
+    }
+  }, [open, isTD, initialDraft, teams, teamId]);
 
   useEffect(() => {
     if (!open || manualSlot.current || sessionKind !== "regular") return;
@@ -1172,7 +1180,7 @@ function CreateSessionDialog({
       onCreatedSession?.(createdSession as TrainingSession, requestedPhase.current);
       onClose();
       reset();
-      toast({ title: recoverySaveFailed?"Seduta creata: recuperi da reinserire nella scheda":sessionKind === "tipo" ? "Seduta Tipo inviata" : "Seduta creata",variant:recoverySaveFailed?"destructive":"default" });
+      toast({ title: recoverySaveFailed?"Seduta creata: recuperi da reinserire nella scheda":sessionKind === "tipo" ? "Linea guida proposta" : "Seduta creata",variant:recoverySaveFailed?"destructive":"default" });
     } catch {
       toast({ title: "Errore nella creazione", variant: "destructive" });
     } finally {
@@ -1185,24 +1193,11 @@ function CreateSessionDialog({
       <DialogContent className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] sm:max-w-[960px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>
-            {isTD ? "Nuova Seduta" : "Pianifica Seduta di Allenamento"}
+            {isTD ? "Nuova linea guida proposta" : "Pianifica Seduta di Allenamento"}
           </DialogTitle>
         </DialogHeader>
         <form ref={createFormRef} onSubmit={handleSubmit} noValidate className="space-y-4 pt-2">
-          {isTD && (
-            <div className="space-y-2">
-              <Label>Tipo seduta</Label>
-              <Select value={sessionKind} onValueChange={v => setSessionKind(v as "regular" | "tipo")}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="regular">Seduta regolare (visibile a te e direttore)</SelectItem>
-                  <SelectItem value="tipo">Seduta TIPO — da inviare agli allenatori</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          {isTD && <p className="rounded-lg border bg-muted/30 p-3 text-sm">Questa è una proposta: il mister potrà consultarla e scegliere se adottarla nella propria seduta.</p>}
 
           <div className="grid grid-cols-1 gap-3">
           <div className="space-y-2">
@@ -1226,7 +1221,7 @@ function CreateSessionDialog({
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Data e ora <span className="text-destructive">*</span></Label>
+              <Label>{isTD ? "Data e ora di riferimento della proposta" : "Data e ora"} <span className="text-destructive">*</span></Label>
               <div className="grid grid-cols-2 gap-2">
                 <Input
                   type="text"
@@ -1299,7 +1294,7 @@ function CreateSessionDialog({
             <Button type="button" variant="ghost" onClick={() => { onClose(); reset(); }}>Annulla</Button>
             <Button type="submit" disabled={loading}>
               {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {sessionKind === "tipo" ? "Invia Seduta Tipo" : "Salva dati e prepara seduta"}
+              {sessionKind === "tipo" ? "Proponi linea guida" : "Salva dati e prepara seduta"}
             </Button>
           </div>
         </form>
@@ -2744,7 +2739,14 @@ type TrainingPageProps = {
   section?: string;
 };
 
-export default function TrainingPage({ section }: TrainingPageProps = {}) {
+export default function TrainingPage({ section: pageSection }: TrainingPageProps = {}) {
+  const technicalScope = useTechnicalScope();
+  const pageSearch = useSearch();
+  const tdGuidelinesView = new URLSearchParams(pageSearch).get("view") === "guidelines";
+  const [tdTab, setTdTab] = useState(tdGuidelinesView ? "tipo" : "all");
+  useEffect(() => setTdTab(tdGuidelinesView ? "tipo" : "all"), [tdGuidelinesView]);
+  useEffect(() => { const id = Number(new URLSearchParams(pageSearch).get("teamId")); if (technicalScope.enabled && id && technicalScope.teamId !== id && technicalScope.teams.some(team => team.id === id)) technicalScope.setTeam(String(id)); }, [pageSearch, technicalScope.enabled, technicalScope.teams]);
+  const section = technicalScope.enabled ? technicalScope.section : pageSection;
   const { role, user, club, section: activeSection } = useAuth();
   const { toast } = useToast();
   const { t } = useLanguage();
@@ -2825,10 +2827,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
   function invalidateSessions() { qc.invalidateQueries({ queryKey: ["/api/training-sessions"] }); }
   function invalidateDirectives() { qc.invalidateQueries({ queryKey: ["/api/training-directives"] }); }
 
-  const sessions = sessionsQuery.data ?? [];
+  const sessions = (sessionsQuery.data ?? []).filter(s => !technicalScope.enabled || (s.teamId == null || (!section || technicalScope.teams.some(t => t.id === s.teamId && t.clubSection === section)) && (!technicalScope.teamId || sessionTeamIds(s.teamId,s.notes).includes(technicalScope.teamId))));
   const directives = directivesQuery.data ?? [];
   const members = membersQuery.data ?? [];
-  const teams = teamsQuery.data ?? [];
+  const teams = (teamsQuery.data ?? []).filter(team => (!section || team.clubSection === section) && (!technicalScope.enabled || !technicalScope.teamId || team.id === technicalScope.teamId));
   const userId = (user as any)?.id as number | undefined;
 
   useEffect(() => {
@@ -2875,6 +2877,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
       ? sessions.map((session) => ({
           queryKey: ["/api/training-sessions", session.id, "exercises", "td-search-scope"],
           queryFn: () => apiFetch(`/api/training-sessions/${session.id}/exercises`),
+          enabled: !!tdExerciseSearch.trim(),
         }))
       : [],
   });
@@ -2966,7 +2969,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
       teams={teams}
       sessions={regularSessions}
       section={section}
-      canCreate={["coach", "fitness_coach", "athletic_director", "technical_director", "secretary"].includes(role ?? "")}
+      canCreate={["coach", "fitness_coach", "athletic_director", "secretary"].includes(role ?? "")}
       loading={sessionsQuery.isLoading || teamsQuery.isLoading}
       error={sessionsQuery.isError || teamsQuery.isError}
       onRetry={() => { void sessionsQuery.refetch(); void teamsQuery.refetch(); }}
@@ -3183,10 +3186,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <ClipboardList className="w-6 h-6 text-primary" />
-              Gestione Allenamenti
+              {tdGuidelinesView ? "Linee guida sedute" : "Sedute del mister"}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Visualizza tutte le sedute, invia sedute tipo e direttive agli allenatori
+              Consulta le sedute del mister e prepara linee guida facoltative per annata
             </p>
           </div>
           <div className="flex gap-2">
@@ -3196,13 +3199,13 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             </Button>
             <Button onClick={() => { setCalendarDraft(null); setCreateOpen(true); }}>
               <Plus className="w-4 h-4 mr-2" />
-              Nuova seduta
+              Nuova linea guida
             </Button>
           </div>
         </div>
 
-        <details className="rounded-xl border bg-card p-3">
-          <DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri, sedute tipo e direttive</DisclosureSummary>
+        <details open={tdGuidelinesView || undefined} className="rounded-xl border bg-card p-3">
+          <DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri, linee guida e direttive</DisclosureSummary>
           <div className="mt-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -3223,14 +3226,14 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           </div>
         </div>
 
-        <Tabs defaultValue="all">
+        <Tabs value={tdTab} onValueChange={setTdTab}>
           <TabsList className="grid grid-cols-3 w-full max-w-lg">
             <TabsTrigger value="all">
-              Tutte le sedute
+              Sedute del mister
               {filteredSessionsForTD.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px] px-1">{filteredSessionsForTD.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="tipo">
-              Sedute Tipo
+              Linee guida proposte
               {filteredTipoSessionsForTD.length > 0 && <Badge className="ml-1.5 bg-amber-100 text-amber-700 text-[10px] px-1">{filteredTipoSessionsForTD.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="directives">
@@ -3242,10 +3245,10 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           {/* Tab: All sessions */}
           <TabsContent value="all" className="mt-6">
             <SessionGrid
-              items={filteredSessionsForTD}
+              items={filteredSessionsForTD.filter(s => s.sessionKind === "regular")}
               emptyMsg={tdHasSearchFilters ? "Nessuna seduta trovata con i filtri di ricerca" : "Nessuna seduta di allenamento registrata nel club"}
-              canDeleteFn={s => s.createdByUserId === userId}
-              canEditFn={s => s.createdByUserId === userId}
+              canDeleteFn={s => s.sessionKind === "tipo" && s.createdByUserId === userId}
+              canEditFn={s => s.sessionKind === "tipo" && s.createdByUserId === userId}
               showComment={true}
               onOpenDetails={setDetailsSession}
               showRecovery
@@ -3257,14 +3260,14 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
             <div className="mb-4 flex items-start gap-3 text-sm text-muted-foreground bg-amber-50/60 border border-amber-200 rounded-lg px-4 py-3">
               <Star className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
               <span>
-                Le <strong>Sedute Tipo</strong> vengono inviate agli allenatori o preparatori selezionati e appaiono direttamente nelle loro dashboard come sedute da seguire.
+                Le <strong>linee guida</strong> sono proposte facoltative. Il mister le consulta e sceglie se usare tutte o alcune stazioni nella propria seduta.
               </span>
             </div>
             <SessionGrid
               items={filteredTipoSessionsForTD}
               emptyMsg={tdHasSearchFilters ? "Nessuna seduta trovata con i filtri di ricerca" : "Nessuna seduta tipo inviata"}
-              canDeleteFn={s => s.createdByUserId === userId}
-              canEditFn={s => s.createdByUserId === userId}
+              canDeleteFn={s => s.sessionKind === "tipo" && s.createdByUserId === userId}
+              canEditFn={s => s.sessionKind === "tipo" && s.createdByUserId === userId}
               showComment={true}
               onOpenDetails={setDetailsSession}
               showRecovery
@@ -3317,8 +3320,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
 
           </div>
         </details>
-        {renderSessionsCalendar()}
-
+        {!tdGuidelinesView && renderSessionsCalendar()}
 
         {/* Dialogs */}
         <CreateSessionDialog
@@ -3340,7 +3342,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         )}
         {detailsSession && (
           <SessionDetailsDialog onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)} initialAddPhase={createdPhase} session={detailsSession} onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}} teams={teams}
-            readOnly={!(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
+            readOnly={isTD ? !(detailsSession.sessionKind === "tipo" && detailsSession.createdByUserId === userId) : detailsSession.sessionKind === "tipo" || !(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
             onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }} />
         )}
         {editingSession && (
@@ -3595,22 +3597,11 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
         </div>
       )}
 
-      {/* Tipo sessions received */}
-      {tipoReceived.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <Star className="w-3.5 h-3.5 text-amber-500" />
-            Sedute Tipo da Seguire ({tipoReceived.length})
-          </h2>
-          <SessionGrid
-            items={tipoReceived}
-            emptyMsg="Nessuna seduta tipo da seguire"
-          />
-        </div>
-      )}
-
-
-
+      {tipoReceived.length > 0 && <section className="space-y-3">
+        <h2 className="text-lg font-semibold">Proposte del direttore tecnico</h2>
+        <p className="text-sm text-muted-foreground">Consulta le linee guida e scegli se adottarle, interamente o per singole stazioni.</p>
+        <div className="grid gap-4 md:grid-cols-2">{tipoReceived.map(source => <Card key={source.id}><CardContent className="space-y-3 p-5"><h3 className="font-semibold">{source.title}</h3><p className="text-xs text-muted-foreground">{source.teamName ?? "Proposta comune"}</p><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setDetailsSession(source)}>Consulta proposta</Button><AdoptTrainingProposal source={source} sessions={sessions} onAdopted={id=>{const target=sessions.find(s=>s.id===id);if(target)setDetailsSession(target);}} /></div></CardContent></Card>)}</div>
+      </section>}
       <CreateSessionDialog
         open={createOpen} onClose={() => setCreateOpen(false)}
         onCreated={invalidateSessions}
@@ -3627,7 +3618,7 @@ export default function TrainingPage({ section }: TrainingPageProps = {}) {
           session={detailsSession}
           onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}
           teams={teams}
-          readOnly={!(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
+          readOnly={isTD ? !(detailsSession.sessionKind === "tipo" && detailsSession.createdByUserId === userId) : detailsSession.sessionKind === "tipo" || !(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
           onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }}
         />
       )}
