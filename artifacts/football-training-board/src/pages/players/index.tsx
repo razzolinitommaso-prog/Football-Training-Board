@@ -5816,8 +5816,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           <table className="player-directory-table">
             <colgroup>
               {canDeletePlayer && <col style={{ width: 40 }} />}
-              <col style={{ width: "23%" }} /><col style={{ width: "15%" }} /><col style={{ width: "6%" }} />
-              <col style={{ width: "14%" }} /><col style={{ width: "16%" }} /><col style={{ width: "14%" }} /><col style={{ width: "12%" }} />
+              <col /><col style={{ width: "18%" }} /><col style={{ width: 76 }} />
+              <col style={{ width: 136 }} /><col style={{ width: 154 }} /><col style={{ width: 100 }} /><col style={{ width: canDeletePlayer ? 104 : 76 }} />
             </colgroup>
             <thead className="border-b bg-muted/40 text-muted-foreground"><tr>
               {canDeletePlayer && <th><span className="sr-only">Selezione</span></th>}

@@ -1,6 +1,7 @@
 .player-directory-table { width: 100%; table-layout: fixed; text-align: left; }
-.player-directory-table th { padding: 14px 12px; white-space: nowrap; font-size: 12px; font-weight: 600; }
-.player-directory-table td { padding: 12px; overflow-wrap: normal; word-break: normal; vertical-align: middle; font-size: 13px; }
+.player-directory-table th { padding: 14px 16px; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.player-directory-table td { padding: 12px 16px; overflow-wrap: normal; word-break: normal; vertical-align: middle; font-size: 13px; }
+.player-directory-table th:first-child, .player-directory-table td:first-child { padding-left: 12px; padding-right: 12px; }
 .player-directory-table th:last-child, .player-directory-table td:last-child { padding-left: 4px; padding-right: 10px; }
 .player-directory-tag { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; border: 1px solid; border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 500; line-height: 18px; white-space: nowrap; }
 .player-directory-tag svg { width: 12px; height: 12px; flex-shrink: 0; }
