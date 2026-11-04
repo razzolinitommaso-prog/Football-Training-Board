@@ -1,4 +1,5 @@
 import { AdoptTrainingProposal } from "@/components/training/AdoptTrainingProposal";
+import { SupervisionOverview, SessionSupervision, SessionReviewDialog, type SupervisionData } from "@/components/training/TrainingSupervision";
 import { useTechnicalScope } from "@/components/technical-scope";
 import { mergeBoardMaterials, readMaterialSelection, writeMaterialSelection, materialNotes, writeMaterialNotes } from "@/lib/board-materials";
 import { parseStationDescription, composeStationDescription } from "@/lib/station-description";
@@ -845,7 +846,7 @@ function parseDirectiveMessage(raw: string): { text: string; attachments: Direct
 // ── Session Card ───────────────────────────────────────────────────────────
 
 function SessionCard({
-  session, canDelete, canEdit, onDelete, onEdit, onComment, onOpenDetails, showRecovery, isReadOnly, timelineState, attendanceSummary,
+  session, canDelete, canEdit, onDelete, onEdit, onComment, onOpenDetails, showRecovery, isReadOnly, timelineState, attendanceSummary, supervision,
 }: {
   session: TrainingSession;
   canDelete?: boolean;
@@ -858,6 +859,7 @@ function SessionCard({
   isReadOnly?: boolean;
   timelineState?: SessionTimelineState;
   attendanceSummary?: AttendanceSummary;
+  supervision?: import("react").ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const calendarNote = getTrainingCalendarNote(session);
@@ -988,7 +990,8 @@ function SessionCard({
           </div>
         )}
 
-        {showRecovery && <div className="rounded-md border bg-muted/20 p-2 text-xs text-muted-foreground">{linkedExercisesQuery.isLoading?"Caricamento stazioni...":`${linkedExercises.length} stazioni. Apri la scheda per tempi pianificati e recuperi manuali tra le fasi.`}</div>}
+        {supervision}
+        {showRecovery && !supervision && <div className="rounded-md border bg-muted/20 p-2 text-xs text-muted-foreground">{linkedExercisesQuery.isLoading?"Caricamento stazioni...":`${linkedExercises.length} stazioni. Apri la scheda per tempi pianificati e recuperi manuali tra le fasi.`}</div>}
 
         {(session.tdComment || session.tdGuidelines) && (
           <div>
@@ -2758,6 +2761,10 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
   const [coachStatusFilter, setCoachStatusFilter] = useState<"all" | string>("all");
   const [tdSessionSearch, setTdSessionSearch] = useState("");
   const [tdExerciseSearch, setTdExerciseSearch] = useState("");
+  const seasonYear = new Date().getMonth() >= 6 ? new Date().getFullYear() : new Date().getFullYear()-1;
+  const [tdFrom, setTdFrom] = useState(`${seasonYear}-07-01`);
+  const [tdTo, setTdTo] = useState(`${seasonYear+1}-06-30`);
+  const [reviewSession, setReviewSession] = useState<TrainingSession|null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createdPhase,setCreatedPhase] = useState<string|undefined>(undefined);
   const [calendarDraft, setCalendarDraft] = useState<InitialSessionDraft | null>(null);
@@ -2811,6 +2818,11 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
     queryKey: ["/api/teams", "training-calendar", club?.id, user?.id, role, section ?? activeSection],
     queryFn: () => apiFetch(`/api/teams${section ? `?section=${encodeURIComponent(section)}` : ""}`),
     enabled: !!role,
+  });
+  const supervisionQuery = useQuery<SupervisionData>({
+    queryKey: ["/api/training-supervision",club?.id,user?.id,role,section,technicalScope.teamId,sessionsQuery.dataUpdatedAt],
+    queryFn: () => apiFetch(`/api/training-supervision?${new URLSearchParams({...(section?{section}:{}),...(technicalScope.teamId?{teamId:String(technicalScope.teamId)}:{})})}`),
+    enabled: role === "technical_director" && sessionsQuery.isSuccess,
   });
 
   const deleteMutation = useMutation({
@@ -2890,6 +2902,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
   const normalizedTdSessionSearch = tdSessionSearch.trim().toLowerCase();
   const normalizedTdExerciseSearch = tdExerciseSearch.trim().toLowerCase();
   const filteredSessionsForTD = sessions
+    .filter(s => { const date = new Date(s.scheduledAt); return Number.isFinite(date.getTime()) && format(date,"yyyy-MM-dd") >= tdFrom && format(date,"yyyy-MM-dd") <= tdTo; })
     .filter((s) => matchesSessionSearch(s, normalizedTdSessionSearch))
     .filter((s) => {
       if (!normalizedTdExerciseSearch) return true;
@@ -3036,7 +3049,8 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
             onEdit={() => setEditingSession(s)}
             onComment={showComment ? () => setCommentSession(s) : undefined}
             onOpenDetails={onOpenDetails ? () => onOpenDetails(s) : undefined}
-            showRecovery={showRecovery}
+            showRecovery={showRecovery && !isTD}
+            supervision={isTD ? <SessionSupervision session={s} data={supervisionQuery.data} onReview={()=>setReviewSession(s)} /> : undefined}
             isReadOnly={gridReadOnly}
             timelineState={timelineState}
             attendanceSummary={attendanceSummaries[String(s.id)]}
@@ -3177,7 +3191,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
 
   // ── Technical Director view ───────────────────────────────────────────────
   if (isTD) {
-    const tdDirectives = directives;
+    const tdDirectives = directives.filter(d=>format(new Date(d.createdAt),"yyyy-MM-dd")>=tdFrom&&format(new Date(d.createdAt),"yyyy-MM-dd")<=tdTo);
     const tdHasSearchFilters = !!(tdSessionSearch.trim() || tdExerciseSearch.trim());
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
@@ -3204,7 +3218,8 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
           </div>
         </div>
 
-        <details open={tdGuidelinesView || undefined} className="rounded-xl border bg-card p-3">
+        <SupervisionOverview sessions={sessions} directives={directives} data={supervisionQuery.data} from={tdFrom} to={tdTo} setFrom={setTdFrom} setTo={setTdTo} loading={sessionsQuery.isLoading || supervisionQuery.isLoading} error={sessionsQuery.isError || supervisionQuery.isError}/>
+        <details open className="rounded-xl border bg-card p-3">
           <DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri, linee guida e direttive</DisclosureSummary>
           <div className="mt-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3227,16 +3242,16 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
         </div>
 
         <Tabs value={tdTab} onValueChange={setTdTab}>
-          <TabsList className="grid grid-cols-3 w-full max-w-lg">
-            <TabsTrigger value="all">
+          <TabsList className="grid h-auto grid-cols-3 w-full max-w-xl">
+            <TabsTrigger value="all" className="min-h-12 whitespace-normal text-xs sm:text-sm">
               Sedute del mister
-              {filteredSessionsForTD.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px] px-1">{filteredSessionsForTD.length}</Badge>}
+              <Badge variant="secondary" className="ml-1.5 text-[10px] px-1">{filteredSessionsForTD.filter(s=>s.sessionKind==="regular").length}</Badge>
             </TabsTrigger>
-            <TabsTrigger value="tipo">
+            <TabsTrigger value="tipo" className="min-h-12 whitespace-normal text-xs sm:text-sm">
               Linee guida proposte
               {filteredTipoSessionsForTD.length > 0 && <Badge className="ml-1.5 bg-amber-100 text-amber-700 text-[10px] px-1">{filteredTipoSessionsForTD.length}</Badge>}
             </TabsTrigger>
-            <TabsTrigger value="directives">
+            <TabsTrigger value="directives" className="min-h-12 whitespace-normal text-xs sm:text-sm">
               Direttive
               {tdDirectives.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px] px-1">{tdDirectives.length}</Badge>}
             </TabsTrigger>
@@ -3276,6 +3291,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
 
           {/* Tab: Directives */}
           <TabsContent value="directives" className="mt-6">
+            <p className="mb-3 text-xs text-muted-foreground">Direttive della società nel periodo. Il riepilogo sopra conta quelle inviate allo staff attualmente assegnato alla selezione.</p>
             <div className="space-y-3">
               {tdDirectives.length === 0 ? (
                 <div className="text-center py-16">
@@ -3323,6 +3339,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
         {!tdGuidelinesView && renderSessionsCalendar()}
 
         {/* Dialogs */}
+        {reviewSession && <SessionReviewDialog key={reviewSession.id} session={reviewSession} review={supervisionQuery.data?.facts[reviewSession.id]?.review??null} onClose={()=>setReviewSession(null)}/>}
         <CreateSessionDialog
           open={createOpen} onClose={() => setCreateOpen(false)}
           onCreated={invalidateSessions}

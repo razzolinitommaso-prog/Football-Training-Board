@@ -27,6 +27,7 @@ import {
   GetDashboardStatsResponse,
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
+import trainingSupervision from "./training-supervision";
 import { canViewAllClubTrainingSessions, isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { requireClubAndUserIds } from "../lib/session-context";
 
@@ -35,6 +36,11 @@ const DASHBOARD_ASSIGNMENT_SCOPED_NORM = new Set(["coach", "fitness_coach", "ath
 const CAN_CREATE_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director", "secretary"];
 const STAFF_RESTRICTED_ROLES = ["coach", "fitness_coach", "athletic_director"];
 const router: IRouter = Router();
+// Dedicated endpoints enforce their own TD-only access; do not guard other training routes.
+router.use((req, res, next) => {
+  if (req.path === "/training-supervision" || /^\/training-sessions\/[^/]+\/review$/.test(req.path)) trainingSupervision(req, res, next);
+  else next();
+});
 
 function staffRoleForSection(raw: string | null | undefined, section: string | null | undefined): string | null {
   if (!raw) return null;

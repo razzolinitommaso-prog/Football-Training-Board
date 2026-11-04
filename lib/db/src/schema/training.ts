@@ -44,6 +44,17 @@ export const insertTrainingSessionSchema = createInsertSchema(trainingSessionsTa
 export type InsertTrainingSession = z.infer<typeof insertTrainingSessionSchema>;
 export type TrainingSession = typeof trainingSessionsTable.$inferSelect;
 
+// Separate from operational preparation: qualitative judgment belongs to the TD.
+export const trainingSessionReviewsTable = pgTable("training_session_reviews", {
+  sessionId: integer("session_id").primaryKey().references(() => trainingSessionsTable.id, { onDelete: "cascade" }),
+  clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
+  reviewerId: integer("reviewer_id").references(() => usersTable.id, { onDelete: "set null" }),
+  scores: jsonb("scores").$type<Record<"coherence"|"organization"|"suitability"|"progression",number|null>>().notNull(),
+  note: text("note").notNull().default(""),
+  fingerprint: text("fingerprint").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Session-local timing overrides: source library exercises remain unchanged.
 export const trainingSessionPlansTable = pgTable("training_session_plans", {
   sessionId: integer("session_id").primaryKey().references(() => trainingSessionsTable.id, { onDelete: "cascade" }),
