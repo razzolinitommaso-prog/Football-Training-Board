@@ -1,3 +1,4 @@
+import { useTechnicalScope, technicalSections } from "@/components/technical-scope";
 import { mergeBoardMaterials, readMaterialSelection, writeMaterialSelection, materialNotes, writeMaterialNotes } from "@/lib/board-materials";
 import { parseStationDescription, composeStationDescription } from "@/lib/station-description";
 import { StationVariants, StationVariantsView } from "@/components/training/StationVariants";
@@ -10,7 +11,7 @@ import { MaterialPicker } from "@/components/training/MaterialPicker";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { TrainingRosterOptions } from "@/components/training-roster-groups";
 import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
@@ -346,13 +347,19 @@ function canUseMaterial(
 
 export default function ExercisesPage() {
   const { t } = useLanguage();
-  const { role, user, section: activeSection } = useAuth();
+  const { role, user, club, section: activeSection } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
 
+  const scope = useTechnicalScope();
+  const [librarySection, setLibrarySection] = useState(activeSection ?? "all");
+  const [libraryTeam, setLibraryTeam] = useState("all");
+  const [includeCommon, setIncludeCommon] = useState(true);
   const canEditGuidelines = role === "technical_director";
 
   const [filter, setFilter] = useState("all");
+  const [phaseFilter, setPhaseFilter] = useState("all");
+  const [principleFilter, setPrincipleFilter] = useState("all");
   const [exerciseSearch, setExerciseSearch] = useState("");
 
 
@@ -367,7 +374,7 @@ export default function ExercisesPage() {
   const [glForm, setGlForm] = useState({ title: "", content: "", category: "general", linkedExerciseId: "", sortOrder: "0" });
 
   const { data: exercises = [], isLoading } = useQuery<Exercise[]>({
-    queryKey: ["/api/exercises"],
+    queryKey: ["/api/exercises", club?.id, user?.id, role],
     queryFn: () => apiFetch("/api/exercises"),
   });
 
@@ -377,7 +384,7 @@ export default function ExercisesPage() {
   });
 
   const { data: myTeams = [] } = useQuery<MyTeam[]>({
-    queryKey: ["/api/exercises/my-teams"],
+    queryKey: ["/api/exercises/my-teams", club?.id, user?.id, role],
     queryFn: () => apiFetch("/api/exercises/my-teams"),
   });
 
@@ -427,7 +434,7 @@ export default function ExercisesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/training-guidelines"] }),
   });
 
-  function openNewEx() { setEditingEx(null); setDuplicateSourceExerciseId(null); setForm(emptyForm()); setDialogOpen(true); }
+  function openNewEx() { setEditingEx(null); setDuplicateSourceExerciseId(null); setForm({ ...emptyForm(), teamId: libraryTeamId ?? null }); setDialogOpen(true); }
   function getOriginalSourceId(ex: Exercise): number {
     return ex.sourceExerciseId ?? ex.id;
   }
@@ -596,6 +603,12 @@ export default function ExercisesPage() {
     else createGl.mutate(payload);
   }
 
+  const catalogSection = scope.enabled ? scope.section : librarySection === "all" ? undefined : librarySection;
+  const catalogTeams = myTeams.filter(team => !catalogSection || team.clubSection === catalogSection);
+  const libraryTeamId = scope.enabled ? scope.teamId : catalogTeams.find(team => String(team.id) === libraryTeam)?.id ?? (catalogTeams.length === 1 ? catalogTeams[0].id : undefined);
+  const displaySection = myTeams.find(team => team.id === libraryTeamId)?.clubSection ?? catalogSection;
+  const needsTeamChoice = catalogTeams.length > 1 && !libraryTeamId;
+  useEffect(() => { setPhaseFilter("all"); setPrincipleFilter("all"); }, [libraryTeamId, catalogSection]);
   const normalizedExerciseSearch = exerciseSearch.trim().toLowerCase();
   const userId = Number((user as { id?: number } | null)?.id ?? 0);
   const restrictedRoles = ["coach", "fitness_coach", "athletic_director"];
@@ -613,7 +626,10 @@ export default function ExercisesPage() {
     const inAssignedTeam = ex.teamId == null || assignedTeamIds.has(ex.teamId);
     return (isOwnerOrLegacy || ex.canEdit === true) && inAssignedTeam;
   });
-  const filtered = (filter === "all" ? visibleExercises : visibleExercises.filter(ex => trainingCategories(ex.category).includes(filter)))
+  const scopedExercises = visibleExercises.filter(ex => !needsTeamChoice && (ex.teamId == null ? includeCommon : libraryTeamId ? ex.teamId === libraryTeamId : catalogTeams.some(team => team.id === ex.teamId)));
+  const principleOptions = Array.from(new Set(scopedExercises.map(ex => ex.principio).filter((value): value is string => !!value))).sort((a,b) => getPrincipioLabel(a).localeCompare(getPrincipioLabel(b),"it"));
+  const scopedByPhase = scopedExercises.filter(ex => (phaseFilter === "all" || ex.trainingPhase === phaseFilter) && (principleFilter === "all" || ex.principio === principleFilter));
+  const filtered = (filter === "all" ? scopedByPhase : scopedByPhase.filter(ex => trainingCategories(ex.category).includes(filter)))
     .filter((ex) => {
       if (!normalizedExerciseSearch) return true;
       const trainingYear = (() => {
@@ -673,7 +689,7 @@ export default function ExercisesPage() {
     exerciseGroupCounts.set(groupKey, nextOrder);
     exerciseOrderById.set(ex.id, nextOrder);
   }
-  const guidelinesByCategory = GUIDELINE_CATEGORIES.map(cat => ({ ...cat, label:getGlCatLabel(cat.value,activeSection), items: guidelines.filter(g => g.category === cat.value) })).filter(cat => cat.items.length > 0);
+  const guidelinesByCategory = GUIDELINE_CATEGORIES.map(cat => ({ ...cat, label:getGlCatLabel(cat.value,displaySection), items: guidelines.filter(g => g.category === cat.value) })).filter(cat => cat.items.length > 0);
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -685,10 +701,16 @@ export default function ExercisesPage() {
         </div>
       </div>
 
+      {!scope.enabled && <div className="grid gap-4 rounded-xl border bg-card p-4 sm:grid-cols-2">
+        <div className="space-y-2"><Label>Settore</Label><Select value={librarySection} onValueChange={value => { setLibrarySection(value); setLibraryTeam("all"); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tutti i settori assegnati</SelectItem>{Object.entries(technicalSections).filter(([key]) => myTeams.some(team => team.clubSection === key)).map(([key,label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-2"><Label>Annata</Label><Select value={libraryTeamId ? String(libraryTeamId) : "all"} onValueChange={setLibraryTeam}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Scegli un’annata</SelectItem>{catalogTeams.map(team => <SelectItem key={team.id} value={String(team.id)}>{team.name}</SelectItem>)}</SelectContent></Select></div>
+      </div>}
+      {needsTeamChoice && <p className="rounded-lg border bg-muted/30 p-4 text-sm">Seleziona prima un’annata per consultare le sue stazioni.</p>}
+      <label className="flex items-center gap-2 text-sm"><Checkbox checked={includeCommon} onCheckedChange={value => setIncludeCommon(value === true)} />Includi stazioni comuni, senza annata assegnata</label>
       <Tabs defaultValue="exercises" className="w-full">
         <TabsList className="grid w-full grid-cols-2 max-w-sm">
           <TabsTrigger value="exercises" className="flex items-center gap-2">
-            <ClipboardList className="w-4 h-4" /> Esercizi
+            <ClipboardList className="w-4 h-4" /> Stazioni
           </TabsTrigger>
           <TabsTrigger value="guidelines" className="flex items-center gap-2">
             <BookMarked className="w-4 h-4" /> Linee Guida
@@ -697,12 +719,16 @@ export default function ExercisesPage() {
 
         {/* ── TAB ESERCIZI ─────────────────────────────────────────── */}
         <TabsContent value="exercises" className="space-y-4 pt-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2"><Label>Fase</Label><Select value={phaseFilter} onValueChange={setPhaseFilter}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tutte le fasi</SelectItem>{PHASES.map(phase=><SelectItem key={phase.value} value={phase.value}>{phase.label}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-2"><Label>Principio</Label><Select value={principleFilter} onValueChange={setPrincipleFilter}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tutti i principi</SelectItem>{principleOptions.map(value=><SelectItem key={value} value={value}>{getPrincipioLabel(value)}</SelectItem>)}</SelectContent></Select></div>
+          </div>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex gap-1.5 flex-wrap">
               <Button size="sm" variant={filter === "all" ? "default" : "outline"} onClick={() => setFilter("all")}>Tutti</Button>
               {CATEGORIES.map(c => (
                 <Button key={c} size="sm" variant={filter === c ? "default" : "outline"} onClick={() => setFilter(c)}>
-                  {trainingCategoryLabel(c,activeSection)}
+                  {trainingCategoryLabel(c,displaySection)}
                 </Button>
               ))}
             </div>
@@ -749,7 +775,7 @@ export default function ExercisesPage() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {ex.category && (
                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${categoryColors[ex.category] ?? "bg-gray-100 text-gray-700"}`}>
-                              {trainingCategoryLabel(ex.category,myTeams.find(team=>team.id===ex.teamId)?.clubSection??activeSection)}
+                              {trainingCategoryLabel(ex.category,myTeams.find(team=>team.id===ex.teamId)?.clubSection??displaySection)}
                             </span>
                           )}
                           {ex.principio && (
@@ -929,7 +955,7 @@ export default function ExercisesPage() {
           {viewingEx ? (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                {viewingEx.category && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${categoryColors[viewingEx.category] ?? "bg-gray-100 text-gray-700"}`}>{trainingCategoryLabel(viewingEx.category,myTeams.find(team=>team.id===viewingEx.teamId)?.clubSection??activeSection)}</span>}
+                {viewingEx.category && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${categoryColors[viewingEx.category] ?? "bg-gray-100 text-gray-700"}`}>{trainingCategoryLabel(viewingEx.category,myTeams.find(team=>team.id===viewingEx.teamId)?.clubSection??displaySection)}</span>}
                 {viewingEx.principio && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getPrincipioColor(viewingEx.principio)}`}>{getPrincipioLabel(viewingEx.principio)}</span>}
                 {viewingEx.trainingPhase && <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getPhaseColor(viewingEx.trainingPhase)}`}>{getPhaseLabel(viewingEx.trainingPhase)}</span>}
                 {viewingEx.isDraft && <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">Bozza</span>}
