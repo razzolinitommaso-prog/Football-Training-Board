@@ -1,6 +1,6 @@
 import { trainingSlotOnDate, sessionTeamIds } from "@workspace/api-zod";
 import { championshipMatchPath } from "@/lib/championship-match-links";
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGetDashboardStats } from "@workspace/api-client-react";
 import type { TrainingSlot } from "@workspace/api-client-react";
@@ -2725,69 +2725,52 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Panoramica</h2>
-        <div className="grid grid-cols-1 items-start md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title={t.totalTeams} value={dashboardTeamCount} icon={UsersRound} link={dashboardTeamsPath}>
-          <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
-            <span>Visibili: <strong className="text-foreground">{dashboardTeamCount}</strong></span>
-            <span>Area: <strong className="text-foreground">{dashboardSectionLabel}</strong></span>
-            <span className="col-span-2 truncate">Annate: <strong className="text-foreground">{dashboardTeamYearsLabel}</strong></span>
-            {dashboardTeamSectionBreakdown.length > 1 && dashboardTeamSectionBreakdown.map((item) => (
-              <span key={item.key} className="truncate">
-                {item.label}: <strong className="text-foreground">{item.count}</strong>
-              </span>
-            ))}
-          </div>
-        </StatCard>
-        <StatCard title="Giocatori" value={dashboardPlayerSummary.total} icon={Users} link={dashboardPlayersPath}>
-          <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
-            <span>Attivi: <strong className="text-foreground">{dashboardPlayerSummary.active}</strong></span>
-            <span>Non attivi: <strong className="text-foreground">{dashboardPlayerSummary.inactive}</strong></span>
-            <span>Disponibili: <strong className="text-foreground">{dashboardPlayerSummary.available}</strong></span>
-            <span>Non disponibili: <strong className="text-foreground">{dashboardPlayerSummary.unavailable}</strong></span>
-            {dashboardPlayerSectionBreakdown.length > 1 && dashboardPlayerSectionBreakdown.map((item) => (
-              <span key={item.key} className="truncate">
-                {item.label}: <strong className="text-foreground">{item.count}</strong>
-              </span>
-            ))}
-          </div>
-        </StatCard>
-        {(nr === "secretary" || nr === "sporting_director") ? (
-          <StatCard title="Area Genitori" value="App" icon={Heart} link="/secretary/parent-app">
-            <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
-              <span>Comunicazioni</span>
-              <span>Documenti</span>
-              <span>Eventi</span>
-              <span>Famiglie</span>
-            </div>
-          </StatCard>
-        ) : (
-          <StatCard title="Sedute" value={dashboardTrainingCardTotal} icon={CalendarDays} link="/training">
-            <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
-              <span>Prossime: <strong className="text-foreground">{dashboardUpcomingCount}</strong></span>
-              <span>Complete: <strong className="text-foreground">{dashboardExerciseSummary.completeSessions}</strong></span>
-              <span>Assoc.: <strong className="text-foreground">{dashboardExerciseSummary.associated}</strong></span>
-              <span>Libere: <strong className="text-foreground">{dashboardExerciseSummary.free}</strong></span>
-            </div>
-          </StatCard>
-        )}
-        <StatCard title={dashboardStaffTitle} value={dashboardStaffCount} icon={ShieldCheck} link="/members">
-          <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] leading-tight text-muted-foreground">
-            <span>Appartenenza: <strong className="text-foreground">{dashboardActiveSectionLabel}</strong></span>
-            <span>Totale: <strong className="text-foreground">{dashboardStaffCount}</strong></span>
-            {dashboardStaffRoleSummary.length > 0 ? (
-              dashboardStaffRoleSummary.map(([label, count]) => (
-                <span key={label} className="truncate">
-                  {label}: <strong className="text-foreground">{count}</strong>
-                </span>
-              ))
-            ) : (
-              <span>Ruoli: <strong className="text-foreground">0</strong></span>
-            )}
-          </div>
-        </StatCard>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <DashboardMatchSummaryCard
+            title={t.totalTeams}
+            value={dashboardTeamCount}
+            description={dashboardSectionLabel}
+            icon={UsersRound}
+            tone="amber"
+            onClick={() => setLocation(dashboardTeamsPath)}
+          />
+          <DashboardMatchSummaryCard
+            title="Giocatori"
+            value={dashboardPlayerSummary.total}
+            description={`${dashboardPlayerSummary.active} attivi · ${dashboardPlayerSummary.available} disponibili`}
+            icon={Users}
+            tone="pink"
+            onClick={() => setLocation(dashboardPlayersPath)}
+          />
+          {(nr === "secretary" || nr === "sporting_director") ? (
+            <DashboardMatchSummaryCard
+              title="Area Genitori"
+              value="App"
+              description="Comunicazioni, documenti ed eventi"
+              icon={Heart}
+              tone="violet"
+              onClick={() => setLocation("/secretary/parent-app")}
+            />
+          ) : (
+            <DashboardMatchSummaryCard
+              title="Sedute"
+              value={dashboardTrainingCardTotal}
+              description={`${dashboardExerciseSummary.completeSessions} complete · ${dashboardUpcomingCount} prossime`}
+              icon={CalendarDays}
+              tone="violet"
+              onClick={() => setLocation("/training")}
+            />
+          )}
+          <DashboardMatchSummaryCard
+            title={dashboardStaffTitle}
+            value={dashboardStaffCount}
+            description={dashboardActiveSectionLabel}
+            icon={ShieldCheck}
+            tone="sky"
+            onClick={() => setLocation("/members")}
+          />
         </div>
       </section>
-
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Fasi ed eventi</h2>
         <div className={dashboardSingleSection === "settore_giovanile" ? "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"}>
@@ -4268,7 +4251,7 @@ function DashboardMatchSummaryCard({
   onClick,
 }: {
   title: string;
-  value: number;
+  value: number | string;
   description: string;
   icon: any;
   tone: "amber" | "pink" | "violet" | "sky";
@@ -4298,30 +4281,5 @@ function DashboardMatchSummaryCard({
         </CardContent>
       </Card>
     </button>
-  );
-}
-
-function StatCard({ title, value, icon: Icon, link, children }: { title: string, value: number | string, icon: any, link: string, children?: ReactNode }) {
-  return (
-    <Card className="shadow-md border-border/50 hover:shadow-lg transition-shadow group relative overflow-hidden">
-      <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 duration-500">
-        <Icon className="w-24 h-24" />
-      </div>
-      <CardContent className="p-3 relative z-10 flex min-h-[120px] flex-col">
-        <div className="flex min-h-[32px] items-start justify-between gap-3 pb-1">
-          <p className="text-sm font-medium leading-snug text-muted-foreground">{title}</p>
-          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-            <Icon className="w-4 h-4 text-primary" />
-          </div>
-        </div>
-        <div className="mt-1 flex-1">
-          <div className="min-h-[32px] text-3xl font-display font-bold leading-none">{value}</div>
-          {children}
-        </div>
-        <Link href={link} className="absolute inset-0 z-20">
-          <span className="sr-only">{title}</span>
-        </Link>
-      </CardContent>
-    </Card>
   );
 }
