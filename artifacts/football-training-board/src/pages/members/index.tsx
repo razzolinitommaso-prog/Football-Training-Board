@@ -44,10 +44,11 @@ const SECTION_CONFIG: Record<ClubSection, { label: string; badge: string }> = {
 };
 
 const inviteSchema = z.object({
-  firstName: z.string().min(2, "Required"),
-  lastName: z.string().min(2, "Required"),
-  email: z.string().email("Invalid email"),
-  password: z.string().min(6, "Min 6 chars"),
+  firstName: z.string().min(2, "Inserisci un nome di almeno 2 caratteri"),
+  lastName: z.string().min(2, "Inserisci un cognome di almeno 2 caratteri"),
+  email: z.string().email("Inserisci un indirizzo email valido"),
+  password: z.string().min(6, "La password deve contenere almeno 6 caratteri"),
+  confirmPassword: z.string().min(1, "Conferma la password"),
   role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   staffRole: z.string().optional(),
@@ -59,6 +60,9 @@ const inviteSchema = z.object({
   degreeScienzeMoto: z.boolean().optional(),
   degreeScienzeMotoType: z.string().optional(),
   teamIds: z.array(z.number()).optional(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Le password non coincidono",
+  path: ["confirmPassword"],
 });
 
 const editSchema = z.object({
@@ -207,7 +211,7 @@ export default function MembersList() {
 
   const inviteForm = useForm<z.infer<typeof inviteSchema>>({
     resolver: zodResolver(inviteSchema),
-    defaultValues: { role: "coach", clubSection: ["scuola_calcio"], staffRole: "", registered: false, teamIds: [] }
+    defaultValues: { password: "", confirmPassword: "", role: "coach", clubSection: ["scuola_calcio"], staffRole: "", registered: false, teamIds: [] }
   });
 
   const editForm = useForm<z.infer<typeof editSchema>>({
@@ -499,26 +503,38 @@ export default function MembersList() {
               }
               const sections = (data.clubSection ?? []) as ClubSection[];
               const staffRole = serializeStaffRoleBySection(parseStaffRoleBySection(data.staffRole, sections));
-              inviteMutation.mutate({ data: { ...data, staffRole } as any });
+              const { confirmPassword, ...memberData } = data;
+              inviteMutation.mutate({ data: { ...memberData, staffRole } as any });
+            }, (errors) => {
+              toast({ title: "Controlla i dati del nuovo membro", description: Object.values(errors).find(error => error?.message)?.message ?? "Completa i campi obbligatori indicati nel modulo.", variant: "destructive" });
             })} className="space-y-4 pt-2 sm:pt-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t.firstName}</Label>
-                  <Input {...inviteForm.register("firstName")} />
+                  <Input aria-invalid={!!inviteForm.formState.errors.firstName} aria-describedby="invite-first-name-error" {...inviteForm.register("firstName")} />
+                  {inviteForm.formState.errors.firstName && <p id="invite-first-name-error" role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.firstName.message}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label>{t.lastName}</Label>
-                  <Input {...inviteForm.register("lastName")} />
+                  <Input aria-invalid={!!inviteForm.formState.errors.lastName} aria-describedby="invite-last-name-error" {...inviteForm.register("lastName")} />
+                  {inviteForm.formState.errors.lastName && <p id="invite-last-name-error" role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.lastName.message}</p>}
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>{t.email}</Label>
-                <Input type="email" {...inviteForm.register("email")} />
+                <Input type="email" aria-invalid={!!inviteForm.formState.errors.email} aria-describedby="invite-email-error" {...inviteForm.register("email")} />
+                {inviteForm.formState.errors.email && <p id="invite-email-error" role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.email.message}</p>}
               </div>
               <div className="space-y-2">
                 <Label>{t.initialPassword}</Label>
-                <Input type="password" {...inviteForm.register("password")} />
-                <p className="text-xs text-muted-foreground">{t.canChangePassword}</p>
+                <Input type="password" autoComplete="new-password" aria-invalid={!!inviteForm.formState.errors.password} aria-describedby="invite-password-hint invite-password-error" {...inviteForm.register("password")} />
+                <p id="invite-password-hint" className="text-xs text-muted-foreground">Almeno 6 caratteri. {t.canChangePassword}</p>
+                {inviteForm.formState.errors.password && <p id="invite-password-error" role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.password.message}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="invite-confirm-password">Conferma password</Label>
+                <Input id="invite-confirm-password" type="password" autoComplete="new-password" aria-invalid={!!inviteForm.formState.errors.confirmPassword} aria-describedby="invite-confirm-password-error" {...inviteForm.register("confirmPassword")} />
+                {inviteForm.formState.errors.confirmPassword && <p id="invite-confirm-password-error" role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.confirmPassword.message}</p>}
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
