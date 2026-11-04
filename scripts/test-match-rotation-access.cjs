@@ -35,7 +35,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "entry.ts"),
-      `export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
+      `export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
     await esbuild.build({
@@ -236,17 +236,70 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       (await call("/matches?teamId=11", { "x-role": "team_manager" })).status,
       403,
     );
-    await pg.query("INSERT INTO matches(id,club_id,team_id,opponent,date,home_away,match_plan) VALUES(504,1,11,'Future match','2099-12-01','home',$1::jsonb)", [JSON.stringify({periods:plan.periods})]);
-    await pg.exec("INSERT INTO call_ups(id,match_id,player_id,status,created_at) VALUES(4,504,101,'called',now())");
-    const future=await call('/parent/activity');
-    const upcoming=future.data.matches.find(match=>match.id===504);
-    assert.equal(upcoming.rotation.rows.length,1);
-    assert.equal(upcoming.rotation.rows[0].playerId,101);
-    assert.equal(upcoming.rotation.rows[0].plannedMinutes,18);
-    assert.equal(upcoming.minutes,null);
-    assert.equal(upcoming.rotation.rows[0].actualMinutes,null);
+    await pg.query(
+      "INSERT INTO matches(id,club_id,team_id,opponent,date,home_away,match_plan) VALUES(504,1,11,'Future match','2099-12-01','home',$1::jsonb)",
+      [JSON.stringify({ periods: plan.periods })],
+    );
+    await pg.exec(
+      "INSERT INTO call_ups(id,match_id,player_id,status,created_at) VALUES(4,504,101,'called',now())",
+    );
+    const future = await call("/parent/activity");
+    const upcoming = future.data.matches.find((match) => match.id === 504);
+    assert.equal(upcoming.rotation.rows.length, 1);
+    assert.equal(upcoming.rotation.rows[0].playerId, 101);
+    assert.equal(upcoming.rotation.rows[0].plannedMinutes, 18);
+    assert.equal(upcoming.minutes, null);
+    assert.equal(upcoming.rotation.rows[0].actualMinutes, null);
     console.log(
       "PASS real HTTP handlers + isolated PostgreSQL: own-child projection, query tampering ignored, public callups preserved, raw plans/markers excluded, manager assignments/section/club enforced, generic bypass blocked.",
+    );
+    await pg.exec(`
+      INSERT INTO players(id,club_id,team_id,first_name,last_name,available,availability_override_active,availability_override_from,availability_override_until) VALUES
+      (104,1,11,'Global','Unavailable',false,false,NULL,NULL),
+      (105,1,11,'Staff','Present',false,false,NULL,NULL),
+      (106,1,11,'Valid','Override',false,true,'2026-10-01','2026-10-31'),
+      (107,1,11,'Expired','Override',false,true,'2026-09-01','2026-09-30'),
+      (108,1,11,'Staff','Absent',true,false,NULL,NULL),
+      (109,1,11,'No','Reply',true,false,NULL,NULL);
+      INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,duration_minutes,status,notes,session_kind)
+      VALUES(601,1,11,'Eligibility fixture','2026-10-12T15:30:00Z',90,'scheduled','', 'regular');
+      INSERT INTO training_attendances(id,club_id,training_session_id,player_id,status) VALUES
+      (801,1,601,105,'present'),(802,1,601,108,'absent');
+      INSERT INTO parent_training_availabilities(id,club_id,team_id,player_id,occurrence_id,scheduled_at,status,updated_at) VALUES
+      (901,1,11,102,'11-2026-10-12-17:30','2026-10-12T15:30:00Z','unavailable',now()),
+      (902,1,11,105,'11-2026-10-12-17:30','2026-10-12T15:30:00Z','unavailable',now());
+    `);
+    const fixture = {
+      id: 601,
+      teamId: 11,
+      notes: "",
+      scheduledAt: new Date("2026-10-12T15:30:00Z"),
+      durationMinutes: 90,
+      sessionKind: "regular",
+    };
+    const eligibility = await routes.readSessionEligibility(1, fixture);
+    assert.deepEqual(eligibility.blockedPlayerIds, [102, 104, 107, 108]);
+    assert.ok(eligibility.presentPlayerIds.includes(105));
+    assert.ok(!eligibility.blockedPlayerIds.includes(106));
+    assert.ok(!eligibility.blockedPlayerIds.includes(109));
+    await pg.exec(
+      "UPDATE training_attendances SET status='present' WHERE id=802",
+    );
+    const corrected = await routes.readSessionEligibility(1, fixture);
+    assert.ok(!corrected.blockedPlayerIds.includes(108));
+    await pg.exec("INSERT INTO teams(id,club_id,name,club_section) VALUES(13,1,'Joint team','scuola_calcio'); INSERT INTO players(id,club_id,team_id,first_name,last_name,available) VALUES(110,1,13,'Joint','Unavailable',false); UPDATE players SET available=false WHERE id=201");
+    const shared = await routes.readSessionEligibility(1, {
+      ...fixture, notes: "[FTB_SESSION_TEAMS]11,13",
+    });
+    assert.ok(shared.blockedPlayerIds.includes(110));
+    assert.ok(!shared.blockedPlayerIds.includes(201));
+    const templates = await routes.readSessionEligibility(1, {
+      ...fixture,
+      sessionKind: "tipo",
+    });
+    assert.ok(!templates.blockedPlayerIds.includes(104));
+    console.log(
+      "PASS training eligibility: parent refusal, global unavailability, dated overrides, staff present/absent, correction and templates.",
     );
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));

@@ -27,13 +27,13 @@ export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId, 
     if (!response.ok) throw new Error("Impossibile caricare i gruppi della rosa");
     return response.json();
   }});
-  const unique = [...new Map(players.map(player => [player.id, player])).values()];
+  const unique = [...new Map(players.filter(player => !excludedIds.includes(player.id)).map(player => [player.id, player])).values()];
   const years = [...new Set(unique.map(p => p.dateOfBirth?.slice(0, 4)).filter((v): v is string => !!v))].sort();
   const groupIds = groups.data?.workGroups.find(g => String(g.id) === group)?.playerIds ?? [];
   const visible = unique.filter(p => `${p.lastName} ${p.firstName} ${p.teamName ?? ""}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()) && (!year || p.dateOfBirth?.startsWith(year)) && (!group || groupIds.includes(p.id)) && (!onlySelected || draft.includes(p.id))).sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it"));
   function selectVisible() { setDraft(prev => [...new Set([...prev, ...visible.filter(p => p.available !== false).map(p => p.id)])]); }
   return <>
-    <div className="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" disabled={disabled} onClick={() => { setDraft([...selectedIds]); setSearch(""); setYear(""); setGroup(""); setOnlySelected(false); setOpen(true); }}>{buttonLabel}</Button>{showCount&&<span className="text-sm">{selectedIds.length} selezionati</span>}</div>
+    <div className="flex flex-wrap items-center gap-3"><Button type="button" variant="outline" disabled={disabled} onClick={() => { setDraft(selectedIds.filter(id => !excludedIds.includes(id))); setSearch(""); setYear(""); setGroup(""); setOnlySelected(false); setOpen(true); }}>{buttonLabel}</Button>{showCount&&<span className="text-sm">{selectedIds.length} selezionati</span>}</div>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent style={dialogViewport} className="flex h-[90dvh] max-h-[90dvh] w-[calc(100%-1rem)] max-w-5xl flex-col overflow-hidden sm:w-[calc(100%-3rem)]">
         <DialogHeader><DialogTitle>Rosa della stazione</DialogTitle><DialogDescription>Nomi completi, squadra e annata. La scelta viene applicata solo alla conferma.</DialogDescription></DialogHeader>
@@ -52,7 +52,7 @@ export function TrainingRosterPicker({ players, selectedIds, onConfirm, teamId, 
           {!visible.length && <p className="py-6 text-center text-sm text-muted-foreground">Nessun giocatore per questi filtri.</p>}
           {draft.some(id => !unique.some(p => p.id === id)) && <p className="mt-3 text-xs text-muted-foreground">La scelta contiene giocatori salvati non presenti nella rosa attualmente caricata. Sono conservati finché non svuoti la scelta.</p>}
         </div>
-        <div className="flex shrink-0 justify-end gap-2 border-t pt-3"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annulla</Button><Button type="button" onClick={() => { onConfirm(draft); setOpen(false); }}>Conferma {draft.length} giocatori</Button></div>
+        <div className="flex shrink-0 justify-end gap-2 border-t pt-3"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annulla</Button><Button type="button" onClick={() => { onConfirm(draft.filter(id => !excludedIds.includes(id))); setOpen(false); }}>Conferma {draft.length} giocatori</Button></div>
       </DialogContent>
     </Dialog>
   </>;

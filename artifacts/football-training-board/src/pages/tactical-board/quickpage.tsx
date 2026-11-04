@@ -1800,7 +1800,13 @@ const QuickPage = () => {
   }, [allTeams, boardMode, boardTeamId]);
 
   React.useEffect(() => {
-    setTeamPlayers(fetchedTeamPlayers.filter(player => !isExerciseBoard || !Array.isArray(draftPayload?.rosterPlayerIds) || draftPayload.rosterPlayerIds.includes(player.id)).sort(compareTeamPlayersByRole));
+    const hasSessionRoster = isExerciseBoard && draftPayload?.programSessionId &&
+      Array.isArray(draftPayload.rosterPlayerIds);
+    const players = fetchedTeamPlayers
+      .filter(player => !isExerciseBoard || !Array.isArray(draftPayload?.rosterPlayerIds) ||
+        draftPayload.rosterPlayerIds.includes(player.id))
+      .map(player => hasSessionRoster ? { ...player, available: true } : player);
+    setTeamPlayers(players.sort(compareTeamPlayersByRole));
   }, [fetchedTeamPlayers, isExerciseBoard, draftPayload]);
 
   React.useEffect(() => {

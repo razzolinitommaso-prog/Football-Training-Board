@@ -1,7 +1,7 @@
 import { useAuth } from "@/hooks/use-auth";
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { TRAINING_ROTATION_PHASES, initialTrainingRotations, rotationSeconds, rotationRecoverySeconds, rotationPhaseSeconds, validateTrainingRotations, type TrainingRotations, type RotationPhase, type RotationActivity, type RotationTurn } from "@workspace/api-zod";
+import { excludeTrainingPlayers, TRAINING_ROTATION_PHASES, initialTrainingRotations, rotationSeconds, rotationRecoverySeconds, rotationPhaseSeconds, validateTrainingRotations, type TrainingRotations, type RotationPhase, type RotationActivity, type RotationTurn } from "@workspace/api-zod";
 import { TrainingRosterPicker } from "./TrainingRosterPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { MoreHorizontal } from "lucide-react";
 
 type Activity=RotationActivity&{title:string;preview?:string|null;attendanceAdjusted?:boolean;principle?:string|null};
-type Player={id:number;firstName:string;lastName:string;teamId:number|null;teamName?:string|null;dateOfBirth?:string|null};
+type Player={id:number;firstName:string;lastName:string;teamId:number|null;teamName?:string|null;dateOfBirth?:string|null;available?:boolean};
 type Content={toolbar:ReactNode;phases:Partial<Record<RotationPhase,ReactNode>>};
 const labels={iniziale:"Fase iniziale",centrale:"Fase centrale",finale:"Fase finale"};
 const time=(seconds:number)=>seconds%60===0?`${seconds/60} min`:`${Math.floor(seconds/60)} min ${seconds%60} s`;
@@ -22,13 +22,23 @@ export function StationTurnPlanner({activities,teamId,teamIds,sessionId,saved,re
  const [draft,setDraft]=useState<TrainingRotations|null>(saved??null),[dirty,setDirty]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  const [active,setActive]=useState<Partial<Record<RotationPhase,number>>>({});
  const roster=useQuery<Player[]>({queryKey:["station-turn-roster",club?.id,user?.id,teamId,teamIds.join(","),sessionId],enabled:!!teamId,queryFn:async()=>{if(sessionId){const response=await fetch(withApi(`/api/training-sessions/${sessionId}/roster`),{credentials:"include"});if(!response.ok)throw Error("Rosa della seduta non disponibile");return response.json();}const results=await Promise.all((teamIds.length?teamIds:[teamId!]).map(async id=>{const response=await fetch(withApi(`/api/training-rosters/${id}?scope=team`),{credentials:"include"});if(!response.ok)throw Error("Rosa della seduta non disponibile");return (await response.json()).players as Player[];}));return [...new Map(results.flat().map(player=>[player.id,player])).values()];}});
- const players=(roster.data??[]).filter(player=>!blockedPlayerIds.includes(player.id));
+ const players = (roster.data ?? [])
+   .filter(player => !blockedPlayerIds.includes(player.id) && (sessionId != null || player.available !== false))
+   .map(player => ({ ...player, available: true }));
  const [draftVersion,setDraftVersion]=useState(version);
+ useEffect(() => {
+   if (!blockedPlayerIds.length) return;
+   setDraft(previous => {
+     if (!previous) return previous;
+     const next = excludeTrainingPlayers(previous, blockedPlayerIds);
+     return JSON.stringify(next) === JSON.stringify(previous) ? previous : next;
+   });
+ }, [blockedPlayerIds.join(",")]);
  useEffect(()=>{onDirtyChange(dirty);},[dirty,onDirtyChange]);
  useEffect(()=>{onPreviewChange?.(dirty?draft:null);},[dirty,draft,onPreviewChange]);
  useEffect(()=>{if(!dirty){setDraft(saved??null);setDraftVersion(version);}},[saved,dirty,version]);
  function initial():TrainingRotations {
-  const seeds=activities.map(activity=>{const first=draft?.[activity.phase as RotationPhase]?.[0]?.stations.find(station=>station.linkId===activity.id);return first?{...activity,playerIds:[...first.playerIds],seconds:first.seconds}:activity;});
+  const seeds=activities.map(activity=>{const first=draft?.[activity.phase as RotationPhase]?.[0]?.stations.find(station=>station.linkId===activity.id);return first?{...activity,playerIds:first.playerIds.filter(id => players.some(player => player.id === id)),seconds:first.seconds}:{...activity,playerIds:activity.playerIds.filter(id => players.some(player => player.id === id))};});
   const result=initialTrainingRotations(seeds);
   for(const phase of TRAINING_ROTATION_PHASES){
    const turns=result[phase];if(!turns?.length)continue;

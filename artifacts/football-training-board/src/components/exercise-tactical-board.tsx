@@ -6,8 +6,8 @@ export function detachExerciseBoard(value?: string | null): string | null {
   try { return JSON.stringify({ ...JSON.parse(value), boardId: null }); } catch { return value; }
 }
 
-export function ExerciseTacticalBoard({ title, teamId, value, rosterPlayerIds, programSessionId, onSave }: {
-  programSessionId?: number; title: string; teamId?: string | number | null; value?: string | null; rosterPlayerIds?: number[];
+export function ExerciseTacticalBoard({ title, teamId, value, rosterPlayerIds, programSessionId, disabled = false, onSave }: {
+  disabled?: boolean; programSessionId?: number; title: string; teamId?: string | number | null; value?: string | null; rosterPlayerIds?: number[];
   onSave: (result: { statoLavagnaJson: string; drawingData: string; drawingElementsJson: string }) => void;
 }) {
   const [token, setToken] = useState<string | null>(null);
@@ -27,7 +27,7 @@ export function ExerciseTacticalBoard({ title, teamId, value, rosterPlayerIds, p
     return () => { window.removeEventListener("message", receive); };
   }, [token, onSave]);
   return <>
-    <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={() => {
+    <button type="button" disabled={disabled} className="rounded-md border px-3 py-2 text-sm disabled:opacity-50" onClick={() => {
       const key = crypto.randomUUID();
       let board = null;
       try { board = value ? JSON.parse(value) : null; } catch { /* older drawings stay in their existing editor */ }
