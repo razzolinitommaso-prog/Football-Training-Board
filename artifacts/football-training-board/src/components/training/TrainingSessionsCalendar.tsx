@@ -5,6 +5,7 @@ import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMont
 import { it } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useAuth } from "@/hooks/use-auth";
 import { withApi } from "@/lib/api-base";
 import { sessionCalendarRows, type CalendarSession, type SessionCalendarTeam, type SessionCalendarRow } from "@/lib/training-session-calendar";
@@ -22,11 +23,13 @@ export function TrainingSessionsCalendar(props: Props) {
   const [month,setMonth] = useState(()=>startOfMonth(new Date()));
   const [selected,setSelected] = useState(()=>dayKey(new Date()));
   const lastFocus = useRef<number|null>(null);
+  const [unassignedOpen,setUnassignedOpen] = useState(false);
+  const unassigned = props.sessions.filter(session=>session.sessionKind==="regular"&&session.teamId===null).sort((a,b)=>Date.parse(b.scheduledAt)-Date.parse(a.scheduledAt));
   const options = useMemo(()=>{
-    const map = new Map<string,SessionCalendarTeam|null>(props.teams.map(team=>[String(team.id),team]));
-    for(const session of props.sessions.filter(session=>session.sessionKind==="regular")) {
-      const key = session.teamId === null ? "none" : String(session.teamId);
-      if(!map.has(key)) map.set(key,session.teamId === null ? null : {id:session.teamId,name:(session as CalendarSession & {teamName?:string}).teamName || `Squadra ${session.teamId}`});
+    const map = new Map<string,SessionCalendarTeam>(props.teams.map(team=>[String(team.id),team]));
+    for(const session of props.sessions.filter(session=>session.sessionKind==="regular"&&session.teamId!==null)) {
+      const key = String(session.teamId);
+      if(!map.has(key)) map.set(key,{id:session.teamId!,name:(session as CalendarSession & {teamName?:string}).teamName || `Squadra ${session.teamId}`});
     }
     return [...map].sort((a,b)=>(a[1]?.name??"Senza squadra").localeCompare(b[1]?.name??"Senza squadra","it"));
   },[props.teams,props.sessions]);
@@ -35,6 +38,7 @@ export function TrainingSessionsCalendar(props: Props) {
   useEffect(()=>{
     const focus=props.focusSession;
     if(!focus || focus.id===lastFocus.current || !Number.isFinite(Date.parse(focus.scheduledAt))) return;
+    if(focus.teamId===null){lastFocus.current=focus.id;setUnassignedOpen(true);return;}
     const key = focus.teamId === null ? "none" : String(focus.teamId);
     if(!options.some(([value])=>value===key)) return;
     lastFocus.current=focus.id;setScope(key);setMonth(startOfMonth(new Date(focus.scheduledAt)));setSelected(dayKey(new Date(focus.scheduledAt)));
@@ -65,6 +69,11 @@ export function TrainingSessionsCalendar(props: Props) {
   const move=(amount:number)=>{const next=addMonths(month,amount);setMonth(next);setSelected(dayKey(next));};
   const today=dayKey(new Date());
   return <section className="space-y-4" aria-label="Calendario sedute per squadra">
+    {unassigned.length>0&&<details open={unassignedOpen} onToggle={event=>setUnassignedOpen(event.currentTarget.open)} className="rounded-xl border bg-card p-3">
+      <DisclosureSummary className="text-sm font-medium">Sedute da assegnare · {unassigned.length}</DisclosureSummary>
+      <p className="mt-2 text-xs text-muted-foreground">Schede senza annata associata, anche di altri mesi. Aprile per verificarle: non sono una squadra e non vengono eliminate o assegnate automaticamente.</p>
+      <div className="mt-3 divide-y">{unassigned.map(session=><div key={session.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="break-words text-sm font-medium">{session.title}</p><p className="mt-1 text-xs text-muted-foreground">{Number.isFinite(Date.parse(session.scheduledAt))?format(new Date(session.scheduledAt),"dd/MM/yyyy · HH:mm"):"Data da verificare"} · Annata da assegnare</p></div><Button type="button" size="sm" variant="outline" onClick={()=>props.onOpen(session.id)}>Apri scheda seduta</Button></div>)}</div>
+    </details>}
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
       {options.map(([key,item])=><button key={key} type="button" aria-pressed={selectedScope===key} onClick={()=>setScope(key)} className={`min-h-20 min-w-0 rounded-xl border p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${selectedScope===key?"border-primary bg-primary/5":"bg-card"}`}><span className="block break-words text-sm font-semibold">{item?.name??"Senza squadra"}</span><span className="mt-1 block text-[11px] text-muted-foreground">{selectedScope===key?"Squadra selezionata":"Apri calendario sedute"}</span></button>)}
     </div>

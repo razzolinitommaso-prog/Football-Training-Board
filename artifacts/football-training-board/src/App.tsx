@@ -62,6 +62,7 @@ import SeasonTransitionPage from "@/pages/season-transition/index";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import SectionMatchCalendars from "@/pages/matches/SectionMatchCalendars";
 import SectionChampionshipsPage from "@/pages/championships/SectionChampionshipsPage";
+import TechnicalChampionshipsPage from "@/pages/championships/TechnicalChampionshipsPage";
 import { useAuth } from "@/hooks/use-auth";
 
 const coachingRoles = ["admin", "coach", "technical_director", "director", "fitness_coach", "athletic_director"];
@@ -109,6 +110,7 @@ function ProtectedAppRoutes() {
       <Switch>
         <Route path="/technical/dashboard"><ProtectedRoute allowedRoles={["technical_director"]}><TechnicalDashboard /></ProtectedRoute></Route>
         <Route path="/technical/matches"><ProtectedRoute allowedRoles={["technical_director"]}><TechnicalDashboard matches /></ProtectedRoute></Route>
+        <Route path="/technical/championships"><ProtectedRoute allowedRoles={["technical_director"]}><TechnicalChampionshipsPage /></ProtectedRoute></Route>
         {["/dirigenti","/dirigenti/calendario","/dirigenti/convocazioni","/dirigenti/squadra","/dirigenti/presenze"].map(path=><Route key={path} path={path}><ProtectedRoute allowedRoles={["team_manager"]}><TeamManagerArea/></ProtectedRoute></Route>)}
         <Route path="/scuola-calcio/dashboard">
           <ProtectedRoute><Dashboard sectionOverride="scuola_calcio" /></ProtectedRoute>

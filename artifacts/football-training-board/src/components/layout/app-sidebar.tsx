@@ -110,6 +110,7 @@ const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof Users
   { label: "Squadre", url: "/teams", icon: UsersRound },
   { label: "Giocatori", url: "/players", icon: Users },
   { label: "Partite", url: "/technical/matches", icon: Trophy },
+  { label: "Campionati e classifiche", url: "/technical/championships", icon: BarChart3 },
   { label: "Presenze", url: "/attendance", icon: CalendarCheck },
   { label: "Stagioni", url: "/seasons", icon: Layers },
 ];
@@ -379,7 +380,7 @@ export function AppSidebar() {
 
               {role === "technical_director" &&
                 TECHNICAL_DIRECTOR_EXTRA.map(({ label, url, icon: Icon }) => {
-                  const isActive = location.startsWith(url);
+                  const isActive = location.startsWith(url) || url === "/technical/championships" && /^\/(settore-giovanile|prima-squadra)\/campionati/.test(location);
                   return (
                     <SidebarMenuItem key={url}>
                       <SidebarMenuButton asChild isActive={isActive} tooltip={label} className="font-medium">

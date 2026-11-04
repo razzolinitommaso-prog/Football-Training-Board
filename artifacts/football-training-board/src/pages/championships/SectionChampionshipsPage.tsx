@@ -712,11 +712,11 @@ function LndSyncDialog({
   );
 }
 
-export default function SectionChampionshipsPage({ section }: { section: SectionKey }) {
+export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBasePath, onClearTeam }: { section: SectionKey; scopeTeamId?: number|null; scopeBasePath?:string; onClearTeam?:()=>void }) {
   const search = useSearch();
   const [, setLocation] = useLocation();
   const params = new URLSearchParams(search);
-  const requestedTeamId = Number(params.get("teamId")) || null;
+  const requestedTeamId = scopeTeamId !== undefined ? scopeTeamId : Number(params.get("teamId")) || null;
   const requestedMatchId = Number(params.get("openMatchId")) || null;
   const { data: club, isLoading: isClubLoading } = useGetMyClub();
   const { data: allTeams = [], isLoading: isTeamsLoading, error: teamsError } = useQuery<ChampionshipTeam[]>({ queryKey: ["/api/teams"], queryFn: () => apiFetch("/api/teams") });
@@ -760,7 +760,8 @@ export default function SectionChampionshipsPage({ section }: { section: Section
   const queryKey = params.has("championshipId") && params.has("groupId") ? `${params.get("championshipId")}:${params.get("groupId")}` : "";
   const activeOption = groupOptions.find(option => option.key === (queryKey || selectedKey)) ?? groupOptions[0] ?? null;
   const selectedMatch = sectionMatches.find(match => match.id === requestedMatchId && (!requestedTeamId || match.teamId === requestedTeamId) && teams.some(team => team.id === match.teamId));
-  const basePath = `/${section.replace(/_/g, "-")}/campionati`;
+  const basePath = scopeBasePath ?? `/${section.replace(/_/g, "-")}/campionati`;
+  const sourceUrl = activeOption?.championship.sourceProvider === "lnd" && /^https:\/\/(?:[a-z0-9-]+\.)*lnd\.it(?:[/:?#]|$)/i.test(activeOption.championship.sourceUrl??"") ? activeOption.championship.sourceUrl : null;
   useEffect(() => {
     if (requestedMatchId && selectedMatch) document.getElementById("championship-match-sheet")?.scrollIntoView({ block: "start" });
   }, [requestedMatchId, selectedMatch?.id]);
@@ -778,14 +779,17 @@ export default function SectionChampionshipsPage({ section }: { section: Section
           <h1 className="text-2xl font-bold tracking-tight">Campionati e Classifiche</h1>
           <p className="text-sm text-muted-foreground">Calendario completo del girone, prossima giornata, risultati e classifica.</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        {sourceUrl && <Button variant="outline" asChild><a href={sourceUrl} target="_blank" rel="noopener noreferrer">Apri fonte LND</a></Button>}
         <Button type="button" className="gap-2" onClick={() => setSyncOpen(true)}>
           <RefreshCw className="h-4 w-4" />
           Sincronizza LND
         </Button>
+        </div>
       </div>
 
       {section === "settore_giovanile" && <div className="flex flex-wrap items-center gap-2">
-        {requestedTeamId && <Link href={basePath} className="rounded border px-3 py-2 text-sm">Tutti i campionati</Link>}
+        {requestedTeamId && (onClearTeam ? <Button variant="outline" onClick={onClearTeam}>Tutti i campionati</Button> : <Link href={basePath} className="rounded border px-3 py-2 text-sm">Tutti i campionati</Link>)}
         {requestedTeam && <>
           <Link href={`/settore-giovanile/calendari/${requestedTeam.id}?phase=tornei`} className="rounded border px-3 py-2 text-sm">Tornei</Link>
           <Link href={`/settore-giovanile/calendari/${requestedTeam.id}?phase=amichevoli`} className="rounded border px-3 py-2 text-sm">Amichevoli</Link>
@@ -799,6 +803,7 @@ export default function SectionChampionshipsPage({ section }: { section: Section
           : <p role="alert" className="rounded border p-3 text-sm text-destructive">Scheda non disponibile per la squadra e il settore selezionati.</p>}
       </section>}
       <LndSyncDialog
+        key={activeOption?.key??section}
         section={section}
         open={syncOpen}
         onOpenChange={setSyncOpen}

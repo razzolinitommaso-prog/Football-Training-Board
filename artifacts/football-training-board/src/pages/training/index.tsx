@@ -2902,6 +2902,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
   const normalizedTdSessionSearch = tdSessionSearch.trim().toLowerCase();
   const normalizedTdExerciseSearch = tdExerciseSearch.trim().toLowerCase();
   const filteredSessionsForTD = sessions
+    .filter(s => s.sessionKind !== "regular" || s.teamId !== null)
     .filter(s => { const date = new Date(s.scheduledAt); return Number.isFinite(date.getTime()) && format(date,"yyyy-MM-dd") >= tdFrom && format(date,"yyyy-MM-dd") <= tdTo; })
     .filter((s) => matchesSessionSearch(s, normalizedTdSessionSearch))
     .filter((s) => {
@@ -3218,7 +3219,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
           </div>
         </div>
 
-        <SupervisionOverview sessions={sessions} directives={directives} data={supervisionQuery.data} from={tdFrom} to={tdTo} setFrom={setTdFrom} setTo={setTdTo} loading={sessionsQuery.isLoading || supervisionQuery.isLoading} error={sessionsQuery.isError || supervisionQuery.isError}/>
+        <SupervisionOverview sessions={sessions.filter(s=>s.sessionKind!=="regular"||s.teamId!==null)} directives={directives} data={supervisionQuery.data} from={tdFrom} to={tdTo} setFrom={setTdFrom} setTo={setTdTo} loading={sessionsQuery.isLoading || supervisionQuery.isLoading} error={sessionsQuery.isError || supervisionQuery.isError}/>
         <details open className="rounded-xl border bg-card p-3">
           <DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco, filtri, linee guida e direttive</DisclosureSummary>
           <div className="mt-4 space-y-4">

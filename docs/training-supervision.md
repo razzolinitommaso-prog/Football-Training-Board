@@ -23,3 +23,11 @@ I dati risiedono in `training_session_reviews`, separati dalla seduta operativa,
 Nessun dato operativo, presenza, proposta o stazione esistente viene modificato dal riepilogo. La tabella aggiuntiva è dichiarata nello schema Drizzle e creata in modo idempotente al primo accesso, come le tabelle dei piani esistenti. Le API restanti mantengono le autorizzazioni precedenti. Le card TD usano il riepilogo di preparazione già disponibile, evitando una nuova richiesta di esercizi per ogni card.
 
 Test HTTP su PostgreSQL isolato: accesso per ruolo/società/settore, incarichi, appelli, prove di adozione, criteri nullable, rifiuto di punteggi fuori scala e scritture concorrenti, persistenza e variazioni dopo una valutazione. Test UI della build con dati dimostrativi: conteggi, separazione fra operative e proposte, tab direttive, dialogo valutazione e viewport desktop/mobile a 430px senza overflow orizzontale. Nessun dato reale viene scritto nel collaudo.
+
+## Sedute da assegnare e accesso ai campionati
+
+Le sedute operative con teamId nullo non rappresentano una squadra: nel calendario condiviso sono raccolte nel cassetto **Sedute da assegnare**, con conteggio, date di tutti i mesi e apertura della scheda secondo i permessi esistenti. Sono escluse dall'elenco e dagli indicatori delle annate nella pagina TD. Non vengono eliminate né attribuite automaticamente; le proposte tipo senza annata non entrano nel cassetto operativo.
+
+Il menu TD include **Campionati e classifiche** (`/technical/championships`). La pagina riutilizza SectionChampionshipsPage per Settore Giovanile e Prima Squadra, seguendo settore e annata della selezione condivisa. Per Scuola Calcio rimanda al programma delle partite senza introdurre classifiche LND. Risultati, classifica ufficiale, cassetto provvisorio FTB e collegamenti alle schede partita restano quelli esistenti.
+
+**Apri fonte LND** apre il collegamento HTTPS LND salvato per il campionato selezionato. **Sincronizza LND** mantiene il flusso di anteprima e conferma già esistente, con URL precompilato; passando a un altro campionato la finestra viene ricreata per non riutilizzare il link precedente. Non cambia la logica di importazione, associazione o aggiornamento sul server e non parte alcuna sincronizzazione automatica.
