@@ -1,5 +1,6 @@
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
+import { useTechnicalScope } from "@/components/technical-scope";
 import { championshipMatchPath } from "@/lib/championship-match-links";
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
@@ -1194,6 +1195,7 @@ async function apiFetch(url: string, options?: RequestInit) {
 }
 
 export default function SectionMatchCalendars({ section, programming = false }: { section: string; programming?: boolean }) {
+  const workScope = useTechnicalScope();
   const { role, user } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -1226,7 +1228,7 @@ export default function SectionMatchCalendars({ section, programming = false }: 
     [sectionTeams, user?.id],
   );
 
-  const visibleTeams = isManagement ? sectionTeams : staffTeams;
+  const visibleTeams = (isManagement ? sectionTeams : staffTeams).filter(team => !workScope.enabled || workScope.teams.some(allowed=>allowed.id===team.id) && (!workScope.teamId || team.id===workScope.teamId));
   const canImportYouthFederalPdf = isManagement && section === "settore_giovanile";
   const visibleTeamIds = useMemo(() => new Set(visibleTeams.map((team) => team.id)), [visibleTeams]);
 

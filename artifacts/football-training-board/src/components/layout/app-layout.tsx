@@ -20,12 +20,13 @@ import { useLocation } from "wouter";
 import { withApi } from "@/lib/api-base";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu, useBrandBackground } from "./appearance-menu";
-import { TechnicalScopeBar } from "@/components/technical-scope";
+import { TechnicalScopeBar, useTechnicalScope, isScopeAwarePath } from "@/components/technical-scope";
 
 const ROLE_LABELS: Record<string, string> = {
   admin:              "Amministratore",
   presidente:         "Presidente",
-  director:           "Dir. Sportivo/Generale",
+  director:           "Dir. Generale",
+  sporting_director:  "Dir. Sportivo",
   secretary:          "Segreteria",
   technical_director: "Dir. Tecnico",
   coach:              "Allenatore",
@@ -102,6 +103,7 @@ function notificationDestinationUrl(notification: LayoutNotification, userSectio
 }
 
 export function AppLayout({ children }: { children: ReactNode }) {
+  const workScope = useTechnicalScope();
   const { user, club, role, section, logout } = useAuth();
   const { toast } = useToast();
   const { data: liveClub } = useGetMyClub();
@@ -488,8 +490,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 isTacticalBoardRoute ? "relative z-10 w-full min-w-0" : "mobile-contain-x relative z-10 mx-auto w-full min-w-0 max-w-7xl"
               }
             >
-              {!isTacticalBoardRoute && !["/members", "/seasons", "/season-transition", "/workspace", "/club"].some(path => location.startsWith(path)) && <TechnicalScopeBar />}
-              {children}
+              {isScopeAwarePath(location) && <TechnicalScopeBar />}
+              {workScope.enabled && isScopeAwarePath(location) && (workScope.loading || workScope.error || !workScope.sections.length)
+                ? <p role={workScope.error ? "alert" : "status"} className="rounded-xl border bg-card p-5 text-sm">{workScope.error ? "Impossibile aprire questo ambito. Verifica i permessi o ricarica la pagina." : workScope.loading ? "Caricamento annate autorizzate…" : "Nessuna annata assegnata. Contatta la segreteria per verificare le assegnazioni."}</p>
+                : children}
             </div>
           </main>
         </div>

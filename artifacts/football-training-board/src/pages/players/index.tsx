@@ -151,6 +151,7 @@ const editSchema = z.object({
 type EditForm = z.infer<typeof editSchema>;
 
 type Player = {
+  clubSection?: string | null;
   id: number;
   firstName: string;
   lastName: string;
@@ -1473,8 +1474,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     const byId = new Map<number, Player>();
     (sectionPlayers ?? []).forEach((player) => byId.set(player.id, player));
     selectedTeamPlayers.forEach((player) => byId.set(player.id, player));
-    return Array.from(byId.values());
-  }, [sectionPlayers, selectedTeamPlayers]);
+    return Array.from(byId.values()).filter(player=>!technicalScope.enabled||technicalScope.teams.some(team=>(!section||team.clubSection===section)&&(!technicalScope.teamId||team.id===technicalScope.teamId)&&(player.teamId===team.id||player.supplementalTeamId===team.id))||!technicalScope.teamId&&!player.teamId&&!player.supplementalTeamId&&technicalScope.sections.some(allowed=>allowed===player.clubSection&&(!section||section===allowed)));
+  }, [sectionPlayers, selectedTeamPlayers, technicalScope.enabled, technicalScope.teams, technicalScope.teamId, technicalScope.sections, section]);
   const isLoading =
     isPlayersLoading ||
     (!!selectedTeamIdForFetch && isSelectedTeamPlayersLoading && (sectionPlayers?.length ?? 0) === 0);

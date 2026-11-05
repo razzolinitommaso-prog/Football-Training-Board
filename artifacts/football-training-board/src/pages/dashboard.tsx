@@ -1,3 +1,6 @@
+import { useTechnicalScope, technicalSections } from "@/components/technical-scope";
+import { UnifiedOverview, type OverviewSession } from "@/components/dashboard/UnifiedOverview";
+import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { trainingSlotOnDate, sessionTeamIds } from "@workspace/api-zod";
 import { championshipMatchPath } from "@/lib/championship-match-links";
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -106,19 +109,7 @@ type DashboardTrainingOverride = {
   notes?: string | null;
 };
 
-type DashboardTrainingSession = {
-  notes?: string | null;
-  id: number;
-  title?: string | null;
-  scheduledAt?: string | null;
-  status?: string | null;
-  teamId?: number | null;
-  teamName?: string | null;
-  location?: string | null;
-  sessionKind?: string | null;
-  createdByUserId?: number | null;
-  objectives?: string | null;
-};
+type DashboardTrainingSession = OverviewSession;
 
 type DashboardMatchPhase = "autunnale" | "primaverile" | "tornei" | "amichevoli";
 
@@ -493,11 +484,15 @@ export default function Dashboard({ sectionOverride }: DashboardProps = {}) {
   const [location, setLocation] = useLocation();
   const { role, user, club, section, sections } = useAuth();
   const nr = normalizeSessionRole(role);
+  const workScope = useTechnicalScope();
+  const [extrasOpen,setExtrasOpen]=useState(false);
+  const scopedTeamIds = useMemo(()=>new Set(workScope.teams.filter(team=>(!workScope.section||team.clubSection===workScope.section)&&(!workScope.teamId||team.id===workScope.teamId)).map(team=>team.id)),[workScope.teams,workScope.section,workScope.teamId]);
   const clubIdNum = Number((club as { id?: number } | null)?.id ?? 0);
-  const dashboardSection = normalizeDashboardSection(sectionOverride || section) || "scuola_calcio";
+  const dashboardSection = normalizeDashboardSection(workScope.enabled ? workScope.section || sectionOverride || section : sectionOverride || section) || "scuola_calcio";
   const dashboardClubWideRoles = ["admin", "presidente", "director", "technical_director"];
-  const dashboardIsClubWide = !sectionOverride && dashboardClubWideRoles.includes(nr);
+  const dashboardIsClubWide = !workScope.enabled && !sectionOverride && dashboardClubWideRoles.includes(nr);
   const dashboardSections = useMemo(() => {
+    if (workScope.enabled) return workScope.section ? [workScope.section] : workScope.sections;
     if (sectionOverride) return [sectionOverride];
     if (dashboardIsClubWide) return [] as string[];
     const unique = Array.from(
@@ -508,7 +503,7 @@ export default function Dashboard({ sectionOverride }: DashboardProps = {}) {
       )
     );
     return unique.length ? unique : [dashboardSection];
-  }, [dashboardIsClubWide, dashboardSection, sectionOverride, sections]);
+  }, [dashboardIsClubWide, dashboardSection, sectionOverride, sections, workScope.enabled, workScope.section, workScope.sections]);
   const dashboardSectionsKey = dashboardSections.join("|");
   const dashboardMembersAreClubWide = dashboardIsClubWide;
   const canPrepareFromDashboardCalendar = nr === "coach" || nr === "fitness_coach" || nr === "athletic_director" || nr === "technical_director";
@@ -517,10 +512,10 @@ export default function Dashboard({ sectionOverride }: DashboardProps = {}) {
   const { data: stats, isLoading } = useGetDashboardStats({
     query: {
       queryKey: ["/api/dashboard/stats", clubIdNum, nr],
-      enabled: Boolean(user && nr),
+      enabled: Boolean(user && nr && (!workScope.enabled||extrasOpen)),
     },
   });
-  const { data: allPlayers = [] } = useQuery<any[]>({
+  const { data: allPlayersData = [], isPending: playersPending, isError: playersError } = useQuery<any[]>({
     queryKey: ["/api/players", clubIdNum, nr, dashboardSectionsKey || "club", "dashboard"],
     queryFn: async () => {
       const urls = dashboardSections.length
@@ -535,7 +530,7 @@ export default function Dashboard({ sectionOverride }: DashboardProps = {}) {
     },
     enabled: Boolean(user),
   });
-  const { data: allTeams = [] } = useQuery<DashboardTeam[]>({
+  const { data: allTeamsData = [] } = useQuery<DashboardTeam[]>({
     queryKey: ["/api/teams", clubIdNum, nr, dashboardSectionsKey || "club"],
     queryFn: async () => {
       const urls = dashboardSections.length
@@ -550,6 +545,8 @@ export default function Dashboard({ sectionOverride }: DashboardProps = {}) {
     },
     enabled: Boolean(user),
   });
+  const allTeams = useMemo(()=>allTeamsData.filter(team=>!workScope.enabled||scopedTeamIds.has(team.id)),[allTeamsData,workScope.enabled,scopedTeamIds]);
+  const allPlayers = useMemo(()=>allPlayersData.filter(player=>!workScope.enabled||!workScope.teamId&&!player.teamId&&!player.supplementalTeamId&&dashboardSections.includes(player.clubSection)||[player.teamId,player.supplementalTeamId,...(Array.isArray(player.supplementalTeamIds)?player.supplementalTeamIds:[])].some(id=>scopedTeamIds.has(Number(id)))),[allPlayersData,workScope.enabled,workScope.teamId,dashboardSectionsKey,scopedTeamIds]);
   const canQuickCreateTrainingTools =
     nr === "coach" || nr === "fitness_coach" || nr === "technical_director";
 
@@ -734,7 +731,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
     enabled: Boolean(isTrainingStaff && user),
   });
 
-  const { data: dashboardMembers = [] } = useQuery<Array<{ id: number; role: string }>>({
+  const { data: dashboardMembers = [], isPending: membersPending, isError: membersError } = useQuery<Array<{ id: number; role: string }>>({
     queryKey: ["/api/clubs/me/members", clubIdNum, dashboardMembersAreClubWide ? "club" : dashboardSectionsKey || dashboardSection, "dashboard-tiles"],
     queryFn: async () => {
       if (dashboardMembersAreClubWide) {
@@ -750,7 +747,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       });
       return Array.from(byId.values());
     },
-    enabled: Boolean(user),
+    enabled: Boolean(user&&(!workScope.enabled||extrasOpen||["presidente","sporting_director"].includes(nr))),
   });
 
   const { data: seasons = [] } = useQuery<{ id: number; name: string; isActive: boolean }[]>({
@@ -777,14 +774,14 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
 
   const isClubWideTechnicalRole = nr === "technical_director" || nr === "director";
 
-  const { data: trainingSessionsForDash = [] } = useQuery<DashboardTrainingSession[]>({
+  const { data: trainingSessionsData = [], isPending: sessionsLoading, isError: sessionsError } = useQuery<DashboardTrainingSession[]>({
     queryKey: ["/api/training-sessions", clubIdNum, nr, "dashboard-tiles"],
     queryFn: () =>
       fetchJsonOrThrow<DashboardTrainingSession[]>("/api/training-sessions"),
     enabled: Boolean(user),
   });
 
-  const { data: dashboardMatches = [] } = useQuery<DashboardMatch[]>({
+  const { data: dashboardMatchesData = [], isPending: matchesPending, isError: matchesError } = useQuery<DashboardMatch[]>({
     queryKey: ["/api/matches", clubIdNum, nr, dashboardSectionsKey || "club", "dashboard-calendar"],
     queryFn: async () => {
       const urls = dashboardSections.length
@@ -800,6 +797,8 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
     enabled: Boolean(user),
   });
 
+  const trainingSessionsForDash = useMemo(()=>trainingSessionsData.filter(session=>!workScope.enabled||sessionTeamIds(session.teamId,session.notes).some(id=>scopedTeamIds.has(id))),[trainingSessionsData,workScope.enabled,scopedTeamIds]);
+  const dashboardMatches = useMemo(()=>dashboardMatchesData.filter(match=>!workScope.enabled||scopedTeamIds.has(Number(match.teamId))),[dashboardMatchesData,workScope.enabled,scopedTeamIds]);
   const { data: dashboardExtraEvents = [] } = useQuery<DashboardExtraEvent[]>({
     queryKey: ["/api/calendar-extra-events", clubIdNum, nr, dashboardSectionsKey || dashboardSection, "dashboard-calendar"],
     queryFn: async () => {
@@ -961,7 +960,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   useEffect(() => {
     const ids = dashboardTeams.map((team) => Number(team.id));
     if (ids.length === 0) {
-      setDashboardSelectedTeamIds(new Set());
+      setDashboardSelectedTeamIds(prev=>prev.size?new Set():prev);
       return;
     }
     setDashboardSelectedTeamIds((prev) => {
@@ -2238,7 +2237,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   ];
   const chartData = language === "it" ? chartDataIt : chartDataEn;
 
-  if (isLoading) {
+  if (isLoading && !workScope.enabled) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-10 w-48 rounded-lg" />
@@ -2258,11 +2257,11 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       {/* Header + Season Banner */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">
-            {t.dashboard} {dashboardActiveSectionLabel}
+          <h1 className="text-2xl font-display font-semibold tracking-tight text-foreground">
+            Cruscotto
           </h1>
-          <p className="text-muted-foreground mt-1 text-lg">
-            Visualizzazione separata per {dashboardActiveSectionLabel.toLowerCase()}.
+          <p className="text-muted-foreground mt-1 text-sm">
+            {workScope.teamId ? workScope.teams.find(team=>team.id===workScope.teamId)?.name : workScope.section ? technicalSections[workScope.section] : "Tutti i settori autorizzati"} · {nr === "technical_director" ? "Preparazione e supervisione" : ["secretary","sporting_director"].includes(nr) ? "Programmazione e gestione" : "Riepilogo delle attività"}
           </p>
         </div>
 
@@ -2302,38 +2301,6 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         </div>
       </div>
 
-{/* QUICK ACTIONS — Lavagna/Esercitazione solo staff tecnico; Pianifica settimana fuori card solo non-segreteria */}
-{(canQuickCreateTrainingTools || (nr !== "secretary" && nr !== "presidente" && nr !== "admin")) && (
-<div
-  className={cn(
-    "grid grid-cols-1 gap-3",
-    canQuickCreateTrainingTools ? "sm:grid-cols-3" : "sm:grid-cols-1 max-w-md",
-  )}
->
-  {canQuickCreateTrainingTools && (
-    <>
-      <Link href="/tactical-board">
-        <Button className="w-full h-12 text-sm font-semibold">
-          ➕ Nuova Lavagna
-        </Button>
-      </Link>
-      <Link href="/exercises">
-        <Button variant="secondary" className="w-full h-12 text-sm font-semibold">
-          ➕ Nuova stazione
-        </Button>
-      </Link>
-    </>
-  )}
-  {nr !== "secretary" && nr !== "presidente" && nr !== "admin" && (
-    <Link href="/training">
-      <Button variant="outline" className="w-full h-12 text-sm font-semibold">
-        📅 Pianifica Settimana
-      </Button>
-    </Link>
-  )}
-</div>
-)}
-
       {/* Transition window CTA */}
       {isTransitionWindow && canManageSeasons && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 dark:bg-blue-950/30 dark:border-blue-800 flex items-start gap-3">
@@ -2356,8 +2323,8 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       )}
 
       {/* Notifications Panel */}
-      <Card className="shadow-md border-border/50">
-        <CardHeader className="pb-3 border-b">
+      <Card className="shadow-none border-border">
+        <CardHeader className="p-4 border-b">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <div className="relative">
@@ -2450,7 +2417,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
             </div>
           )}
           {notificationsCollapsed ? (
-            <div className="px-4 py-3 text-xs text-muted-foreground">
+            <div className="px-4 py-2 text-xs text-muted-foreground">
               {unreadCount > 0 ? `${unreadCount} notifiche non lette` : `${notificationsView.length} notifiche`} - Inviate {sentNotificationsCount} - Cestino {trashedNotificationsCount}
             </div>
           ) : notifLoading ? (
@@ -2723,56 +2690,9 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         </DialogContent>
       </Dialog>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Panoramica</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <DashboardMatchSummaryCard
-            title={t.totalTeams}
-            value={dashboardTeamCount}
-            description={dashboardSectionLabel}
-            icon={UsersRound}
-            tone="amber"
-            onClick={() => setLocation(dashboardTeamsPath)}
-          />
-          <DashboardMatchSummaryCard
-            title="Giocatori"
-            value={dashboardPlayerSummary.total}
-            description={`${dashboardPlayerSummary.active} attivi · ${dashboardPlayerSummary.available} disponibili`}
-            icon={Users}
-            tone="pink"
-            onClick={() => setLocation(dashboardPlayersPath)}
-          />
-          {(nr === "secretary" || nr === "sporting_director") ? (
-            <DashboardMatchSummaryCard
-              title="Area Genitori"
-              value="App"
-              description="Comunicazioni, documenti ed eventi"
-              icon={Heart}
-              tone="violet"
-              onClick={() => setLocation("/secretary/parent-app")}
-            />
-          ) : (
-            <DashboardMatchSummaryCard
-              title="Sedute"
-              value={dashboardTrainingCardTotal}
-              description={`${dashboardExerciseSummary.completeSessions} complete · ${dashboardUpcomingCount} prossime`}
-              icon={CalendarDays}
-              tone="violet"
-              onClick={() => setLocation("/training")}
-            />
-          )}
-          <DashboardMatchSummaryCard
-            title={dashboardStaffTitle}
-            value={dashboardStaffCount}
-            description={dashboardActiveSectionLabel}
-            icon={ShieldCheck}
-            tone="sky"
-            onClick={() => setLocation("/members")}
-          />
-        </div>
-      </section>
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Fasi ed eventi</h2>
+      <UnifiedOverview dataState={{players:playersError?"error":playersPending?"loading":"ready",matches:matchesError?"error":matchesPending?"loading":"ready",members:membersError?"error":membersPending?"loading":"ready"}} role={nr} teamCount={dashboardTeams.length} players={allPlayers} sessions={trainingSessionsForDash} sessionsLoading={sessionsLoading} sessionsError={sessionsError} matchCount={dashboardMatches.length} tournamentCount={dashboardMatchSummary.tornei+dashboardMatchSummary.amichevoli} memberCount={dashboardMembers.length} scopeLabel={workScope.teamId?workScope.teams.find(team=>team.id===workScope.teamId)?.name??"Annata":workScope.section?technicalSections[workScope.section]:"Tutti i settori autorizzati"} />
+      <details className="rounded-xl border bg-card p-4">
+        <DisclosureSummary className="text-sm font-semibold">Fasi ed eventi</DisclosureSummary><div className="mt-4">
         <div className={dashboardSingleSection === "settore_giovanile" ? "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"}>
         {dashboardShowsSchoolSeasonPhases && (
           <>
@@ -2831,7 +2751,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           onClick={() => openDashboardPhaseCalendar("amichevoli", "Amichevoli")}
         />
         </div>
-      </section>
+      </div></details>
 
       <Dialog open={phaseTeamPicker !== null} onOpenChange={(open) => !open && setPhaseTeamPicker(null)}>
         <DialogContent className="max-w-md">
@@ -2881,14 +2801,12 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
               </CardTitle>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {["admin", "presidente", "secretary", "director", "technical_director"].includes(nr) && (
+              {(!workScope.enabled||!!workScope.section)&&["admin", "presidente", "secretary", "director", "technical_director"].includes(nr) && (
                 <Button asChild variant="outline" size="sm">
                   <Link href={`/${dashboardSection.replace(/_/g, "-")}/calendar`}>Gestisci eventi</Link>
                 </Button>
               )}
-              <Button asChild variant="outline" size="sm">
-                <Link href={`/${dashboardSection.replace(/_/g, "-")}/attendance`}>Presenze</Link>
-              </Button>
+              {nr!=="secretary"&&<Button asChild variant="outline" size="sm"><Link href="/attendance">Presenze</Link></Button>}
               <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => subMonths(m, 1))}>
                 <ChevronLeft className="w-4 h-4" />
               </Button>
@@ -2943,12 +2861,12 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                   </SelectContent>
                 </Select>
               </div>
-              <Link href={dashboardCalendarPath}>
+              {(!workScope.enabled||!!workScope.section)&&<Link href={dashboardCalendarPath}>
                 <Button type="button" variant="outline" size="sm" className="gap-2">
                   Apri completo
                   <ArrowRight className="w-4 h-4" />
                 </Button>
-              </Link>
+              </Link>}
               <Button
                 type="button"
                 variant="outline"
@@ -2964,7 +2882,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         </CardHeader>
         <CardContent className="p-0">
           {dashboardTeams.length > 1 && (
-            <div className="border-b px-4 py-3">
+            <div className={cn("border-b px-4 py-3",workScope.teamId&&"hidden")}>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span className="font-medium">
                   Annate visibili ({dashboardSelectedTeamIds.size}/{dashboardTeams.length})
@@ -3806,6 +3724,39 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         </DialogContent>
       </Dialog>
 
+      <details onToggle={event=>{if(event.target===event.currentTarget)setExtrasOpen(event.currentTarget.open)}} className="rounded-xl border bg-card p-4"><DisclosureSummary className="text-sm font-semibold">Altre funzioni del cruscotto</DisclosureSummary><div className="mt-4 space-y-5">{/* QUICK ACTIONS — Lavagna/Esercitazione solo staff tecnico; Pianifica settimana fuori card solo non-segreteria */}
+{(canQuickCreateTrainingTools || (nr !== "secretary" && nr !== "presidente" && nr !== "admin")) && (
+<div
+  className={cn(
+    "grid grid-cols-1 gap-3",
+    canQuickCreateTrainingTools ? "sm:grid-cols-3" : "sm:grid-cols-1 max-w-md",
+  )}
+>
+  {canQuickCreateTrainingTools && (
+    <>
+      <Link href="/tactical-board">
+        <Button className="w-full h-12 text-sm font-semibold">
+          ➕ Nuova Lavagna
+        </Button>
+      </Link>
+      <Link href="/exercises">
+        <Button variant="secondary" className="w-full h-12 text-sm font-semibold">
+          ➕ Nuova stazione
+        </Button>
+      </Link>
+    </>
+  )}
+  {nr !== "secretary" && nr !== "presidente" && nr !== "admin" && (
+    <Link href="/training">
+      <Button variant="outline" className="w-full h-12 text-sm font-semibold">
+        📅 Pianifica Settimana
+      </Button>
+    </Link>
+  )}
+</div>
+)}
+
+
       {/* ── Calendari Partite (stessa vista per segreteria, DT, presidenza, DG, admin) ── */}
       {(nr === "admin" ||
         nr === "director" ||
@@ -4091,6 +4042,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       </div>
       )}
 
+      </div></details>
       {/* Transition window CTA */}
       {false && isTransitionWindow && canManageSeasons && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 dark:bg-blue-950/30 dark:border-blue-800 flex items-start gap-3">

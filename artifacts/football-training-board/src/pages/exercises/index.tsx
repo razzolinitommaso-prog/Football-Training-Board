@@ -604,9 +604,9 @@ export default function ExercisesPage() {
   }
 
   const catalogSection = scope.enabled ? scope.section : librarySection === "all" ? undefined : librarySection;
-  const catalogTeams = myTeams.filter(team => !catalogSection || team.clubSection === catalogSection);
+  const catalogTeams = (scope.enabled ? scope.teams : myTeams).filter(team => !catalogSection || team.clubSection === catalogSection);
   const libraryTeamId = scope.enabled ? scope.teamId : catalogTeams.find(team => String(team.id) === libraryTeam)?.id ?? (catalogTeams.length === 1 ? catalogTeams[0].id : undefined);
-  const displaySection = myTeams.find(team => team.id === libraryTeamId)?.clubSection ?? catalogSection;
+  const displaySection = catalogTeams.find(team => team.id === libraryTeamId)?.clubSection ?? catalogSection;
   const needsTeamChoice = catalogTeams.length > 1 && !libraryTeamId;
   useEffect(() => { setPhaseFilter("all"); setPrincipleFilter("all"); }, [libraryTeamId, catalogSection]);
   const normalizedExerciseSearch = exerciseSearch.trim().toLowerCase();

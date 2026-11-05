@@ -54,6 +54,8 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useLanguage } from "@/lib/i18n";
 import { LanguageToggle } from "@/components/language-toggle";
+import { useTechnicalScope } from "@/components/technical-scope";
+import { staffNavigation } from "@/lib/staff-navigation";
 
 type SubItem = { label: string; url: string; icon: any; roles: string[] };
 
@@ -116,6 +118,7 @@ const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof Users
 ];
 
 export function AppSidebar() {
+  const workScope = useTechnicalScope();
   const [location] = useLocation();
   const search = useSearch();
   const { role, section, sections, club } = useAuth();
@@ -322,6 +325,7 @@ export function AppSidebar() {
     topMainUrls.includes(i.url) && !(userHasSectionMenu && SECTION_OPERATION_URLS.has(i.url)),
   );
   const bottomMainItems = mainNav.filter(i => !topMainUrls.includes(i.url) && i.url !== "/dashboard");
+  const unifiedItems = [...staffNavigation(role ?? ""), ...mainNav.filter(item=>!["/dashboard","/training","/training?view=guidelines","/training/convocazioni","/exercises"].includes(item.url)).map(item=>({label:item.label??(item.titleKey?t[item.titleKey] as string:""),url:item.url,icon:item.icon}))];
 
   return (
     <Sidebar variant="sidebar" className="border-r shadow-sm">
@@ -354,6 +358,11 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              {workScope.enabled ? unifiedItems.map(({label,url,icon:Icon})=>{
+                const base=url.split('?')[0];
+                const active=base==='/dashboard' ? location.endsWith('/dashboard') : base==='/training' ? location.endsWith('/training')&&(new URLSearchParams(search).get('view')==='guidelines')===url.includes('guidelines') : location===base||location.endsWith(base);
+                return <SidebarMenuItem key={url}><SidebarMenuButton asChild isActive={active} tooltip={label} className="font-medium"><Link href={url} className="flex items-center gap-3"><Icon className={`w-5 h-5 ${active?'text-primary':'text-sidebar-foreground/70'}`}/><span>{label}</span></Link></SidebarMenuButton></SidebarMenuItem>;
+              }) : <>
               {role !== "technical_director" && userHasSectionMenu && (
                 <SidebarMenuItem>
                   <SidebarMenuButton disabled tooltip="Cruscotto" className="font-medium w-full opacity-80">
@@ -415,6 +424,7 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
+            </>}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

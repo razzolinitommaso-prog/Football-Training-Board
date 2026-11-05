@@ -1,4 +1,5 @@
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
+import { useEffect } from "react";
 import {
   useTechnicalScope,
   technicalSections,
@@ -8,6 +9,8 @@ import SectionChampionshipsPage from "./SectionChampionshipsPage";
 
 export default function TechnicalChampionshipsPage() {
   const scope = useTechnicalScope();
+  const search = useSearch();
+  useEffect(()=>{const id=Number(new URLSearchParams(search).get("teamId"));if(id&&scope.teams.some(team=>team.id===id))scope.setTeam(String(id));},[search,scope.teams]);
   if (scope.loading) return <p role="status">Caricamento annate…</p>;
   if (scope.error)
     return (
@@ -20,7 +23,7 @@ export default function TechnicalChampionshipsPage() {
         key={`${section}:${scope.teamId ?? "all"}`}
         section={section}
         scopeTeamId={scope.teamId ?? null}
-        scopeBasePath="/technical/championships"
+        scopeBasePath="/campionati"
         onClearTeam={() => scope.setTeam("all")}
       />
     );
@@ -53,7 +56,7 @@ export default function TechnicalChampionshipsPage() {
             partite dell’annata.
           </p>
           <Button variant="outline" asChild>
-            <Link href="/technical/matches">Apri partite delle annate</Link>
+            <Link href="/partite">Apri partite delle annate</Link>
           </Button>
         </div>
       )}

@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { withApi } from "@/lib/api-base";
 import { useAuth } from "@/hooks/use-auth";
+import { useTechnicalScope } from "@/components/technical-scope";
 
 type SectionKey = "settore_giovanile" | "prima_squadra";
 
@@ -719,6 +720,7 @@ function LndSyncDialog({
 
 export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBasePath, onClearTeam }: { section: SectionKey; scopeTeamId?: number|null; scopeBasePath?:string; onClearTeam?:()=>void }) {
   const {role} = useAuth();
+  const workScope = useTechnicalScope();
   const search = useSearch();
   const [, setLocation] = useLocation();
   const params = new URLSearchParams(search);
@@ -726,7 +728,7 @@ export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBa
   const requestedMatchId = Number(params.get("openMatchId")) || null;
   const { data: club, isLoading: isClubLoading } = useGetMyClub();
   const { data: allTeams = [], isLoading: isTeamsLoading, error: teamsError } = useQuery<ChampionshipTeam[]>({ queryKey: ["/api/teams"], queryFn: () => apiFetch("/api/teams") });
-  const teams = allTeams.filter(team => team.clubSection === section);
+  const teams = allTeams.filter(team => team.clubSection === section && (!workScope.enabled || workScope.teams.some(allowed=>allowed.id===team.id)));
   const requestedTeam = teams.find(team => team.id === requestedTeamId);
   const clubNames = [club?.name, (club as { legalName?: string } | undefined)?.legalName, ...teams.map(team => team.name)].filter((name): name is string => Boolean(name));
 
@@ -760,6 +762,7 @@ export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBa
   }, [championships, sectionMatches, allTeams, club, section]);
 
   const groupOptions = displayedChampionships.flatMap(championship => championship.groups.map(group => ({ championship, group, key: `${championship.id}:${group.id}` })))
+    .filter(option => !["coach","fitness_coach","athletic_director"].includes(role??"") || teams.some(team=>team.id===option.championship.teamId || !!option.championship.category && [team.name,team.category??""].some(name=>championshipNameKey(name)===championshipNameKey(option.championship.category!)) || option.group.fixtures.some(fixture=>fixture.linkedTeamId===team.id)))
     .filter(option => !requestedTeamId || option.championship.teamId === requestedTeamId
       || requestedTeam && Boolean(option.championship.category) && [requestedTeam.name, requestedTeam.category ?? ""].some(name => championshipNameKey(name) === championshipNameKey(option.championship.category!))
       || option.group.fixtures.some(fixture => fixture.linkedTeamId === requestedTeamId));

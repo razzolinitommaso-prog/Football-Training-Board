@@ -277,7 +277,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
   const canEditSchedule = nr === "admin" || nr === "coach" || nr === "director" || nr === "secretary";
   const canEditTeam = nr === "admin" || nr === "presidente" || nr === "director" || nr === "secretary" || nr === "sporting_director";
   const canChooseTeamSection = !effectiveSection && canEditTeam;
-  const teams = allTeams.filter(t => (!effectiveSection || t.clubSection === effectiveSection) && (!technicalScope.enabled || !technicalScope.teamId || t.id === technicalScope.teamId));
+  const teams = allTeams.filter(t => (!effectiveSection || t.clubSection === effectiveSection) && (!technicalScope.enabled || technicalScope.teams.some(team=>team.id===t.id) && (!technicalScope.teamId || t.id===technicalScope.teamId)));
 
   const handleExportTeams = () => {
     if (!teams?.length) return;

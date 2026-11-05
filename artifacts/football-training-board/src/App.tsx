@@ -29,6 +29,8 @@ import ParentAccess from "@/pages/parent/access";
 import ParentAdminManagement from "@/pages/parent/admin-management";
 import Dashboard from "@/pages/dashboard";
 import TechnicalDashboard from "@/pages/technical-dashboard";
+import ScopedMatchCalendars from "@/pages/matches/ScopedMatchCalendars";
+import { unifiedStaffRoles } from "@/components/technical-scope";
 import TeamsList from "@/pages/teams/index";
 import TeamDetail from "@/pages/teams/detail";
 import PlayersList from "@/pages/players/index";
@@ -74,31 +76,9 @@ const sectionAttendanceRoles = ["admin", "presidente", "director", "secretary", 
 const trainingEditRoles = ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 const trainingCalendarRoles = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 
-const dashboardSections = [
-  { key: "scuola_calcio", path: "/scuola-calcio/dashboard" },
-  { key: "settore_giovanile", path: "/settore-giovanile/dashboard" },
-  { key: "prima_squadra", path: "/prima-squadra/dashboard" },
-] as const;
-
 function DashboardRedirect() {
-  const { role, section, sections } = useAuth();
-  const normalizedRole = String(role ?? "");
-  if (normalizedRole === "technical_director") return <Redirect to="/technical/dashboard" />;
-  const clubWideRoles = ["admin", "presidente", "director", "technical_director"];
-  const normalizedSections = Array.from(
-    new Set(
-      [
-        ...(Array.isArray(sections) ? sections : []),
-        section,
-      ]
-        .filter(Boolean)
-        .map((value) => String(value).replace(/-/g, "_"))
-    )
-  );
-  const target = clubWideRoles.includes(normalizedRole)
-    ? dashboardSections[0]
-    : dashboardSections.find((item) => normalizedSections.includes(item.key)) ?? dashboardSections[0];
-  return <Redirect to={target.path} />;
+  const {role}=useAuth();
+  return <Redirect to={role==='parent'?'/parent-dashboard':role==='team_manager'?'/dirigenti':'/dashboard'}/>;
 }
 
 function ProtectedAppRoutes() {
@@ -108,21 +88,24 @@ function ProtectedAppRoutes() {
   return (
     <AppLayout>
       <Switch>
-        <Route path="/technical/dashboard"><ProtectedRoute allowedRoles={["technical_director"]}><TechnicalDashboard /></ProtectedRoute></Route>
+        <Route path="/technical/dashboard"><ProtectedRoute allowedRoles={["technical_director"]}><Dashboard /></ProtectedRoute></Route>
         <Route path="/technical/matches"><ProtectedRoute allowedRoles={["technical_director"]}><TechnicalDashboard matches /></ProtectedRoute></Route>
         <Route path="/technical/championships"><ProtectedRoute allowedRoles={["technical_director"]}><TechnicalChampionshipsPage /></ProtectedRoute></Route>
+        <Route path="/partite"><ProtectedRoute allowedRoles={unifiedStaffRoles}><ScopedMatchCalendars /></ProtectedRoute></Route>
+        <Route path="/programmazione-gare"><ProtectedRoute allowedRoles={["admin","director","secretary","sporting_director","technical_director"]}><ScopedMatchCalendars programming /></ProtectedRoute></Route>
+        <Route path="/campionati"><ProtectedRoute allowedRoles={unifiedStaffRoles.filter(role=>role!=="secretary")}><TechnicalChampionshipsPage /></ProtectedRoute></Route>
         {["/dirigenti","/dirigenti/calendario","/dirigenti/convocazioni","/dirigenti/squadra","/dirigenti/presenze"].map(path=><Route key={path} path={path}><ProtectedRoute allowedRoles={["team_manager"]}><TeamManagerArea/></ProtectedRoute></Route>)}
         <Route path="/scuola-calcio/dashboard">
-          <ProtectedRoute><Dashboard sectionOverride="scuola_calcio" /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={unifiedStaffRoles}><Dashboard sectionOverride="scuola_calcio" /></ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/dashboard">
-          <ProtectedRoute><Dashboard sectionOverride="settore_giovanile" /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={unifiedStaffRoles}><Dashboard sectionOverride="settore_giovanile" /></ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/dashboard">
-          <ProtectedRoute><Dashboard sectionOverride="prima_squadra" /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={unifiedStaffRoles}><Dashboard sectionOverride="prima_squadra" /></ProtectedRoute>
         </Route>
         <Route path="/dashboard">
-          <ProtectedRoute><DashboardRedirect /></ProtectedRoute>
+          <ProtectedRoute>{role === "parent" ? <Redirect to="/parent-dashboard"/> : <Dashboard />}</ProtectedRoute>
         </Route>
         <Route path="/teams">
           <ProtectedRoute><TeamsList /></ProtectedRoute>

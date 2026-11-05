@@ -1,5 +1,6 @@
 import "./mobile-player-table.css";
 import { useAuth } from "@/hooks/use-auth";
+import { useTechnicalScope } from "@/components/technical-scope";
 import { withApi } from "@/lib/api-base";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -155,7 +156,9 @@ export function AttendanceRegister({
   attendancePath?: string;
 }) {
   const { user, club, role } = useAuth();
-  const [teamId, setTeamId] = useState(initialTeamId ?? "");
+  const scope=useTechnicalScope();
+  const allowedTeams=scope.teams.filter(team=>!section||team.clubSection===section);
+  const [teamId, setTeamId] = useState(initialTeamId ?? (scope.enabled ? String(allowedTeams[0]?.id??"") : ""));
   const [week, setWeek] = useState(() =>
     startOfWeek(new Date(dateKey(new Date().toISOString()) + "T12:00:00"), {
       weekStartsOn: 1,
@@ -165,6 +168,7 @@ export function AttendanceRegister({
   if (teamId) params.set("teamId", teamId);
   if (section) params.set("section", section);
   const { data, isPending, isError } = useQuery<Register>({
+    enabled: !scope.enabled || allowedTeams.length>0,
     queryKey: [
       "attendance-register",
       club?.id,
@@ -186,6 +190,7 @@ export function AttendanceRegister({
     staleTime: 0,
     refetchOnMount: "always",
   });
+  if(scope.enabled&&!allowedTeams.length)return <p>Nessuna annata autorizzata in questo ambito.</p>;
   if (isPending) return <p>Caricamento presenze…</p>;
   if (isError) return <p role="alert">Impossibile caricare le presenze.</p>;
   if (!data.teamId) return <p>Nessuna squadra disponibile.</p>;
@@ -303,7 +308,7 @@ export function AttendanceRegister({
             value={data.teamId}
             onChange={(event) => setTeamId(event.target.value)}
           >
-            {data.teams.map((team) => (
+            {data.teams.filter(team=>!scope.enabled||allowedTeams.some(allowed=>allowed.id===team.id)).map((team) => (
               <option key={team.id} value={team.id}>
                 {team.name}
               </option>

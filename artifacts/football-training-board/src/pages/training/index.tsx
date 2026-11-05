@@ -2839,10 +2839,10 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
   function invalidateSessions() { qc.invalidateQueries({ queryKey: ["/api/training-sessions"] }); }
   function invalidateDirectives() { qc.invalidateQueries({ queryKey: ["/api/training-directives"] }); }
 
-  const sessions = (sessionsQuery.data ?? []).filter(s => !technicalScope.enabled || (s.teamId == null || (!section || technicalScope.teams.some(t => t.id === s.teamId && t.clubSection === section)) && (!technicalScope.teamId || sessionTeamIds(s.teamId,s.notes).includes(technicalScope.teamId))));
+  const sessions = (sessionsQuery.data ?? []).filter(s => !technicalScope.enabled || (s.teamId == null ? !section&&!technicalScope.teamId : technicalScope.teams.some(t => sessionTeamIds(s.teamId,s.notes).includes(t.id)&&(!section||t.clubSection===section)&&(!technicalScope.teamId||t.id===technicalScope.teamId))));
   const directives = directivesQuery.data ?? [];
   const members = membersQuery.data ?? [];
-  const teams = (teamsQuery.data ?? []).filter(team => (!section || team.clubSection === section) && (!technicalScope.enabled || !technicalScope.teamId || team.id === technicalScope.teamId));
+  const teams = (teamsQuery.data ?? []).filter(team => (!section || team.clubSection === section) && (!technicalScope.enabled || technicalScope.teams.some(t=>t.id===team.id)&&(!technicalScope.teamId||team.id===technicalScope.teamId)));
   const userId = (user as any)?.id as number | undefined;
 
   useEffect(() => {
