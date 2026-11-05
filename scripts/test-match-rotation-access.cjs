@@ -27,7 +27,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "auth.ts"),
-      `export function requireAuth(req:any,res:any,next:any){if(req.headers['x-anonymous']){res.status(401).json({error:'No session'});return;}next();}`,
+      `export function requireAuth(req:any,res:any,next:any){if(req.headers['x-anonymous']){res.status(401).json({error:'No session'});return;}next();}export function createAuthToken(){return 'isolated-test-token';}`,
     );
     fs.writeFileSync(
       path.join(dir, "email.ts"),
@@ -35,7 +35,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "entry.ts"),
-      `export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
+      `export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
     await esbuild.build({
@@ -163,10 +163,11 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         role: request.headers["x-role"] ?? "parent",
         parentPlayerId: Number(request.headers["x-child"] ?? 101),
         section: "scuola_calcio",
+        save: callback => callback(),
       };
       next();
     });
-    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.exercises);
+    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.exercises, routes.auth);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -392,6 +393,21 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     assert.equal((await write('/training-sessions/1202/review',edited,4,'technical_director','PUT')).status,200);
     assert.equal((await call('/training-supervision?teamId=11',tdHeaders)).data.facts['1202'].review.stale,false);
     console.log('PASS TD supervision: role/club scope, real adoption evidence, saved nullable criterion reviews, invalid score and stale overwrite rejection, changed preparation flagged and re-review supported.');
+    const loginPassword='isolated-login-test';
+    const loginHash=await req('bcryptjs').hash(loginPassword,4);
+    await pg.query(`INSERT INTO users(id,email,password_hash,first_name,last_name,created_at) VALUES(1900,'SPORT.TEST@example.test',$1,'Sport','Test',now())`,[loginHash]);
+    await pg.exec(`UPDATE clubs SET created_at=now() WHERE id=1; INSERT INTO club_memberships(id,user_id,club_id,role,club_section) VALUES(1900,1900,1,'sporting_director','{scuola_calcio,settore_giovanile,prima_squadra}')`);
+    const login=async(body,area='sporting')=>write('/auth/login?area='+area,body,1,'parent');
+    for(const section of ['scuola-calcio','settore-giovanile','prima-squadra']){
+      const result=await login({email:'sport.test@example.test',password:loginPassword,section,clubId:1});
+      assert.equal(result.status,200,JSON.stringify(result.data));assert.equal(result.data.user.id,1900);assert.equal(result.data.role,'sporting_director');
+    }
+    assert.equal((await login({email:'Sport.Test@Example.Test',password:loginPassword,clubId:1})).status,200);
+    assert.equal((await login({email:'sport.test@example.test',password:'wrong-test-only'})).status,401);
+    assert.equal((await login({email:'sport.test@example.test',password:loginPassword},'coach')).status,403);
+    assert.equal((await login({email:'sport.test@example.test',password:loginPassword,clubId:2})).status,401);
+    assert.equal((await pg.query('SELECT password_hash FROM users WHERE id=1900')).rows[0].password_hash,loginHash);
+    console.log('PASS login email case: historical uppercase record accepts lowercase/mixed-case login; SC/SG/PS access retained, wrong password/area/club still rejected, password hash unchanged.');
     console.log(
       "PASS training eligibility: parent refusal, global unavailability, dated overrides, staff present/absent, correction and templates.",
     );

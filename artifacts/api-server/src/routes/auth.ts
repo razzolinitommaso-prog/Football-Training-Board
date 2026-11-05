@@ -199,7 +199,13 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.email, normalizedEmail));
+    // Historical member records can contain uppercase letters. Match the email
+    // case-insensitively without changing passwords, memberships or saved records.
+    const emailUsers = await db.select().from(usersTable).where(eq(sql`lower(${usersTable.email})`, normalizedEmail));
+    // Preserve the previously selected canonical account if legacy case-only
+    // duplicates exist; never choose an arbitrary non-canonical duplicate.
+    const user = emailUsers.find(candidate => candidate.email === normalizedEmail)
+      ?? (emailUsers.length === 1 ? emailUsers[0] : undefined);
     if (!user) {
       if (process.env.NODE_ENV !== "production") {
         console.warn("[LOGIN] user not found");
