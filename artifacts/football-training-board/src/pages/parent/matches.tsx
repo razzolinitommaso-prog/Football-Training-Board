@@ -1,5 +1,6 @@
+import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import { useState, useEffect } from "react";
-import { Trophy, MapPin, CalendarDays, ChevronDown, ChevronUp, CheckCircle, XCircle, Lock } from "lucide-react";
+import { Trophy, MapPin, ChevronDown, ChevronUp, CheckCircle, XCircle, Lock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -145,10 +146,6 @@ function applyParentAvailability(match: any, parentAvailability: any) {
   return { ...match, parentAvailability };
 }
 
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; variant: any }> = {
     scheduled: { label: "Programmata", variant: "outline" },
@@ -237,35 +234,23 @@ export default function ParentMatches() {
             {expanded[group.teamId] && (
               <div className="border-t divide-y">
                 {group.items.map(match => (
-                  <div key={match.id} className="p-4 space-y-1.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-semibold">
-                          {match.homeAway === "home" ? "🏠 Casa" : "✈️ Trasferta"} — <span className="text-primary">vs {match.opponent}</span>
-                        </p>
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
-                          <CalendarDays className="w-3 h-3" />
-                          {fmtDate(match.date)}
-                        </div>
-                        {(match.location || match.venue) && (
-                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <MapPin className="w-3 h-3" />
-                            {match.location || match.venue}
-                          </div>
-                        )}
-                        {match.status === "played" && match.homeScore != null && match.awayScore != null && (
-                          <p className="text-sm font-bold mt-1">{match.homeScore} – {match.awayScore}</p>
-                        )}
-                      </div>
-                      <StatusBadge status={match.status} />
-                    </div>
+                  <article key={match.id} className="compact-match-card">
+                    <CompactMatchHeading date={match.date}
+                      home={match.homeAway === "home" ? group.teamName : match.opponent}
+                      away={match.homeAway === "home" ? match.opponent : group.teamName}
+                      result={match.status === "played" && match.homeScore != null && match.awayScore != null ? match.homeScore + " – " + match.awayScore : null}
+                      metadata={<><span className="match-location-tag rounded border">{match.homeAway === "home" ? "Casa" : "Trasferta"}</span><StatusBadge status={match.status}/>{(match.location||match.venue)&&<span><MapPin/>{match.location||match.venue}</span>}</>}
+                      indicators={match.parentPlayerId ? <span className="rounded border px-1.5 py-0.5"><span className={availabilityTone(match).split(" ")[0]}>{availabilityLabel(match)}</span></span> : undefined}
+                    />
+                    <CompactMatchDetails label="Disponibilità e dettagli">
                     {match.parentPlayerId && (
                       <MatchAvailability
                         match={match}
                         onUpdated={(parentAvailability) => updateMatchAvailability(match.id, parentAvailability)}
                       />
                     )}
-                  </div>
+                    </CompactMatchDetails>
+                  </article>
                 ))}
               </div>
             )}

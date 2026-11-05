@@ -1,0 +1,269 @@
+.match-phase-overview>button { display:grid; grid-template-columns:28px minmax(0,1fr); column-gap:9px; row-gap:2px; padding:10px 12px; align-content:center; }
+.match-phase-overview>button>div:first-child { display:contents; }
+.match-phase-overview>button>div:first-child>div { grid-column:1; grid-row:1/4; width:28px; height:28px; margin:0; }
+.match-phase-overview>button>div:first-child>span { grid-column:2; grid-row:1; font-size:12px; line-height:1.3; }
+.match-phase-overview>button>p:first-of-type { grid-column:2; grid-row:2; font-size:19px; line-height:1.1; }
+.match-phase-overview>button>p:last-of-type { grid-column:2; grid-row:3; font-size:10px; line-height:1.35; }
+.compact-match-card {
+  border-radius: 12px;
+  box-shadow: none;
+  border-left-width: 1px;
+  overflow: hidden;
+  min-width: 0;
+}
+.compact-match-heading {
+  position: relative;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 14px 16px 10px;
+}
+.compact-match-heading:has(.compact-match-selection) {
+  padding-left: 38px;
+}
+.compact-match-selection {
+  position: absolute;
+  left: 12px;
+  top: 18px;
+}
+.compact-match-date {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid hsl(var(--border));
+  gap: 3px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  padding-right: 10px;
+}
+.compact-match-date strong {
+  font-size: 12px;
+  color: hsl(var(--foreground));
+  white-space: nowrap;
+}
+.compact-match-main {
+  min-width: 0;
+}
+.compact-match-teams {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 9px;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.compact-match-teams strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  min-width: 0;
+}
+.compact-match-vs {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.compact-match-result {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--muted) / 0.35);
+  padding: 3px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.compact-match-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  align-items: center;
+  margin-top: 7px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.compact-match-meta > span {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+.compact-match-meta svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.compact-match-meta > div,
+.compact-match-meta .match-location-tag {
+  border-radius: 5px;
+  font-size: 10px;
+  padding: 2px 6px;
+  line-height: 15px;
+}
+.compact-match-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.compact-match-indicators {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  grid-column: 2/-1;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+.compact-match-indicators > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.compact-match-indicators svg {
+  width: 12px;
+  height: 12px;
+}
+.compact-match-details {
+  margin: 0 16px 0 124px;
+}
+.compact-match-card:has(.compact-match-selection) .compact-match-details {
+  margin-left: 146px;
+}
+.compact-match-details > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 11px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+.compact-match-details > summary::-webkit-details-marker {
+  display: none;
+}
+.compact-match-details > summary::marker {
+  content: "";
+}
+.compact-match-details > summary > svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.compact-match-details[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.compact-match-detail-body {
+  border-top: 1px solid hsl(var(--border));
+  padding: 12px 0 14px;
+  min-width: 0;
+}
+.compact-match-card .compact-match-detail-body > div + div {
+  margin-top: 12px;
+}
+.compact-match-inline-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.match-list-tools > details[open] {
+  flex-basis: 100%;
+  order: 2;
+}
+.match-list-tools > button {
+  margin-left: auto;
+}
+@media (max-width: 640px) {
+  .compact-match-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 9px;
+    padding: 12px 12px 9px;
+  }
+  .compact-match-heading:has(.compact-match-selection) {
+    padding-left: 12px;
+  }
+  .compact-match-selection {
+    top: 13px;
+    left: 12px;
+  }
+  .compact-match-date {
+    grid-column: 1/-1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    border: 0;
+    gap: 6px;
+    padding-right: 0;
+    font-size: 11px;
+  }
+  .compact-match-heading:has(.compact-match-selection) .compact-match-date {
+    padding-left: 24px;
+  }
+  .compact-match-date strong {
+    font-size: 11px;
+  }
+  .compact-match-teams {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 7px;
+  }
+  .compact-match-teams strong {
+    width: 100%;
+    font-size: 12px;
+  }
+  .compact-match-teams strong {
+    grid-column: 1;
+  }
+  .compact-match-teams strong:first-of-type {
+    grid-row: 1;
+  }
+  .compact-match-teams strong:nth-of-type(2) {
+    grid-row: 2;
+  }
+  .compact-match-vs {
+    display: none;
+  }
+  .compact-match-result {
+    grid-column: 2;
+    grid-row: 1/3;
+    align-self: center;
+    font-size: 12px;
+  }
+  .compact-match-meta {
+    font-size: 10px;
+    gap: 5px 8px;
+  }
+  .compact-match-actions {
+    align-self: start;
+    flex-wrap: wrap;
+    max-width: 120px;
+  }
+  .compact-match-actions .match-open-label {
+    display: none;
+  }
+  .compact-match-indicators {
+    grid-column: 1/-1;
+    font-size: 11px;
+    gap: 6px 10px;
+  }
+  .compact-match-details,
+  .compact-match-card:has(.compact-match-selection) .compact-match-details {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+  .compact-match-detail-body {
+    padding-top: 12px;
+  }
+}
+@media print {
+  .compact-match-details:not([open])>.compact-match-detail-body { display:block!important; }
+  .compact-match-details::details-content { content-visibility:visible!important; display:block!important; }
+  .compact-match-actions,
+  .compact-match-selection {
+    display: none;
+  }
+}

@@ -1,3 +1,4 @@
+import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import {MatchRotationComparison} from "@/components/calendar/MatchRotationComparison";
 import {buildMatchRotationSummary} from "@workspace/api-zod";
 import {rotationUnits, rotateMatchPeriods, periodMinutes, thirdPartDuration, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
@@ -23,7 +24,7 @@ import {
   ArrowLeft, Calendar, MapPin, Trophy, FileText,
   CheckCircle, Clock, Pencil, AlertTriangle, RotateCcw,
   ClipboardList, Upload, Download, FileSpreadsheet, Trash2, ChevronDown, Camera, Sparkles,
-  Leaf, Flower2, ListChecks, Search, Files, Filter, Handshake, Plus, Loader2,
+  Leaf, Flower2, ListChecks, Search, Files, Filter, Handshake, Plus, Loader2, Eye, MoreHorizontal,
 } from "lucide-react";
 import {
   downloadMatchCalendarTemplate,
@@ -1785,6 +1786,7 @@ function MatchCard({
   bulkSelectEnabled,
   bulkSelected,
   onBulkToggle,
+  startExpanded = false,
 }: {
   match: MatchTimelineItem;
   canEditPreNotes: boolean;
@@ -1801,6 +1803,7 @@ function MatchCard({
   bulkSelectEnabled?: boolean;
   bulkSelected?: boolean;
   onBulkToggle?: () => void;
+  startExpanded?: boolean;
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -1821,10 +1824,12 @@ function MatchCard({
   const [postAttachments, setPostAttachments] = useState<string[]>(() => splitPostNotesAndAttachments(match.postMatchNotes).attachments);
   const shouldOpenPlanFromQuery = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    return Number(params.get("openMatchId")) === match.id;
-  }, [match.id]);
+    return startExpanded || Number(params.get("openMatchId")) === match.id;
+  }, [match.id, startExpanded]);
   const cardRef = useRef<HTMLDivElement>(null);
   const [planOpen, setPlanOpen] = useState(shouldOpenPlanFromQuery);
+  const [detailsOpen, setDetailsOpen] = useState(shouldOpenPlanFromQuery);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [previewBoard, setPreviewBoard] = useState<MatchPlanPeriodRuntime | null>(null);
   const [lineupDialog, setLineupDialog] = useState<LineupDialogState | null>(null);
   const [openAlternativePeriods, setOpenAlternativePeriods] = useState<Set<string>>(new Set());
@@ -1913,6 +1918,7 @@ function MatchCard({
   useEffect(() => {
     if (!shouldOpenPlanFromQuery) return;
     setPlanOpen(true);
+    setDetailsOpen(true);
     window.setTimeout(() => {
       cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 80);
@@ -2551,90 +2557,26 @@ function MatchCard({
       ref={cardRef}
       id={`match-${match.id}`}
       className={cn(
-        "min-w-0 max-w-full overflow-hidden transition-shadow hover:shadow-md border-l-4",
+        "compact-match-card min-w-0 max-w-full",
         statusColor,
         bulkSelectEnabled && bulkSelected && "ring-2 ring-primary/50 ring-offset-2 ring-offset-background",
       )}
     >
-      <CardContent className="py-4 px-2 sm:px-5 space-y-3">
+      <CardContent className="p-0">
 
-        {/* Match header */}
-        <div className="flex items-start justify-between gap-2 flex-wrap">
-          <div className="flex-1 min-w-0 flex gap-3">
-            {bulkSelectEnabled && onBulkToggle && (
-              <div className="pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                <Checkbox
-                  checked={!!bulkSelected}
-                  onCheckedChange={() => onBulkToggle()}
-                  aria-label="Seleziona partita per azioni di gruppo"
-                />
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-            {/* Score line */}
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="font-bold text-base">{homeLabel}</span>
-              <span className="text-muted-foreground font-medium text-sm">vs</span>
-              <span className="font-bold text-base">{awayLabel}</span>
-              <Badge variant={isHome ? "default" : "secondary"} className="text-xs shrink-0">
-                {isHome ? "Casa" : "Trasferta"}
-              </Badge>
-              {match.result && (
-                <Badge variant="outline" className="text-xs font-bold shrink-0">{match.result}</Badge>
-              )}
-              {match.isPostponed && (
-                <Badge variant="outline" className="text-xs text-amber-600 border-amber-400 shrink-0">
-                  <AlertTriangle className="w-3 h-3 mr-1" /> Rinviata
-                </Badge>
-              )}
-              {isRecoveryView && (
-                <Badge variant="outline" className="text-xs text-emerald-700 border-emerald-400 shrink-0">
-                  <RotateCcw className="w-3 h-3 mr-1" /> Recupero
-                </Badge>
-              )}
-              {!isPast && !match.isPostponed && (
-                <span className="flex items-center gap-1 text-xs text-primary font-medium">
-                  <Clock className="w-3 h-3" /> In programma
-                </span>
-              )}
-            </div>
-
-            {/* Date and details */}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-              <span className="flex items-center gap-1">
-                <Calendar className="w-3 h-3" />
-                {format(matchDate, "EEEE d MMMM yyyy • HH:mm", { locale: itLocale })}
-              </span>
-              {match.location && (
-                <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{match.location}</span>
-              )}
-              {match.competition && (
-                <span className="flex items-center gap-1"><Trophy className="w-3 h-3" />{match.competition}</span>
-              )}
-              {match.notes && <span className="italic">{match.notes}</span>}
-            </div>
-
-            {/* Reschedule info */}
-            {match.isPostponed && (
-              <div className="mt-1.5 flex items-center gap-2 text-xs text-amber-600">
-                <RotateCcw className="w-3 h-3" />
-                {match.rescheduleTbd
-                  ? "Recupero: da concordare"
-                  : match.rescheduleDate
-                  ? `Recupero previsto: ${format(new Date(match.rescheduleDate), "d MMMM yyyy • HH:mm", { locale: itLocale })}`
-                  : "Data recupero non definita"}
-              </div>
-            )}
-            {isRecoveryView && match.__originalDate && (
-              <div className="mt-1.5 flex items-center gap-2 text-xs text-emerald-700">
-                <RotateCcw className="w-3 h-3" />
-                Recupero della partita rinviata del {format(new Date(match.__originalDate), "d MMMM yyyy", { locale: itLocale })}
-              </div>
-            )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-0.5 shrink-0">
+        <CompactMatchHeading date={match.date} home={homeLabel} away={awayLabel} result={match.result}
+          selection={bulkSelectEnabled && onBulkToggle ? <Checkbox checked={!!bulkSelected} onCheckedChange={()=>onBulkToggle()} aria-label="Seleziona partita per azioni di gruppo"/> : undefined}
+          metadata={<><span className="match-location-tag rounded border bg-muted/30">{isHome ? "Casa" : "Trasferta"}</span>{match.competition&&<span><Trophy/>{match.competition}</span>}{match.location&&<span><MapPin/>{match.location}</span>}{match.isPostponed&&<span className="text-amber-700 dark:text-amber-400"><AlertTriangle/>Rinviata · {match.rescheduleTbd ? "recupero da concordare" : match.rescheduleDate ? format(new Date(match.rescheduleDate),"d MMM yyyy · HH:mm",{locale:itLocale}) : "data recupero non definita"}</span>}{isRecoveryView&&<span className="text-emerald-700 dark:text-emerald-400"><RotateCcw/>Recupero{match.__originalDate ? " del " + format(new Date(match.__originalDate),"d MMM yyyy",{locale:itLocale}) : ""}</span>}{!isPast&&!match.isPostponed&&<span className="text-primary"><Clock/>In programma</span>}</>}
+          indicators={<>{canViewMatchPlan&&<span><ListChecks/>Convocati: {callupsLoaded ? selectedPlayerIds.size : "…"}</span>}{(canEditPreNotes||match.preMatchNotes)&&<span><ClipboardList/>Pre: {match.preMatchNotes ? "presenti" : "—"}</span>}{(canEditPostNotes||isPast||hasPostNotes)&&<span><FileText/>Post: {hasPostNotes ? "presenti" : "—"}{postView.attachments.length>0 ? " · " + postView.attachments.length + " allegati" : ""}</span>}{canViewMatchPlan&&!canManageMatchPlan&&<span className="ml-auto rounded border px-1.5 py-0.5 text-[10px]">Solo lettura piano</span>}</>}
+          actions={<><Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 px-2 text-xs" aria-label={detailsOpen ? "Chiudi scheda partita" : "Apri scheda partita"} onClick={()=>{setDetailsOpen(!detailsOpen);if(!detailsOpen&&canManageMatchPlan)setPlanOpen(true);}}><Eye className="h-3.5 w-3.5"/><span className="match-open-label">{detailsOpen?"Chiudi scheda":"Apri scheda"}</span></Button>
+          <Popover open={actionsOpen} onOpenChange={setActionsOpen}><PopoverTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Azioni partita"><MoreHorizontal className="h-4 w-4"/></Button></PopoverTrigger><PopoverContent align="end" className="w-56 space-y-1 p-2">
+            {canEditSchedule&&<Button type="button" variant="ghost" className="h-8 w-full justify-start text-xs" onClick={()=>{setDetailsOpen(true);setEditingSchedule(true);setActionsOpen(false);}}><Pencil className="mr-2 h-3.5 w-3.5"/>Modifica data e luogo</Button>}
+            {canViewMatchPlan&&<Button type="button" variant="ghost" className="h-8 w-full justify-start text-xs" disabled={exportingCallupPdf} onClick={()=>{setDetailsOpen(true);setActionsOpen(false);void exportCallupPdf();}}><Download className="mr-2 h-3.5 w-3.5"/>Export convocazione</Button>}
+            <Button type="button" variant="ghost" className="h-8 w-full justify-start text-xs" onClick={()=>{setDetailsOpen(true);setActionsOpen(false);}}><FileText className="mr-2 h-3.5 w-3.5"/>Note e altre azioni</Button>
+          </PopoverContent></Popover></>}
+        />
+        <CompactMatchDetails open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <div className="flex justify-end"><div className="flex items-center gap-0.5 shrink-0">
             {canDeleteMatch && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -2674,13 +2616,13 @@ function MatchCard({
               <Button
                 size="sm" variant="ghost"
                 className="h-7 text-xs gap-1 text-muted-foreground hover:text-primary"
-                onClick={() => setEditingSchedule(true)}
+                onClick={() => { setDetailsOpen(true); setEditingSchedule(true); }}
               >
                 <Pencil className="w-3 h-3" /> Modifica
               </Button>
             )}
-          </div>
-        </div>
+          </div></div>
+        {match.notes&&<p className="compact-match-inline-notes">{match.notes}</p>}
 
         {/* Schedule editor */}
         {editingSchedule && canEditSchedule && (
@@ -3607,6 +3549,7 @@ function MatchCard({
             )}
           </div>
         )}
+        </CompactMatchDetails>
       </CardContent>
     </Card>
     <Dialog open={!!lineupDialog} onOpenChange={(open) => !open && setLineupDialog(null)}>
@@ -5564,16 +5507,16 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
     return map;
   }, [teamId, tournamentGroups, tournamentStateByCompetition]);
 
-  const matchFiltersActive =
-    matchSearchText.trim() !== "" ||
+  const matchAdvancedFiltersActive =
     matchTournamentFilter.trim() !== "" ||
     matchVenueFilter !== "all" ||
     matchSquadFilter !== "all" ||
     scheduleTimeFilterActive(scheduleFilter);
+  const matchFiltersActive = matchSearchText.trim() !== "" || matchAdvancedFiltersActive;
 
   useEffect(() => {
-    if (matchFiltersActive) setMatchFiltersOpen(true);
-  }, [matchFiltersActive]);
+    if (matchAdvancedFiltersActive) setMatchFiltersOpen(true);
+  }, [matchAdvancedFiltersActive]);
 
   const importActionsBusy =
     importMutation.isPending ||
@@ -5666,8 +5609,8 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
 
   const renderPhaseImportToolbar = (phaseItems: Match[]) =>
     canImportExport && team && teamId ? (
-      <div className="mb-4 rounded-xl border border-border/70 bg-card p-3 space-y-2.5">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="match-list-tools mb-3 flex flex-wrap items-start gap-2 rounded-xl border bg-card p-2.5">
+        <details><DisclosureSummary className="rounded-lg border px-3 py-2 text-xs font-medium">Importa / esporta</DisclosureSummary><div className="flex flex-wrap items-center gap-1.5 pt-3">
           <Button
             type="button"
             variant="outline"
@@ -5797,19 +5740,11 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
               </Button>
             </>
           )}
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            className="h-8 text-xs gap-1.5 ml-auto"
-            onClick={() => setCreateMatchOpen(true)}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Crea partita
-          </Button>
+
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-border/50">
+        </details>
+        <details open={phaseItems.some(m=>selectedMatchIds.has(m.id)) || undefined}><DisclosureSummary className="rounded-lg border px-3 py-2 text-xs font-medium">Gestisci elenco · {phaseItems.filter(m=>selectedMatchIds.has(m.id)).length}/{phaseItems.length}</DisclosureSummary><div className="flex flex-wrap items-center gap-1.5 pt-3">
           <span className="text-xs text-muted-foreground mr-2">
             {phaseItems.filter((m) => selectedMatchIds.has(m.id)).length}/{phaseItems.length} in fase
           </span>
@@ -5904,7 +5839,17 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
             <Files className="w-3.5 h-3.5" />
             Elimina duplicati
           </Button>
-        </div>
+        </div></details>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            className="h-8 text-xs gap-1.5 "
+            onClick={() => setCreateMatchOpen(true)}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Crea partita
+          </Button>
       </div>
     ) : null;
 
@@ -5921,7 +5866,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
     const match = matches.find(item => item.id === detailMatchId && item.teamId === teamId);
     if (isLoading || !team) return <p role="status" className="p-4 text-sm text-muted-foreground">Caricamento scheda partita...</p>;
     if (!match) return <p role="alert" className="p-4 text-sm text-destructive">Scheda partita non disponibile per questa squadra.</p>;
-    return <MatchCard key={match.id} match={match} canEditPreNotes={canEditPreNotes} canEditPostNotes={canEditPostNotes}
+    return <MatchCard startExpanded key={match.id} match={match} canEditPreNotes={canEditPreNotes} canEditPostNotes={canEditPostNotes}
       canEditSchedule={canEditSchedule} canDeleteMatch={false} canManageMatchPlan={canManageMatchPlan} canViewMatchPlan={canViewMatchPlan}
       teamPlayers={teamPlayers} teamTrainingSchedule={team.trainingSchedule ?? null} matchSection={currentSection}
       teamName={team.name} teamCategory={team.category ?? undefined} bulkSelectEnabled={false} bulkSelected={false} onBulkToggle={() => {}} />;
@@ -6132,7 +6077,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
         <div className="text-center py-12 text-muted-foreground">Caricamento...</div>
       ) : (
         <div className="space-y-4 min-w-0">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 min-w-0">
+          <div className="match-phase-overview grid grid-cols-2 xl:grid-cols-4 gap-2 min-w-0">
             {teamUsesChampionshipSeason ? (
               <>
                 <button
@@ -6276,11 +6221,16 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
 
           {team && teamId && (
             <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
-              <div className="p-4 sm:p-5">
+              <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
+                <div className="relative min-w-0 flex-1">
+                  <Label htmlFor="match-list-search" className="sr-only">Cerca avversario, competizione, luogo o note</Label>
+                  <Search aria-hidden="true" className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"/>
+                  <Input id="match-list-search" type="search" value={matchSearchText} onChange={event=>setMatchSearchText(event.target.value)} placeholder="Cerca avversario, competizione o note…" className="h-9 pl-8"/>
+                </div>
                 <Button
                   type="button"
                   variant="ghost"
-                  className="w-full justify-between px-0 h-auto hover:bg-transparent"
+                  className="h-9 shrink-0 justify-between gap-3 px-2 text-xs hover:bg-transparent"
                   aria-expanded={matchFiltersOpen}
                   onClick={() => setMatchFiltersOpen((o) => !o)}
                 >
@@ -6299,18 +6249,6 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
               {matchFiltersOpen ? (
                 <div className="px-4 pb-4 sm:px-5 sm:pb-5 space-y-5 border-t border-border/60">
                     <div className="grid grid-cols-1 md:grid-cols-[1fr_minmax(0,240px)] gap-4 items-end">
-                      <div className="min-w-0 space-y-1.5">
-                        <Label htmlFor="match-list-search" className="text-xs font-medium text-muted-foreground">
-                          Cerca (avversario, competizione, luogo, note…)
-                        </Label>
-                        <Input
-                          id="match-list-search"
-                          value={matchSearchText}
-                          onChange={(e) => setMatchSearchText(e.target.value)}
-                          placeholder="Es. GRASSINA, campionato…"
-                          className="h-9"
-                        />
-                      </div>
                       <div className="min-w-0 space-y-1.5">
                         <span className="text-xs font-medium text-muted-foreground block">Casa / trasferta</span>
                         <div className="flex rounded-md border border-border bg-background p-0.5 gap-0.5">

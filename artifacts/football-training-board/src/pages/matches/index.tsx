@@ -1,3 +1,4 @@
+import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/lib/i18n";
@@ -6,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -189,15 +190,10 @@ export default function MatchesPage() {
         : (
           <div className="grid gap-4">
             {matches.map((m) => (
-              <Card key={m.id} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Trophy className="w-4 h-4 text-primary" />
-                      <span>vs {m.opponent}</span>
-                      <Badge variant={m.homeAway === "home" ? "default" : "secondary"}>{m.homeAway === "home" ? t.home : t.away}</Badge>
-                    </CardTitle>
-                    <div className="flex items-center gap-2">
+              <Card key={m.id} className="compact-match-card">
+                <CompactMatchHeading date={m.date} home={m.teamName ? (m.homeAway === "home" ? m.teamName : m.opponent) : undefined} away={m.teamName && m.homeAway !== "home" ? m.teamName : m.opponent} result={m.result}
+                  metadata={<><span className="match-location-tag rounded border">{m.homeAway === "home" ? t.home : t.away}</span>{m.competition&&<span><Trophy/>{m.competition}</span>}{m.location&&<span><MapPin/>{m.location}</span>}</>}
+                  actions={<div className="flex items-center gap-2">
                       <Button size="sm" variant="outline" onClick={() => setCallUpMatchId(m.id)}>
                         <Users className="w-3 h-3 mr-1" />{t.callUps}
                       </Button>
@@ -206,26 +202,9 @@ export default function MatchesPage() {
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       ) : null}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-1">
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      {new Date(m.date).toLocaleString("it-IT", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        hour12: false,
-                      })}
-                    </span>
-                    {m.teamName && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{m.teamName}</span>}
-                    {m.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{m.location}</span>}
-                    {m.competition && <Badge variant="outline">{m.competition}</Badge>}
-                  </div>
+                    </div>}/>
+                <CompactMatchDetails label="Risultato e dettagli">
+                <CardContent className="space-y-1 p-0">
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Input
                       className="w-32 h-8 text-sm"
@@ -250,6 +229,7 @@ export default function MatchesPage() {
                     <span className="text-xs text-muted-foreground">{t.result}</span>
                   </div>
                 </CardContent>
+                </CompactMatchDetails>
               </Card>
             ))}
           </div>
