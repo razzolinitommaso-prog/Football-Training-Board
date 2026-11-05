@@ -4,6 +4,7 @@ import {
 } from "@/components/technical-scope";
 import { Button } from "@/components/ui/button";
 import SectionMatchCalendars from "./SectionMatchCalendars";
+import TechnicalChampionshipsPage from "../championships/TechnicalChampionshipsPage";
 
 export default function ScopedMatchCalendars({
   programming = false,
@@ -11,6 +12,11 @@ export default function ScopedMatchCalendars({
   programming?: boolean;
 }) {
   const scope = useTechnicalScope();
+  // Keep the approved compact championship view. The sector management hub
+  // contains legacy editors and must not become the staff consultation page.
+  if (!programming && (scope.section === "settore_giovanile" || scope.section === "prima_squadra")) {
+    return <TechnicalChampionshipsPage />;
+  }
   if (scope.section)
     return (
       <SectionMatchCalendars

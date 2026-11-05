@@ -33,3 +33,11 @@ La nuova API protegge la risposta dell'ambito. Le operazioni sui dati continuano
 - Browser isolato sulla build reale con dati dimostrativi: nove ruoli dello staff, menu unico, esclusioni Presidente/Segreteria, cambio settore e annata, propagazione a Giocatori e ritorno al cruscotto, apertura del dialogo calendario senza salvataggio, desktop e 430px, settore vietato, vecchia API 400 e rifiuto 403 senza ripiego. Nessun dato reale modificato.
 
 Gli screenshot di collaudo sono della build locale con dati fittizi, non del deploy Render. Commit, push e deploy vanno indicati separatamente.
+
+## Regressione del percorso Partite — 05/11/2026
+
+L'introduzione di `/partite` aveva riaperto `SectionMatchCalendars` anche per la consultazione del Settore Giovanile. Quel contenitore comprende il vecchio editor amministrativo dei gironi e riproponeva su mobile le schede annidate con Casa/Trasf./Salva, superate dalla vista compatta approvata.
+
+La consultazione di Settore Giovanile e Prima Squadra riusa ora `TechnicalChampionshipsPage` / `SectionChampionshipsPage` dentro lo stesso layout comune, con gli stessi selettori e permessi. Il vecchio editor non viene montato nella consultazione; resta soltanto nella sezione amministrativa richiudibile della Programmazione gare, per i ruoli già autorizzati. La Scuola Calcio conserva il proprio percorso. Nessuna modifica ai dati, alle classifiche, ai salvataggi o alla logica delle schede partita.
+
+Verifica di regressione da ripetere dopo cambi alla navigazione: aprire **Partite → girone popolato → calendario giornata**, a 430px e desktop; controllare assenza degli editor Casa/Trasf./Salva nella consultazione, presenza di ultimi risultati/classifica/prossima giornata/calendario, apertura della scheda della gara del club e mantenimento dell'annata. Verificare separatamente il percorso Segreteria → Programmazione gare → PDF federale. Collaudo eseguito sulla build con cinque incontri, tre giornate e classifica, per otto ruoli di consultazione e Segreteria, senza scritture.

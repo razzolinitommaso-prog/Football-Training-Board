@@ -1630,7 +1630,7 @@ export default function SectionMatchCalendars({ section, programming = false }: 
           </Card>
         )}
 
-        {programming ? <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="text-sm font-medium">Gestione dati del girone</DisclosureSummary><div className="mt-3"><ChampionshipSectionPanel section={section} teams={visibleTeams} /></div></details> : <ChampionshipSectionPanel section={section} teams={visibleTeams} />}
+        {programming && isManagement && <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="text-sm font-medium">Gestione dati del girone</DisclosureSummary><div className="mt-3"><ChampionshipSectionPanel section={section} teams={visibleTeams} /></div></details>}
 
         {visibleTeams.length === 0 ? (
           <Card>
