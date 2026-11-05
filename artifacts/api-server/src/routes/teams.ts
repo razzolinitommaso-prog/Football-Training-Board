@@ -19,6 +19,7 @@ import { requireAuth } from "../lib/auth";
 import { isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 import { requireClubAndUserIds } from "../lib/session-context";
+import { readNavigationScope } from "../lib/navigation-scope";
 
 /** Solo questi ruoli vedono le squadre limitate alle assegnazioni. Il direttore tecnico ha panoramica su tutto il club. */
 const TEAM_ASSIGNMENT_FILTER_ROLES_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
@@ -217,6 +218,12 @@ async function getTeamsWithCounts(clubId: number, filterTeamIds?: number[], sect
 
   return teamsWithCounts;
 }
+
+router.get("/teams/navigation-scope", requireAuth, async (req, res): Promise<void> => {
+  const scope = await readNavigationScope(req);
+  if (!scope) { res.status(403).json({error:"Staff access required"}); return; }
+  res.json(scope);
+});
 
 router.get("/teams", requireAuth, async (req, res): Promise<void> => {
   const ids = requireClubAndUserIds(req);

@@ -35,7 +35,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "entry.ts"),
-      `export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
+      `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
     await esbuild.build({
@@ -167,7 +167,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       };
       next();
     });
-    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.exercises, routes.auth, routes.championships);
+    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.exercises, routes.auth, routes.championships, routes.teams);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -408,6 +408,24 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     assert.equal((await login({email:'sport.test@example.test',password:loginPassword,clubId:2})).status,401);
     assert.equal((await pg.query('SELECT password_hash FROM users WHERE id=1900')).rows[0].password_hash,loginHash);
 
+
+    await pg.exec(`INSERT INTO teams(id,club_id,name,club_section) VALUES(1911,1,'Unassigned School','scuola_calcio'),(1912,1,'Prima Squadra','prima_squadra');INSERT INTO club_memberships(id,club_id,user_id,role,club_section) VALUES(1910,1,1910,'secretary','{scuola_calcio}');`);
+    const navigation=async(user,role,club=1)=>call('/teams/navigation-scope',{'x-user':String(user),'x-role':role,'x-club':String(club)});
+    for(const role of ['secretary','sporting_director','presidente','director','technical_director','admin']){
+      const view=await navigation(1910,role);assert.equal(view.status,200,JSON.stringify(view.data));assert.deepEqual(view.data.sections,['scuola_calcio']);assert.ok(view.data.teams.every(t=>t.clubSection==='scuola_calcio'));assert.ok(view.data.teams.some(t=>t.id===1911));assert.ok(!view.data.teams.some(t=>[12,22,1912].includes(t.id)));
+    }
+    const tamperedScope=await call('/teams/navigation-scope?section=prima_squadra&teamId=22',{'x-user':'1910','x-role':'secretary'});assert.deepEqual(tamperedScope.data.sections,['scuola_calcio']);assert.ok(!tamperedScope.data.teams.some(t=>t.id===22||t.id===1912));
+    await pg.exec(`INSERT INTO club_memberships(id,club_id,user_id,role,club_section) VALUES(1913,1,1913,'secretary','{unknown_section}'),(1914,1,1914,'coach','{scuola_calcio}')`);
+    assert.deepEqual((await navigation(1913,'secretary')).data,{sections:[],teams:[]});assert.deepEqual((await navigation(1914,'coach')).data,{sections:[],teams:[]});
+    const coachNavigation=await navigation(3,'coach');assert.equal(coachNavigation.status,200);assert.deepEqual(coachNavigation.data.teams.map(t=>t.id),[11]);
+    await pg.exec(`UPDATE teams SET coach_id=3 WHERE id=1911`);assert.deepEqual((await navigation(3,'coach')).data.teams.map(t=>t.id).sort((a,b)=>a-b),[11,1911]);
+    await pg.exec(`UPDATE teams SET coach_id=null WHERE id=1911`);
+    const dtNavigation=await navigation(4,'technical_director');assert.deepEqual(dtNavigation.data.sections,['scuola_calcio','settore_giovanile']);assert.ok(!dtNavigation.data.teams.some(t=>t.id===1912||t.id===22));
+    const dsNavigation=await navigation(1900,'sporting_director');assert.ok(dsNavigation.data.teams.some(t=>t.id===1912));
+    assert.equal((await navigation(1,'parent')).status,403);assert.equal((await navigation(1,'team_manager')).status,403);
+    assert.equal((await call('/teams/navigation-scope',{'x-anonymous':'1'})).status,401);
+    assert.ok((await navigation(4,'technical_director',2)).data.teams.every(t=>t.id===22));
+    console.log('PASS unified navigation scope: management roles honor explicit sections, DT/DS cross-sector assignments, coach direct/staff assignments, club boundary, parent/manager/anonymous denied. Read-only.');
     const zeroStandings=['Club test','Other team'].map(team=>({team,pg:0,v:0,n:0,p:0,gf:0,gs:0,dr:0,pts:0}));
     await pg.exec(`INSERT INTO championships(id,club_id,section,team_id,title,category,source_provider) VALUES(2101,1,'settore_giovanile',12,'Campionato test','Allievi','lnd');INSERT INTO championship_groups(id,club_id,championship_id,name) VALUES(2201,1,2101,'B');INSERT INTO championship_fixtures(id,club_id,championship_id,group_id,round,leg,home_team,away_team,date) VALUES(2301,1,2101,2201,1,'andata','Club test','Other team','2026-10-20T15:00:00Z');INSERT INTO matches(id,club_id,team_id,opponent,date,home_away,result,competition) VALUES(2401,1,12,'Other team','2026-10-20T15:00:00Z','home','2-1','Campionato'),(2403,1,12,'Other team','2025-10-20T15:00:00Z','home','9-0','Campionato');`);
     await pg.query('UPDATE championship_groups SET standings=$1::jsonb WHERE id=2201',[JSON.stringify(zeroStandings)]);
