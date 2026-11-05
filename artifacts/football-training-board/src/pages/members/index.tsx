@@ -69,7 +69,8 @@ const editSchema = z.object({
   firstName: z.string().min(2, "Minimo 2 caratteri"),
   lastName: z.string().min(2, "Minimo 2 caratteri"),
   email: z.string().email("Email non valida"),
-  newPassword: z.string().optional(),
+  newPassword: z.string().optional().refine(value => !value || value.length >= 6, "La password deve contenere almeno 6 caratteri"),
+  confirmNewPassword: z.string().optional(),
   role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   staffRole: z.string().optional(),
@@ -81,6 +82,9 @@ const editSchema = z.object({
   degreeScienzeMoto: z.boolean().optional(),
   degreeScienzeMotoType: z.string().optional(),
   teamIds: z.array(z.number()).optional(),
+}).refine(data => (data.newPassword ?? "") === (data.confirmNewPassword ?? ""), {
+  message: "Le password non coincidono",
+  path: ["confirmNewPassword"],
 });
 
 const MEMBER_ROLE_ORDER: Record<string, number> = {
@@ -235,6 +239,7 @@ export default function MembersList() {
       lastName: member.lastName,
       email: member.email,
       newPassword: "",
+      confirmNewPassword: "",
       role: member.role as any,
       clubSection: (Array.isArray(member.clubSection) ? member.clubSection : [member.clubSection ?? "scuola_calcio"]) as ClubSection[],
       staffRole: member.staffRole ?? undefined,
@@ -731,7 +736,8 @@ export default function MembersList() {
               toast({ title: "Modifica non consentita", variant: "destructive" });
               return;
             }
-            const payload: any = { ...data };
+            const { confirmNewPassword, ...memberData } = data;
+            const payload: any = { ...memberData };
             if (!payload.newPassword) delete payload.newPassword;
             const sections = (data.clubSection ?? []) as ClubSection[];
             payload.staffRole = serializeStaffRoleBySection(parseStaffRoleBySection(data.staffRole, sections)) ?? undefined;
@@ -759,9 +765,15 @@ export default function MembersList() {
                 {editForm.formState.errors.email && <p className="text-xs text-destructive">{editForm.formState.errors.email.message}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label>Nuova password <span className="text-muted-foreground font-normal">(lascia vuoto per non cambiare)</span></Label>
-                <Input type="password" autoComplete="new-password" placeholder="••••••••" {...editForm.register("newPassword")} />
-                {editForm.formState.errors.newPassword && <p className="text-xs text-destructive">{editForm.formState.errors.newPassword.message}</p>}
+                <Label htmlFor="edit-new-password">Nuova password</Label>
+                <Input id="edit-new-password" type="password" autoComplete="new-password" placeholder="Facoltativa" aria-invalid={!!editForm.formState.errors.newPassword} aria-describedby="edit-password-hint edit-password-error" {...editForm.register("newPassword")} />
+                <p id="edit-password-hint" className="text-xs text-muted-foreground">Almeno 6 caratteri. Lascia vuoti entrambi i campi per mantenere la password attuale.</p>
+                {editForm.formState.errors.newPassword && <p id="edit-password-error" role="alert" className="text-xs text-destructive">{editForm.formState.errors.newPassword.message}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-confirm-password">Conferma nuova password</Label>
+                <Input id="edit-confirm-password" type="password" autoComplete="new-password" aria-invalid={!!editForm.formState.errors.confirmNewPassword} aria-describedby="edit-confirm-password-error" {...editForm.register("confirmNewPassword")} />
+                {editForm.formState.errors.confirmNewPassword && <p id="edit-confirm-password-error" role="alert" className="text-xs text-destructive">{editForm.formState.errors.confirmNewPassword.message}</p>}
               </div>
             </div>
 
