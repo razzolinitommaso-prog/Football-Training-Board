@@ -35,7 +35,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "entry.ts"),
-      `export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
+      `export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
     await esbuild.build({
@@ -167,7 +167,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       };
       next();
     });
-    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.exercises, routes.auth);
+    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.exercises, routes.auth, routes.championships);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -407,6 +407,27 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     assert.equal((await login({email:'sport.test@example.test',password:loginPassword},'coach')).status,403);
     assert.equal((await login({email:'sport.test@example.test',password:loginPassword,clubId:2})).status,401);
     assert.equal((await pg.query('SELECT password_hash FROM users WHERE id=1900')).rows[0].password_hash,loginHash);
+
+    const zeroStandings=['Club test','Other team'].map(team=>({team,pg:0,v:0,n:0,p:0,gf:0,gs:0,dr:0,pts:0}));
+    await pg.exec(`INSERT INTO championships(id,club_id,section,team_id,title,category,source_provider) VALUES(2101,1,'settore_giovanile',12,'Campionato test','Allievi','lnd');INSERT INTO championship_groups(id,club_id,championship_id,name) VALUES(2201,1,2101,'B');INSERT INTO championship_fixtures(id,club_id,championship_id,group_id,round,leg,home_team,away_team,date) VALUES(2301,1,2101,2201,1,'andata','Club test','Other team','2026-10-20T15:00:00Z');INSERT INTO matches(id,club_id,team_id,opponent,date,home_away,result,competition) VALUES(2401,1,12,'Other team','2026-10-20T15:00:00Z','home','2-1','Campionato'),(2403,1,12,'Other team','2025-10-20T15:00:00Z','home','9-0','Campionato');`);
+    await pg.query('UPDATE championship_groups SET standings=$1::jsonb WHERE id=2201',[JSON.stringify(zeroStandings)]);
+    const readGroup=async()=>{const response=await call('/championships?section=settore_giovanile',{'x-role':'technical_director'});assert.equal(response.status,200,JSON.stringify(response.data));return response.data.find(c=>c.id===2101).groups[0];};
+    let group=await readGroup();assert.equal(group.ftbStandings.status,'provisional');assert.equal(group.ftbStandings.resultMatches,1);assert.equal(group.ftbStandings.internalResultMatches,1);assert.equal(group.ftbStandings.rows.find(row=>row.team==='Club test').pts,3);assert.equal(group.fixtures[0].homeScore,null);assert.equal(group.fixtures[0].matchId,null);assert.equal(group.standings[0].pg,0);
+    assert.deepEqual((await pg.query('SELECT match_id,home_score,away_score FROM championship_fixtures WHERE id=2301')).rows[0],{match_id:null,home_score:null,away_score:null});
+    await pg.exec(`INSERT INTO matches(id,club_id,team_id,opponent,date,home_away,result,competition) VALUES(2402,1,12,'Other team','2026-10-20T15:00:00Z','home','4-0','Campionato')`);
+    group=await readGroup();assert.equal(group.fixtures[0].linkedResult,null);assert.equal(group.ftbStandings.resultMatches,0);await pg.exec('DELETE FROM matches WHERE id=2402');
+    await pg.exec('UPDATE championship_fixtures SET home_score=3,away_score=0 WHERE id=2301');
+    group=await readGroup();assert.equal(group.ftbStandings.status,'review');assert.equal(group.ftbStandings.conflictingResults,1);assert.equal(group.ftbStandings.rows.find(row=>row.team==='Club test').gf,3);
+    await pg.exec('UPDATE championship_fixtures SET home_score=null,away_score=null,match_id=503 WHERE id=2301');
+    group=await readGroup();assert.equal(group.fixtures[0].linkedResult,null);assert.equal(group.ftbStandings.resultMatches,0);
+    await pg.exec(`UPDATE championship_fixtures SET match_id=2401,date='2099-10-20' WHERE id=2301`);
+    group=await readGroup();assert.equal(group.ftbStandings.resultMatches,0);
+    await pg.exec(`UPDATE championship_fixtures SET match_id=null,date='2026-10-20T15:00:00Z' WHERE id=2301`);
+    const adjusted=[{team:'Club test',pg:1,v:1,n:0,p:0,gf:2,gs:1,dr:1,pts:1},{team:'Other team',pg:1,v:0,n:0,p:1,gf:1,gs:2,dr:-1,pts:0}];
+    await pg.query('UPDATE championship_groups SET standings=$1::jsonb WHERE id=2201',[JSON.stringify(adjusted)]);
+    group=await readGroup();assert.equal(group.ftbStandings.status,'aligned');assert.equal(group.ftbStandings.rows.find(row=>row.team==='Club test').pts,1);
+    assert.deepEqual((await pg.query('SELECT standings FROM championship_groups WHERE id=2201')).rows[0].standings,adjusted);
+    console.log('PASS FTB standings: same read-only match identity as UI, linked result fills missing fixture, provisional vs official, historical season excluded, ambiguous and foreign links ignored, future excluded, conflicts flagged with original score retained, official adjusted points preserved when aligned; no links/scores/official table written.');
     console.log('PASS login email case: historical uppercase record accepts lowercase/mixed-case login; SC/SG/PS access retained, wrong password/area/club still rejected, password hash unchanged.');
     console.log(
       "PASS training eligibility: parent refusal, global unavailability, dated overrides, staff present/absent, correction and templates.",

@@ -5610,7 +5610,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
   const renderPhaseImportToolbar = (phaseItems: Match[]) =>
     canImportExport && team && teamId ? (
       <div className="match-list-tools mb-3 flex flex-wrap items-start gap-2 rounded-xl border bg-card p-2.5">
-        <details><DisclosureSummary className="rounded-lg border px-3 py-2 text-xs font-medium">Importa / esporta</DisclosureSummary><div className="flex flex-wrap items-center gap-1.5 pt-3">
+        <details open={new URLSearchParams(window.location.search).has("importPdf") || undefined}><DisclosureSummary className="rounded-lg border px-3 py-2 text-xs font-medium">Importa / esporta</DisclosureSummary><div className="flex flex-wrap items-center gap-1.5 pt-3">
           <Button
             type="button"
             variant="outline"

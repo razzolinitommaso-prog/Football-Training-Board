@@ -2797,12 +2797,12 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         {dashboardShowsChampionshipPhases && (
           <>
             <DashboardMatchSummaryCard
-              title={dashboardSingleSection === "settore_giovanile" ? "Campionato e classifica" : "Campionato"}
+              title={nr === "secretary" ? "Calendario campionato" : dashboardSingleSection === "settore_giovanile" ? "Campionato e classifica" : "Campionato"}
               value={dashboardChampionshipMatchCount}
               description="gare andata/ritorno"
               icon={Trophy}
               tone="amber"
-              onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/campionati`)}
+              onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/${nr === "secretary" ? "programmazione-gare" : "campionati"}`)}
             />
             {dashboardSingleSection !== "settore_giovanile" && <DashboardMatchSummaryCard
               title="Classifica girone"

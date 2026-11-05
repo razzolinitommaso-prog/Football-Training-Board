@@ -222,9 +222,12 @@ export function AppSidebar() {
     const subItems = [
       { label: "Cruscotto", url: `${basePath}/dashboard`, icon: LayoutDashboard },
       ...SEZIONE_SUB_ITEMS
-      .filter(s => s.roles.includes(role || "") && !(sectionKey === "settore-giovanile" && s.url === "matches"))
+      .filter(s => s.roles.includes(role || "") && !(sectionKey === "settore-giovanile" && s.url === "matches")
+        && !(role === "presidente" && ["training", "exercises"].includes(s.url))
+        && !(role === "secretary" && ["teams", "matches", "attendance"].includes(s.url)))
       .map(s => ({ ...s, url: `${basePath}/${s.url}` })),
-      ...(sectionKey !== "scuola-calcio" && CHAMPIONSHIP_SUB_ITEM.roles.includes(role || "")
+      ...(role === "secretary" ? [{label:"Programmazione gare",url:`${basePath}/programmazione-gare`,icon:CalendarDays}] : []),
+      ...(sectionKey !== "scuola-calcio" && role !== "secretary" && CHAMPIONSHIP_SUB_ITEM.roles.includes(role || "")
         ? [{ ...CHAMPIONSHIP_SUB_ITEM, url: `${basePath}/${CHAMPIONSHIP_SUB_ITEM.url}` }]
         : []),
     ];

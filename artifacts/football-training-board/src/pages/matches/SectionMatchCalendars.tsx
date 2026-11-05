@@ -51,7 +51,8 @@ function sectionSlugFromClubSection(value?: string | null) {
   return "scuola-calcio";
 }
 
-function teamCalendarPath(team: Pick<Team, "id" | "clubSection">) {
+function teamCalendarPath(team: Pick<Team, "id" | "clubSection">, programming = false) {
+  if (programming) return `/${sectionSlugFromClubSection(team.clubSection)}/calendari/${team.id}?phase=${team.clubSection === "scuola_calcio" ? "autunnale" : "campionato"}`;
   if (team.clubSection === "settore_giovanile") return championshipMatchPath("settore_giovanile", team.id);
   return `/${sectionSlugFromClubSection(team.clubSection)}/calendari/${team.id}`;
 }
@@ -495,10 +496,12 @@ function MatchCalendarTeamCard({
   team,
   section,
   navigate,
+  programming = false,
 }: {
   team: Team;
   section: string;
   navigate: (to: string) => void;
+  programming?: boolean;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -671,14 +674,14 @@ function MatchCalendarTeamCard({
         onClick={(e) => {
           const target = e.target as HTMLElement | null;
           if (target?.closest("button,a,input,label,select,textarea")) return;
-          navigate(teamCalendarPath(team));
+          navigate(teamCalendarPath(team, programming));
         }}
         onKeyDown={(e) => {
           const target = e.target as HTMLElement | null;
           if (target?.closest("button,a,input,label,select,textarea")) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            navigate(teamCalendarPath(team));
+            navigate(teamCalendarPath(team, programming));
           }
         }}
         className="group text-left"
@@ -1190,7 +1193,7 @@ async function apiFetch(url: string, options?: RequestInit) {
   return res.json();
 }
 
-export default function SectionMatchCalendars({ section }: { section: string }) {
+export default function SectionMatchCalendars({ section, programming = false }: { section: string; programming?: boolean }) {
   const { role, user } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -1213,7 +1216,7 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
     [rawSectionTeams, section],
   );
 
-  const isManagement = ["admin", "director", "secretary", "presidente"].includes(role ?? "");
+  const isManagement = ["admin", "director", "secretary", "presidente", "sporting_director", "technical_director"].includes(role ?? "");
   const isStaff = ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(role ?? "");
   const staffTeams = useMemo(
     () =>
@@ -1473,10 +1476,10 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Trophy className="w-6 h-6 text-primary" />
-            Calendari Partite — {SECTION_LABEL[section]}
+            {programming ? "Programmazione gare" : "Calendari Partite"} — {SECTION_LABEL[section]}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Seleziona un'annata per vedere il calendario gare
+            {programming ? "Seleziona un’annata per gestire il calendario FTB, importare il PDF federale, inserire tornei e amichevoli." : "Seleziona un'annata per vedere il calendario gare"}
           </p>
           {canImportYouthFederalPdf && (
             <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -1625,7 +1628,7 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
           </Card>
         )}
 
-        <ChampionshipSectionPanel section={section} teams={visibleTeams} />
+        {programming ? <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="text-sm font-medium">Gestione dati del girone</DisclosureSummary><div className="mt-3"><ChampionshipSectionPanel section={section} teams={visibleTeams} /></div></details> : <ChampionshipSectionPanel section={section} teams={visibleTeams} />}
 
         {visibleTeams.length === 0 ? (
           <Card>
@@ -1638,7 +1641,7 @@ export default function SectionMatchCalendars({ section }: { section: string }) 
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {visibleTeams.map(team => (
-              <MatchCalendarTeamCard key={team.id} team={team} section={section} navigate={navigate} />
+              <MatchCalendarTeamCard key={team.id} team={team} section={section} navigate={navigate} programming={programming} />
             ))}
           </div>
         )}

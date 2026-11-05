@@ -309,6 +309,9 @@ function ProtectedAppRoutes() {
             <SectionMatchCalendars section="scuola_calcio" />
           </ProtectedRoute>
         </Route>
+        <Route path="/scuola-calcio/programmazione-gare"><ProtectedRoute allowedRoles={["admin","director","secretary","sporting_director","technical_director"]}><SectionMatchCalendars section="scuola_calcio" programming /></ProtectedRoute></Route>
+        <Route path="/settore-giovanile/programmazione-gare"><ProtectedRoute allowedRoles={["admin","director","secretary","sporting_director","technical_director"]}><SectionMatchCalendars section="settore_giovanile" programming /></ProtectedRoute></Route>
+        <Route path="/prima-squadra/programmazione-gare"><ProtectedRoute allowedRoles={["admin","director","secretary","sporting_director","technical_director"]}><SectionMatchCalendars section="prima_squadra" programming /></ProtectedRoute></Route>
         <Route path="/scuola-calcio/attendance">
           <ProtectedRoute allowedRoles={sectionAttendanceRoles}><AttendancePage section="scuola_calcio" /></ProtectedRoute>
         </Route>

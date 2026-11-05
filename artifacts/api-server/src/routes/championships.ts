@@ -3,6 +3,7 @@ import {
   championshipFixturesTable,
   championshipGroupsTable,
   championshipsTable,
+  clubsTable,
   db,
   matchesTable,
   teamsTable,
@@ -10,6 +11,7 @@ import {
 } from "@workspace/db";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
+import { resolveChampionshipMatch } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -712,17 +714,31 @@ function mergeOfficialStandingsWithGoals(officialStandings: StandingRow[], calcu
 
 // Read-only comparison of saved results: never fetches LND or writes its table.
 function ftbStandingsFor(
-  fixtures: Array<{ homeTeam: string; awayTeam: string; homeScore: number | null; awayScore: number | null; date?: Date | string | null }>,
+  fixtures: Array<{ homeTeam: string; awayTeam: string; homeScore: number | null; awayScore: number | null; date?: Date | string | null; linkedResult?: string | null }>,
   official: StandingRow[],
   pointsRule: ChampionshipPointsRule,
   now = Date.now(),
 ) {
+  let internalResultMatches = 0;
+  let conflictingResults = 0;
   const saved = fixtures.map(fixture => {
     const date = fixture.date ? new Date(fixture.date).getTime() : null;
-    const valid = Number.isInteger(fixture.homeScore) && Number.isInteger(fixture.awayScore)
-      && fixture.homeScore! >= 0 && fixture.awayScore! >= 0
-      && (date === null || (Number.isFinite(date) && date <= now));
-    return { ...fixture, homeScore: valid ? fixture.homeScore : null, awayScore: valid ? fixture.awayScore : null };
+    if (date !== null && (!Number.isFinite(date) || date > now)) return { ...fixture, homeScore: null, awayScore: null };
+    const internal = fixture.linkedResult?.match(/^\s*(\d+)\s*[-:–—]\s*(\d+)\s*$/);
+    const pair = internal ? [Number(internal[1]), Number(internal[2])] : null;
+    const validPair = pair?.every(value => Number.isSafeInteger(value) && value >= 0);
+    let { homeScore, awayScore } = fixture;
+    const validScore = (value: number | null) => value !== null && Number.isInteger(value) && value >= 0;
+    if (validPair && pair) {
+      const conflict = validScore(homeScore) && homeScore !== pair[0] || validScore(awayScore) && awayScore !== pair[1];
+      if (conflict) conflictingResults++;
+      else if (homeScore === null || awayScore === null) {
+        [homeScore, awayScore] = pair;
+        internalResultMatches++;
+      }
+    }
+    const valid = validScore(homeScore) && validScore(awayScore);
+    return { ...fixture, homeScore: valid ? homeScore : null, awayScore: valid ? awayScore : null };
   });
   const calculated = standingsFor(saved, pointsRule);
   const resultMatches = saved.filter(row => row.homeScore !== null && row.awayScore !== null).length;
@@ -737,12 +753,14 @@ function ftbStandingsFor(
     const other = officialByTeam.get(tableKey(row.team))!;
     return row.pg >= other.pg && row.v >= other.v && row.n >= other.n && row.p >= other.p;
   }) && calculated.some(row => row.pg > officialByTeam.get(tableKey(row.team))!.pg);
-  const status = sameRecord ? "aligned" : official.length === 0 ? "no-official" : ahead ? "provisional" : "review";
+  const status = conflictingResults > 0 ? "review" : sameRecord ? "aligned" : official.length === 0 ? "no-official" : ahead ? "provisional" : "review";
   return {
     status,
     // Preserve official points (including adjustments) when the game records match.
-    rows: sameRecord ? official : calculated,
+    rows: status === "aligned" ? official : calculated,
     resultMatches,
+    internalResultMatches,
+    conflictingResults,
     officialGamesMin: official.length ? Math.min(...official.map(row => row.pg)) : null,
     officialGamesMax: official.length ? Math.max(...official.map(row => row.pg)) : null,
   };
@@ -796,11 +814,17 @@ async function enrichedChampionships(params: { clubId: number; section?: string 
     .from(championshipFixturesTable)
     .where(and(eq(championshipFixturesTable.clubId, params.clubId), inArray(championshipFixturesTable.championshipId, ids)))
     .orderBy(asc(championshipFixturesTable.date), asc(championshipFixturesTable.round), asc(championshipFixturesTable.id));
-  const matchIds = fixtures.map((fixture) => fixture.matchId).filter((id): id is number => typeof id === "number");
-  const linkedMatches = matchIds.length > 0
-    ? await db.select({ id: matchesTable.id, result: matchesTable.result }).from(matchesTable).where(inArray(matchesTable.id, matchIds))
-    : [];
-  const resultByMatchId = new Map(linkedMatches.map((match) => [match.id, match.result]));
+  // Reuse the same conservative, read-only identity rules as opening a match
+  // from LND. Scope candidates to this club and the championships' sections.
+  const sectionKeys = [...new Set(championships.map(row => row.section))];
+  const clubTeams = await db.select().from(teamsTable).where(and(eq(teamsTable.clubId, params.clubId), inArray(teamsTable.clubSection, sectionKeys)));
+  const teamIds = clubTeams.map(team => team.id);
+  const internalMatches = teamIds.length ? await db.select().from(matchesTable).where(and(eq(matchesTable.clubId, params.clubId), inArray(matchesTable.teamId, teamIds))) : [];
+  const [club] = await db.select({name:clubsTable.name,legalName:clubsTable.legalName}).from(clubsTable).where(eq(clubsTable.id, params.clubId));
+  const candidates = internalMatches.map(match => ({...match,date:match.date.toISOString()}));
+  const identityChampionships = championships.map(championship => ({...championship,groups:groups.filter(group => group.championshipId === championship.id).map(group => ({...group,fixtures:fixtures.filter(row => row.groupId === group.id).map(row => ({...row,date:row.date?.toISOString()??null}))}))}));
+  const identityById = new Map(identityChampionships.map(row => [row.id,row]));
+  const teamScopeCache = new Map<number,number[]>();
 
   return championships.map((championship) => {
     const pointsRule = normalizePointsRule(championship.pointsRule);
@@ -812,7 +836,9 @@ async function enrichedChampionships(params: { clubId: number; section?: string 
         const groupFixtures = fixtures
           .filter((fixture) => fixture.groupId === group.id)
           .map((fixture) => {
-            const linkedResult = fixture.matchId ? resultByMatchId.get(fixture.matchId) : null;
+            const identity = identityById.get(championship.id)!;
+            const linked = resolveChampionshipMatch({...fixture,date:fixture.date?.toISOString()??null}, identity, identityChampionships, candidates, clubTeams.filter(team => team.clubSection === championship.section), [club?.name??"",club?.legalName??""], teamScopeCache);
+            const linkedResult = linked ? internalMatches.find(match => match.id === linked.id)?.result : null;
             return { ...fixture, linkedResult: linkedResult ?? null };
           });
         return {

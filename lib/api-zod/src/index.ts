@@ -23,3 +23,5 @@ export * from "./shared-tournaments";
 
 export * from "./match-rotation-summary";
 export { prepareReusedBoard } from "./reuse-training-station";
+
+export * from "./championship-match-links";

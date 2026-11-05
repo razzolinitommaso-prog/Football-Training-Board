@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { withApi } from "@/lib/api-base";
+import { useAuth } from "@/hooks/use-auth";
 
 type SectionKey = "settore_giovanile" | "prima_squadra";
 
@@ -50,6 +51,8 @@ type FtbStandings = {
   status: "aligned" | "provisional" | "no-official" | "review";
   rows: ChampionshipStanding[];
   resultMatches: number;
+  internalResultMatches?: number;
+  conflictingResults?: number;
   officialGamesMin: number | null;
   officialGamesMax: number | null;
 };
@@ -550,6 +553,8 @@ function ChampionshipView({ championship, group }: { championship: Championship;
                       : "I risultati salvati in FTB comprendono più gare della classifica LND. Calcolo provvisorio aggiornato su questi risultati."}
               </p>
               {group.ftbStandings.officialGamesMin !== null && <p className="text-xs text-muted-foreground">Classifica LND salvata: {group.ftbStandings.officialGamesMin === group.ftbStandings.officialGamesMax ? group.ftbStandings.officialGamesMin : `${group.ftbStandings.officialGamesMin}–${group.ftbStandings.officialGamesMax}`} gare giocate per squadra.</p>}
+              {!!group.ftbStandings.internalResultMatches && <p className="text-xs text-muted-foreground">{group.ftbStandings.internalResultMatches} risultati integrati dalle schede partita FTB collegate.</p>}
+              {!!group.ftbStandings.conflictingResults && <p className="text-xs text-amber-700 dark:text-amber-400">{group.ftbStandings.conflictingResults} risultati discordanti tra calendario salvato e schede FTB: verifica necessaria. I risultati del calendario non sono stati sostituiti.</p>}
               <StandingsTable standings={group.ftbStandings.rows} />
               {group.ftbStandings.status !== "aligned" && <p className="text-xs leading-relaxed text-muted-foreground">Calcolo indicativo: penalizzazioni, decisioni federali e criteri di parità possono modificare la graduatoria ufficiale. Nessuna modifica alla classifica LND.</p>}
             </CardContent>
@@ -713,6 +718,7 @@ function LndSyncDialog({
 }
 
 export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBasePath, onClearTeam }: { section: SectionKey; scopeTeamId?: number|null; scopeBasePath?:string; onClearTeam?:()=>void }) {
+  const {role} = useAuth();
   const search = useSearch();
   const [, setLocation] = useLocation();
   const params = new URLSearchParams(search);
@@ -780,6 +786,7 @@ export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBa
           <p className="text-sm text-muted-foreground">Calendario completo del girone, prossima giornata, risultati e classifica.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+        {["admin","director","secretary","sporting_director","technical_director"].includes(role??"")&&<Button variant="outline" asChild><Link href={requestedTeam ? `/${section.replace(/_/g,"-")}/calendari/${requestedTeam.id}?phase=campionato&importPdf=federal` : `/${section.replace(/_/g,"-")}/programmazione-gare`}>Calendario FTB / Importa PDF</Link></Button>}
         {sourceUrl && <Button variant="outline" asChild><a href={sourceUrl} target="_blank" rel="noopener noreferrer">Apri fonte LND</a></Button>}
         <Button type="button" className="gap-2" onClick={() => setSyncOpen(true)}>
           <RefreshCw className="h-4 w-4" />
