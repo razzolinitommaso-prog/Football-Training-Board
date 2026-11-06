@@ -1,7 +1,8 @@
 import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import {MatchRotationComparison} from "@/components/calendar/MatchRotationComparison";
 import {buildMatchRotationSummary} from "@workspace/api-zod";
-import {rotationUnits, rotateMatchPeriods, periodMinutes, thirdPartDuration, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
+import {matchPreparation, upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
+import {selectRotationCell, rotationUnits, rotateMatchPeriods, periodMinutes, thirdPartDuration, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
 import SharedTournamentHub from "./SharedTournamentHub";
 import { trainingSlotOnDate } from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
@@ -298,6 +299,7 @@ type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   secondPart?: MatchPlanPeriodRuntime;
   thirdPartMinutes?: number;
   rotationAuto?: boolean;
+  rotationLocks?: Record<string, "T" | "P">;
   lineupPlayerIds?: number[];
   lineupStarterCount?: number;
   lineupPositions?: LineupPositionMap;
@@ -1143,18 +1145,18 @@ function movePlayerBetweenPeriods(
   return periods.map((period, idx) => {
     const current = [...(period.lineupPlayerIds ?? [])];
     if (idx === sourceIndex) {
-      return { ...period, rotationAuto:false, lineupPlayerIds: current.filter((id) => id !== draggedId), lineupStarterCount: period.lineupStarterCount == null ? undefined : Math.max(0, period.lineupStarterCount - (current.indexOf(draggedId) >= 0 && current.indexOf(draggedId) < period.lineupStarterCount ? 1 : 0)) };
+      return { ...period, rotationAuto:false, rotationLocks: undefined, lineupPlayerIds: current.filter((id) => id !== draggedId), lineupStarterCount: period.lineupStarterCount == null ? undefined : Math.max(0, period.lineupStarterCount - (current.indexOf(draggedId) >= 0 && current.indexOf(draggedId) < period.lineupStarterCount ? 1 : 0)) };
     }
     if (idx === targetIndex) {
       const withoutDragged = current.filter((id) => id !== draggedId);
       if (targetId == null) {
-        return { ...period, rotationAuto:false, lineupPlayerIds: [...withoutDragged, draggedId] };
+        return { ...period, rotationAuto:false, rotationLocks: undefined, lineupPlayerIds: [...withoutDragged, draggedId] };
       }
       const targetPos = withoutDragged.indexOf(targetId);
       if (targetPos < 0) return { ...period, lineupPlayerIds: [...withoutDragged, draggedId] };
       const next = [...withoutDragged];
       next.splice(targetPos, 0, draggedId);
-      return { ...period, rotationAuto:false, lineupPlayerIds: next, lineupStarterCount: period.lineupStarterCount == null ? undefined : period.lineupStarterCount + (targetPos < period.lineupStarterCount && !current.includes(draggedId) ? 1 : 0) };
+      return { ...period, rotationAuto:false, rotationLocks: undefined, lineupPlayerIds: next, lineupStarterCount: period.lineupStarterCount == null ? undefined : period.lineupStarterCount + (targetPos < period.lineupStarterCount && !current.includes(draggedId) ? 1 : 0) };
     }
     return period;
   });
@@ -1787,6 +1789,7 @@ function MatchCard({
   bulkSelected,
   onBulkToggle,
   startExpanded = false,
+  nextMatch = false,
 }: {
   match: MatchTimelineItem;
   canEditPreNotes: boolean;
@@ -1804,6 +1807,7 @@ function MatchCard({
   bulkSelected?: boolean;
   onBulkToggle?: () => void;
   startExpanded?: boolean;
+  nextMatch?: boolean;
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -2044,15 +2048,19 @@ function MatchCard({
   const postView = splitPostNotesAndAttachments(match.postMatchNotes);
   const hasPostNotes = postView.note.length > 0 || postView.attachments.length > 0 || savedReport.success;
 
-  const statusColor = isPostponedOriginalView
-    ? "border-l-muted-foreground/40 bg-muted/30 opacity-75"
-    : isRecoveryView
-    ? "border-l-emerald-500"
-    : match.isPostponed
-    ? "border-l-amber-400"
-    : isPast
-    ? "border-l-muted-foreground/30"
-    : "border-l-primary";
+  const preparation = matchPreparation(planDraft, playerLimitForFormat(matchFormat), selectionReady ? selectedPlayerIds : undefined);
+  const statusColor = isPostponedOriginalView ? "opacity-60" : "";
+
+  function selectComparisonCell(id: number, key: string, reserve: boolean) {
+    const unit = rotationUnits(planDraft.periods).find(u => u.period.key === key);
+    if (!unit) return;
+    if (!autoReserveRuleEnabled) { setPeriodPlayerReserveStatus(id, reserve, unit.index); return; }
+    try {
+      const keepers = new Set(convokedPlayers.filter(isGoalkeeperPlayer).map(p => p.id));
+      const periods = selectRotationCell(planDraft.periods, selectedPlayerIds, p => startersLimitForPeriod(p, matchFormat), keepers, key, id, reserve);
+      setPlanDraft(previous => ({ ...previous, periods }));
+    } catch (error) { toast({ title: (error as Error).message, variant: "destructive" }); }
+  }
 
   function startPostNoteEditor() {
     const parsed = splitPostNotesAndAttachments(match.postMatchNotes);
@@ -2228,7 +2236,7 @@ function MatchCard({
               const { lineupPlayerIds } = normalized;
               return {
               ...period,
-              rotationAuto:false,
+              rotationAuto:false, rotationLocks: undefined,
               module: lineupDialog.module,
               ...normalized,
               lineupPlayerIds,
@@ -2261,13 +2269,13 @@ function MatchCard({
       const periods = previous.periods.map((period, index) => {
         if (index !== periodIndex) return period;
         if (alternativeId) return { ...period, lineupAlternatives: (period.lineupAlternatives ?? []).map(alternative => alternative.id === alternativeId ? { ...alternative, ...changes } : alternative) };
-        return { ...period, ...changes, rotationAuto:false, lineupDetectedModule: null, boardConfirmed: false };
+        return { ...period, ...changes, rotationAuto:false, rotationLocks: undefined, lineupDetectedModule: null, boardConfirmed: false };
       });
       return { ...previous, periods: !alternativeId && autoReserveRuleEnabled ? applyScuolaCalcioPeriodRotation(periods, selectedPlayerIds, matchFormat, convokedById) : periods };
     });
   }
 
-  function updateThirdPart(periodIndex:number,changes:Partial<MatchPlanPeriodRuntime>){setPlanDraft(previous=>{const periods=previous.periods.map((p,i)=>i!==periodIndex?p:{...p,secondPart:{...(p.secondPart??{key:"t3-second",label:"3° tempo · seconda parte",minutes:String(periodMinutes(p.minutes)/2)}),...changes,rotationAuto:false,boardConfirmed:false}});return {...previous,periods:applyScuolaCalcioPeriodRotation(periods,selectedPlayerIds,matchFormat,convokedById)};});}
+  function updateThirdPart(periodIndex:number,changes:Partial<MatchPlanPeriodRuntime>){setPlanDraft(previous=>{const periods=previous.periods.map((p,i)=>i!==periodIndex?p:{...p,secondPart:{...(p.secondPart??{key:"t3-second",label:"3° tempo · seconda parte",minutes:String(periodMinutes(p.minutes)/2)}),...changes,rotationAuto:false, rotationLocks: undefined,boardConfirmed:false}});return {...previous,periods:applyScuolaCalcioPeriodRotation(periods,selectedPlayerIds,matchFormat,convokedById)};});}
 
   function addLineupAlternatives(periodIndex: number, minimum = false) {
     const stamp = Date.now();
@@ -2285,7 +2293,7 @@ function MatchCard({
       const periods = previous.periods.map((period, index) => {
         if (index !== periodIndex) return period;
         const alternative = period.lineupAlternatives?.find(item => item.id === alternativeId);
-        return alternative ? {...applyLineupAlternative(period, alternative),rotationAuto:false} : period;
+        return alternative ? {...applyLineupAlternative(period, alternative),rotationAuto:false,rotationLocks:undefined} : period;
       });
       return { ...previous, periods: autoReserveRuleEnabled ? applyScuolaCalcioPeriodRotation(periods, selectedPlayerIds, matchFormat, convokedById) : periods };
     });
@@ -2301,7 +2309,7 @@ function MatchCard({
         { ...first, lineupPlayerIds: first.lineupPlayerIds ?? selectedPlayersOrdered }, limit, playerId, reserve, selected,
       );
       const nextPeriods = prev.periods.map((period, index) =>
-        index === periodIndex ? { ...period, lineupPlayerIds, lineupStarterCount, rotationAuto:false, boardConfirmed: false } : period,
+        index === periodIndex ? { ...period, lineupPlayerIds, lineupStarterCount, rotationAuto:false, rotationLocks: undefined, boardConfirmed: false } : period,
       );
       const adjusted =
         autoReserveRuleEnabled
@@ -2435,13 +2443,13 @@ function MatchCard({
       qc.invalidateQueries({ queryKey: ["/api/matches"] });
       qc.invalidateQueries({ queryKey: ["/api/matches", match.id, "callups"] });
       toast({ title: "Rosa e schieramenti salvati" });
-      setPlanOpen(false);
+      setPlanOpen(true);
     } catch (err: any) {
       if (isNoopMatchUpdateError(err)) {
         qc.invalidateQueries({ queryKey: ["/api/matches"] });
         qc.invalidateQueries({ queryKey: ["/api/matches", match.id, "callups"] });
         toast({ title: "Rosa e schieramenti salvati" });
-        setPlanOpen(false);
+        setPlanOpen(true);
         return;
       }
       toast({ title: err?.message ?? "Errore salvataggio piano partita", variant: "destructive" });
@@ -2564,7 +2572,7 @@ function MatchCard({
     >
       <CardContent className="p-0">
 
-        <CompactMatchHeading date={match.date} home={homeLabel} away={awayLabel} result={match.result}
+        <CompactMatchHeading preparationStatus={preparation} nextMatch={nextMatch} date={match.date} home={homeLabel} away={awayLabel} result={match.result}
           selection={bulkSelectEnabled && onBulkToggle ? <Checkbox checked={!!bulkSelected} onCheckedChange={()=>onBulkToggle()} aria-label="Seleziona partita per azioni di gruppo"/> : undefined}
           metadata={<><span className="match-location-tag rounded border bg-muted/30">{isHome ? "Casa" : "Trasferta"}</span>{match.competition&&<span><Trophy/>{match.competition}</span>}{match.location&&<span><MapPin/>{match.location}</span>}{match.isPostponed&&<span className="text-amber-700 dark:text-amber-400"><AlertTriangle/>Rinviata · {match.rescheduleTbd ? "recupero da concordare" : match.rescheduleDate ? format(new Date(match.rescheduleDate),"d MMM yyyy · HH:mm",{locale:itLocale}) : "data recupero non definita"}</span>}{isRecoveryView&&<span className="text-emerald-700 dark:text-emerald-400"><RotateCcw/>Recupero{match.__originalDate ? " del " + format(new Date(match.__originalDate),"d MMM yyyy",{locale:itLocale}) : ""}</span>}{!isPast&&!match.isPostponed&&<span className="text-primary"><Clock/>In programma</span>}</>}
           indicators={<>{canViewMatchPlan&&<span><ListChecks/>Convocati: {callupsLoaded ? selectedPlayerIds.size : "…"}</span>}{(canEditPreNotes||match.preMatchNotes)&&<span><ClipboardList/>Pre: {match.preMatchNotes ? "presenti" : "—"}</span>}{(canEditPostNotes||isPast||hasPostNotes)&&<span><FileText/>Post: {hasPostNotes ? "presenti" : "—"}{postView.attachments.length>0 ? " · " + postView.attachments.length + " allegati" : ""}</span>}{canViewMatchPlan&&!canManageMatchPlan&&<span className="ml-auto rounded border px-1.5 py-0.5 text-[10px]">Solo lettura piano</span>}</>}
@@ -2721,7 +2729,7 @@ function MatchCard({
           <div className="pt-2 border-t border-border/40 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
-                <ListChecks className="w-3 h-3" /> Rosa usata e moduli per tempi
+                <ListChecks className="w-3 h-3" /> Convocazione e preparazione partita
               </span>
               <div className="flex flex-wrap items-center justify-end gap-1.5">
                 <Button
@@ -2764,51 +2772,15 @@ function MatchCard({
                 Lavagna preparazione partita
               </a>
             </div>
+            {!canManageMatchPlan && <div className="space-y-3">
+              <section className="rounded-xl border bg-background p-3 text-xs"><h4 className="mb-2 font-semibold">Partita e ritrovo</h4><p>{planDraft.convocationAt ? format(new Date(planDraft.convocationAt), "d MMM yyyy · HH:mm", {locale:itLocale}) : "Orario convocazione da definire"} · {planDraft.convocationPlace || "Luogo convocazione da definire"}</p></section>
+              <MatchRotationComparison summary={buildMatchRotationSummary(planDraft,selectedPlayersOrdered.map(id=>convokedById.get(id)).filter((p):p is Player=>!!p),playerLimitForFormat(matchFormat))} />
+            </div>}
             {planOpen && canManageMatchPlan && (
               <div className="rounded-md border border-border/60 bg-muted/20 p-1 sm:p-3 space-y-3">
-                <MatchRotationComparison
-                  summary={buildMatchRotationSummary(planDraft,selectedPlayersOrdered.map(id=>convokedById.get(id)).filter((p):p is Player=>!!p),playerLimitForFormat(matchFormat))}
-                  roster={sortedTeamPlayers.map(p=>({id:p.id,name:(p.jerseyNumber? p.jerseyNumber+' · ':'')+p.lastName+' '+p.firstName,called:selectedPlayerIds.has(p.id),disabled:p.available===false||parentUnavailableCallupsByPlayer.has(p.id),note:parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':playerUnavailableLabel(p).replace(/^\s*-\s*/,'')}))}
-                  onCallup={(id,called)=>setSelectedPlayerIds(previous=>{const next=new Set(previous);if(called)next.add(id);else next.delete(id);return next;})}
-                  onStatus={(id,key,reserve)=>{const unit=rotationUnits(planDraft.periods).find(u=>u.period.key===key);if(!unit)return;if(unit.second)updateThirdPart(unit.index,changeMatchLineupStatus(unit.period,startersLimitForPeriod(unit.period,matchFormat),id,reserve,selectedPlayerIds));else setPeriodPlayerReserveStatus(id,reserve,unit.index);}}
-                  controls={<div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-2 text-xs"><span>{planDraft.periods.length} tempi · {planDraft.periods.map(p=>periodMinutes(p.minutes)).join(' / ')} min</span>{!planDraft.fourthTime&&planDraft.periods.some(p=>p.key==='t3')&&<span>3°: {thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} + {periodMinutes(planDraft.periods.find(p=>p.key==='t3')!.minutes)-thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} min</span>}                {matchSection === "scuola_calcio" && (
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      checked={!!planDraft.fourthTime}
-                      onCheckedChange={v=>{try{const next=toggleFourthPeriod(planDraft,v===true);setPlanDraft({...next,periods:applyScuolaCalcioPeriodRotation(next.periods,selectedPlayerIds,matchFormat,convokedById)});if(next.postMatchReport)setPostReportDraft(next.postMatchReport);}catch(error){toast({title:(error as Error).message,variant:"destructive"});}}}
-                    />
-                    <Label className="text-xs cursor-pointer">Abilita 4° tempo</Label>
-                  </div>
-                )}
-{autoReserveRuleEnabled && <Button type="button" size="sm" variant="outline" onClick={()=>{if(window.confirm('Calcolare i tempi successivi mantenendo il primo? Le scelte manuali successive saranno sostituite.'))setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods,selectedPlayerIds,matchFormat,convokedById,true)}));}}>Calcola tempi successivi</Button>}</div>}
-                  renderPitch={unit=>{const runtime=rotationUnits(planDraft.periods).find(u=>u.period.key===unit.key);if(!runtime)return null;const period={...runtime.period,label:unit.label,minutes:String(unit.minutes)},groups=splitMatchLineup(period,startersLimitForPeriod(period,matchFormat),selectedPlayerIds);return <><p className="text-[10px] text-muted-foreground">{runtime.period.rotationAuto?"Automatico":"Manuale"}</p><MatchDraftLineupPreview period={period} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={unit.label} onChange={changes=>runtime.second?updateThirdPart(runtime.index,changes):updateInlinePeriod(runtime.index,changes)}/><p className="text-[10px] text-muted-foreground">Panchina: {groups.reserves.map(id=>convokedById.get(id)?.lastName).filter(Boolean).join(', ')||'—'}</p><Button type="button" variant="ghost" size="sm" className="w-full text-xs" onClick={()=>setPreviewBoard({...period, boardUrl: undefined, boardTitle: undefined})}>Ingrandisci</Button>{!runtime.second&&<Button type="button" variant="ghost" size="sm" className="w-full text-xs" onClick={()=>openLineupDialog(runtime.index,'edit')}>Strumenti avanzati</Button>}</>;}}
-                  footer={<div className="sticky bottom-0 z-10 flex justify-end border-t bg-background p-2"><Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button></div>}
-                />
-                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Dettagli e alternative</DisclosureSummary>{planDraft.periods.map((previewPeriod,previewPeriodIndex)=><div key={previewPeriod.key}>                <Button type="button" variant="outline" className="mt-3 min-h-10 w-full whitespace-normal" aria-expanded={openAlternativePeriods.has(previewPeriod.key)} onClick={() => {
-                  if (!openAlternativePeriods.has(previewPeriod.key)) addLineupAlternatives(previewPeriodIndex, true);
-                  setOpenAlternativePeriods(previous => { const next = new Set(previous); if (next.has(previewPeriod.key)) next.delete(previewPeriod.key); else next.add(previewPeriod.key); return next; });
-                }}>Lavora sui possibili schieramenti — {previewPeriod.label}</Button>
-                {openAlternativePeriods.has(previewPeriod.key) && <section className="mt-3 space-y-3" aria-label={`Possibili schieramenti ${previewPeriod.label}`}>
-                  <p className="text-xs text-muted-foreground">Le alternative non cambiano lo schieramento attuale. Usa questo schieramento per applicarne una; Salva piano partita conserva attuale e alternative.</p>
-                  <div className="flex flex-wrap gap-1 lg:hidden" aria-label={`Scegli alternativa ${previewPeriod.label}`}>
-                    {[{ id: "current", title: "Attuale" }, ...(previewPeriod.lineupAlternatives ?? [])].map(item => <Button key={item.id} type="button" size="sm" variant={(activeAlternative[previewPeriod.key] ?? "current") === item.id ? "default" : "outline"} onClick={() => setActiveAlternative(previous => ({ ...previous, [previewPeriod.key]: item.id }))}>{item.title}</Button>)}
-                  </div>
-                  <div className="grid min-w-0 gap-3 lg:grid-cols-3">
-                    <div className={cn("min-w-0 rounded-lg border bg-background p-2", (activeAlternative[previewPeriod.key] ?? "current") !== "current" && "hidden lg:block")}>
-                      <h5 className="mb-2 text-sm font-semibold">Attuale — {previewPeriod.label}</h5>
-                      <MatchDraftLineupPreview period={previewPeriod} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={`Confronto attuale ${previewPeriod.label}`} onChange={changes => updateInlinePeriod(previewPeriodIndex, changes)} />
-                    </div>
-                    {(previewPeriod.lineupAlternatives ?? []).map(alternative => <div key={alternative.id} className={cn("min-w-0 rounded-lg border bg-background p-2", activeAlternative[previewPeriod.key] !== alternative.id && "hidden lg:block")}>
-                      <h5 className="mb-2 text-sm font-semibold">{alternative.title} — {previewPeriod.label}</h5>
-                      <MatchDraftLineupPreview period={{ ...previewPeriod, ...alternative }} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={`${alternative.title} ${previewPeriod.label}`} onChange={changes => updateInlinePeriod(previewPeriodIndex, changes, alternative.id)} />
-                      <Button type="button" variant="outline" className="mt-2 w-full" onClick={() => useLineupAlternative(previewPeriodIndex, alternative.id)}>Usa questo schieramento</Button>
-                    </div>)}
-                  </div>
-                  <Button type="button" variant="outline" className="min-h-10 gap-2" onClick={() => addLineupAlternatives(previewPeriodIndex)}><Plus className="h-4 w-4" />Aggiungi alternativa</Button>
-                </section>}
-</div>)}</details>
-                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Durate dei tempi</DisclosureSummary><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{planDraft.periods.map((p,index)=><label key={p.key} className="text-xs">{p.label}<Input type="number" min={1} max={180} step={0.5} value={periodMinutes(p.minutes)} onChange={e=>{const minutes=Number(e.target.value);if(minutes>=1&&minutes<=180)setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods.map((period,i)=>i===index?{...period,minutes:String(minutes),thirdPartMinutes:undefined}:period),selectedPlayerIds,matchFormat,convokedById)}));}}/></label>)}</div>{!planDraft.fourthTime&&planDraft.periods.find(p=>p.key==='t3')&&<label className="mt-2 block text-xs">Prima parte del terzo tempo<Input className="max-w-32" type="number" min={0.25} step={0.25} value={thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} onChange={e=>{const value=Number(e.target.value),third=planDraft.periods.find(p=>p.key==='t3')!;if(value>0&&value<periodMinutes(third.minutes))setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods.map(p=>p.key==='t3'?{...p,thirdPartMinutes:value}:p),selectedPlayerIds,matchFormat,convokedById)}));}}/></label>}</details>
-                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Disponibilità e presenze allenamenti</DisclosureSummary><div className="divide-y">{sortedTeamPlayers.map(p=><div key={p.id} className="flex flex-wrap justify-between gap-2 py-2 text-xs"><span>{p.lastName} {p.firstName} {p.position||''} {playerUnavailableLabel(p)} {parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':''}</span><span>{matchWeekTrainingDays.map(day=>{const status=day.sessionId?matchWeekAttendanceByPlayer.get(p.id+':'+day.sessionId):null;return <span key={day.key} className="ml-2">{format(day.date,'EEE d',{locale:itLocale})}: {status??'non registrato'}</span>;})}</span></div>)}</div></details>
+                <section className="rounded-xl border bg-background p-3 space-y-3" aria-label="Partita e ritrovo">
+                  <h4 className="text-sm font-semibold">Partita e ritrovo</h4>
+                  <p className="text-xs text-muted-foreground">{format(matchDate, "EEEE d MMMM yyyy · HH:mm", {locale:itLocale})} · {match.location || "Campo da definire"} · {matchFormat}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Orario convocazione</Label>
@@ -2867,6 +2839,60 @@ function MatchCard({
                     Apri su Google Maps
                   </a>
                 )}
+
+                </section>
+                <MatchRotationComparison
+                  summary={buildMatchRotationSummary(planDraft,selectedPlayersOrdered.map(id=>convokedById.get(id)).filter((p):p is Player=>!!p),playerLimitForFormat(matchFormat))}
+                  roster={sortedTeamPlayers.map(p=>({id:p.id,name:(p.jerseyNumber? p.jerseyNumber+' · ':'')+p.lastName+' '+p.firstName,called:selectedPlayerIds.has(p.id),disabled:p.available===false||parentUnavailableCallupsByPlayer.has(p.id),note:parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':playerUnavailableLabel(p).replace(/^\s*-\s*/,'')}))}
+                  onCallup={(id,called)=>setSelectedPlayerIds(previous=>{const next=new Set(previous);if(called)next.add(id);else next.delete(id);return next;})}
+                  onStatus={selectComparisonCell}
+                  automatic={autoReserveRuleEnabled}
+                  controls={<div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-2 text-xs"><span>{planDraft.periods.length} tempi · {planDraft.periods.map(p=>periodMinutes(p.minutes)).join(' / ')} min</span>{!planDraft.fourthTime&&planDraft.periods.some(p=>p.key==='t3')&&<span>3°: {thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} + {periodMinutes(planDraft.periods.find(p=>p.key==='t3')!.minutes)-thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} min</span>}                {matchSection === "scuola_calcio" && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      aria-label="Abilita 4° tempo" checked={!!planDraft.fourthTime}
+                      onCheckedChange={v=>{try{const next=toggleFourthPeriod(planDraft,v===true);setPlanDraft({...next,periods:applyScuolaCalcioPeriodRotation(next.periods,selectedPlayerIds,matchFormat,convokedById)});if(next.postMatchReport)setPostReportDraft(next.postMatchReport);}catch(error){toast({title:(error as Error).message,variant:"destructive"});}}}
+                    />
+                    <Label className="text-xs cursor-pointer">Abilita 4° tempo</Label>
+                  </div>
+                )}
+{autoReserveRuleEnabled && <Button type="button" size="sm" variant="ghost" onClick={() => setPlanDraft(previous => ({...previous, periods:applyScuolaCalcioPeriodRotation(previous.periods.map(p => ({...p, ...(p.rotationLocks ? {rotationLocks:{}} : {}), ...(p.secondPart ? {secondPart:{...p.secondPart,...(p.secondPart.rotationLocks ? {rotationLocks:{}} : {})}} : {})})), selectedPlayerIds, matchFormat, convokedById)}))}>Libera scelte fissate</Button>}
+{autoReserveRuleEnabled && <Button type="button" size="sm" variant="outline" onClick={()=>{if(window.confirm('Calcolare i tempi successivi mantenendo il primo? Le scelte manuali successive saranno sostituite.'))setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods,selectedPlayerIds,matchFormat,convokedById,true)}));}}>Calcola tempi successivi</Button>}</div>}
+                  renderPitch={unit => {
+                    const runtime = rotationUnits(planDraft.periods).find(u => u.period.key === unit.key);
+                    if (!runtime) return null;
+                    const period = { ...runtime.period, label: unit.label, minutes: String(unit.minutes) };
+                    return <><p className="text-[10px] text-muted-foreground">{period.rotationAuto ? "Automatico" : "Manuale"}</p>
+                      <MatchDraftLineupPreview period={period} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById}/>
+                      <Button type="button" variant="ghost" size="sm" className="w-full px-0 text-[10px]" onClick={() => setPreviewBoard({ ...period, boardUrl: undefined, boardTitle: undefined })}>Ingrandisci</Button></>;
+                  }}
+                  footer={<div className="sticky bottom-0 z-10 flex justify-end border-t bg-background p-2"><Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button></div>}
+                />
+                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Lavora sui possibili schieramenti</DisclosureSummary>{planDraft.periods.map((previewPeriod,previewPeriodIndex)=><div key={previewPeriod.key}>                <Button type="button" variant="outline" className="mt-3 min-h-10 w-full whitespace-normal" aria-expanded={openAlternativePeriods.has(previewPeriod.key)} onClick={() => {
+                  if (!openAlternativePeriods.has(previewPeriod.key)) addLineupAlternatives(previewPeriodIndex, true);
+                  setOpenAlternativePeriods(previous => { const next = new Set(previous); if (next.has(previewPeriod.key)) next.delete(previewPeriod.key); else next.add(previewPeriod.key); return next; });
+                }}>Lavora sui possibili schieramenti — {previewPeriod.label}</Button>
+                {openAlternativePeriods.has(previewPeriod.key) && <section className="mt-3 space-y-3" aria-label={`Possibili schieramenti ${previewPeriod.label}`}>
+                  <p className="text-xs text-muted-foreground">Le alternative non cambiano lo schieramento attuale. Usa questo schieramento per applicarne una; Salva piano partita conserva attuale e alternative.</p>
+                  <div className="flex flex-wrap gap-1 lg:hidden" aria-label={`Scegli alternativa ${previewPeriod.label}`}>
+                    {[{ id: "current", title: "Attuale" }, ...(previewPeriod.lineupAlternatives ?? [])].map(item => <Button key={item.id} type="button" size="sm" variant={(activeAlternative[previewPeriod.key] ?? "current") === item.id ? "default" : "outline"} onClick={() => setActiveAlternative(previous => ({ ...previous, [previewPeriod.key]: item.id }))}>{item.title}</Button>)}
+                  </div>
+                  <div className="grid min-w-0 gap-3 lg:grid-cols-3">
+                    <div className={cn("min-w-0 rounded-lg border bg-background p-2", (activeAlternative[previewPeriod.key] ?? "current") !== "current" && "hidden lg:block")}>
+                      <h5 className="mb-2 text-sm font-semibold">Attuale — {previewPeriod.label}</h5>
+                      <MatchDraftLineupPreview period={previewPeriod} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={`Confronto attuale ${previewPeriod.label}`} onChange={changes => updateInlinePeriod(previewPeriodIndex, changes)} /><Button type="button" size="sm" variant="outline" className="mt-2 w-full" onClick={() => openLineupDialog(previewPeriodIndex, "edit")}>Strumenti avanzati</Button>
+                    </div>
+                    {(previewPeriod.lineupAlternatives ?? []).map(alternative => <div key={alternative.id} className={cn("min-w-0 rounded-lg border bg-background p-2", activeAlternative[previewPeriod.key] !== alternative.id && "hidden lg:block")}>
+                      <h5 className="mb-2 text-sm font-semibold">{alternative.title} — {previewPeriod.label}</h5>
+                      <MatchDraftLineupPreview period={{ ...previewPeriod, ...alternative }} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} editorLabel={`${alternative.title} ${previewPeriod.label}`} onChange={changes => updateInlinePeriod(previewPeriodIndex, changes, alternative.id)} />
+                      <Button type="button" variant="outline" className="mt-2 w-full" onClick={() => useLineupAlternative(previewPeriodIndex, alternative.id)}>Usa questo schieramento</Button>
+                    </div>)}
+                  </div>
+                  <Button type="button" variant="outline" className="min-h-10 gap-2" onClick={() => addLineupAlternatives(previewPeriodIndex)}><Plus className="h-4 w-4" />Aggiungi alternativa</Button>
+                </section>}
+{previewPeriod.key === "t3" && !planDraft.fourthTime && previewPeriod.secondPart && <div className="mt-3 rounded-lg border p-3"><h5 className="mb-2 text-xs font-semibold">3B · Modifica schieramento</h5><MatchDraftLineupPreview period={previewPeriod.secondPart} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} onChange={changes => updateThirdPart(previewPeriodIndex, changes)} /></div>}</div>)}</details>
+                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Durate dei tempi</DisclosureSummary><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{planDraft.periods.map((p,index)=><label key={p.key} className="text-xs">{p.label}<Input type="number" min={1} max={180} step={0.5} value={periodMinutes(p.minutes)} onChange={e=>{const minutes=Number(e.target.value);if(minutes>=1&&minutes<=180)setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods.map((period,i)=>i===index?{...period,minutes:String(minutes),thirdPartMinutes:undefined}:period),selectedPlayerIds,matchFormat,convokedById)}));}}/></label>)}</div>{!planDraft.fourthTime&&planDraft.periods.find(p=>p.key==='t3')&&<label className="mt-2 block text-xs">Prima parte del terzo tempo<Input className="max-w-32" type="number" min={0.25} step={0.25} value={thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} onChange={e=>{const value=Number(e.target.value),third=planDraft.periods.find(p=>p.key==='t3')!;if(value>0&&value<periodMinutes(third.minutes))setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods.map(p=>p.key==='t3'?{...p,thirdPartMinutes:value}:p),selectedPlayerIds,matchFormat,convokedById)}));}}/></label>}</details>
+                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Disponibilità e presenze allenamenti</DisclosureSummary><div className="divide-y">{sortedTeamPlayers.map(p=><div key={p.id} className="flex flex-wrap justify-between gap-2 py-2 text-xs"><span>{p.lastName} {p.firstName} {p.position||''} {playerUnavailableLabel(p)} {parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':''}</span><span>{matchWeekTrainingDays.map(day=>{const status=day.sessionId?matchWeekAttendanceByPlayer.get(p.id+':'+day.sessionId):null;return <span key={day.key} className="ml-2">{format(day.date,'EEE d',{locale:itLocale})}: {status??'non registrato'}</span>;})}</span></div>)}</div></details>
                 {false && matchSection === "settore_giovanile" && (
                   <div className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -3095,7 +3121,7 @@ function MatchCard({
                                             ? prev.periods.map((x, ix) => {
                                                 if (ix !== i) return x;
                                                 const current = (x.lineupPlayerIds ?? []).filter((id) => selectedPlayerIds.has(id));
-                                                return { ...x, rotationAuto:false, lineupPlayerIds: reorderIds(current, dragged, playerId) };
+                                                return { ...x, rotationAuto:false, rotationLocks: undefined, lineupPlayerIds: reorderIds(current, dragged, playerId) };
                                               })
                                             : movePlayerBetweenPeriods(prev.periods, sourceIndex, i, dragged, playerId);
                                         if (autoReserveRuleEnabled) {
@@ -3245,6 +3271,7 @@ function MatchCard({
           </div>
         )}
 
+        <details open={editingPreNotes || postMenuOpen || undefined} className="rounded-lg border bg-background p-3"><DisclosureSummary className="text-xs font-semibold">Note, allegati e resoconto</DisclosureSummary><div className="mt-3 space-y-3">
         {/* Pre-match notes */}
         {(canEditPreNotes || match.preMatchNotes) && (
           <div className="pt-2 border-t border-border/40">
@@ -3549,6 +3576,7 @@ function MatchCard({
             )}
           </div>
         )}
+        </div></details>
         </CompactMatchDetails>
       </CardContent>
     </Card>
@@ -5861,6 +5889,22 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
     return { items: buildMatchTimelineItems(autunnaleFiltered), rawCount: autunnale.length };
   }, [phaseTab, campionatoFiltered, autunnaleFiltered, primaverileFiltered, torneiFiltered, amichevoliFiltered, campionato.length, autunnale.length, primaverile.length, tornei.length, amichevoli.length]);
 
+  const orderedPhaseItems = upcomingFirst(activePhase.items);
+  const upcomingPhaseItems = orderedPhaseItems.filter(item => isUpcomingMatch(item));
+  const historicalPhaseItems = orderedPhaseItems.filter(item => !isUpcomingMatch(item));
+  const nextPhaseId = upcomingPhaseItems[0]?.id;
+  const renderPhaseMatch = (m: MatchTimelineItem) => {
+    const originalPostponedView = m.__timelineView === "postponed-original";
+    return <MatchCard key={m.id + "-" + (m.__timelineView ?? "standard")} match={m} nextMatch={m.id === nextPhaseId && !originalPostponedView}
+      canEditPreNotes={canEditPreNotes && !originalPostponedView} canEditPostNotes={canEditPostNotes && !originalPostponedView}
+      canEditSchedule={canEditSchedule && !originalPostponedView} canDeleteMatch={canImportExport && !originalPostponedView}
+      canManageMatchPlan={canManageMatchPlan && !originalPostponedView} canViewMatchPlan={canViewMatchPlan && !originalPostponedView}
+      teamPlayers={teamPlayers} teamTrainingSchedule={team?.trainingSchedule ?? null} matchSection={currentSection}
+      teamName={team?.name ?? ""} teamCategory={team?.category ?? undefined} bulkSelectEnabled={canImportExport && !originalPostponedView}
+      bulkSelected={selectedMatchIds.has(m.id)} onBulkToggle={() => togglePhaseMatchSelection(m.id)} />;
+  };
+
+
   if (!teamId) return <div className="p-6 text-muted-foreground">Squadra non trovata.</div>;
   if (detailMatchId) {
     const match = matches.find(item => item.id === detailMatchId && item.teamId === teamId);
@@ -6378,29 +6422,14 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
                   : "Nessuna partita in questa fase."}
               </CardContent>
             </Card>
-          ) : activePhase.items.map(m => {
-            const originalPostponedView = m.__timelineView === "postponed-original";
-            return (
-            <MatchCard
-              key={`${m.id}-${m.__timelineView ?? "standard"}`}
-              match={m}
-              canEditPreNotes={canEditPreNotes && !originalPostponedView}
-              canEditPostNotes={canEditPostNotes && !originalPostponedView}
-              canEditSchedule={canEditSchedule && !originalPostponedView}
-              canDeleteMatch={canImportExport && !originalPostponedView}
-              canManageMatchPlan={canManageMatchPlan && !originalPostponedView}
-              canViewMatchPlan={canViewMatchPlan && !originalPostponedView}
-              teamPlayers={teamPlayers}
-              teamTrainingSchedule={team?.trainingSchedule ?? null}
-              matchSection={currentSection}
-              teamName={team?.name ?? ""}
-              teamCategory={team?.category ?? undefined}
-              bulkSelectEnabled={canImportExport && !originalPostponedView}
-              bulkSelected={selectedMatchIds.has(m.id)}
-              onBulkToggle={() => togglePhaseMatchSelection(m.id)}
-            />
-            );
-          })}
+          ) : <>
+            <p className="flex flex-wrap gap-4 text-[11px] text-muted-foreground"><span>● Da preparare</span><span className="text-amber-700 dark:text-amber-300">● Da completare</span><span className="text-emerald-700 dark:text-emerald-300">● Preparazione completa</span></p>
+            {upcomingPhaseItems.map(renderPhaseMatch)}
+            {historicalPhaseItems.length > 0 && <details className="rounded-xl border bg-card p-3" open={historicalPhaseItems.some(m => m.id === openMatchIdFromQuery) || matchFiltersActive || undefined}>
+              <DisclosureSummary className="text-sm font-medium">Partite passate e rinviate · {historicalPhaseItems.length}</DisclosureSummary>
+              <div className="mt-3 space-y-3">{historicalPhaseItems.map(renderPhaseMatch)}</div>
+            </details>}
+          </>}
         </div>
       )}
       </div>

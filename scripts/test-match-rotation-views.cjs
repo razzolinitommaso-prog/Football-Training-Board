@@ -159,3 +159,18 @@ assert.equal(defaultRotationCapacity("Allievi", "", "settore_giovanile"), 11);
 console.log(
   "PASS rotation views: own-child-only projection, all authorized rows, actual/planned distinction, split/full third, recovery minutes, missing versus zero, private notes and raw plan excluded, category capacities.",
 );
+
+
+const {matchPreparationStatus:preparation} = load(path.join(lib,'match-rotation-summary.ts'));
+assert.equal(preparation(null),'empty');
+assert.equal(preparation({periods:[],convocationPlace:'Campo'}),'partial');
+const prepared={convocationAt:'2026-11-07T14:15:00Z',convocationPlace:'Campo',periods:[{key:'t1',format:'5v5',minutes:'12',lineupPlayerIds:[1,2,3,4,5,6,7,8],lineupStarterCount:5},{key:'t2',format:'5v5',minutes:'12',lineupPlayerIds:[4,5,6,7,8,1,2,3],lineupStarterCount:5},{key:'t3',format:'5v5',minutes:'12',lineupPlayerIds:[1,2,3,6,7,4,5,8],lineupStarterCount:5,secondPart:{format:'5v5',lineupPlayerIds:[1,2,3,6,8,4,5,7],lineupStarterCount:5}}]};
+assert.equal(preparation(prepared,5),'complete');
+assert.equal(preparation({...prepared,convocationAt:'invalid'},5),'partial');
+assert.equal(preparation({...prepared,periods:prepared.periods.map(p=>p.key==='t3'?{...p,secondPart:undefined}:p)},5),'partial');
+assert.equal(preparation({...prepared,convocationPlace:''},5),'partial');
+const publicPrepared=parentPublicMatch({matchPlan:prepared,notes:'Public'},5);
+assert.equal(publicPrepared.preparationStatus,'complete');
+assert.equal(publicPrepared.matchPlan,undefined);
+assert.ok(!JSON.stringify(publicPrepared).includes('lineupPlayerIds'));
+console.log('PASS preparation state: independent of date/results, incomplete third/ritrovo detected, public enum without technical data.');

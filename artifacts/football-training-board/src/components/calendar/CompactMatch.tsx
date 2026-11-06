@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { it } from "date-fns/locale";
 import { ChevronDown } from "lucide-react";
 import "./compact-match.css";
+import { preparationLabels, type MatchPreparation } from "@/lib/match-presentation";
 
 export function CompactMatchHeading({
   date,
@@ -13,6 +14,8 @@ export function CompactMatchHeading({
   actions,
   selection,
   indicators,
+  preparationStatus,
+  nextMatch,
 }: {
   date: string | null | undefined;
   home?: ReactNode;
@@ -22,6 +25,8 @@ export function CompactMatchHeading({
   actions?: ReactNode;
   selection?: ReactNode;
   indicators?: ReactNode;
+  preparationStatus?: MatchPreparation;
+  nextMatch?: boolean;
 }) {
   const at = new Date(date ?? ""),
     valid = Number.isFinite(at.getTime());
@@ -48,6 +53,7 @@ export function CompactMatchHeading({
         )}
       </time>
       <div className="compact-match-main">
+        {nextMatch && <p className="mb-1 text-[10px] font-semibold text-primary">PROSSIMA PARTITA</p>}
         <div className="compact-match-teams">
           {home && (
             <>
@@ -60,7 +66,7 @@ export function CompactMatchHeading({
             <span className="compact-match-result">{result}</span>
           )}
         </div>
-        {metadata && <div className="compact-match-meta">{metadata}</div>}
+        <div className="compact-match-meta">{preparationStatus && <span className="match-preparation-tag" data-preparation={preparationStatus}>{preparationLabels[preparationStatus]}</span>}{metadata}</div>
       </div>
       {actions && <div className="compact-match-actions">{actions}</div>}
       {indicators && (

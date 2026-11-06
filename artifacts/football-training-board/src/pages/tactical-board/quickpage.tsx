@@ -2857,7 +2857,7 @@ const QuickPage = () => {
       period?.key === matchPeriodKey
         ? {
             ...period,
-            rotationAuto: false,
+            rotationAuto: false, rotationLocks: undefined,
             lineupPlayerIds,
             lineupStarterCount,
             lineupPositions,
@@ -2903,7 +2903,7 @@ const QuickPage = () => {
       const hasPeriod = currentPeriods.some((period: any) => period?.key === matchPeriodKey);
       const periods = (hasPeriod ? currentPeriods : [...currentPeriods, { key: matchPeriodKey, label: periodLabels[matchPeriodKey], minutes: "" }]).map((period: any) =>
         period?.key === matchPeriodKey
-          ? { ...period, rotationAuto: false, lineupPlayerIds, lineupStarterCount, lineupPositions, lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null, boardConfirmed: false }
+          ? { ...period, rotationAuto: false, rotationLocks: undefined, lineupPlayerIds, lineupStarterCount, lineupPositions, lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null, boardConfirmed: false }
           : period
       );
       const patchRes = await fetch(withApi(`/api/matches/${selectedMatchId}/plan`), {

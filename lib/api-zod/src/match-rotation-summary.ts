@@ -26,6 +26,7 @@ export type RotationSummaryRow = {
     key: string;
     status: "T" | "P" | "—";
     actualMinutes: number | null;
+    fixed?: boolean;
     position?: { x: number; y: number };
   }[];
   plannedMinutes: number;
@@ -208,6 +209,7 @@ export function buildMatchRotationSummary(
         const position = record(record(p.lineupPositions)[String(player.id)]);
         return {
           key: unit.key,
+          fixed: record(p.rotationLocks)[String(player.id)] === "T" || record(p.rotationLocks)[String(player.id)] === "P",
           status: status as "T" | "P" | "—",
           actualMinutes: report
             ? effectiveMinutes(
@@ -246,11 +248,35 @@ export function buildMatchRotationSummary(
     }),
   };
 }
+/** Public preparation state only; does not expose formations, attendance or peer minutes. */
+export function matchPreparationStatus(value: unknown, fallback = 11, calledIds?: Set<number>): "empty" | "partial" | "complete" {
+  const plan = record(value);
+  const periods = Array.isArray(plan.periods) ? plan.periods.map(record) : [];
+  const ids = calledIds ?? new Set<number>(periods.flatMap(p => [
+    ...(Array.isArray(p.lineupPlayerIds) ? p.lineupPlayerIds : []),
+    ...(Array.isArray(record(p.secondPart).lineupPlayerIds) ? record(p.secondPart).lineupPlayerIds : []),
+  ]).filter(Number.isInteger));
+  const started = ids.size || plan.convocationAt || plan.convocationPlace || plan.boardLink;
+  if (!started) return "empty";
+  if (!periods.length || typeof plan.convocationAt !== "string" || !Number.isFinite(Date.parse(plan.convocationAt)) || typeof plan.convocationPlace !== "string" || !plan.convocationPlace.trim()) return "partial";
+  const complete = periods.every(p => {
+    const sources = p.key === "t3" && !periods.some(p => p.key === "t4") ? [p, record(p.secondPart)] : [p];
+    return sources.every(source => {
+      const limit = rotationSummaryCapacity({ ...p, ...source }, fallback);
+      const lineup = Array.isArray(source.lineupPlayerIds) ? [...new Set<number>(source.lineupPlayerIds.filter(Number.isInteger))] : [];
+      const count = typeof source.lineupStarterCount === "number" ? Math.max(0, Math.min(limit, source.lineupStarterCount)) : limit;
+      return ids.size > 0 && lineup.slice(0, count).filter(id => ids.has(id)).length === limit;
+    });
+  });
+  return complete ? "complete" : "partial";
+}
+
 /** Preserve public fixture metadata while excluding technical plans, report markers and peer availability. */
-export function parentPublicMatch<T extends Record<string, any>>(match: T) {
+export function parentPublicMatch<T extends Record<string, any>>(match: T, capacity = 11) {
   const { matchPlan, ...publicMatch } = match;
   return {
     ...publicMatch,
+    preparationStatus: matchPreparationStatus(matchPlan, capacity),
     notes:
       typeof match.notes === "string"
         ? match.notes.split("[FTB_MATCH_PLAN]")[0].trim()

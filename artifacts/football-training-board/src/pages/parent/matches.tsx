@@ -1,3 +1,4 @@
+import {upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
 import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import { useState, useEffect } from "react";
 import { Trophy, MapPin, ChevronDown, ChevronUp, CheckCircle, XCircle, Lock } from "lucide-react";
@@ -233,9 +234,9 @@ export default function ParentMatches() {
 
             {expanded[group.teamId] && (
               <div className="border-t divide-y">
-                {group.items.map(match => (
+                {upcomingFirst(group.items).map((match, index) => (
                   <article key={match.id} className="compact-match-card">
-                    <CompactMatchHeading date={match.date}
+                    <CompactMatchHeading preparationStatus={match.preparationStatus} nextMatch={index === 0 && isUpcomingMatch(match)} date={match.date}
                       home={match.homeAway === "home" ? group.teamName : match.opponent}
                       away={match.homeAway === "home" ? match.opponent : group.teamName}
                       result={match.status === "played" && match.homeScore != null && match.awayScore != null ? match.homeScore + " – " + match.awayScore : null}

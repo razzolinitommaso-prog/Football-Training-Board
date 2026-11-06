@@ -1,0 +1,79 @@
+.match-comparison-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 14px;
+  align-items: start;
+}
+.match-pitch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.match-minute-grid {
+  table-layout: fixed;
+}
+.match-minute-grid th:first-child {
+  width: 34%;
+}
+.match-mobile-equivalents {
+  display: none;
+}
+.match-comparison-pitches [role="img"] ~ p,
+.match-comparison-pitches [role="img"] ~ label {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .match-comparison-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .match-pitch-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 767px) {
+  .match-minute-grid {
+    font-size: 11px;
+  }
+  .match-minute-grid th:first-child {
+    width: calc(100% - (var(--match-unit-count) * 33px) - 45px);
+  }
+  .match-minute-grid thead th:not(:first-child) {
+    width: 33px;
+  }
+  .match-minute-grid thead th.match-planned-column {
+    width: 45px;
+  }
+  .match-minute-grid th,
+  .match-minute-grid td {
+    padding-left: 2px;
+    padding-right: 2px;
+    overflow-wrap: normal;
+  }
+  .match-minute-grid th:first-child {
+    overflow-wrap: anywhere;
+  }
+  .match-minute-grid button {
+    padding-left: 0;
+    padding-right: 0;
+    min-height: 34px;
+  }
+  .match-minute-grid .match-eq-column,
+  .match-minute-grid .match-actual-column {
+    display: none;
+  }
+  .match-mobile-equivalents {
+    display: block;
+  }
+  .match-comparison-pitches [role="img"] [role="button"],
+  .match-comparison-pitches [role="img"] > button {
+    transform: scale(0.65);
+    font-size: 9px;
+  }
+  .match-comparison-pitches [role="img"] > button > span:last-child {
+    display: none;
+  }
+  .match-comparison-pitches article > p,
+  .match-comparison-pitches article > div > p {
+    display: none;
+  }
+}

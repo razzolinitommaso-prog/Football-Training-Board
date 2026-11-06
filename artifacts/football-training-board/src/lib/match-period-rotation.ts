@@ -9,6 +9,8 @@ export type RotationPeriod = {
   lineupPlayerIds?: number[];
   lineupStarterCount?: number;
   rotationAuto?: boolean;
+  /** Individual choices from the comparison. Advanced/manual lineups remain whole-period choices. */
+  rotationLocks?: Record<string, "T" | "P">;
   lineupPositions?: Record<string, { x: number; y: number }>;
   secondPart?: RotationPeriod;
   thirdPartMinutes?: number;
@@ -80,8 +82,13 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
     const empty =
       !source.lineupPlayerIds?.length && source.lineupStarterCount == null;
     let starters = groups.starters;
+    const locks = force && unitIndex > 0 ? {} : (source.rotationLocks ?? {});
+    const partial = source.rotationLocks !== undefined;
     const automatic =
-      empty || (unitIndex > 0 && (force || source.rotationAuto === true));
+      empty ||
+      (!(force && unitIndex === 0) &&
+        (partial ||
+          (unitIndex > 0 && (force || source.rotationAuto === true))));
     if (automatic) {
       const ranked = [...selected].sort(
         (a, b) =>
@@ -89,13 +96,23 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
           (totals.get(a) ?? 0) - (totals.get(b) ?? 0) ||
           a - b,
       );
+      const fixed = ranked.filter((id) => locks[id] === "T");
+      const eligible = ranked.filter(
+        (id) => locks[id] !== "P" && !fixed.includes(id),
+      );
       const keeper =
-        limit > 3 ? ranked.find((id) => goalkeepers.has(id)) : undefined;
+        limit > 3 && !fixed.some((id) => goalkeepers.has(id))
+          ? eligible.find((id) => goalkeepers.has(id))
+          : undefined;
       starters = [
+        ...fixed,
         ...(keeper === undefined ? [] : [keeper]),
-        ...ranked
+        ...eligible
           .filter((id) => id !== keeper && (limit <= 3 || !goalkeepers.has(id)))
-          .slice(0, Math.max(0, limit - (keeper === undefined ? 0 : 1))),
+          .slice(
+            0,
+            Math.max(0, limit - fixed.length - (keeper === undefined ? 0 : 1)),
+          ),
       ];
     }
     const lineup = [
@@ -110,6 +127,7 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
       lineupPlayerIds: lineup,
       lineupStarterCount: starters.length,
       ...(automatic ? { rotationAuto: true } : {}),
+      ...(force && unitIndex > 0 ? { rotationLocks: undefined } : {}),
       ...(changed
         ? {
             boardConfirmed: false,
@@ -137,7 +155,178 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
     );
     previous = new Set(starters);
   }
+  // Improve the whole-game balance, rather than looking only at the previous segment.
+  // Existing manual periods (and the first formation) are protected; cell locks are
+  // exact constraints. A swap never changes the number of places or the keeper role.
+  const units = rotationUnits(next);
+  const ids = [...selected];
+  const originalUnits = rotationUnits(periods);
+  const editable = units.map((_, i) => {
+    const p = originalUnits[i].period;
+    if (force && i === 0) return false;
+    return (
+      p.rotationLocks !== undefined ||
+      (i > 0 &&
+        (force ||
+          p.rotationAuto === true ||
+          (!p.lineupPlayerIds?.length && p.lineupStarterCount == null)))
+    );
+  });
+  const startersByUnit = units.map(
+    (u) => splitMatchLineup(u.period, limitFor(u.period), selected).starters,
+  );
+  const score = () => {
+    const values = ids.map((id) =>
+      startersByUnit.reduce(
+        (sum, starters, i) =>
+          sum + (starters.includes(id) ? units[i].minutes : 0),
+        0,
+      ),
+    );
+    const spread = values.length
+      ? Math.max(...values) - Math.min(...values)
+      : 0;
+    const squares = values.reduce((sum, value) => sum + value * value, 0);
+    const repeats = startersByUnit.reduce(
+      (sum, starters, i) =>
+        sum +
+        (i
+          ? starters.filter((id) => startersByUnit[i - 1].includes(id)).length
+          : 0),
+      0,
+    );
+    return [spread, squares, repeats];
+  };
+  const better = (a: number[], b: number[]) => {
+    for (let i = 0; i < a.length; i++)
+      if (Math.abs(a[i] - b[i]) > 1e-7) return a[i] < b[i];
+    return false;
+  };
+  // Bounded deterministic local improvement; no expensive search during a tap.
+  for (let pass = 0; pass < 100; pass++) {
+    let best = score(),
+      swap: [number, number, number] | undefined;
+    for (let i = 0; i < units.length; i++) {
+      if (!editable[i]) continue;
+      const locks = units[i].period.rotationLocks ?? {};
+      for (const outgoing of startersByUnit[i]) {
+        if (locks[outgoing] === "T") continue;
+        for (const incoming of ids) {
+          if (startersByUnit[i].includes(incoming) || locks[incoming] === "P")
+            continue;
+          if (
+            limitFor(units[i].period) > 3 &&
+            goalkeepers.has(outgoing) !== goalkeepers.has(incoming)
+          )
+            continue;
+          const index = startersByUnit[i].indexOf(outgoing);
+          startersByUnit[i][index] = incoming;
+          const candidate = score();
+          startersByUnit[i][index] = outgoing;
+          if (better(candidate, best)) {
+            best = candidate;
+            swap = [i, outgoing, incoming];
+          }
+        }
+      }
+    }
+    if (!swap) break;
+    const [i, outgoing, incoming] = swap;
+    startersByUnit[i][startersByUnit[i].indexOf(outgoing)] = incoming;
+  }
+  units.forEach((unit, i) => {
+    const starters = startersByUnit[i];
+    const before = splitMatchLineup(
+      unit.period,
+      limitFor(unit.period),
+      selected,
+    ).starters;
+    if (
+      starters.length === before.length &&
+      starters.every((id, index) => id === before[index])
+    )
+      return;
+    const updated = {
+      ...unit.period,
+      lineupPlayerIds: [
+        ...starters,
+        ...ids.filter((id) => !starters.includes(id)),
+      ],
+      lineupStarterCount: starters.length,
+      boardConfirmed: false,
+      lineupDetectedModule: null,
+      lineupPositions: Object.fromEntries(
+        Object.entries(unit.period.lineupPositions ?? {}).filter(
+          ([id]) =>
+            starters.includes(Number(id)) && before.includes(Number(id)),
+        ),
+      ),
+    } as T;
+    if (unit.second)
+      next[unit.index] = { ...next[unit.index], secondPart: updated };
+    else
+      next[unit.index] = {
+        ...updated,
+        secondPart: next[unit.index].secondPart,
+      };
+  });
   return next;
+}
+
+/** A comparison tap pins one cell, not an entire period. Reject impossible constraints. */
+export function selectRotationCell<T extends RotationPeriod>(
+  periods: T[],
+  selected: Set<number>,
+  limitFor: (p: T) => number,
+  goalkeepers: Set<number>,
+  key: string,
+  id: number,
+  reserve: boolean,
+): T[] {
+  if (!selected.has(id)) return periods;
+  const unit = rotationUnits(periods).find((u) => u.period.key === key);
+  if (!unit) return periods;
+  const locks = Object.fromEntries(
+    Object.entries(unit.period.rotationLocks ?? {}).filter(([player]) =>
+      selected.has(Number(player)),
+    ),
+  ) as Record<string, "T" | "P">;
+  locks[id] = reserve ? "P" : "T";
+  const fixed = Object.entries(locks)
+    .filter(([, status]) => status === "T")
+    .map(([player]) => Number(player));
+  const capacity = Math.min(limitFor(unit.period), selected.size);
+  const eligible = [...selected].filter((player) => locks[player] !== "P");
+  if (fixed.length > capacity || eligible.length < capacity)
+    throw Error(
+      "Scelta incompatibile con i posti in campo. Libera una scelta fissata prima di cambiarla.",
+    );
+  if (
+    capacity > 3 &&
+    goalkeepers.size &&
+    (fixed.filter((player) => goalkeepers.has(player)).length > 1 ||
+      (fixed.length === capacity &&
+        !fixed.some((player) => goalkeepers.has(player))) ||
+      !eligible.some((player) => goalkeepers.has(player)) ||
+      eligible.filter((player) => !goalkeepers.has(player)).length <
+        capacity - 1)
+  )
+    throw Error(
+      "La scelta deve consentire un portiere e i giocatori di movimento previsti.",
+    );
+  const updated = {
+    ...unit.period,
+    rotationLocks: locks,
+    rotationAuto: true,
+  } as T;
+  const next = periods.map((p, index) =>
+    index !== unit.index
+      ? p
+      : unit.second
+        ? { ...p, secondPart: updated }
+        : updated,
+  );
+  return rotateMatchPeriods(next, selected, limitFor, goalkeepers);
 }
 export function plannedPlayerMinutes<T extends RotationPeriod>(
   periods: T[],

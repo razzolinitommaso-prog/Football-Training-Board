@@ -1,3 +1,6 @@
+import {defaultRotationCapacity} from "@workspace/api-zod";
+import {matchPreparation} from "@/lib/match-presentation";
+import {upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
 import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -17,10 +20,10 @@ import { useAuth } from "@/hooks/use-auth";
 
 interface Match {
   id: number; opponent: string; date: string; competition?: string; location?: string;
-  homeAway: string; result?: string; teamName?: string; teamId?: number;
+  homeAway: string; matchPlan?: unknown; result?: string; teamName?: string; teamId?: number;
 }
 interface Player { id: number; firstName: string; lastName: string; position?: string; available?: boolean; unavailabilityReason?: string | null; }
-interface Team { id: number; name: string; }
+interface Team { id: number; name: string; category?: string; clubSection?: string; }
 interface CallUp { id: number; playerId: number; playerName?: string; status: string; }
 
 async function apiFetch(url: string, options?: RequestInit) {
@@ -57,7 +60,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function MatchesPage() {
   const { t } = useLanguage();
   const { toast } = useToast();
-  const { role } = useAuth();
+  const { role, section } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [callUpMatchId, setCallUpMatchId] = useState<number | null>(null);
@@ -189,9 +192,9 @@ export default function MatchesPage() {
         : matches.length === 0 ? <Card><CardContent className="py-12 text-center text-muted-foreground">{t.noMatches}</CardContent></Card>
         : (
           <div className="grid gap-4">
-            {matches.map((m) => (
+            {upcomingFirst(matches).map((m, index) => (
               <Card key={m.id} className="compact-match-card">
-                <CompactMatchHeading date={m.date} home={m.teamName ? (m.homeAway === "home" ? m.teamName : m.opponent) : undefined} away={m.teamName && m.homeAway !== "home" ? m.teamName : m.opponent} result={m.result}
+                <CompactMatchHeading preparationStatus={matchPreparation(m.matchPlan,defaultRotationCapacity(teams.find(team=>team.id===m.teamId)?.name??m.teamName,teams.find(team=>team.id===m.teamId)?.category,teams.find(team=>team.id===m.teamId)?.clubSection??section))} nextMatch={index === 0 && isUpcomingMatch(m)} date={m.date} home={m.teamName ? (m.homeAway === "home" ? m.teamName : m.opponent) : undefined} away={m.teamName && m.homeAway !== "home" ? m.teamName : m.opponent} result={m.result}
                   metadata={<><span className="match-location-tag rounded border">{m.homeAway === "home" ? t.home : t.away}</span>{m.competition&&<span><Trophy/>{m.competition}</span>}{m.location&&<span><MapPin/>{m.location}</span>}</>}
                   actions={<div className="flex items-center gap-2">
                       <Button size="sm" variant="outline" onClick={() => setCallUpMatchId(m.id)}>

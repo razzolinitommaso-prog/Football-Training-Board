@@ -708,9 +708,11 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
   await ensureParentAvailabilityColumns();
   const enriched = await Promise.all(matches.map(async (match) => {
     let teamName = null;
+    let preparationCapacity = 11;
     if (match.teamId) {
-      const [team] = await db.select({ name: teamsTable.name }).from(teamsTable).where(and(eq(teamsTable.id, match.teamId), eq(teamsTable.clubId, clubId)));
+      const [team] = await db.select({ name: teamsTable.name, category: teamsTable.category, section: teamsTable.clubSection }).from(teamsTable).where(and(eq(teamsTable.id, match.teamId), eq(teamsTable.clubId, clubId)));
       teamName = team?.name ?? null;
+      preparationCapacity = defaultRotationCapacity(team?.name, team?.category, team?.section);
     }
     const callUps = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, match.id));
     const callUpsWithNames = await Promise.all(callUps.map(async (cu) => {
@@ -732,7 +734,7 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
     const ownCallUp = ownCallUpRows[0] ?? null;
     const deadline = parentAvailabilityDeadline(match.date);
     return {
-      ...parentPublicMatch(match),
+      ...parentPublicMatch(match, preparationCapacity),
       teamName,
       callUps: [...new Map(callUpsWithNames.filter(cu=>isCoachCallupStatus(cu.status)).map(cu=>[cu.playerId,cu])).values()],
       parentPlayerId,

@@ -379,3 +379,49 @@ assert.equal(formatFourth.format, "5v5");
 console.log(
   "PASS match rotation: saved t4/minutes/positions/alternatives, split third, 4 full periods, unequal split, uneven rosters, keepers, manual overrides, roster removal, report minutes, protected completed reports, older clients, two-period legacy plans. No real data used.",
 );
+
+
+// Comparison cell locks must not turn the whole period manual.
+const eight = new Set([1,2,3,4,5,6,7,8]);
+let balanced = rotation.rotateMatchPeriods(initial, eight, limit);
+const originalBalanced = json(balanced);
+balanced = rotation.selectRotationCell(balanced, eight, limit, new Set(), 't2', 1, false);
+assert.equal(balanced[1].rotationLocks[1], 'T');
+assert.ok(balanced[1].lineupPlayerIds.slice(0,5).includes(1));
+const balanceValues = Object.values(rotation.plannedPlayerMinutes(balanced,eight,limit));
+assert.equal(Math.max(...balanceValues)-Math.min(...balanceValues),6,'8 children / 5 places / 36 min: best attainable 6 minute spread');
+assert.equal(balanceValues.reduce((s,v)=>s+v,0),180);
+assert.equal(originalBalanced[1].rotationLocks,undefined,'No mutation of input');
+balanced = rotation.selectRotationCell(balanced,eight,limit,new Set(),'t3-second',8,false);
+assert.equal(balanced[2].secondPart.rotationLocks[8],'T');
+assert.ok(balanced[2].secondPart.lineupPlayerIds.slice(0,5).includes(8));
+assert.ok(balanced[1].lineupPlayerIds.slice(0,5).includes(1),'Earlier cell constraint retained');
+const reloadedCells = actual.ensurePlanPeriods({periods:json(balanced)},defaults);
+same(reloadedCells.periods[1].rotationLocks,{1:'T'},'Cell locks persist on reopen');
+same(reloadedCells.periods[2].secondPart.rotationLocks,{8:'T'});
+const allFixed = balanced.map((p,i)=> i===1 ? {...p,rotationLocks:{1:'T',2:'T',3:'T',4:'T',5:'T'}}:p);
+assert.throws(()=>rotation.selectRotationCell(allFixed,eight,limit,new Set(),'t2',6,false),/posti in campo/);
+assert.throws(()=>rotation.selectRotationCell(balanced,eight,limit,new Set([1,2]),'t2',2,false),/portiere/);
+const excluded = rotation.rotateMatchPeriods(balanced,new Set([...eight].filter(id=>id!==8)),limit);
+assert.ok(rotation.rotationUnits(excluded).every(u=>!u.period.lineupPlayerIds.includes(8)));
+same(rotation.rotateMatchPeriods(balanced,eight,limit),balanced,'Cell rebalance stable');
+const againForced=rotation.rotateMatchPeriods(balanced,eight,limit,new Set(),true);
+assert.equal(againForced[1].rotationLocks,undefined,'Explicit regeneration clears subsequent cell constraints');
+same(againForced[0].lineupPlayerIds,balanced[0].lineupPlayerIds,'Explicit subsequent regeneration preserves the first formation even with cell locks');
+const firstCellLocked=rotation.selectRotationCell(balanced,eight,limit,new Set(),'t1',8,false);
+same(rotation.rotateMatchPeriods(firstCellLocked,eight,limit,new Set(),true)[0].lineupPlayerIds,firstCellLocked[0].lineupPlayerIds,'First partial-lock formation remains unchanged on explicit regeneration');
+const frozenReport={periods:json(balanced),postMatchReport:json(report)};
+rotation.selectRotationCell(frozenReport.periods,eight,limit,new Set(),'t2',2,false);
+same(frozenReport.postMatchReport,report,'No actual report mutation');
+console.log('PASS comparison cells: optimal sample balance, individual constraints, split third, reopen, incompatible choices, keepers, roster removal, stable recalculation, report untouched.');
+
+
+const presentation = extract(path.join(lib,'match-presentation.ts'),['isUpcomingMatch','upcomingFirst']);
+const clock = Date.parse('2026-11-06T10:00:00Z');
+const list = [{id:1,date:'2026-10-30T10:00:00Z'}, {id:2,date:'2026-11-14T10:00:00Z'}, {id:3,date:'2026-11-07T10:00:00Z'}, {id:4,date:'2026-11-08T10:00:00Z',isPostponed:true,rescheduleTbd:true}, {id:5,date:'2026-11-09T10:00:00Z',status:'cancelled'}, {id:6,date:'2026-11-08T10:00:00Z',result:'2-1'}, {id:7,date:'2026-10-29T10:00:00Z',isPostponed:true,rescheduleDate:'2026-11-10T10:00:00Z'}];
+same(presentation.upcomingFirst(list,clock).filter(m=>presentation.isUpcomingMatch(m,clock)).map(m=>m.id),[3,7,2]);
+same(list.map(m=>m.id),[1,2,3,4,5,6,7],'Ordering does not mutate source records');
+assert.equal(presentation.isUpcomingMatch({date:'invalid'},clock),false);
+assert.equal(presentation.isUpcomingMatch({date:'2026-11-07T10:00:00Z',result:'—'},clock),true,'A placeholder result is not a played game');
+assert.equal(presentation.isUpcomingMatch({date:'2027-01-01T10:00:00Z',__timelineView:'postponed-original'},clock),false);
+console.log('PASS match ordering: next game first, recovery date, played/cancelled/TBD excluded, originals preserved.');

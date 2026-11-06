@@ -10,6 +10,20 @@ Durata e alternanza permette di cambiare i minuti dei tempi e mostra i minuti pr
 
 La compilazione automatica considera tutta la sequenza attiva. Dà precedenza a chi riposa nel segmento precedente e, a parità, a chi ha meno minuti previsti; considera i portieri per i formati che li prevedono. Gestisce anche rose dispari e formati diversi tra i tempi. Non promette un minutaggio identico quando durate, numero di convocati, ruoli o scelte manuali non lo consentono.
 
+## Confronto compatto e scelte individuali — novembre 2026
+
+La scheda mette il ritrovo prima dei convocati; il confronto resta aperto, con minuti previsti, tempi equivalenti e differenza fra minimo e massimo nel riepilogo autorizzato. Desktop: anteprime accanto alla tabella. Mobile: nome, segmenti e minuti sulla stessa riga senza scorrimento laterale; tempi equivalenti e totale effettivo sotto al nome. I minuti effettivi per segmento restano nelle celle quando esiste un resoconto. Famiglia: esclusivamente le righe del proprio figlio, come prima; dirigente: rosa già autorizzata. Nessun ampliamento dei permessi.
+
+Nella Scuola Calcio, un tocco nel confronto fissa solo quella cella tramite `rotationLocks` (T/P), mantenuta nel piano JSON esistente. Le altre assegnazioni automatiche si riequilibrano subito. Dopo la compilazione iniziale si applicano scambi deterministici limitati, che riducono prima lo scarto di minuti, poi lo sbilanciamento complessivo e infine le ripetizioni consecutive, senza cambiare capacità, portieri o vincoli. Non è una ricerca esaustiva di tutte le combinazioni. Esempio verificato: otto bambini, cinque in campo, tre tempi da dodici minuti con terzo diviso: scarto di sei minuti. Scelte incompatibili con posti/portieri rifiutate con messaggio, senza modificare il piano.
+
+Le formazioni manuali già salvate e quelle applicate dalle alternative restano protette. `Libera scelte fissate` libera i vincoli individuali; `Calcola tempi successivi` mantiene la prima formazione e richiede conferma per sostituire quelle successive. Alternative, editor completo e lavagna rimangono sotto al confronto. Applicare una formazione dalla lavagna o dalle alternative elimina i vincoli individuali del solo tempo interessato. Settore Giovanile/Prima Squadra mantengono l'assegnazione manuale preesistente. Nessun ricalcolo riscrive il resoconto effettivo.
+
+## Ordine e colori delle schede
+
+Nelle liste comuni: prossima gara disputabile in testa, poi le altre future in ordine cronologico; nella pagina annata, storico e rinvii richiudibili (aperti se si cerca una partita con filtri o collegamento diretto). Risultati, annullamenti e date originarie dei rinvii non vengono trattati come prossima gara. Le gare di recupero usano la data effettiva.
+
+Grigio: nessuna preparazione; arancione: preparazione parziale; verde: ritrovo valido e tutti i segmenti con i titolari richiesti. La data passata o il risultato non rendono completa una preparazione. Il calcolo condiviso viene usato anche per l'etichetta pubblica delle famiglie e dei dirigenti: si trasmette soltanto l'enumerazione, non il piano tecnico. Nessuna migrazione o modifica automatica dei dati del club.
+
 Le selezioni modificate manualmente, comprese quelle salvate dalla lavagna, sono protette. Ricalcola alternanza richiede conferma e rigenera dal secondo segmento in avanti mantenendo la prima formazione. È il comando da usare per rigenerare piani precedenti già compilati: le scelte salvate senza il nuovo marcatore vengono conservate prudentemente come manuali.
 
 Disabilitare il quarto conserva la sua preparazione come dato non attivo, ripristinabile riabilitandolo; la seconda parte del terzo rimane conservata quando si passa a quattro tempi. Nessun minuto del segmento non attivo entra nei totali.
