@@ -15,6 +15,12 @@ export function materialNotes(raw?: string | null): string { return document(raw
 export function writeMaterialSelection(selection: Partial<Quantities>, previous?: string | null): string {
   const current = document(previous);
   const items = Object.fromEntries(Object.entries(selection).filter(([, qty]) => Number.isFinite(Number(qty)) && Number(qty) > 0).map(([key, qty]) => [key, Number(qty)]));
+  if(current.extra.manualItems&&typeof current.extra.manualItems==="object"&&current.extra.boardItems&&typeof current.extra.boardItems==="object"){
+    const manual={...current.extra.manualItems as Quantities},board=current.extra.boardItems as Quantities;
+    for(const key of new Set([...Object.keys(items),...Object.keys(current.items)]))if((items[key]??0)!==(current.items[key]??0)){if(items[key])manual[key]=items[key];else delete manual[key];}
+    const resolved={...manual};for(const [key,quantity] of Object.entries(board))resolved[key]=Math.max(resolved[key]??0,quantity);
+    return JSON.stringify({...current.extra,version:1,manualItems:manual,items:resolved,...(current.notes?{notes:current.notes}:{})});
+  }
   if (!Object.keys(items).length) return current.notes;
   return JSON.stringify({ ...current.extra, version: 1, items, ...(current.notes ? { notes: current.notes } : {}) });
 }
@@ -28,6 +34,7 @@ const MATERIALS: Record<string, string> = {
   inflatableDummy: "dummy_gonfiabili", plyoBox: "box_pliometrico", goalMini: "porticine", goal5: "porte_ridotte",
   goal7: "porte_ridotte", goal9: "porte_ridotte", goal11: "porte_regolamentari", goal: "porte_ridotte", goalLarge: "porte_ridotte",
 };
+export function boardMaterialId(type:string,format?:unknown){return type==="hurdle"?"ostacoli_"+(["20","40","60","80"].includes(String(format))?format:"40"):MATERIALS[type];}
 export function boardMaterialQuantities(raw?: string | null): Quantities {
   if (!raw) return {};
   try {
@@ -51,8 +58,10 @@ export function boardMaterialQuantities(raw?: string | null): Quantities {
 }
 export function mergeBoardMaterials(previous: string | null | undefined, board: string): string {
   const derived = boardMaterialQuantities(board);
-  if (!Object.keys(derived).length) return previous ?? "";
-  const merged = readMaterialSelection(previous);
+  try{if(!JSON.parse(board)?.data)return previous??"";}catch{return previous??"";}
+  const current=document(previous);
+  const manual=current.extra.manualItems&&typeof current.extra.manualItems==="object"?{...current.extra.manualItems as Quantities}:{...current.items};
+  const merged = {...manual};
   for (const [id, quantity] of Object.entries(derived)) merged[id] = Math.max(merged[id] ?? 0, quantity);
-  return writeMaterialSelection(merged, previous);
+  return JSON.stringify({...current.extra,version:1,items:merged,manualItems:manual,boardItems:derived,...(current.notes?{notes:current.notes}:{})});
 }

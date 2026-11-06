@@ -11,6 +11,8 @@ export * from "./training-categories";
 export * from "./training-session-teams";
 
 export * from "./training-rotations";
+export * from "./station-organization";
+export * from "./exercise-board-roster";
 
 export * from "./shared-training-occurrences";
 

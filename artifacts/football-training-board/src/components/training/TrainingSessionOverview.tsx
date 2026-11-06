@@ -22,6 +22,7 @@ type Props = {
   rotation?:ReactNode;
   phaseMinutes?:Record<string,number>;
   phaseContent?:Partial<Record<string,ReactNode>>;
+  stationControls?:Record<number,ReactNode>;
   phaseRecoveries?: ReactNode[];
   metadata: { label: string; value: string }[];
   badges: ReactNode;
@@ -83,8 +84,9 @@ export function TrainingSessionOverview(props: Props) {
                     <div className="flex h-24 items-center justify-center border-b bg-muted/20 p-1 sm:h-32">
                       {exercise.preview ? <img src={exercise.preview} alt={`Lavagna: ${exercise.title}`} className="h-full w-full object-contain"/> : <span className="flex flex-col items-center gap-2 p-2 text-center text-[11px] text-muted-foreground"><ImageIcon aria-hidden="true" className="h-6 w-6 opacity-50"/>{exercise.attendanceAdjusted?"Anteprima da aggiornare alla rosa attuale":"Anteprima non disponibile"}</span>}
                     </div>
-                    <div className="space-y-1 p-2 sm:p-3"><h4 className="break-words text-xs font-semibold leading-snug sm:text-sm"><span className="mr-1 text-[10px] font-normal text-muted-foreground">#{props.exercises.indexOf(exercise) + 1}</span>{exercise.title}</h4><p className="text-[11px] text-muted-foreground">{exercise.duration !== null ? durationLabel(exercise.duration) : "Durata da indicare"}{exercise.players ? ` · ${exercise.players} giocatori` : ""}</p>{exercise.principle && <p className="break-words text-[10px] text-primary">{exercise.principle}</p>}</div>
+                    <div className="space-y-1 p-2 sm:p-3"><h4 className="break-words text-xs font-semibold leading-snug sm:text-sm"><span className="mr-1 text-[10px] font-normal text-muted-foreground">#{props.exercises.indexOf(exercise) + 1}</span>{exercise.title}</h4><p className="text-[11px] text-muted-foreground">{exercise.duration !== null ? durationLabel(exercise.duration) : "Durata da indicare"}{exercise.players !== null ? ` · ${exercise.players} giocatori` : ""}</p>{exercise.principle && <p className="break-words text-[10px] text-primary">{exercise.principle}</p>}</div>
                   </button>
+                  {props.stationControls?.[exercise.id]}
                   <div className="flex items-center justify-between gap-1 border-t p-1.5">
                     <Button type="button" variant="ghost" size="sm" className="h-7 px-1.5 text-[11px]" disabled={!exercise.available} onClick={() => props.onView(exercise.id)}><Eye className="mr-1 h-3 w-3"/>Dettagli</Button>
                     {!props.readOnly && <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-7 w-7" aria-label={`Azioni: ${exercise.title}`}><MoreHorizontal className="h-4 w-4"/></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{exercise.available && <DropdownMenuItem onClick={() => props.onEdit(exercise.id)}><Pencil className="mr-2 h-4 w-4"/>Modifica stazione</DropdownMenuItem>}<DropdownMenuItem className="text-destructive" onClick={() => props.onRemove(exercise.id)}><Trash2 className="mr-2 h-4 w-4"/>Rimuovi dalla seduta</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}

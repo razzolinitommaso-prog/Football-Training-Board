@@ -1169,7 +1169,7 @@ export default function ExercisesPage() {
                       <p className="text-xs text-muted-foreground">Usa la veloce qui sotto oppure apri la lavagna tattica completa.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <ExerciseTacticalBoard title={form.title || "Stazione"} teamId={form.teamId} value={form.statoLavagnaJson} rosterPlayerIds={form.playersRequiredMode === "selected" ? selectedPlayerIds : form.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setForm(prev => ({ ...prev, ...result, equipment: mergeBoardMaterials(prev.equipment, result.statoLavagnaJson) }))} />
+                      <ExerciseTacticalBoard equipment={form.equipment} allowedPlayerIds={selectablePlayers.map(player=>player.id)} rosterPlayers={selectablePlayers} title={form.title || "Stazione"} teamId={form.teamId} value={form.statoLavagnaJson} rosterPlayerIds={form.playersRequiredMode === "selected" ? selectedPlayerIds : form.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setForm(prev => ({ ...prev, ...result, equipment: mergeBoardMaterials(prev.equipment, result.statoLavagnaJson) }))} />
                     </div>
                   </div>
                   {form.statoLavagnaJson && form.drawingData ? <img src={form.drawingData} alt="Anteprima lavagna stazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard

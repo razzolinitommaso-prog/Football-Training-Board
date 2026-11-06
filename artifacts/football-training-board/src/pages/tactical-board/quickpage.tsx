@@ -1,3 +1,4 @@
+import {boardMaterialId} from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { ADDITIONAL_EQUIPMENT, AdditionalEquipmentGlyph } from "./additional-equipment";
@@ -2103,7 +2104,7 @@ const QuickPage = () => {
     { id: "vest", label: "Casacca" },
     { id: "disc", label: "Cinesino" },
     ...ADDITIONAL_EQUIPMENT,
-  ];
+  ].map(tool=>{const key=boardMaterialId(tool.id),quantity=key?draftPayload?.plannedMaterials?.[key]:0;return quantity?{...tool,label:tool.label+" ("+quantity+" previsti)"}:tool;});
   const filteredBoards = boards.filter((board) =>
     board.title?.toLowerCase().includes(librarySearch.toLowerCase())
   );
@@ -3403,6 +3404,7 @@ const QuickPage = () => {
     coordinateSpace: isMobileViewport ? "mobile-portrait" : "desktop-landscape",
     updatedAt: new Date().toISOString(),
     notes: boardNotes,
+    ...(draftPayload?.plannedMaterials?{plannedMaterials:draftPayload.plannedMaterials}:{}),
   });
   };
 

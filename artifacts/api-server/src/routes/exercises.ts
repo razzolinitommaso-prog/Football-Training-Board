@@ -3,6 +3,7 @@ import { Router, type IRouter } from "express";
 import {
   db,
   exercisesTable,
+  playersTable,
   trainingSessionsTable,
   trainingSessionExercisesTable,
   trainingGuidelinesTable,
@@ -12,7 +13,8 @@ import {
   clubMembershipsTable,
 } from "@workspace/db";
 import { eq, and, desc, asc, inArray, isNull, or, lt } from "drizzle-orm";
-import { mergeBoardMaterials, attendanceExerciseView } from "@workspace/api-zod";
+import { mergeBoardMaterials, attendanceExerciseView,boardPlayerIds,sessionTeamIds } from "@workspace/api-zod";
+import {rosterMembers} from "../lib/training-roster-policy";
 import { readSessionEligibility } from "../lib/training-session-attendance";
 import { resolveAllowedClubSections, normalizeSessionRole, isClubWideListRole } from "../lib/club-scope";
 import { requireAuth } from "../lib/auth";
@@ -406,6 +408,17 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
         .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).for("update");
       if (!current) return [];
       updates.equipment = mergeBoardMaterials(equipment !== undefined ? equipment : current.equipment, statoLavagnaJson) || null;
+      if(selectedPlayerIdsJson===undefined&&(boardPlayerIds(statoLavagnaJson).length||boardPlayerIds(existing.statoLavagnaJson).length)){
+        const candidates=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,clubId));
+        let teamIds=existing.teamId?[existing.teamId]:[];
+        if(await programExerciseAccess(clubId,userId,role,req.body.programSessionId,existing.teamId,existing.id)){
+          const [session]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),eq(trainingSessionsTable.id,Number(req.body.programSessionId))));
+          if(session)teamIds=sessionTeamIds(session.teamId,session.notes);
+        }
+        const allowed=new Set((teamIds.length?rosterMembers(candidates,teamIds):candidates).map(p=>p.id));
+        const ids=boardPlayerIds(statoLavagnaJson).filter(id=>allowed.has(id));
+        updates.selectedPlayerIdsJson=JSON.stringify(ids);updates.playersRequired=ids.length;updates.scegliGiocatori=true;updates.caricaRosaIntera=false;
+      }
       return tx.update(exercisesTable).set(updates).where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).returning();
     })
     : await db.update(exercisesTable).set(updates).where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).returning();

@@ -1,9 +1,9 @@
-import { type TrainingRotations, TRAINING_ROTATION_PHASES, rotationRecoverySeconds } from "@workspace/api-zod";
+import { type TrainingRotations, type StationSources, type RotationActivity, TRAINING_ROTATION_PHASES, rotationRecoverySeconds, reconcileStationOrganization, excludeTrainingPlayers } from "@workspace/api-zod";
 import { createHash } from "node:crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
-export type SessionPlan = { rotations?:TrainingRotations; recoveries: [number, number]; timings: Record<string, { seconds: number; stations: number[]; signature: string }> };
+export type SessionPlan = { stationSources?:StationSources; rotations?:TrainingRotations; recoveries: [number, number]; timings: Record<string, { seconds: number; stations: number[]; signature: string }> };
 export const EMPTY_PLAN: SessionPlan = { recoveries: [0, 0], timings: {} };
 let ready: Promise<unknown> | undefined;
 export function ensureSessionPlans() {
@@ -19,7 +19,13 @@ export async function readSessionPlan(sessionId: number, clubId: number): Promis
   const [row] = resultRows<{plan:SessionPlan}>(await db.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${sessionId} AND club_id=${clubId}`));
   return row?.plan ?? {recoveries:[0,0],timings:{}};
 }
-export type PlanningExercise = { id: number; duration: number | null; description: string | null; title: string | null; phase?:string|null };
+export type PlanningExercise = { id: number; duration: number | null; description: string | null; title: string | null; phase?:string|null; playerIdsJson?:string|null };
+export function planningActivities(exercises:PlanningExercise[]):RotationActivity[]{return exercises.map(ex=>{let ids:number[]=[];try{const raw=JSON.parse(ex.playerIdsJson??"[]");if(Array.isArray(raw))ids=raw.filter(Number.isSafeInteger);}catch{}return {id:ex.id,phase:ex.phase??null,seconds:Math.round((ex.duration??15)*60),playerIds:ids};});}
+export function resolvedStationRotations(plan:SessionPlan,exercises:PlanningExercise[],blocked:number[]=[]){
+ const activities=planningActivities(exercises);
+ if(!plan.rotations)for(const activity of activities){const exercise=exercises.find(ex=>ex.id===activity.id)!,timing=plan.timings[String(activity.id)];if(timing?.signature===timingSignature(exercise))activity.seconds=timing.seconds;}
+ return excludeTrainingPlayers(reconcileStationOrganization(plan.rotations,activities,plan.stationSources),blocked);
+}
 export const timingSignature = (exercise: PlanningExercise) => createHash("sha256").update(JSON.stringify([exercise.duration,exercise.description])).digest("hex");
 const MARKER = "\n\n[FTB_EXERCISE_STATIONS]";
 export function stationMinutes(description: string | null): number[] {
@@ -65,7 +71,8 @@ export function recalculateRotationPlan(duration:number,recoveries:[number,numbe
  return {recoveries,timings,rotations:next};
 }
 
-export function planningVersion(plan:SessionPlan,attendanceIds?:number[]):string { return createHash("sha256").update(JSON.stringify(attendanceIds===undefined?plan:[plan,[...attendanceIds].sort((a,b)=>a-b)])).digest("hex"); }
+const stablePlanJson=(value:unknown):string=>JSON.stringify(value,(_key,item)=>item&&typeof item==="object"&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);
+export function planningVersion(plan:SessionPlan,attendanceIds?:number[],exercises?:PlanningExercise[]):string { return createHash("sha256").update(stablePlanJson(exercises?[plan,[...(attendanceIds??[])].sort((a,b)=>a-b),exercises.map(ex=>[ex.id,timingSignature(ex),ex.phase,ex.playerIdsJson])]:attendanceIds===undefined?plan:[plan,[...attendanceIds].sort((a,b)=>a-b)])).digest("hex"); }
 export function rotationTimings(exercises:PlanningExercise[],rotations:TrainingRotations):SessionPlan["timings"] {
  const timings:SessionPlan["timings"]={};
  for(const phase of TRAINING_ROTATION_PHASES)for(const turn of rotations[phase]??[])for(const station of turn.stations){
