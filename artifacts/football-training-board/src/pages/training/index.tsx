@@ -2238,17 +2238,17 @@ function SessionDetailsDialog({
       </DialogContent>
 
       <Dialog open={!!viewingLink} onOpenChange={(open) => { if (!open) setViewingLink(null); }}>
-        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100%-1rem)] max-w-2xl min-w-0 grid-cols-[minmax(0,1fr)] max-h-[92dvh] overflow-y-auto p-3 sm:p-6 [overflow-wrap:anywhere]">
           <DialogHeader>
             <DialogTitle>{viewingLink?.exercise?.title ?? "Stazione"}</DialogTitle>
           </DialogHeader>
           {viewingLink?.exercise ? (
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
-                {viewingLink.exercise.principio && <Badge variant="secondary">{principioLabel(viewingLink.exercise.principio)}</Badge>}
-                {viewingLink.exercise.trainingPhase && <Badge variant="outline">{phaseLabel(viewingLink.exercise.trainingPhase)}</Badge>}
-                {viewingLink.exercise.category && <Badge variant="outline">{trainingCategoryLabel(viewingLink.exercise.category, teams.find(team=>team.id===viewingLink.exercise?.teamId)?.clubSection)}</Badge>}
-                <Badge variant="outline">{formatMinutes(effectiveDuration(viewingLink))}</Badge>
+                {viewingLink.exercise.principio && <Badge className="max-w-full whitespace-normal" variant="secondary">{principioLabel(viewingLink.exercise.principio)}</Badge>}
+                {viewingLink.exercise.trainingPhase && <Badge className="max-w-full whitespace-normal" variant="outline">{phaseLabel(viewingLink.exercise.trainingPhase)}</Badge>}
+                {viewingLink.exercise.category && <Badge className="max-w-full whitespace-normal" variant="outline">{trainingCategoryLabel(viewingLink.exercise.category, teams.find(team=>team.id===viewingLink.exercise?.teamId)?.clubSection)}</Badge>}
+                <Badge className="max-w-full whitespace-normal" variant="outline">{formatMinutes(effectiveDuration(viewingLink))}</Badge>
               </div>
               {viewingLink.exercise.sourceExerciseId && viewingLink.exercise.originalCreatedByName && <p className="text-xs text-muted-foreground">Originale creato da {viewingLink.exercise.originalCreatedByName}</p>}
               {splitExerciseDescriptionAndStations(viewingLink.exercise.description ?? "").description && (
@@ -2268,7 +2268,7 @@ function SessionDetailsDialog({
                       <div key={station.id} className="rounded-md border bg-muted/30 p-3 text-sm">
                         <div className="flex items-center justify-between gap-2">
                           <p className="font-semibold">{index + 1}. {station.title || "Stazione"}</p>
-                          <Badge variant="outline">{formatMinutes((planQuery.data?.timings[String(viewingLink.id)]?.stations[index] ?? Number(station.durationMinutes||0)*60)/60)}</Badge>
+                          <Badge className="max-w-full whitespace-normal" variant="outline">{formatMinutes((planQuery.data?.timings[String(viewingLink.id)]?.stations[index] ?? Number(station.durationMinutes||0)*60)/60)}</Badge>
                         </div>
                         {station.playersRequired && (
                           <p className="mt-2 text-muted-foreground">

@@ -946,7 +946,7 @@ export default function ExercisesPage() {
       </Tabs>
 
       <Dialog open={!!viewingEx} onOpenChange={(open) => { if (!open) setViewingEx(null); }}>
-        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100%-1rem)] max-w-2xl min-w-0 grid-cols-[minmax(0,1fr)] max-h-[92dvh] overflow-y-auto p-3 sm:p-6 [overflow-wrap:anywhere]">
           <DialogHeader>
             <DialogTitle>
               {viewingEx ? getDisplayExerciseTitle(viewingEx, exerciseOrderById.get(viewingEx.id) ?? 1) : "Stazione"}
