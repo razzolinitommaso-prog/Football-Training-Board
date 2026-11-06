@@ -1839,7 +1839,7 @@ function SessionDetailsDialog({
   const linkedExercises = [...(linkedExercisesQuery.data ?? [])]
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const effectiveDuration=(link:SessionExerciseLink)=>planQuery.data?.timings[String(link.id)]?.seconds!==undefined?planQuery.data.timings[String(link.id)].seconds/60:link.exercise?.durationMinutes??0;
-  const stationActivities=linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??"")}));
+  const stationActivities=linkedExercises.map(link=>({id:link.id,title:link.exercise?.title??"Stazione non disponibile",boardJson:link.exercise?.statoLavagnaJson,equipment:link.exercise?.equipment,phase:link.exercise?.trainingPhase??null,seconds:Math.round(effectiveDuration(link)*60),playerIds:parseSelectedPlayerIds(link.exercise?.selectedPlayerIdsJson??"")}));
   const savedStationOrganization=reconcileStationOrganization(planQuery.data?.rotations,stationActivities);
   const visibleRotations=rotationPreview??savedStationOrganization;
   const requiredMaterials=sessionMaterialQuantities(visibleRotations,Object.fromEntries(linkedExercises.map(link=>[
@@ -1848,12 +1848,12 @@ function SessionDetailsDialog({
   function stationView(link:SessionExerciseLink):SessionExerciseLink {
     const assignment=firstStationAssignment(visibleRotations,link.id);
     if(!link.exercise||!assignment)return link;
-    const original=link.exercise.statoLavagnaJson;
+    const original=assignment.boardJson??link.exercise.statoLavagnaJson;
     const originalIds=boardPlayerIds(original);
     const rosterChanged=originalIds.length>0&&(originalIds.length!==assignment.playerIds.length||originalIds.some(id=>!assignment.playerIds.includes(id)));
     const board=original&&rosterChanged?syncExerciseBoardRoster(original,assignment.playerIds,selectablePlayersQuery.data??[]):original;
     const changed=board!==original;
-    return {...link,exercise:{...link.exercise,selectedPlayerIdsJson:JSON.stringify(assignment.playerIds),playersRequired:assignment.playerIds.length,statoLavagnaJson:board,...(changed?{drawingData:null,attendanceAdjusted:true}:{} )}};
+    return {...link,exercise:{...link.exercise,selectedPlayerIdsJson:JSON.stringify(assignment.playerIds),playersRequired:assignment.playerIds.length,statoLavagnaJson:board,...(assignment.boardJson?{drawingData:assignment.boardPreview??null,attendanceAdjusted:!assignment.boardPreview}:{}),...(changed?{drawingData:null,attendanceAdjusted:true}:{} )}};
   }
   const turnRecoveryMinutes=visibleRotations?rotationRecoverySeconds(visibleRotations)/60:0;
   const plannedExerciseMinutes = visibleRotations!==undefined?rotationSeconds(visibleRotations)/60:linkedExercises.reduce((sum,link)=>sum+effectiveDuration(link),0);
@@ -2008,7 +2008,7 @@ function SessionDetailsDialog({
     setEditingLink(link);
     const form=formFromLinkedExercise(link);
     const allocation=firstStationAssignment(savedStationOrganization,link.id);
-    setExerciseForm(allocation&&(allocation.playerIds.length>0||form.playersRequiredMode==="selected")?{...form,playersRequiredMode:"selected",selectedPlayerIdsJson:JSON.stringify(allocation.playerIds),playersRequired:String(allocation.playerIds.length)}:form);
+    setExerciseForm(allocation&&(allocation.playerIds.length>0||form.playersRequiredMode==="selected")?{...form,...(allocation.boardJson?{statoLavagnaJson:allocation.boardJson,drawingData:allocation.boardPreview??""}:{}),playersRequiredMode:"selected",selectedPlayerIdsJson:JSON.stringify(allocation.playerIds),playersRequired:String(allocation.playerIds.length)}:form);
     setExerciseFormOpen(true);
   }
 

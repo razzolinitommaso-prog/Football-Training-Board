@@ -3405,6 +3405,7 @@ const QuickPage = () => {
     updatedAt: new Date().toISOString(),
     notes: boardNotes,
     ...(draftPayload?.plannedMaterials?{plannedMaterials:draftPayload.plannedMaterials}:{}),
+    ...(draftPayload?.rotationContext?{trainingRotation:draftPayload.rotationContext}:{}),
   });
   };
 

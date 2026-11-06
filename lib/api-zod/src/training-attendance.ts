@@ -11,7 +11,10 @@ export function sessionAttendanceState(rows:SessionAttendanceRow[]) {
 }
 export function excludeTrainingPlayers(rotations:TrainingRotations,excluded:number[]):TrainingRotations {
  const blocked=new Set(excluded);
- return Object.fromEntries(TRAINING_ROTATION_PHASES.filter(phase=>rotations[phase]).map(phase=>[phase,rotations[phase]!.map(turn=>({...turn,stations:turn.stations.map(station=>({...station,playerIds:station.playerIds.filter(id=>!blocked.has(id))}))}))]));
+ return Object.fromEntries(TRAINING_ROTATION_PHASES.filter(phase=>rotations[phase]).map(phase=>[phase,rotations[phase]!.map(turn=>({...turn,stations:turn.stations.map(station=>{
+  const board=station.boardJson?excludeTrainingBoardPlayers(station.boardJson,excluded):undefined;
+  return {...station,playerIds:station.playerIds.filter(id=>!blocked.has(id)),...(station.boardJson?{boardJson:board??undefined,...(board!==station.boardJson?{boardPreview:undefined}:{})}:{})};
+ })}))]));
 }
 /** Remove attributed markers in the board and its animation frames; keep generic objects. */
 export function excludeTrainingBoardPlayers(raw:string|null|undefined,excluded:number[]):string|null|undefined {

@@ -1,3 +1,20 @@
+import { StationPassEditor } from "./StationPassEditor";
+import {
+  ExerciseTacticalBoard,
+  detachExerciseBoard,
+} from "@/components/exercise-tactical-board";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  boardPlayerIds,
+  prepareStationOrganization,
+  setStationPassPlayers,
+  inheritPreviousStationGroups,
+} from "@workspace/api-zod";
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -43,7 +60,11 @@ export function StationOrganization({
   onPreviewChange,
   children,
 }: {
-  activities: (RotationActivity & { title: string })[];
+  activities: (RotationActivity & {
+    title: string;
+    boardJson?: string | null;
+    equipment?: string | null;
+  })[];
   saved?: TrainingRotations;
   version?: string;
   sessionId?: number;
@@ -71,7 +92,21 @@ export function StationOrganization({
     [dirty, setDirty] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [confirmation, setConfirmation] = useState<{
+    text: string;
+    apply: () => void;
+  } | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [draftVersion, setDraftVersion] = useState(version);
+  const [customizing, setCustomizing] = useState<{
+    phase: RotationPhase;
+    id: number;
+  } | null>(null);
+  const [boardTarget, setBoardTarget] = useState<{
+    phase: RotationPhase;
+    id: number;
+    pass: number;
+  } | null>(null);
   const signature = JSON.stringify([saved, activities, version]);
   const roster = useQuery<Player[]>({
     queryKey: [
@@ -147,7 +182,12 @@ export function StationOrganization({
     phase: RotationPhase,
     value: NonNullable<TrainingRotations[RotationPhase]>,
   ) {
-    setDraft((old) => ({ ...old, [phase]: value }));
+    setDraft((old) =>
+      excludeTrainingPlayers(
+        prepareStationOrganization({ ...old, [phase]: value }),
+        blockedPlayerIds,
+      ),
+    );
     setDirty(true);
     setError("");
   }
@@ -192,23 +232,35 @@ export function StationOrganization({
                 disabled={disabled}
                 aria-label={"Associa alla precedente: " + activity.title}
                 onCheckedChange={(checked) => {
-                  if (
-                    !window.confirm(
-                      checked
-                        ? "Associare queste stazioni in contemporanea? Condivideranno la durata e i giocatori saranno distribuiti senza duplicati. Le rotazioni e i recuperi dei soli gruppi coinvolti andranno reimpostati."
-                        : "Separare questa stazione? Il gruppo coinvolto ripartirà dalla prima distribuzione; gli altri gruppi restano invariati.",
-                    )
-                  )
-                    return;
-                  change(
-                    phase,
-                    associateStation(
-                      turns,
-                      activity.id,
-                      previous.id,
-                      checked === true,
-                    ),
-                  );
+                  setConfirmation({
+                    text: checked
+                      ? "Associare queste stazioni? Verrà generato il giro completo dei gruppi; i recuperi dei soli gruppi coinvolti andranno reimpostati."
+                      : "Separare questa stazione? Il gruppo coinvolto ripartirà dalla prima distribuzione; gli altri gruppi restano invariati.",
+                    apply: () => {
+                      let next = {
+                        ...draft,
+                        [phase]: associateStation(
+                          turns,
+                          activity.id,
+                          previous.id,
+                          checked === true,
+                        ),
+                      };
+                      if (checked)
+                        next = inheritPreviousStationGroups(
+                          next,
+                          phase,
+                          activity.id,
+                        );
+                      setDraft(
+                        excludeTrainingPlayers(
+                          prepareStationOrganization(next),
+                          blockedPlayerIds,
+                        ),
+                      );
+                      setDirty(true);
+                    },
+                  });
                 }}
               />
               <span>
@@ -225,8 +277,10 @@ export function StationOrganization({
             {names(station.playerIds) || "Giocatori da assegnare"}
           </p>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <label className="flex items-center gap-2">
-              {group.ids.length > 1 ? "Minuti per passaggio" : "Minuti"}
+            <label className="flex w-full min-w-0 flex-col items-start gap-1 text-[10px] sm:w-auto sm:flex-row sm:items-center sm:gap-2 sm:text-xs">
+              <span className="break-normal">
+                {group.ids.length > 1 ? "Minuti per passaggio" : "Minuti"}
+              </span>
               <Input
                 className="h-8 w-16 text-xs"
                 aria-label={"Minuti stazione: " + activity.title}
@@ -324,96 +378,105 @@ export function StationOrganization({
               </span>
             </label>
           )}
-          {group.ids.length > 1 && activity.id === group.ids[0] && (
-            <details className="rounded-md border bg-muted/10">
-              <DisclosureSummary className="p-2 text-[11px] font-medium">
-                Rotazioni giocatori · {group.indexes.length}{" "}
-                {group.indexes.length === 1 ? "passaggio" : "passaggi"}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px]"
+            disabled={disabled}
+            onClick={() => setBoardTarget({ phase, id: activity.id, pass: 0 })}
+          >
+            Lavagna
+          </Button>
+          {group.ids.length > 1 && (
+            <details
+              open={expanded[phase + group.ids.join("-")] ?? false}
+              className="rounded-md border bg-muted/10"
+            >
+              <DisclosureSummary
+                onClick={(e) => {
+                  e.preventDefault();
+                  const key = phase + group.ids.join("-");
+                  setExpanded((old) => ({ ...old, [key]: !old[key] }));
+                }}
+                className="p-2 text-[11px] font-medium"
+              >
+                Rotazioni giocatori · {group.indexes.length} passaggi
               </DisclosureSummary>
               <div className="space-y-2 border-t p-2">
-                <p className="text-[10px] text-muted-foreground">
-                  La prima distribuzione del mister guida gli scambi.{" "}
-                  {used.size} giocatori distinti.
+                {group.indexes.map((index, pass) => {
+                  const current = turns[index].stations.find(
+                    (s) => s.linkId === activity.id,
+                  )!;
+                  return (
+                    <div
+                      key={turns[index].id}
+                      className="space-y-1 border-b pb-2 text-[10px]"
+                    >
+                      <p className="font-medium">
+                        Passaggio {pass + 1} · {current.seconds / 60} min
+                        {current.manualPlayers ? " · Personalizzato" : ""}
+                      </p>
+                      <p className="break-words text-muted-foreground">
+                        {names(current.playerIds) || "Da assegnare"}
+                      </p>
+                      <button
+                        type="button"
+                        className="text-primary underline"
+                        disabled={disabled}
+                        onClick={() =>
+                          setBoardTarget({ phase, id: activity.id, pass })
+                        }
+                      >
+                        Lavagna{current.boardJson ? " salvata" : ""}
+                      </button>
+                    </div>
+                  );
+                })}
+                <p className="text-[11px]">
+                  Totale attività:{" "}
+                  <strong>
+                    {group.indexes.reduce(
+                      (sum, i) =>
+                        sum +
+                        Math.max(...turns[i].stations.map((s) => s.seconds)),
+                      0,
+                    ) / 60}{" "}
+                    min
+                  </strong>
                 </p>
+                {turns[group.indexes[0]].groupSource && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Gruppi iniziali mantenuti dalla fase precedente.
+                  </p>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-auto w-full whitespace-normal text-[11px]"
+                  onClick={() => setCustomizing({ phase, id: activity.id })}
+                >
+                  Personalizza scambi
+                </Button>
                 {!readOnly && (
                   <Button
                     type="button"
                     size="sm"
-                    variant="outline"
-                    className="h-auto whitespace-normal text-[11px]"
+                    variant="ghost"
+                    className="h-auto whitespace-normal text-[10px]"
                     disabled={disabled}
                     onClick={() => {
-                      if (
-                        group.indexes.length > 1 &&
-                        !window.confirm(
-                          "Rigenerare gli scambi da questa prima distribuzione? Le modifiche ai passaggi di questo gruppo saranno sostituite.",
-                        )
-                      )
-                        return;
-                      change(phase, rotateStationGroup(turns, activity.id));
+                      setConfirmation({
+                        text: "Rigenerare il giro completo? Le eccezioni manuali di questo gruppo saranno sostituite.",
+                        apply: () =>
+                          change(phase, rotateStationGroup(turns, activity.id)),
+                      });
                     }}
                   >
-                    Ruota su tutte le stazioni associate
+                    Ripristina giro automatico
                   </Button>
                 )}
-                {group.indexes.map((turnIndex, pass) => (
-                  <div
-                    key={turns[turnIndex].id}
-                    className="space-y-1 border-t pt-2"
-                  >
-                    <p className="font-medium">Passaggio {pass + 1}</p>
-                    {turns[turnIndex].stations.map((s) => (
-                      <p key={s.linkId} className="break-words text-[10px]">
-                        <strong>{title(s.linkId)}:</strong>{" "}
-                        {names(s.playerIds) || "Da assegnare"}
-                      </p>
-                    ))}
-                    {turnIndex < turns.length - 1 && (
-                      <label className="flex flex-wrap items-center justify-between gap-1 text-[10px]">
-                        {pass < group.indexes.length - 1
-                          ? "Recupero prima dello scambio"
-                          : "Recupero prima della stazione successiva"}
-                        <span className="flex items-center gap-1">
-                          <Input
-                            className="h-7 w-14"
-                            aria-label={
-                              "Recupero " +
-                              activity.title +
-                              " passaggio " +
-                              (pass + 1)
-                            }
-                            type="number"
-                            min={0}
-                            max={300}
-                            step="any"
-                            disabled={disabled}
-                            value={(turns[turnIndex].recoverySeconds ?? 0) / 60}
-                            onChange={(e) => {
-                              const min = Number(e.target.value);
-                              if (
-                                Number.isFinite(min) &&
-                                min >= 0 &&
-                                min <= 300
-                              )
-                                change(
-                                  phase,
-                                  turns.map((t, i) =>
-                                    i === turnIndex
-                                      ? {
-                                          ...t,
-                                          recoverySeconds: Math.round(min * 60),
-                                        }
-                                      : t,
-                                  ),
-                                );
-                            }}
-                          />
-                          min
-                        </span>
-                      </label>
-                    )}
-                  </div>
-                ))}
               </div>
             </details>
           )}
@@ -446,5 +509,203 @@ export function StationOrganization({
       )}
     </>
   );
-  return <>{children({ toolbar, stations })}</>;
+  const targetActivity = boardTarget
+    ? activities.find((a) => a.id === boardTarget.id)
+    : undefined;
+  const targetGroup = boardTarget
+    ? stationGroups(draft[boardTarget.phase] ?? []).find((g) =>
+        g.ids.includes(boardTarget.id),
+      )
+    : undefined;
+  const targetIndex = boardTarget
+    ? targetGroup?.indexes[boardTarget.pass]
+    : undefined;
+  const targetStation =
+    targetIndex !== undefined && boardTarget
+      ? draft[boardTarget.phase]?.[targetIndex].stations.find(
+          (s) => s.linkId === boardTarget.id,
+        )
+      : undefined;
+  function updateAll(next: TrainingRotations) {
+    setDraft(
+      excludeTrainingPlayers(
+        prepareStationOrganization(next),
+        blockedPlayerIds,
+      ),
+    );
+    setDirty(true);
+    setError("");
+  }
+  async function saveBoard(raw: string, preview: string) {
+    if (!boardTarget || targetIndex === undefined || !targetStation) return;
+    const ids = boardPlayerIds(raw).filter((id) =>
+      players.some((p) => p.id === id),
+    );
+    const turns = draft[boardTarget.phase] ?? [],
+      changed =
+        ids.length !== targetStation.playerIds.length ||
+        ids.some((id) => !targetStation.playerIds.includes(id));
+    let next = {
+      ...draft,
+      [boardTarget.phase]: changed
+        ? setStationPassPlayers(turns, boardTarget.id, boardTarget.pass, ids)
+        : turns,
+    };
+    next[boardTarget.phase] = next[boardTarget.phase]!.map((t, i) =>
+      i === targetIndex
+        ? {
+            ...t,
+            stations: t.stations.map((s) =>
+              s.linkId === boardTarget.id
+                ? {
+                    ...s,
+                    boardJson: raw,
+                    boardPreview:
+                      preview.startsWith("data:image/") &&
+                      preview.length <= 4000000
+                        ? preview
+                        : undefined,
+                  }
+                : s,
+            ),
+          }
+        : t,
+    );
+    next = excludeTrainingPlayers(
+      prepareStationOrganization(next),
+      blockedPlayerIds,
+    );
+    setDraft(next);
+    setDirty(true);
+    setBusy(true);
+    try {
+      await onSave(next, false, draftVersion);
+      setDirty(false);
+      setBoardTarget(null);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Lavagna non salvata: conserva le modifiche e riprova.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      {children({ toolbar, stations })}
+      <Dialog
+        open={!!confirmation}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+      >
+        <DialogContent className="w-[calc(100%-1rem)] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Conferma organizzazione</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm">{confirmation?.text}</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirmation(null)}>
+              Annulla
+            </Button>
+            <Button
+              onClick={() => {
+                confirmation?.apply();
+                setConfirmation(null);
+              }}
+            >
+              Conferma
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {customizing && (
+        <StationPassEditor
+          value={draft}
+          phase={customizing.phase}
+          id={customizing.id}
+          activities={activities}
+          players={players}
+          disabled={disabled}
+          readOnly={readOnly}
+          sessionId={sessionId}
+          teamId={teamId}
+          onChange={updateAll}
+          onOpenBoard={(phase, id, pass) => setBoardTarget({ phase, id, pass })}
+          onClose={() => setCustomizing(null)}
+        />
+      )}
+      <Dialog
+        open={!!targetStation}
+        onOpenChange={(open) => {
+          if (!open && !busy) setBoardTarget(null);
+        }}
+      >
+        <DialogContent className="w-[calc(100%-1rem)] max-w-xl min-w-0 grid-cols-[minmax(0,1fr)] max-h-[90dvh] overflow-y-auto [overflow-wrap:anywhere]">
+          <DialogHeader>
+            <DialogTitle>
+              Lavagna · {targetActivity?.title} · Passaggio{" "}
+              {(boardTarget?.pass ?? 0) + 1}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            {names(targetStation?.playerIds ?? []) || "Giocatori da assegnare"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            I selezionati sono già schierati. La rosa disponibile segue le
+            presenze della seduta. La lavagna e la rotazione vengono salvate
+            insieme nella seduta.
+          </p>
+          {targetStation && !readOnly && (
+            <ExerciseTacticalBoard
+              title={
+                (targetActivity?.title ?? "Stazione") +
+                " · Passaggio " +
+                ((boardTarget?.pass ?? 0) + 1)
+              }
+              teamId={teamId}
+              programSessionId={sessionId}
+              rotationContext={
+                boardTarget && targetIndex !== undefined
+                  ? {
+                      sessionId,
+                      linkId: boardTarget.id,
+                      phase: boardTarget.phase,
+                      pass: boardTarget.pass,
+                      turnId: draft[boardTarget.phase]![targetIndex].id,
+                    }
+                  : undefined
+              }
+              value={
+                targetStation.boardJson ??
+                detachExerciseBoard(targetActivity?.boardJson)
+              }
+              rosterPlayerIds={targetStation.playerIds}
+              allowedPlayerIds={players.map((p) => p.id)}
+              rosterPlayers={players}
+              equipment={targetActivity?.equipment}
+              disabled={disabled}
+              onSave={(result) =>
+                void saveBoard(result.statoLavagnaJson, result.drawingData)
+              }
+            />
+          )}
+          {targetStation?.boardPreview && (
+            <img
+              src={targetStation.boardPreview}
+              alt="Lavagna del passaggio salvata"
+              className="max-h-96 w-full object-contain"
+            />
+          )}
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }

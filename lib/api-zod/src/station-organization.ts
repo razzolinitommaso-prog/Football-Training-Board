@@ -1,4 +1,9 @@
 import {
+  boardPlayerIds,
+  syncExerciseBoardRoster,
+} from "./exercise-board-roster";
+import { boardMaterialQuantities } from "./exercise-board-materials";
+import {
   TRAINING_ROTATION_PHASES,
   type TrainingRotations,
   type RotationActivity,
@@ -116,7 +121,16 @@ export function reconcileStationOrganization(
         );
     }
   }
-  return next;
+  for (const phase of TRAINING_ROTATION_PHASES)
+    for (const group of stationGroups(next[phase] ?? [])) {
+      if (
+        group.ids.length > 1 &&
+        group.indexes.length === 1 &&
+        !next[phase]![group.indexes[0]].stations.some((s) => s.manualPlayers)
+      )
+        next[phase] = rotateStationGroup(next[phase]!, group.ids[0]);
+    }
+  return prepareStationOrganization(next);
 }
 /** Redistribute following passages from the coach's first assignment, never across independent groups. */
 export function assignStationPlayers(
@@ -151,17 +165,21 @@ export function assignStationPlayers(
     if (pass < 0) return turn;
     return {
       ...turn,
-      stations: turn.stations.map((s) => ({
-        ...s,
-        playerIds: [
-          ...first[
-            (group.ids.indexOf(s.linkId) -
-              (pass % first.length) +
-              first.length) %
-              first.length
-          ].playerIds,
-        ],
-      })),
+      groupSource: undefined,
+      stations:
+        turn.stations.some((s) => s.manualPlayers) && pass > 0
+          ? turn.stations
+          : turn.stations.map((s) => ({
+              ...s,
+              playerIds: [
+                ...first[
+                  (group.ids.indexOf(s.linkId) -
+                    (pass % first.length) +
+                    first.length) %
+                    first.length
+                ].playerIds,
+              ],
+            })),
     };
   });
 }
@@ -206,7 +224,7 @@ export function associateStation(
   const replacements: RotationTurn[] = associated
     ? [
         {
-          id: "associated-" + first.map((s) => s.linkId).join("-"),
+          id: "associated-" + previousId + "-" + id,
           stations: first.map((s) => ({ ...s, seconds: first[0].seconds })),
           recoverySeconds: 0,
         },
@@ -235,7 +253,7 @@ export function associateStation(
       ...result[result.length - 1],
       recoverySeconds: 0,
     };
-  return result;
+  return associated ? rotateStationGroup(result, id) : result;
 }
 export function rotateStationGroup(
   turns: RotationTurn[],
@@ -249,18 +267,25 @@ export function rotateStationGroup(
   );
   const passes = first.map((_, index) => ({
     id: "rotation-" + id + "-" + index,
+    groupSource: turns[group.indexes[0]].groupSource,
     recoverySeconds:
-      group.indexes[index] === undefined
+      group.indexes[index] === undefined || group.indexes.length === 1
         ? 0
         : (turns[group.indexes[index]].recoverySeconds ?? 0),
     stations: first.map((station, i) => ({
       ...station,
+      manualPlayers: undefined,
+      boardJson: turns[group.indexes[index]]?.stations.find(s=>s.linkId===station.linkId)?.boardJson,
+      boardPreview: turns[group.indexes[index]]?.stations.find(s=>s.linkId===station.linkId)?.boardPreview,
       playerIds: [
         ...first[(i - index + first.length) % first.length].playerIds,
       ],
     })),
   }));
-  passes[passes.length - 1].recoverySeconds = 0;
+  passes[passes.length - 1].recoverySeconds =
+    group.indexes.at(-1)! < turns.length - 1
+      ? (turns[group.indexes.at(-1)!].recoverySeconds ?? 0)
+      : 0;
   return turns.flatMap((turn, index) =>
     index === group.indexes[0]
       ? passes
@@ -278,13 +303,278 @@ export function sessionMaterialQuantities(
   for (const phase of TRAINING_ROTATION_PHASES)
     for (const turn of rotations[phase] ?? []) {
       const concurrent: Record<string, number> = {};
-      for (const station of turn.stations)
-        for (const [key, value] of Object.entries(
-          materials[station.linkId] ?? {},
+      for (const station of turn.stations) {
+        const required = { ...(materials[station.linkId] ?? {}) };
+        for (const [key, quantity] of Object.entries(
+          boardMaterialQuantities(station.boardJson),
         ))
-          concurrent[key] = (concurrent[key] ?? 0) + Math.max(0, value);
+          required[key] = Math.max(required[key] ?? 0, quantity);
+        for (const [key, quantity] of Object.entries(required))
+          concurrent[key] = (concurrent[key] ?? 0) + Math.max(0, quantity);
+      }
       for (const [key, value] of Object.entries(concurrent))
         total[key] = Math.max(total[key] ?? 0, value);
     }
   return total;
+}
+
+/** Change one passage only. Selecting a player transfers them from a concurrent station. */
+export function setStationPassPlayers(
+  turns: RotationTurn[],
+  id: number,
+  pass: number,
+  ids: number[],
+): RotationTurn[] {
+  const group = stationGroups(turns).find((g) => g.ids.includes(id));
+  const index = group?.indexes[pass];
+  if (index === undefined) return turns;
+  const chosen = unique(ids);
+  return turns.map((turn, i) =>
+    i !== index
+      ? turn
+      : {
+          ...turn,
+          stations: turn.stations.map((station) => ({
+            ...station,
+            manualPlayers: true,
+            playerIds:
+              station.linkId === id
+                ? chosen
+                : station.playerIds.filter(
+                    (player) => !chosen.includes(player),
+                  ),
+          })),
+        },
+  );
+}
+export function repeatStationPlayers(
+  turns: RotationTurn[],
+  id: number,
+  pass: number,
+  ids: number[],
+): RotationTurn[] {
+  const group = stationGroups(turns).find((g) => g.ids.includes(id));
+  if (!group || pass < 1) return turns;
+  const previous = turns[group.indexes[pass - 1]]?.stations.find(
+      (s) => s.linkId === id,
+    ),
+    current = turns[group.indexes[pass]]?.stations.find((s) => s.linkId === id);
+  return previous && current
+    ? setStationPassPlayers(
+        turns,
+        id,
+        pass,
+        unique([
+          ...current.playerIds,
+          ...ids.filter((player) => previous.playerIds.includes(player)),
+        ]),
+      )
+    : turns;
+}
+export function addStationPass(
+  turns: RotationTurn[],
+  id: number,
+): RotationTurn[] {
+  const group = stationGroups(turns).find((g) => g.ids.includes(id));
+  if (!group || turns.length >= 100) return turns;
+  const last = group.indexes.at(-1)!,
+    first = group.ids.map(
+      (linkId) =>
+        turns.flatMap((t) => t.stations).find((s) => s.linkId === linkId)!,
+    );
+  const pass = group.indexes.length;
+  const next = {
+    id: "pass-" + id + "-" + Date.now(),
+    stations: first.map((s, i) => ({
+      ...s,
+      manualPlayers: undefined,
+      boardJson: undefined,
+      boardPreview: undefined,
+      playerIds: [
+        ...first[(i - (pass % first.length) + first.length) % first.length]
+          .playerIds,
+      ],
+    })),
+    recoverySeconds: 0,
+  };
+  return turns.flatMap((t, i) => (i === last ? [t, next] : [t]));
+}
+/** Carry the original starting order, never the final positions after rotation. */
+export function inheritStationGroups(
+  rotations: TrainingRotations,
+  phase: RotationPhase,
+  id: number,
+  sourcePhase: RotationPhase,
+  sourceId: number,
+): TrainingRotations {
+  if (
+    TRAINING_ROTATION_PHASES.indexOf(sourcePhase) >=
+    TRAINING_ROTATION_PHASES.indexOf(phase)
+  )
+    return rotations;
+  const group = stationGroups(rotations[phase] ?? []).find((g) =>
+      g.ids.includes(id),
+    ),
+    source = stationGroups(rotations[sourcePhase] ?? []).find((g) =>
+      g.ids.includes(sourceId),
+    );
+  if (!group || !source || group.ids.length !== source.ids.length)
+    return rotations;
+  return resolveInheritedStationGroups({
+    ...rotations,
+    [phase]: rotations[phase]!.map((t, i) =>
+      group.indexes.includes(i)
+        ? { ...t, groupSource: { phase: sourcePhase, linkId: sourceId } }
+        : t,
+    ),
+  });
+}
+export function resolveInheritedStationGroups(
+  rotations: TrainingRotations,
+): TrainingRotations {
+  const next = { ...rotations };
+  for (const phase of TRAINING_ROTATION_PHASES) {
+    let turns = next[phase] ?? [];
+    for (const group of stationGroups(turns)) {
+      const origin = turns[group.indexes[0]].groupSource;
+      if (
+        !origin ||
+        TRAINING_ROTATION_PHASES.indexOf(origin.phase) >=
+          TRAINING_ROTATION_PHASES.indexOf(phase)
+      )
+        continue;
+      const sourceTurns = next[origin.phase] ?? [],
+        source = stationGroups(sourceTurns).find((g) =>
+          g.ids.includes(origin.linkId),
+        );
+      if (!source || source.ids.length !== group.ids.length) {
+        turns = turns.map((t, i) =>
+          group.indexes.includes(i) ? { ...t, groupSource: undefined } : t,
+        );
+        continue;
+      }
+      const first = source.ids.map(
+        (linkId) =>
+          sourceTurns
+            .flatMap((t) => t.stations)
+            .find((s) => s.linkId === linkId)!,
+      );
+      turns = turns.map((turn, index) => {
+        const pass = group.indexes.indexOf(index);
+        if (pass < 0 || turn.stations.some((s) => s.manualPlayers)) return turn;
+        return {
+          ...turn,
+          stations: turn.stations.map((s) => ({
+            ...s,
+            playerIds: [
+              ...first[
+                (group.ids.indexOf(s.linkId) -
+                  (pass % first.length) +
+                  first.length) %
+                  first.length
+              ].playerIds,
+            ],
+          })),
+        };
+      });
+    }
+    next[phase] = turns;
+  }
+  return next;
+}
+export function inheritPreviousStationGroups(
+  rotations: TrainingRotations,
+  phase: RotationPhase,
+  id: number,
+): TrainingRotations {
+  const target = stationGroups(rotations[phase] ?? []).find((g) =>
+    g.ids.includes(id),
+  );
+  if (!target) return rotations;
+  for (const previous of [...TRAINING_ROTATION_PHASES]
+    .slice(0, TRAINING_ROTATION_PHASES.indexOf(phase))
+    .reverse()) {
+    const candidates = stationGroups(rotations[previous] ?? []).filter(
+      (g) => g.ids.length === target.ids.length,
+    );
+    if (candidates.length !== 1) continue;
+    return inheritStationGroups(
+      rotations,
+      phase,
+      id,
+      previous,
+      candidates[0].ids[0],
+    );
+  }
+  return rotations;
+}
+
+export function prepareStationOrganization(
+  rotations: TrainingRotations,
+): TrainingRotations {
+  const next = resolveInheritedStationGroups(rotations);
+  for (const phase of TRAINING_ROTATION_PHASES)
+    next[phase] = (next[phase] ?? []).map((turn) => ({
+      ...turn,
+      stations: turn.stations.map((station) => {
+        if (!station.boardJson) return station;
+        const ids = boardPlayerIds(station.boardJson);
+        if (
+          ids.length === station.playerIds.length &&
+          ids.every((id) => station.playerIds.includes(id))
+        )
+          return station;
+        return {
+          ...station,
+          boardJson: syncExerciseBoardRoster(
+            station.boardJson,
+            station.playerIds,
+          ),
+          boardPreview: undefined,
+        };
+      }),
+    }));
+  return next;
+}
+export function copyStationPassToFollowing(
+  rotations: TrainingRotations,
+  phase: RotationPhase,
+  id: number,
+  pass: number,
+): TrainingRotations {
+  const sourceTurns = rotations[phase] ?? [],
+    source = stationGroups(sourceTurns).find((g) => g.ids.includes(id));
+  if (!source) return rotations;
+  const current = sourceTurns[source.indexes[pass]];
+  if (!current) return rotations;
+  const next = { ...rotations };
+  for (const later of TRAINING_ROTATION_PHASES.slice(
+    TRAINING_ROTATION_PHASES.indexOf(phase) + 1,
+  )) {
+    const groups = stationGroups(next[later] ?? []).filter(
+      (g) => g.ids.length === source.ids.length,
+    );
+    if (groups.length !== 1) continue;
+    const group = groups[0],
+      index = group.indexes[pass];
+    if (index === undefined) continue;
+    next[later] = next[later]!.map((turn, i) =>
+      i !== index
+        ? turn
+        : {
+            ...turn,
+            stations: turn.stations.map((station) => ({
+              ...station,
+              manualPlayers: true,
+              playerIds: [
+                ...(current.stations.find(
+                  (s) =>
+                    s.linkId === source.ids[group.ids.indexOf(station.linkId)],
+                )?.playerIds ?? []),
+              ],
+            })),
+          },
+    );
+  }
+  return prepareStationOrganization(next);
 }
