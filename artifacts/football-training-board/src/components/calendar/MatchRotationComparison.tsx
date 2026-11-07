@@ -266,6 +266,7 @@ export function MatchRotationComparison({
             )}
             <table
               className="match-minute-grid w-full border-collapse text-xs"
+              data-many-units={summary.units.length > 4 || undefined}
               style={
                 {
                   "--match-unit-count": summary.units.length,
@@ -377,10 +378,8 @@ export function MatchRotationComparison({
               </tbody>
             </table>
             <p className="mt-2 text-[10px] text-muted-foreground">
-              T = titolare · P = panchina · — = non assegnato. 3A / 3B sono le
-              due parti del terzo tempo. Due metà valgono un tempo equivalente.
-              I minuti previsti sono il piano; gli effettivi provengono dal
-              resoconto.
+              T = titolare · P = panchina · — = non assegnato. A e B indicano
+              le due parti di un tempo. I minuti effettivi provengono dal resoconto.
             </p>
             {!summary.hasReport && (
               <p className="mt-1 text-[10px] text-muted-foreground">

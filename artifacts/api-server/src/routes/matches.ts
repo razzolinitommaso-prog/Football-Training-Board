@@ -308,7 +308,7 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
     for (const period of next.periods) {
       if (!period || typeof period !== "object" || Array.isArray(period)) continue;
       const previousPeriod = previousPeriods.get(period.key);
-      for(const field of ["secondPart","thirdPartMinutes"]){if(!Object.prototype.hasOwnProperty.call(period,field)&&previousPeriod?.[field]!==undefined)period[field]=previousPeriod[field];}
+      for(const field of ["secondPart","thirdPartMinutes","firstPartMinutes","splitAtHalf"]){if(!Object.prototype.hasOwnProperty.call(period,field)&&previousPeriod?.[field]!==undefined)period[field]=previousPeriod[field];}
       const preserveLineupChoices = (current: Record<string, unknown>, previous: Record<string, unknown> | null | undefined) => {
         if (!previous || JSON.stringify(current.lineupPlayerIds) !== JSON.stringify(previous.lineupPlayerIds)) return;
         for (const field of ["lineupGoalkeeperId", "lineupManual"]) {

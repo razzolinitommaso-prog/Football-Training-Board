@@ -1,8 +1,8 @@
 import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import {MatchRotationComparison} from "@/components/calendar/MatchRotationComparison";
-import {buildMatchRotationSummary} from "@workspace/api-zod";
+import {buildMatchRotationSummary, matchPeriodIsSplit} from "@workspace/api-zod";
 import {matchPreparation, upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
-import {clearMatchLineups, designateMatchKeeper, editManualLineupCell, selectRotationCell, rotationUnits, rotateMatchPeriods, periodMinutes, thirdPartDuration, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
+import {clearMatchLineups, designateMatchKeeper, editManualLineupCell, selectRotationCell, rotationUnits, rotateMatchPeriods, periodMinutes, firstPartDuration, secondPartOf, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
 import SharedTournamentHub from "./SharedTournamentHub";
 import { trainingSlotOnDate } from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
@@ -299,6 +299,8 @@ type MatchFormat = "3v3" | "5v5" | "7v7" | "9v9" | "11v11";
 type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   secondPart?: MatchPlanPeriodRuntime;
   thirdPartMinutes?: number;
+  firstPartMinutes?: number | null;
+  splitAtHalf?: boolean;
   rotationAuto?: boolean;
   lineupManual?: boolean;
   lineupGoalkeeperId?: number | null;
@@ -2296,7 +2298,45 @@ function MatchCard({
     });
   }
 
-  function updateThirdPart(periodIndex:number,changes:Partial<MatchPlanPeriodRuntime>){setPlanDraft(previous=>{const periods=previous.periods.map((p,i)=>i!==periodIndex?p:{...p,secondPart:{...(p.secondPart??{key:"t3-second",label:"3° tempo · seconda parte",minutes:String(periodMinutes(p.minutes)/2)}),...changes,rotationAuto:false, rotationLocks: undefined,boardConfirmed:false}});return {...previous,periods:applyScuolaCalcioPeriodRotation(periods,selectedPlayerIds,matchFormat,convokedById)};});}
+  function updatePeriodTiming(periodIndex: number, changes: Partial<MatchPlanPeriodRuntime>) {
+    setPlanDraft(previous => {
+      const periods = previous.periods.map((period, index) => {
+        if (index !== periodIndex) return period;
+        const updated = { ...period, ...changes };
+        if (changes.splitAtHalf && !updated.secondPart) {
+          const second = secondPartOf(updated);
+          updated.secondPart = {
+            ...second,
+            lineupGoalkeeperId: updated.lineupGoalkeeperId,
+            ...(autoReserveRuleEnabled && !updated.lineupManual
+              ? { rotationAuto: true }
+              : {
+                  lineupManual: true,
+                  lineupPlayerIds: updated.lineupPlayerIds,
+                  lineupStarterCount: updated.lineupStarterCount,
+                  lineupPositions: updated.lineupPositions,
+                }),
+          };
+        }
+        return updated;
+      });
+      return { ...previous, periods: autoReserveRuleEnabled
+        ? applyScuolaCalcioPeriodRotation(periods, selectedPlayerIds, matchFormat, convokedById)
+        : periods };
+    });
+  }
+
+  function updateSecondPart(periodIndex: number, changes: Partial<MatchPlanPeriodRuntime>) {
+    setPlanDraft(previous => {
+      const periods = previous.periods.map((period, index) => index !== periodIndex ? period : {
+        ...period,
+        secondPart: { ...secondPartOf(period), ...changes, rotationAuto: false, rotationLocks: undefined, boardConfirmed: false },
+      });
+      return { ...previous, periods: autoReserveRuleEnabled
+        ? applyScuolaCalcioPeriodRotation(periods, selectedPlayerIds, matchFormat, convokedById)
+        : periods };
+    });
+  }
 
   function addLineupAlternatives(periodIndex: number, minimum = false) {
     const stamp = Date.now();
@@ -2874,7 +2914,7 @@ function MatchCard({
                   onStatus={selectComparisonCell}
                   onBenchAll={() => setResetLineupsMode("bench")}
                   automatic={autoReserveRuleEnabled && !planDraft.periods.every(p=>p.lineupManual)}
-                  controls={<div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-2 text-xs"><Button type="button" size="sm" variant="outline" onClick={() => setResetLineupsMode("clear")}>Azzera schieramenti</Button><label className="min-w-0 max-w-full">Portiere per tutta la partita<ScrollableSelect aria-label="Portiere per tutta la partita" value={String(planDraft.matchGoalkeeperId??"")} onValueChange={value=>chooseMatchKeeper("all",value?Number(value):null)}><option value="">Nessuna assegnazione unica</option>{convokedPlayers.map(p=><option key={p.id} value={p.id}>{p.lastName} {p.firstName}</option>)}</ScrollableSelect></label><span>{planDraft.periods.length} tempi · {planDraft.periods.map(p=>periodMinutes(p.minutes)).join(' / ')} min</span>{!planDraft.fourthTime&&planDraft.periods.some(p=>p.key==='t3')&&<span>3°: {thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} + {periodMinutes(planDraft.periods.find(p=>p.key==='t3')!.minutes)-thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} min</span>}                {matchSection === "scuola_calcio" && (
+                  controls={<div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-2 text-xs"><Button type="button" size="sm" variant="outline" onClick={() => setResetLineupsMode("clear")}>Azzera schieramenti</Button><label className="min-w-0 max-w-full">Portiere per tutta la partita<ScrollableSelect aria-label="Portiere per tutta la partita" value={String(planDraft.matchGoalkeeperId??"")} onValueChange={value=>chooseMatchKeeper("all",value?Number(value):null)}><option value="">Nessuna assegnazione unica</option>{convokedPlayers.map(p=><option key={p.id} value={p.id}>{p.lastName} {p.firstName}</option>)}</ScrollableSelect></label><span>{planDraft.periods.length} tempi · {planDraft.periods.map(p=>periodMinutes(p.minutes)).join(' / ')} min</span>{matchSection === "scuola_calcio" && (
                   <div className="flex items-center gap-2">
                     <Checkbox
                       aria-label="Abilita 4° tempo" checked={!!planDraft.fourthTime}
@@ -2941,8 +2981,46 @@ function MatchCard({
                   </div>
                   <Button type="button" variant="outline" className="min-h-10 gap-2" onClick={() => addLineupAlternatives(previewPeriodIndex)}><Plus className="h-4 w-4" />Aggiungi alternativa</Button>
                 </section>}
-{previewPeriod.key === "t3" && !planDraft.fourthTime && previewPeriod.secondPart && <div className="mt-3 rounded-lg border p-3"><h5 className="mb-2 text-xs font-semibold">3B · Modifica schieramento</h5><MatchDraftLineupPreview period={previewPeriod.secondPart} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} onChange={changes => updateThirdPart(previewPeriodIndex, changes)} /></div>}</div>)}</details>
-                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Durate dei tempi</DisclosureSummary><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{planDraft.periods.map((p,index)=><label key={p.key} className="text-xs">{p.label}<Input type="number" min={1} max={180} step={0.5} value={periodMinutes(p.minutes)} onChange={e=>{const minutes=Number(e.target.value);if(minutes>=1&&minutes<=180)setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods.map((period,i)=>i===index?{...period,minutes:String(minutes),thirdPartMinutes:undefined}:period),selectedPlayerIds,matchFormat,convokedById)}));}}/></label>)}</div>{!planDraft.fourthTime&&planDraft.periods.find(p=>p.key==='t3')&&<label className="mt-2 block text-xs">Prima parte del terzo tempo<Input className="max-w-32" type="number" min={0.25} step={0.25} value={thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} onChange={e=>{const value=Number(e.target.value),third=planDraft.periods.find(p=>p.key==='t3')!;if(value>0&&value<periodMinutes(third.minutes))setPlanDraft(previous=>({...previous,periods:applyScuolaCalcioPeriodRotation(previous.periods.map(p=>p.key==='t3'?{...p,thirdPartMinutes:value}:p),selectedPlayerIds,matchFormat,convokedById)}));}}/></label>}</details>
+                  {matchPeriodIsSplit(previewPeriod, !!planDraft.fourthTime) && previewPeriod.secondPart && (
+                    <div className="mt-3 rounded-lg border p-3">
+                      <h5 className="mb-2 text-xs font-semibold">{previewPeriod.key.slice(1)}B · Modifica schieramento</h5>
+                      <MatchDraftLineupPreview period={secondPartOf(previewPeriod)} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById} onChange={changes => updateSecondPart(previewPeriodIndex, changes)} />
+                    </div>
+                  )}
+                </div>)}</details>
+                <details className="rounded-lg border p-3">
+                  <DisclosureSummary className="text-xs font-semibold">Durate dei tempi e cambi a metà</DisclosureSummary>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {planDraft.periods.map((period, index) => {
+                      const total = periodMinutes(period.minutes);
+                      const first = firstPartDuration(period);
+                      const split = matchPeriodIsSplit(period, !!planDraft.fourthTime);
+                      const legacyThird = period.key === "t3" && !planDraft.fourthTime;
+                      return <div key={period.key} className="space-y-2 rounded-lg border p-2">
+                        <label className="block text-xs">{period.label} · minuti
+                          <Input type="number" min={1} max={180} step={0.5} value={total} onChange={event => {
+                            const minutes = Number(event.target.value);
+                            if (minutes >= 1 && minutes <= 180) updatePeriodTiming(index, { minutes: String(minutes), firstPartMinutes: null });
+                          }} />
+                        </label>
+                        {legacyThird ? <p className="text-xs text-muted-foreground">Due parti senza quarto tempo</p> : (
+                          <label className="flex items-center gap-2 text-xs">
+                            <Checkbox checked={split} onCheckedChange={value => updatePeriodTiming(index, { splitAtHalf: value === true })} />
+                            Dividi in due parti
+                          </label>
+                        )}
+                        {split && <label className="block text-xs">
+                          Prima parte · minuti
+                          <Input type="number" min={0.25} max={total - 0.25} step={0.25} value={first} onChange={event => {
+                            const minutes = Number(event.target.value);
+                            if (minutes >= 0.25 && minutes <= total - 0.25) updatePeriodTiming(index, { firstPartMinutes: minutes });
+                          }} />
+                          <span className="text-muted-foreground">Seconda parte · {Number((total - first).toFixed(2))} min</span>
+                        </label>}
+                      </div>;
+                    })}
+                  </div>
+                </details>
                 <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Disponibilità e presenze allenamenti</DisclosureSummary><div className="divide-y">{sortedTeamPlayers.map(p=><div key={p.id} className="flex flex-wrap justify-between gap-2 py-2 text-xs"><span>{p.lastName} {p.firstName} {p.position||''} {playerUnavailableLabel(p)} {parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':''}</span><span>{matchWeekTrainingDays.map(day=>{const status=day.sessionId?matchWeekAttendanceByPlayer.get(p.id+':'+day.sessionId):null;return <span key={day.key} className="ml-2">{format(day.date,'EEE d',{locale:itLocale})}: {status??'non registrato'}</span>;})}</span></div>)}</div></details>
                 {false && matchSection === "settore_giovanile" && (
                   <div className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">

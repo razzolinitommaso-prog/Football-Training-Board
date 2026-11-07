@@ -60,5 +60,6 @@ export function setLineupKeeper<T extends LineupSelection & {lineupPositions?: R
 }
 
 export function matchPeriodByKey<T extends {key:string;secondPart?:T}>(periods:T[],key:string):T|undefined {
-  return key==="t3-second"?periods.find(p=>p.key==="t3")?.secondPart:periods.find(p=>p.key===key);
+  const period = periods.find(p => p.key === key || p.key + "-second" === key);
+  return period?.key === key ? period : period?.secondPart;
 }

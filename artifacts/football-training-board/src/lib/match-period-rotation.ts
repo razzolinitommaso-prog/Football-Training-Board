@@ -1,5 +1,5 @@
 import { changeMatchLineupStatus, setLineupKeeper, splitMatchLineup } from "./match-lineup";
-import type { MatchReport } from "@workspace/api-zod";
+import { matchPeriodFirstPartMinutes, matchPeriodIsSplit, type MatchReport } from "@workspace/api-zod";
 export type RotationPeriod = {
   key: string;
   label: string;
@@ -16,44 +16,39 @@ export type RotationPeriod = {
   lineupPositions?: Record<string, { x: number; y: number }>;
   secondPart?: RotationPeriod;
   thirdPartMinutes?: number;
+  firstPartMinutes?: number | null;
+  splitAtHalf?: boolean;
 };
 export function periodMinutes(value: string) {
   const number = Number.parseFloat(String(value).replace(",", "."));
   return Number.isFinite(number) && number > 0 ? number : 12;
 }
-export function thirdPartDuration(period: RotationPeriod) {
-  const total = periodMinutes(period.minutes);
-  return typeof period.thirdPartMinutes === "number" &&
-    period.thirdPartMinutes > 0 &&
-    period.thirdPartMinutes < total
-    ? period.thirdPartMinutes
-    : total / 2;
+export function firstPartDuration(period: RotationPeriod) {
+  return matchPeriodFirstPartMinutes(period, periodMinutes(period.minutes));
 }
+
+export function secondPartOf<T extends RotationPeriod>(period: T): T {
+  return {
+    module: period.module,
+    format: period.format,
+    ...period.secondPart,
+    key: period.key + "-second",
+    label: period.label + " · seconda parte",
+    minutes: String(periodMinutes(period.minutes) - firstPartDuration(period)),
+  } as T;
+}
+
 export function rotationUnits<T extends RotationPeriod>(periods: T[]) {
   const fourth = periods.some((p) => p.key === "t4");
   return periods.flatMap((period, index) =>
-    period.key === "t3" && !fourth
+    matchPeriodIsSplit(period, fourth)
       ? [
-          { period, index, second: false, minutes: thirdPartDuration(period) },
+          { period, index, second: false, minutes: firstPartDuration(period) },
           {
-            period: {
-              module: period.module,
-              format: period.format,
-              ...period.secondPart,
-              lineupPlayerIds: period.secondPart?.lineupPlayerIds ?? [],
-              lineupStarterCount: period.secondPart?.lineupStarterCount,
-              rotationAuto: period.secondPart?.rotationAuto,
-              lineupPositions: period.secondPart?.lineupPositions ?? {},
-              secondPart: undefined,
-              key: "t3-second",
-              label: "3° tempo · seconda parte",
-              minutes: String(
-                periodMinutes(period.minutes) - thirdPartDuration(period),
-              ),
-            } as T,
+            period: secondPartOf(period),
             index,
             second: true,
-            minutes: periodMinutes(period.minutes) - thirdPartDuration(period),
+            minutes: periodMinutes(period.minutes) - firstPartDuration(period),
           },
         ]
       : [
@@ -343,33 +338,23 @@ export function seedMatchReport<T extends RotationPeriod>(
       starters: splitMatchLineup(p, limitFor(p), called).starters,
     })),
   };
-  if (!periods.some((p) => p.key === "t4")) {
-    const index = periods.findIndex((p) => p.key === "t3"),
-      third = periods[index];
-    if (third?.secondPart) {
-      const first = report.periods[index].starters,
-        second = splitMatchLineup(
-          third.secondPart,
-          limitFor(third.secondPart as T),
-          called,
-        ).starters;
-      const outgoing = first.filter((id) => !second.includes(id)),
-        incoming = second.filter((id) => !first.includes(id));
-      if (incoming.length > outgoing.length)
-        throw Error(
-          "Completa gli schieramenti delle due parti del terzo tempo prima di generare il resoconto.",
-        );
-      outgoing.forEach((id, i) =>
-        report.substitutions.push({
-          id: "planned-third-" + i,
-          outPlayerId: id,
-          inPlayerId: incoming[i] ?? null,
-          period: index,
-          minute: thirdPartDuration(third),
-          notes: "Cambio tra le due parti del 3° tempo",
-        }),
-      );
+  for (const { period, index, second } of rotationUnits(periods)) {
+    if (!second || !periods[index].secondPart) continue;
+    const first = report.periods[index].starters;
+    const next = splitMatchLineup(period, limitFor(period), called).starters;
+    const outgoing = first.filter(id => !next.includes(id));
+    const incoming = next.filter(id => !first.includes(id));
+    if (incoming.length > outgoing.length) {
+      throw Error("Completa gli schieramenti delle due parti del " + periods[index].label.toLowerCase() + " prima di generare il resoconto.");
     }
+    outgoing.forEach((id, i) => report.substitutions.push({
+      id: "planned-" + period.key + "-" + i,
+      outPlayerId: id,
+      inPlayerId: incoming[i] ?? null,
+      period: index,
+      minute: firstPartDuration(periods[index]),
+      notes: "Cambio tra le due parti del " + periods[index].label.toLowerCase(),
+    }));
   }
   return report;
 }
@@ -489,10 +474,10 @@ export function designateMatchKeeper<T extends RotationPeriod,P extends {periods
    return {...changed,rotationLocks:locks};
  };
  const all=key==="all";
+ const fourth = plan.periods.some(p => p.key === "t4");
  return {...plan,...(all?{matchGoalkeeperId:id}:{}),periods:plan.periods.map(p=>{
    const next=all||p.key===key?update(p):p;
-   if(p.key!=="t3"||(!all&&key!=="t3-second"))return next;
-   const second={module:p.module,format:p.format,key:"t3-second",label:"3° tempo · seconda parte",minutes:String(periodMinutes(p.minutes)/2),...p.secondPart} as T;
-   return {...next,secondPart:update(second)};
+   if ((!p.secondPart && !matchPeriodIsSplit(p, fourth)) || (!all && key !== p.key + "-second")) return next;
+   return {...next, secondPart: update(secondPartOf(p))};
  }),...(all&&plan.fourthPeriodDraft?{fourthPeriodDraft:update(plan.fourthPeriodDraft)}:{})};
 }

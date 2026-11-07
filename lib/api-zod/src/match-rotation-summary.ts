@@ -46,6 +46,15 @@ const duration = (v: unknown) => {
   const n = parseFloat(String(v ?? "").replace(",", "."));
   return Number.isFinite(n) && n > 0 ? n : 12;
 };
+export function matchPeriodIsSplit(period: { key?: unknown; splitAtHalf?: unknown }, fourth: boolean) {
+  return period.splitAtHalf === true || (period.key === "t3" && !fourth);
+}
+
+export function matchPeriodFirstPartMinutes(period: { firstPartMinutes?: unknown; thirdPartMinutes?: unknown }, total: number) {
+  const first = period.firstPartMinutes === undefined ? period.thirdPartMinutes : period.firstPartMinutes;
+  return typeof first === "number" && first > 0 && first < total ? first : total / 2;
+}
+
 export function rotationSummaryCapacity(p: Record<string, any>, fallback = 11) {
   const match = /^(3|5|7|9|11)v/.exec(String(p.format ?? ""));
   if (match) return Number(match[1]);
@@ -118,18 +127,14 @@ export function buildMatchRotationSummary(
   const units: RotationSummaryUnit[] = [],
     sources: Record<string, any>[] = [];
   periods.forEach((p, index) => {
-    const minutes = duration(p.minutes),
-      split =
-        p.key === "t3" &&
-        !fourth &&
-        p.secondPart &&
-        typeof p.secondPart === "object";
-    let first = Number(p.thirdPartMinutes);
-    if (!(first > 0 && first < minutes)) first = minutes / 2;
+    const minutes = duration(p.minutes);
+    const split = matchPeriodIsSplit(p, fourth) && !!p.secondPart && typeof p.secondPart === "object";
+    const first = matchPeriodFirstPartMinutes(p, minutes);
+    const periodNumber = String(p.key).slice(1);
     units.push({
       key: String(p.key),
       label: split
-        ? "3A"
+        ? periodNumber + "A"
         : ((
             {
               t1: "1° tempo",
@@ -147,10 +152,10 @@ export function buildMatchRotationSummary(
     sources.push(p);
     if (split) {
       units.push({
-        key: "t3-second",
-        label: "3B",
+        key: String(p.key) + "-second",
+        label: periodNumber + "B",
         minutes: minutes - first,
-        periodKey: "t3",
+        periodKey: String(p.key),
         periodIndex: index,
         start: first,
         share: (minutes - first) / minutes,
@@ -217,7 +222,7 @@ export function buildMatchRotationSummary(
                 unit.periodIndex,
                 player.id,
                 unit.start,
-                unit.key === "t3" && units.some((u) => u.key === "t3-second")
+                unit.start === 0 && unit.share < 1
                   ? unit.minutes
                   : report.periods[unit.periodIndex].minutes,
               )
@@ -252,15 +257,16 @@ export function buildMatchRotationSummary(
 export function matchPreparationStatus(value: unknown, fallback = 11, calledIds?: Set<number>): "empty" | "partial" | "complete" {
   const plan = record(value);
   const periods = Array.isArray(plan.periods) ? plan.periods.map(record) : [];
+  const fourth = periods.some(p => p.key === "t4");
   const ids = calledIds ?? new Set<number>(periods.flatMap(p => [
     ...(Array.isArray(p.lineupPlayerIds) ? p.lineupPlayerIds : []),
-    ...(Array.isArray(record(p.secondPart).lineupPlayerIds) ? record(p.secondPart).lineupPlayerIds : []),
+    ...(matchPeriodIsSplit(p, fourth) && Array.isArray(record(p.secondPart).lineupPlayerIds) ? record(p.secondPart).lineupPlayerIds : []),
   ]).filter(Number.isInteger));
   const started = ids.size || plan.convocationAt || plan.convocationPlace || plan.boardLink;
   if (!started) return "empty";
   if (!periods.length || typeof plan.convocationAt !== "string" || !Number.isFinite(Date.parse(plan.convocationAt)) || typeof plan.convocationPlace !== "string" || !plan.convocationPlace.trim()) return "partial";
   const complete = periods.every(p => {
-    const sources = p.key === "t3" && !periods.some(p => p.key === "t4") ? [p, record(p.secondPart)] : [p];
+    const sources = matchPeriodIsSplit(p, fourth) ? [p, record(p.secondPart)] : [p];
     return sources.every(source => {
       const limit = rotationSummaryCapacity({ ...p, ...source }, fallback);
       const lineup = Array.isArray(source.lineupPlayerIds) ? [...new Set<number>(source.lineupPlayerIds.filter(Number.isInteger))] : [];

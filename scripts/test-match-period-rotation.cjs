@@ -23,7 +23,11 @@ function load(file, extra = {}) {
       require: (name) =>
         name === "./match-lineup"
           ? load(path.join(lib, "match-lineup.ts"))
-          : localRequire(name),
+          : name === "@workspace/api-zod"
+            ? load(path.join(root, "lib/api-zod/src/match-rotation-summary.ts"))
+            : name === "./match-report"
+              ? load(path.join(root, "lib/api-zod/src/match-report.ts"))
+              : localRequire(name),
       ...extra,
     },
   );
@@ -511,3 +515,36 @@ same(lineup.splitMatchLineup(edited[0], 5).starters, [8, 3]);
 same(lineup.splitMatchLineup(edited[1], 5).reserves, [...eight]);
 assert.equal(lineup.splitMatchLineup(edited[1], 5).starters.length, 0);
 console.log("PASS all-bench: individual reserve constraints, bulk reset, reload, manual order and independent segments.");
+
+const splitAll = saved.periods.map((period, index) => ({
+  ...period,
+  splitAtHalf: true,
+  ...(index === 0 ? { firstPartMinutes: 7 } : {}),
+  secondPart: { lineupPlayerIds: [index === 3 ? 9 : index + 5], lineupStarterCount: 1 },
+  lineupStarterCount: 1,
+}));
+const splitUnits = rotation.rotationUnits(splitAll);
+same(splitUnits.map(unit => unit.period.key), ["t1", "t1-second", "t2", "t2-second", "t3", "t3-second", "t4", "t4-second"]);
+assert.equal(splitUnits[0].minutes, 7);
+assert.equal(splitUnits[1].minutes, 11);
+const allCalled = new Set([1, 2, 3, 5, 6, 7, 8, 9]);
+const splitReport = rotation.seedMatchReport(splitAll, allCalled, limit);
+assert.equal(splitReport.periods.length, 4);
+same(splitReport.substitutions.map(change => [change.period, change.minute]), [[0, 7], [1, 6], [2, 6], [3, 8.5]], "Substitutions use the correct period and minute");
+const projected = load(path.join(root, "lib/api-zod/src/match-rotation-summary.ts"))
+  .buildMatchRotationSummary({ periods: splitAll, postMatchReport: splitReport }, [...allCalled].map(id => ({ id, firstName: "P", lastName: String(id) })), 5);
+assert.ok(projected.hasReport);
+for (const row of projected.rows) assert.equal(row.actualMinutes, row.plannedMinutes);
+const disabledSplit = splitAll.map((p, i) => i === 0 ? { ...p, splitAtHalf: false } : p);
+assert.ok(!rotation.rotationUnits(disabledSplit).some(unit => unit.period.key === "t1-second"));
+assert.equal(lineup.matchPeriodByKey(disabledSplit, "t1-second").lineupPlayerIds[0], 5);
+const clientWithoutSplitFields = { periods: [{ ...splitAll[0] }] };
+delete clientWithoutSplitFields.periods[0].splitAtHalf;
+delete clientWithoutSplitFields.periods[0].firstPartMinutes;
+backend.preserveMatchReport(clientWithoutSplitFields, { periods: splitAll });
+assert.equal(clientWithoutSplitFields.periods[0].splitAtHalf, true);
+assert.equal(clientWithoutSplitFields.periods[0].firstPartMinutes, 7);
+clientWithoutSplitFields.periods[0].splitAtHalf = false;
+backend.preserveMatchReport(clientWithoutSplitFields, { periods: splitAll });
+assert.equal(clientWithoutSplitFields.periods[0].splitAtHalf, false);
+console.log("PASS optional mid-period switches: all four segments, manual duration, report totals, and retained inactive/legacy drafts.");

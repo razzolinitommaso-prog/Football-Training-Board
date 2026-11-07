@@ -35,13 +35,21 @@
     font-size: 11px;
   }
   .match-minute-grid th:first-child {
-    width: calc(100% - (var(--match-unit-count) * 33px) - 45px);
+    width: calc(100% - (var(--match-unit-count) * var(--match-unit-width)) - var(--match-total-width));
+  }
+  .match-minute-grid {
+    --match-unit-width: 33px;
+    --match-total-width: 45px;
+  }
+  .match-minute-grid[data-many-units] {
+    --match-unit-width: 8.5%;
+    --match-total-width: 13%;
   }
   .match-minute-grid thead th:not(:first-child) {
-    width: 33px;
+    width: var(--match-unit-width);
   }
   .match-minute-grid thead th.match-planned-column {
-    width: 45px;
+    width: var(--match-total-width);
   }
   .match-minute-grid th,
   .match-minute-grid td {

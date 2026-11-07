@@ -1,4 +1,4 @@
-import {boardMaterialId} from "@workspace/api-zod";
+import {boardMaterialId, matchPeriodIsSplit} from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { ADDITIONAL_EQUIPMENT, AdditionalEquipmentGlyph } from "./additional-equipment";
@@ -6,7 +6,7 @@ import { AnimationPanel } from "./animation-panel";
 import { useBoardAnimation } from "./use-board-animation";
 import { readAnimation } from "./board-animation";
 import { splitMatchLineup, lineupKeeper, setLineupKeeper, matchPeriodByKey } from "@/lib/match-lineup";
-import { designateMatchKeeper, type RotationPeriod } from "@/lib/match-period-rotation";
+import { designateMatchKeeper, secondPartOf, type RotationPeriod } from "@/lib/match-period-rotation";
 import { capturePitch } from "./capture-pitch";
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -139,10 +139,16 @@ function inferSavedCoordinateSpace(data: TacticalBoardData): BoardCoordinateSpac
   }
   return "desktop-landscape";
 }
-type BoardPeriodKey = "t1"|"t2"|"t3"|"t3-second"|"t4";
-const boardPeriodLabels:Record<BoardPeriodKey,string>={t1:"1° tempo",t2:"2° tempo",t3:"3° tempo", "t3-second":"3B · seconda parte",t4:"4° tempo"};
+type BoardRootPeriodKey = "t1" | "t2" | "t3" | "t4";
+type BoardPeriodKey = BoardRootPeriodKey | `${BoardRootPeriodKey}-second`;
+const boardPeriodLabels = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" } as const;
+
+function isBoardPeriodKey(key: unknown): key is BoardPeriodKey {
+  return typeof key === "string" && /^t[1-4](-second)?$/.test(key);
+}
 type MatchPlanPeriodLite = {
   secondPart?: MatchPlanPeriodLite;
+  splitAtHalf?: boolean;
   lineupGoalkeeperId?: number|null;
   key: string;
   module?: string;
@@ -1335,7 +1341,7 @@ const QuickPage = () => {
   const initialPeriodKeyFromQuery = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const key = params.get("periodKey");
-    return key === "t1" || key === "t2" || key === "t3" || key === "t3-second" || key === "t4" ? key : "t1";
+    return isBoardPeriodKey(key) ? key : "t1";
   }, []);
   const isMatchPlanBoard = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1613,7 +1619,7 @@ const QuickPage = () => {
       setBoardLineupDraft(null);
       setGameKeeperDraft(undefined);
       matchPrepBindingCommittedRef.current = true;
-      if (data.matchPeriodKey === "t1" || data.matchPeriodKey === "t2" || data.matchPeriodKey === "t3" || data.matchPeriodKey === "t3-second" || data.matchPeriodKey === "t4") {
+      if (isBoardPeriodKey(data.matchPeriodKey)) {
         setMatchPeriodKey(data.matchPeriodKey);
       }
       setSelectedPreset(data.preset ?? null);
@@ -2350,9 +2356,9 @@ const QuickPage = () => {
     const periods = (plan as { periods?: MatchPlanPeriodLite[] }).periods;
     if (!Array.isArray(periods)) return null;
     const period = matchPeriodByKey(periods, matchPeriodKey);
-    if (matchPeriodKey !== "t3-second" || !period) return period ?? null;
-    const third = periods.find(p => p.key === "t3");
-    return { ...period, module: period.module ?? third?.module, format: period.format ?? third?.format };
+    if (!matchPeriodKey.endsWith("-second") || !period) return period ?? null;
+    const parent = periods.find(p => p.key + "-second" === matchPeriodKey);
+    return { ...period, module: period.module ?? parent?.module, format: period.format ?? parent?.format };
   }, [matchPeriodKey, selectedMatchOption,boardLineupDraft]);
 
   const matchPlanStartersLimit = React.useMemo(
@@ -2880,12 +2886,14 @@ const QuickPage = () => {
     type Plan={periods:RotationPeriod[];fourthPeriodDraft?:RotationPeriod;matchGoalkeeperId?:number|null};
     let plan:Plan={...existingPlan,periods:Array.isArray(existingPlan.periods)?existingPlan.periods:[]};
     if(gameKeeperDraft!==undefined)plan=designateMatchKeeper<RotationPeriod,Plan>(plan,"all",gameKeeperDraft,new Set(playerIds),p=>startersLimitForPeriod(p as MatchPlanPeriodLite,boardFormat),id=>teamPlayers.some(player=>player.id===id&&isGoalkeeperPlayer(player)));
-    const rootKey=matchPeriodKey==="t3-second"?"t3":matchPeriodKey;
+    const rootKey = matchPeriodKey.replace(/-second$/, "") as BoardRootPeriodKey;
     const periods=plan.periods.some(p=>p.key===rootKey)?plan.periods:[...plan.periods,{key:rootKey,label:boardPeriodLabels[rootKey],minutes:"12"}];
     return {...plan,periods:periods.map(period=>{
       if(period.key!==rootKey)return period;
       const lineup={rotationAuto:false,lineupManual:true,rotationLocks:undefined,...changes};
-      return matchPeriodKey==="t3-second"?{...period,secondPart:{key:"t3-second",label:boardPeriodLabels["t3-second"],minutes:String((Number(period.minutes)||12)/2),...period.secondPart,...lineup}}:{...period,...lineup};
+      return matchPeriodKey === rootKey
+        ? { ...period, ...lineup }
+        : { ...period, secondPart: { ...secondPartOf(period), ...lineup } };
     })};
   }
 
@@ -5546,11 +5554,15 @@ const QuickPage = () => {
                             onValueChange={(e) => {if(e===matchPeriodKey)return;if(saveState==="Unsaved"&&!window.confirm("Cambiare tempo e abbandonare le modifiche non salvate?"))return;setBoardPeriodChanged(true);setBoardLineupDraft(null);setGameKeeperDraft(undefined);setCurrentBoardId(null);setElements(old=>old.filter(el=>!el.playerId||el.type==="opponent"));setMatchPeriodKey(e as BoardPeriodKey);}}
                             className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                           >
-                            <option value="t1">1° tempo</option>
-                            <option value="t2">2° tempo</option>
-                            <option value="t3">3° tempo</option>
-                            {(selectedMatchOption?.matchPlan as {periods?:MatchPlanPeriodLite[]}|null)?.periods?.some(p=>p.key==="t3") && !(selectedMatchOption?.matchPlan as {periods?:MatchPlanPeriodLite[]}|null)?.periods?.some(p=>p.key==="t4") && <option value="t3-second">3B · seconda parte</option>}
-                            <option value="t4">4° tempo</option>
+                            {(Object.keys(boardPeriodLabels) as BoardRootPeriodKey[]).map(key => {
+                              const periods = selectedMatchOption?.matchPlan?.periods ?? [];
+                              const period = periods.find(p => p.key === key);
+                              const split = period && matchPeriodIsSplit(period, periods.some(p => p.key === "t4"));
+                              return <React.Fragment key={key}>
+                                <option value={key}>{boardPeriodLabels[key]}{split ? " · prima parte" : ""}</option>
+                                {split && <option value={key + "-second"}>{key.slice(1)}B · seconda parte</option>}
+                              </React.Fragment>;
+                            })}
                           </ScrollableSelect>
                         </label>
                         <label className="grid min-w-0 gap-1">
