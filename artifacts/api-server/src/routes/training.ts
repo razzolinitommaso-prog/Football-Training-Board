@@ -596,7 +596,21 @@ router.get("/training-sessions/:id/participants",requireAuth,async(req,res):Prom
  const players=await db.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
  const ids=new Set(rosterMembers(players,sessionTeamIds(session.teamId,session.notes)).map(player=>player.id));
  const state=await readSessionEligibility(session.clubId,session);
- res.json({blockedPlayerIds:state.blockedPlayerIds.filter(id=>ids.has(id)),presentPlayerIds:state.presentPlayerIds.filter(id=>ids.has(id)),recordedPlayerIds:state.recordedPlayerIds.filter(id=>ids.has(id)),total:ids.size});
+ const presentPlayerIds = state.presentPlayerIds.filter(id => ids.has(id));
+ const recordedPlayerIds = state.recordedPlayerIds.filter(id => ids.has(id));
+ res.json({
+   blockedPlayerIds: state.blockedPlayerIds.filter(id => ids.has(id)),
+   presentPlayerIds,
+   recordedPlayerIds,
+   total: ids.size,
+   beforeAppello: state.beforeAppello,
+   afterAppello: {
+     present: presentPlayerIds.length,
+     absent: state.absentPlayerIds.filter(id => ids.has(id)).length,
+     injured: state.injuredPlayerIds.filter(id => ids.has(id)).length,
+     pending: ids.size - recordedPlayerIds.length,
+   },
+ });
 });
 router.get("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<void>=>{
   const id=Number(req.params.id);

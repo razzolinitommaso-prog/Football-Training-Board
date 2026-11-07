@@ -35,7 +35,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "entry.ts"),
-      `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
+      `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
     await esbuild.build({
@@ -167,7 +167,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       };
       next();
     });
-    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.exercises, routes.auth, routes.championships, routes.teams);
+    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -281,6 +281,19 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     };
     const eligibility = await routes.readSessionEligibility(1, fixture);
     assert.deepEqual(eligibility.blockedPlayerIds, [102, 104, 107, 108]);
+    const beforeAppello = { available: 0, secretaryUnavailable: 3, parentUnavailable: 1, pending: 4, total: 8 };
+    assert.deepEqual(eligibility.beforeAppello, beforeAppello, "A player marked unavailable by both sources is counted once");
+    const participants = await call("/training-sessions/601/participants", { "x-role": "admin" });
+    assert.equal(participants.status, 200, JSON.stringify(participants.data));
+    assert.deepEqual(participants.data.beforeAppello, beforeAppello);
+    const preview = await call("/training-availability?teamId=11&date=2026-10-12&start=17:30&duration=90", { "x-role": "admin" });
+    assert.equal(preview.status, 200, JSON.stringify(preview.data));
+    assert.deepEqual(preview.data.beforeAppello, beforeAppello);
+    assert.equal(preview.data.secretaryUnavailablePlayerIds, undefined);
+    assert.equal(preview.data.unavailable, 2, "Raw parent replies stay available to the attendance register");
+    assert.deepEqual(participants.data.afterAppello, { present: 1, absent: 1, injured: 0, pending: 6 });
+    assert.deepEqual(participants.data.blockedPlayerIds, [102, 104, 107, 108]);
+    assert.equal((await call("/training-sessions/601/participants", { "x-role": "admin", "x-club": "2" })).status, 403);
     assert.ok(eligibility.presentPlayerIds.includes(105));
     assert.ok(!eligibility.blockedPlayerIds.includes(106));
     assert.ok(!eligibility.blockedPlayerIds.includes(109));
@@ -294,6 +307,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       ...fixture, notes: "[FTB_SESSION_TEAMS]11,13",
     });
     assert.ok(shared.blockedPlayerIds.includes(110));
+    assert.deepEqual(shared.beforeAppello, { ...beforeAppello, secretaryUnavailable: 4, total: 9 });
     assert.ok(!shared.blockedPlayerIds.includes(201));
     const templates = await routes.readSessionEligibility(1, {
       ...fixture,

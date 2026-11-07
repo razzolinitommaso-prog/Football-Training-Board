@@ -7,7 +7,15 @@ export function sessionAttendanceState(rows:SessionAttendanceRow[]) {
   if((row.notes??"").startsWith("Genitore:")&&["requested","absent"].includes(row.status))continue;
   if(!records.has(row.playerId))records.set(row.playerId,row.status);
  }
- return {blockedPlayerIds:[...records].filter(([,s])=>s==="absent"||s==="injured").map(([id])=>id),presentPlayerIds:[...records].filter(([,s])=>s==="present").map(([id])=>id),recordedPlayerIds:[...records].filter(([,s])=>["present","absent","injured"].includes(s)).map(([id])=>id)};
+ const absentPlayerIds = [...records].filter(([,status]) => status === "absent").map(([id]) => id);
+ const injuredPlayerIds = [...records].filter(([,status]) => status === "injured").map(([id]) => id);
+ return {
+  blockedPlayerIds: [...records].filter(([,status]) => status === "absent" || status === "injured").map(([id]) => id),
+  presentPlayerIds: [...records].filter(([,status]) => status === "present").map(([id]) => id),
+  recordedPlayerIds: [...records].filter(([,status]) => ["present", "absent", "injured"].includes(status)).map(([id]) => id),
+  absentPlayerIds,
+  injuredPlayerIds,
+ };
 }
 export function excludeTrainingPlayers(rotations:TrainingRotations,excluded:number[]):TrainingRotations {
  const blocked=new Set(excluded);

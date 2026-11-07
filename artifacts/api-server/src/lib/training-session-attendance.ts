@@ -1,8 +1,7 @@
-import { rosterMembers } from "./training-roster-policy";
-import { db, playersTable } from "@workspace/db";
+import { db } from "@workspace/db";
 import { trainingAvailability } from "./training-availability";
 import { trainingLocalSlot, sessionTeamIds } from "@workspace/api-zod";
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { excludeTrainingPlayers, sessionAttendanceState, type SessionAttendanceRow, type TrainingRotations } from "@workspace/api-zod";
 
 type Reader={execute:(query:ReturnType<typeof sql>)=>Promise<unknown>};
@@ -20,28 +19,28 @@ export async function removeAbsentFromSessionPlan(reader:Reader,clubId:number,se
  if(JSON.stringify(next)!==JSON.stringify(stored.plan))await reader.execute(sql`UPDATE training_session_plans SET plan=${JSON.stringify(next)}::jsonb,updated_at=now() WHERE session_id=${sessionId} AND club_id=${clubId}`);
 }
 
-/** Explicit staff attendance wins; before appello, use the parent's known reply. */
-export async function readSessionEligibility(clubId:number,session:{id:number;teamId:number|null;notes:string|null;scheduledAt:Date;durationMinutes:number|null;sessionKind?:string|null},reader:Pick<typeof db,"select"|"execute">=db){
- const state=await readSessionAttendance(clubId,session.id,reader);
- if(!session.teamId||session.sessionKind==="tipo")return state;
- const {date,start}=trainingLocalSlot(session.scheduledAt),ids=sessionTeamIds(session.teamId,session.notes);
- const replies=await trainingAvailability(clubId,session.teamId,date,start,undefined,ids,session.durationMinutes??90,reader);
- const recorded=new Set(state.recordedPlayerIds);
- const present = new Set(state.presentPlayerIds);
- const clubPlayers = await reader.select({
-   id: playersTable.id,
-   teamId: playersTable.teamId,
-   notes: playersTable.notes,
-   available: playersTable.available,
-   overrideActive: playersTable.availabilityOverrideActive,
-   overrideFrom: playersTable.availabilityOverrideFrom,
-   overrideUntil: playersTable.availabilityOverrideUntil,
- }).from(playersTable).where(eq(playersTable.clubId, clubId));
- const unavailablePlayers = rosterMembers(clubPlayers, ids).filter(player => {
-   const override = player.overrideActive === true && Boolean(player.overrideUntil) &&
-     (!player.overrideFrom || player.overrideFrom <= date) && player.overrideUntil! >= date;
-   return player.available === false && !override && !present.has(player.id);
- }).map(player => player.id);
- const parentBlocked=replies.records.filter(row=>row.status==="unavailable"&&!recorded.has(row.playerId)).map(row=>row.playerId);
- return {...state,blockedPlayerIds:[...new Set([...state.blockedPlayerIds,...parentBlocked,...unavailablePlayers])].sort((a,b)=>a-b)};
+/** Recorded attendance takes precedence for station eligibility. */
+export async function readSessionEligibility(
+  clubId: number,
+  session: { id: number; teamId: number | null; notes: string | null; scheduledAt: Date; durationMinutes: number | null; sessionKind?: string | null },
+  reader: Pick<typeof db, "select" | "execute"> = db,
+) {
+  const state = await readSessionAttendance(clubId, session.id, reader);
+  if (!session.teamId || session.sessionKind === "tipo") return { ...state, beforeAppello: null };
+
+  const { date, start } = trainingLocalSlot(session.scheduledAt);
+  const teamIds = sessionTeamIds(session.teamId, session.notes);
+  const replies = await trainingAvailability(clubId, session.teamId, date, start, undefined, teamIds, session.durationMinutes ?? 90, reader);
+  const recorded = new Set(state.recordedPlayerIds);
+  const present = new Set(state.presentPlayerIds);
+  const parentBlocked = replies.records
+    .filter(row => row.status === "unavailable" && !recorded.has(row.playerId))
+    .map(row => row.playerId);
+  const secretaryBlocked = replies.secretaryUnavailablePlayerIds.filter(id => !present.has(id));
+
+  return {
+    ...state,
+    beforeAppello: replies.beforeAppello,
+    blockedPlayerIds: [...new Set([...state.blockedPlayerIds, ...parentBlocked, ...secretaryBlocked])].sort((a, b) => a - b),
+  };
 }

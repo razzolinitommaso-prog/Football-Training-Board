@@ -19,6 +19,7 @@ export type SessionOverviewExercise = {
 
 type Props = {
   editor?: ReactNode;
+  attendance?: ReactNode;
   rotation?:ReactNode;
   phaseMinutes?:Record<string,number>;
   phaseContent?:Partial<Record<string,ReactNode>>;
@@ -58,6 +59,7 @@ export function TrainingSessionOverview(props: Props) {
     {props.metadata.length>0&&<dl className="grid grid-cols-2 gap-3 rounded-xl border bg-muted/20 p-3 sm:grid-cols-4">
       {props.metadata.map(item => <div key={item.label} className="min-w-0"><dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{item.label}</dt><dd className="mt-1 break-words text-sm font-semibold">{item.value}</dd></div>)}
     </dl>}
+    {props.attendance}
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
       <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Obiettivo della seduta</p><p className="mt-1 text-sm font-semibold">{props.principle}</p></div>
       {props.slot && <Badge variant="outline">{props.slot}</Badge>}

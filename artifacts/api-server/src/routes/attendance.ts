@@ -136,7 +136,8 @@ router.get("/training-availability", requireAuth, async (req,res):Promise<void>=
   const allowedTeamIds=canReadAll?clubTeams.map(t=>t.id):clubTeams.filter(t=>t.coachId===req.session.userId||assignments.some(a=>a.teamId===t.id)).map(t=>t.id).concat(programIds);
   const requested=String(req.query.teamIds??teamId).split(",").map(Number);
   if(requested.length>20||requested.some(id=>!Number.isInteger(id)||!allowedTeamIds.includes(id))){res.status(403).json({error:"Annate non autorizzate"});return;}
-  res.json(await trainingAvailability(clubId,teamId,date,start,allowedTeamIds,requested,duration));
+  const { records, available, unavailable, pending, total, beforeAppello } = await trainingAvailability(clubId, teamId, date, start, allowedTeamIds, requested, duration);
+  res.json({ records, available, unavailable, pending, total, beforeAppello });
 });
 
 router.get("/attendance-register", requireAuth, async (req, res) => {

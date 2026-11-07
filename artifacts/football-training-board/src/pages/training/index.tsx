@@ -27,7 +27,7 @@ import { confirmDeleteTrainingSession } from "@/lib/delete-training-session";
 import { TrainingSessionsCalendar } from "@/components/training/TrainingSessionsCalendar";
 import type { SessionCalendarTeam, SessionPreparation } from "@/lib/training-session-calendar";
 import { TrainingSessionOverview } from "@/components/training/TrainingSessionOverview";
-import { TrainingAvailabilityPanel } from "@/components/calendar/TrainingAvailability";
+import { TrainingAttendanceComparison, TrainingAvailabilityPanel } from "@/components/calendar/TrainingAvailability";
 import { TrainingRosterOptions } from "@/components/training-roster-groups";
 import { ExerciseTacticalBoard, detachExerciseBoard } from "@/components/exercise-tactical-board";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -1328,6 +1328,8 @@ function EditSessionDialog({
 }) {
   const { toast } = useToast();
   const { t } = useLanguage();
+  const queryClient = useQueryClient();
+  const participants = useSessionParticipants(session.id, !inline && session.sessionKind !== "tipo");
   const [scheduledDate, setScheduledDate] = useState(toDisplayDateValue(session.scheduledAt));
   const [scheduledTime, setScheduledTime] = useState(timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)));
   const [duration, setDuration] = useState(session.durationMinutes ?? 90);
@@ -1337,6 +1339,12 @@ function EditSessionDialog({
   const [sessionPrincipio, setSessionPrincipio] = useState(normalizePrincipio(session.objectives));
   const [sessionTrainingSession, setSessionTrainingSession] = useState(getSessionTrainingSession(session) ?? inferTrainingSlot(teams.find(team => team.id === session.teamId), datePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)), timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt))));
   const [loading, setLoading] = useState(false);
+  const savedSlot = toDateTimeLocalValue(session.scheduledAt);
+  const slotChanged = normalizeDateIt(scheduledDate) !== datePartFromLocalDateTime(savedSlot) ||
+    normalizeTime24(scheduledTime) !== timePartFromLocalDateTime(savedSlot) ||
+    duration !== (session.durationMinutes ?? 90) || teamId !== session.teamId ||
+    JSON.stringify([...sharedTeamIds].sort((a, b) => a - b)) !==
+      JSON.stringify(sessionTeamIds(session.teamId, session.notes).sort((a, b) => a - b));
 
   useEffect(() => {
     const original = [toDisplayDateValue(session.scheduledAt), timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)), session.durationMinutes ?? 90, session.location ?? "", session.teamId ?? null, normalizePrincipio(session.objectives), getSessionTrainingSession(session) ?? inferTrainingSlot(teams.find(team => team.id === session.teamId), datePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)), timePartFromLocalDateTime(toDateTimeLocalValue(session.scheduledAt)))];
@@ -1378,6 +1386,7 @@ function EditSessionDialog({
           teamId,
         }),
       });
+      void queryClient.invalidateQueries({ queryKey: ["training-session-participants"] });
       toast({ title: "Seduta aggiornata" });
       onSaved();
       onClose();
@@ -1450,7 +1459,18 @@ function EditSessionDialog({
             </div>
           </div>
 
-          <TrainingAvailabilityPanel teamId={teamId} teamIds={sharedTeamIds} date={normalizeDateIt(scheduledDate)} start={normalizeTime24(scheduledTime)} durationMinutes={duration}/>
+          {slotChanged || session.sessionKind === "tipo" ? (
+            <TrainingAvailabilityPanel
+              teamId={teamId}
+              teamIds={sharedTeamIds}
+              date={normalizeDateIt(scheduledDate)}
+              start={normalizeTime24(scheduledTime)}
+              durationMinutes={duration}
+              preview={slotChanged}
+            />
+          ) : !inline && (
+            <TrainingAttendanceComparison data={participants.data} loading={participants.isLoading} error={participants.isError} />
+          )}
 
           {onManageExercises && (
             <Button type="button" variant="outline" className="w-full justify-center" onClick={onManageExercises}>
@@ -2179,6 +2199,7 @@ function SessionDetailsDialog({
         <StationOrganization sessionId={session.sessionKind !== "tipo" ? session.id : undefined} activities={stationActivities} blockedPlayerIds={blockedPlayerIds} attendanceLoading={participants.isLoading||participants.isError} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly||planQuery.isLoading||planQuery.isError} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione delle stazioni salvata"});}} onPreviewChange={setRotationPreview}>
         {({toolbar,stations})=><TrainingSessionOverview
           editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>{setEditingMetadata(false);setMetadataDirty(false);}} onSaved={()=>{setMetadataDirty(false);void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
+          attendance={session.sessionKind !== "tipo" && <TrainingAttendanceComparison data={participants.data} loading={participants.isLoading} error={participants.isError} />}
           phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 text-sm"><Label htmlFor={`recovery-${session.id}-${index}`}>Recupero tra fase {index+1} e {index+2}</Label><Input id={`recovery-${session.id}-${index}`} aria-label={`Recupero tra fase ${index+1} e ${index+2}`} className="w-20" type="number" min={0} max={300} step={1} disabled={readOnly||planQuery.isLoading||planQuery.isError||savePlan.isPending} value={recoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300){setRecoveries(previous=>index===0?[value,previous[1]]:[previous[0],value]);setRecoveriesDirty(true);}}}/><span>min</span></div>)}
           metadata={editingMetadata&&canEditMetadata?[]:[
             { label: "Giorno", value: format(new Date(session.scheduledAt), "EEEE", { locale: itLocale }) },
@@ -2213,7 +2234,6 @@ function SessionDetailsDialog({
           onRemove={id => { if (confirm("Rimuovere la stazione da questa seduta?")) removeLinkMutation.mutate(id); }}
           recovery={<div className="space-y-2">
             {planQuery.isLoading?<p role="status">Caricamento tempi della seduta...</p>:planQuery.isError?<p role="alert">Tempi non disponibili. <Button variant="link" onClick={()=>void planQuery.refetch()}>Riprova</Button></p>:<>
-              {session.sessionKind!=="tipo"&&<p className="text-xs text-muted-foreground">{participants.isLoading?"Caricamento appello...":participants.isError?"Appello non disponibile: assegnazione giocatori sospesa.":`Appello: ${participants.data?.recordedPlayerIds.length??0} su ${participants.data?.total??0} registrati. Prima dell’appello vale la disponibilità dei genitori; presente e assente prevalgono nella seduta. Completa l’appello prima dell’inizio della seduta; restano possibili le rettifiche.`}</p>}
               <p>Stazioni: <strong>{formatMinutes(plannedExerciseMinutes)}</strong> · Recuperi: <strong>{formatMinutes(recoveryMinutes)}</strong></p>
               <p>Le stazioni indipendenti si svolgono in sequenza. Solo quelle associate lavorano insieme; gli scambi dei giocatori aggiungono i passaggi successivi.</p>
               <p>Tempo residuo: <strong>{formatMinutes(Math.max(0,residualMinutes))}</strong></p>
@@ -2471,7 +2491,17 @@ function SessionDetailsDialog({
                       </div>
                     </div>
 
-                    <TrainingRosterOptions key={exerciseForm.teamId || "all"} teamId={exerciseForm.teamId} onSelect={ids => setExerciseForm(prev => ({ ...prev, playersRequiredMode: "selected", selectedPlayerIdsJson: JSON.stringify(ids.filter(id=>!reservedPlayers.has(id)&&!blockedPlayerIds.includes(id))) }))} />
+                    <TrainingRosterOptions
+                      key={exerciseForm.teamId || "all"}
+                      teamId={exerciseForm.teamId}
+                      eligiblePlayerIds={session.sessionKind === "tipo" ? undefined : selectablePlayers.map(player => player.id)}
+                      disabled={session.sessionKind !== "tipo" && (participants.isLoading || participants.isError || selectablePlayersQuery.isLoading || selectablePlayersQuery.isError)}
+                      onSelect={ids => setExerciseForm(prev => ({
+                        ...prev,
+                        playersRequiredMode: "selected",
+                        selectedPlayerIdsJson: JSON.stringify(ids.filter(id => !reservedPlayers.has(id))),
+                      }))}
+                    />
                     {exerciseForm.playersRequiredMode === "manual" && (
                       <div className="space-y-2">
                         <Label>Inserisci numero</Label>

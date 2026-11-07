@@ -68,18 +68,24 @@ export function TrainingRosterManager({ kind }: { kind: "shared" | "work" }) {
   </details>;
 }
 
-export function TrainingRosterOptions({ teamId, onSelect }: { teamId?: string | number | null; onSelect: (ids: number[]) => void }) {
+export function TrainingRosterOptions({ teamId, onSelect, eligiblePlayerIds, disabled = false }: {
+  teamId?: string | number | null;
+  onSelect: (ids: number[]) => void;
+  eligiblePlayerIds?: number[];
+  disabled?: boolean;
+}) {
   const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
   const query = useQuery({ queryKey: ["training-rosters", Number(teamId), "shared"], queryFn: () => request<Roster>(`/api/training-rosters/${teamId}?scope=shared`), enabled: !!teamId });
   if (!teamId) return null;
   if (query.error) return <p role="alert" className="text-sm text-red-600">{query.error.message}</p>;
   const data = query.data;
   if (!data) return <p className="text-xs">Caricamento rosa allenamento…</p>;
-  const usableIds = new Set(data.players.filter(player => player.available !== false).map(player => player.id));
+  const eligible = eligiblePlayerIds === undefined ? null : new Set(eligiblePlayerIds);
+  const usableIds = new Set(data.players.filter(player => eligible ? eligible.has(player.id) : player.available !== false).map(player => player.id));
   return <div className="space-y-2 rounded-md border p-3">
     <p className="text-sm font-medium">{data.group ? `Rosa condivisa: ${data.group.name}` : "Rosa allenamento della squadra"}</p>
-    <div className="flex flex-wrap gap-2"><button type="button" className={action} onClick={() => { setSelectedGroups([]); onSelect(data.teamPlayerIds.filter(id => usableIds.has(id))); }}>Carica solo questa squadra</button>{data.group && <button type="button" className={action} onClick={() => { setSelectedGroups([]); onSelect([...usableIds]); }}>Carica tutta la rosa condivisa</button>}</div>
-    {!!data.workGroups.length && <fieldset className="max-h-44 space-y-2 overflow-y-auto"><legend className="text-sm">Gruppi di lavoro</legend>{data.workGroups.map(group => <label className="flex min-h-10 items-center gap-2 text-sm" key={group.id}><input type="checkbox" checked={selectedGroups.includes(group.id)} onChange={() => {
+    <div className="flex flex-wrap gap-2"><button type="button" className={action} disabled={disabled} onClick={() => { setSelectedGroups([]); onSelect(data.teamPlayerIds.filter(id => usableIds.has(id))); }}>Carica solo questa squadra</button>{data.group && <button type="button" className={action} disabled={disabled} onClick={() => { setSelectedGroups([]); onSelect([...usableIds]); }}>Carica tutta la rosa condivisa</button>}</div>
+    {!!data.workGroups.length && <fieldset className="max-h-44 space-y-2 overflow-y-auto"><legend className="text-sm">Gruppi di lavoro</legend>{data.workGroups.map(group => <label className="flex min-h-10 items-center gap-2 text-sm" key={group.id}><input type="checkbox" checked={selectedGroups.includes(group.id)} disabled={disabled} onChange={() => {
       const next = selectedGroups.includes(group.id) ? selectedGroups.filter(id => id !== group.id) : [...selectedGroups, group.id];
       setSelectedGroups(next); onSelect([...new Set(data.workGroups.filter(group => next.includes(group.id)).flatMap(group => group.playerIds ?? []))].filter(id => usableIds.has(id)));
     }} />{group.name} ({(group.playerIds ?? []).filter(id => usableIds.has(id)).length})</label>)}</fieldset>}

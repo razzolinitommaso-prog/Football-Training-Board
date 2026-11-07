@@ -15,10 +15,24 @@ export async function ensureParentTrainingAvailabilityTable() {
 export function resultRows<T>(result:unknown):T[] { return (Array.isArray(result)?result:(result as {rows?:T[]})?.rows??[]) as T[]; }
 export async function trainingAvailability(clubId:number,teamId:number,date:string,start:string,allowedTeamIds?:number[],requestedTeamIds?:number[],durationMinutes?:number,reader:Pick<typeof db,"select"|"execute">=db) {
   await ensureParentTrainingAvailabilityTable();
-  const players=await reader.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,clubId));
+  const players = await reader.select({
+    id: playersTable.id,
+    teamId: playersTable.teamId,
+    notes: playersTable.notes,
+    available: playersTable.available,
+    overrideActive: playersTable.availabilityOverrideActive,
+    overrideFrom: playersTable.availabilityOverrideFrom,
+    overrideUntil: playersTable.availabilityOverrideUntil,
+  }).from(playersTable).where(eq(playersTable.clubId, clubId));
   const requested=[...new Set([teamId,...(requestedTeamIds??[])])];
   const teamIds=allowedTeamIds?requested.filter(id=>allowedTeamIds.includes(id)):requested;
   const roster=rosterMembers(players,teamIds);
+  const secretaryUnavailable = new Set(roster.filter(player => {
+    const overrideUntil = player.overrideUntil;
+    const hasOverride = player.overrideActive === true && overrideUntil &&
+      (!player.overrideFrom || player.overrideFrom <= date) && overrideUntil >= date;
+    return player.available === false && !hasOverride;
+  }).map(player => player.id));
   // Replies belong to the child's original team occurrence, including children
   // training with a supplemental/shared team. Only overlapping scheduled slots
   // are eligible; another training on the same date must not supply a reply.
@@ -62,5 +76,13 @@ export async function trainingAvailability(clubId:number,teamId:number,date:stri
     const status=statuses.size===1?current[0]?.status:'pending';
     return {playerId:player.id,status:status==='available'||status==='unavailable'?status:'pending'};
   });
-  return {records,available:records.filter(row=>row.status==='available').length,unavailable:records.filter(row=>row.status==='unavailable').length,pending:records.filter(row=>row.status==='pending').length,total:records.length};
+  const beforeAppello = { available: 0, parentUnavailable: 0, secretaryUnavailable: secretaryUnavailable.size, pending: 0, total: records.length };
+  for (const { playerId, status } of records) {
+    if (secretaryUnavailable.has(playerId)) continue;
+    if (status === "available") beforeAppello.available++;
+    else if (status === "unavailable") beforeAppello.parentUnavailable++;
+    else beforeAppello.pending++;
+  }
+
+  return {records, beforeAppello, secretaryUnavailablePlayerIds: [...secretaryUnavailable],available:records.filter(row=>row.status==='available').length,unavailable:records.filter(row=>row.status==='unavailable').length,pending:records.filter(row=>row.status==='pending').length,total:records.length};
 }
