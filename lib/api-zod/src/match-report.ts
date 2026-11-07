@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const MATCH_REPORT_SUBSTITUTION_LIMIT = 200;
+
 const playerId = z.number().int().positive();
 const moment = { period: z.number().int().min(0).max(3), minute: z.number().min(0).max(180) };
 export const matchReportSchema = z.object({
@@ -13,7 +15,7 @@ export const matchReportSchema = z.object({
   substitutions: z.array(z.object({
     id: z.string().min(1).max(100), outPlayerId: playerId,
     inPlayerId: playerId.nullable(), ...moment, notes: z.string().max(2000),
-  })).max(200),
+  })).max(MATCH_REPORT_SUBSTITUTION_LIMIT),
 });
 export type MatchReport = z.infer<typeof matchReportSchema>;
 

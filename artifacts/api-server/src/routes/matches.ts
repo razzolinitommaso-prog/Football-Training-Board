@@ -308,7 +308,7 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
     for (const period of next.periods) {
       if (!period || typeof period !== "object" || Array.isArray(period)) continue;
       const previousPeriod = previousPeriods.get(period.key);
-      for(const field of ["secondPart","thirdPartMinutes","firstPartMinutes","splitAtHalf"]){if(!Object.prototype.hasOwnProperty.call(period,field)&&previousPeriod?.[field]!==undefined)period[field]=previousPeriod[field];}
+      for(const field of ["secondPart","thirdPartMinutes","firstPartMinutes","splitAtHalf","fractionCount","additionalParts"]){if(!Object.prototype.hasOwnProperty.call(period,field)&&previousPeriod?.[field]!==undefined)period[field]=previousPeriod[field];}
       const preserveLineupChoices = (current: Record<string, unknown>, previous: Record<string, unknown> | null | undefined) => {
         if (!previous || JSON.stringify(current.lineupPlayerIds) !== JSON.stringify(previous.lineupPlayerIds)) return;
         for (const field of ["lineupGoalkeeperId", "lineupManual"]) {
@@ -318,6 +318,13 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
       preserveLineupChoices(period, previousPeriod);
       const second = normalizeMatchPlan(period.secondPart);
       if (second) preserveLineupChoices(second, normalizeMatchPlan(previousPeriod?.secondPart));
+      const oldParts = Array.isArray(previousPeriod?.additionalParts) ? previousPeriod.additionalParts : [];
+      if (Array.isArray(period.additionalParts)) {
+        period.additionalParts.forEach((part: unknown, index: number) => {
+          const current = normalizeMatchPlan(part);
+          if (current) preserveLineupChoices(current, normalizeMatchPlan(oldParts[index]));
+        });
+      }
       // Keep an explicit bench boundary when an older client resaves the same lineup.
       if (period.lineupStarterCount === undefined && typeof previousPeriod?.lineupStarterCount === "number"
         && JSON.stringify(period.lineupPlayerIds) === JSON.stringify(previousPeriod.lineupPlayerIds)) {

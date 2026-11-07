@@ -25,6 +25,14 @@ type RosterPlayer = {
 };
 const number = (n: number) =>
   n.toLocaleString("it-IT", { maximumFractionDigits: 2 });
+export function matchMinutesLabel(minutes: number, compact = false) {
+  const seconds = Math.round(minutes * 60);
+  const whole = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return compact ? whole + "′" + (remainder ? String(remainder).padStart(2, "0") + "″" : "")
+    : whole + " min" + (remainder ? " " + remainder + " s" : "");
+}
+
 function SummaryPitch({
   summary,
   unit,
@@ -101,6 +109,7 @@ export function MatchRotationComparison({
   onStatus,
   onBenchAll,
   renderPitch,
+  timing,
   controls,
   footer,
   automatic = false,
@@ -112,6 +121,7 @@ export function MatchRotationComparison({
   onStatus?: (id: number, key: string, reserve: boolean) => void;
   onBenchAll?: () => void;
   renderPitch?: (unit: RotationSummaryUnit) => ReactNode;
+  timing?: ReactNode;
   controls?: ReactNode;
   footer?: ReactNode;
   title?: string;
@@ -120,6 +130,18 @@ export function MatchRotationComparison({
   const [enlarged, setEnlarged] = useState<RotationSummaryUnit | null>(null);
   const [search, setSearch] = useState("");
   const [all, setAll] = useState(false);
+  const [unitPage, setUnitPage] = useState(0);
+  const pageSize = 8;
+  const lastPage = Math.max(0, Math.ceil(summary.units.length / pageSize) - 1);
+  const page = Math.min(lastPage, unitPage);
+  const units = summary.units.slice(page * pageSize, (page + 1) * pageSize);
+  const periodHeadings: { key: string; count: number; label: string }[] = [];
+  for (const unit of units) {
+    const previous = periodHeadings.at(-1);
+    if (previous?.key === unit.periodKey) previous.count++;
+    else periodHeadings.push({ key: unit.periodKey, count: 1, label: unit.periodKey.slice(1) + "° tempo" });
+  }
+
   const called = roster?.filter((p) => p.called) ?? [];
   const rosterVisible = roster?.filter(
     (p) =>
@@ -229,6 +251,7 @@ export function MatchRotationComparison({
                 </span>
               )}
             </div>
+            {timing}
             {onBenchAll && (
               <Button type="button" variant="outline" size="sm" className="mb-2" disabled={!summary.rows.length} onClick={onBenchAll}>
                 Tutti in panchina
@@ -264,35 +287,33 @@ export function MatchRotationComparison({
                 </span>
               </div>
             )}
+            {lastPage > 0 && <nav className="mb-2 flex flex-wrap items-center gap-2 text-xs" aria-label="Pagine delle frazioni">
+              <Button type="button" size="sm" variant="outline" disabled={page === 0} onClick={() => setUnitPage(page - 1)}>Precedenti</Button>
+              <span>Frazioni {page * pageSize + 1}–{page * pageSize + units.length} di {summary.units.length}</span>
+              <Button type="button" size="sm" variant="outline" disabled={page === lastPage} onClick={() => setUnitPage(page + 1)}>Successive</Button>
+            </nav>}
             <table
               className="match-minute-grid w-full border-collapse text-xs"
-              data-many-units={summary.units.length > 4 || undefined}
+              data-many-units={units.length > 4 || undefined}
               style={
                 {
-                  "--match-unit-count": summary.units.length,
+                  "--match-unit-count": units.length,
                 } as React.CSSProperties
               }
             >
               <thead>
                 <tr className="bg-muted/40 text-left">
-                  <th className="p-2">Giocatore</th>
-                  {summary.units.map((u) => (
-                    <th key={u.key} className="p-1 text-center">
-                      {u.label.replace(" tempo", "")}
-                      <span className="block text-[10px] font-normal text-muted-foreground">
-                        {number(u.minutes)}′
-                      </span>
-                    </th>
-                  ))}
-                  <th className="match-planned-column p-1 text-center">
-                    Minuti
-                  </th>
-                  <th className="match-eq-column p-1 text-center">Tempi eq.</th>
-                  {summary.hasReport && (
-                    <th className="match-actual-column p-1 text-center">
-                      Eff.′
-                    </th>
-                  )}
+                  <th rowSpan={2} className="match-player-column p-2">Giocatore</th>
+                  {periodHeadings.map(group => <th key={group.key} colSpan={group.count} scope="colgroup" className="border-l p-1 text-center text-[10px]">{group.label}</th>)}
+                  <th rowSpan={2} className="match-planned-column p-1 text-center">Previsti</th>
+                  <th rowSpan={2} className="match-eq-column p-1 text-center">Tempi eq.</th>
+                  {summary.hasReport && <th rowSpan={2} className="match-actual-column p-1 text-center">Eff.′</th>}
+                </tr>
+                <tr className="border-t bg-muted/40">
+                  {units.map(unit => <th key={unit.key} className="match-unit-column p-1 text-center" scope="col">
+                    {unit.label.replace(" tempo", "")}
+                    <span className="block text-[10px] font-normal text-muted-foreground">{matchMinutesLabel(unit.minutes, true)}</span>
+                  </th>)}
                 </tr>
               </thead>
               <tbody>
@@ -308,12 +329,12 @@ export function MatchRotationComparison({
                             · Eff.{" "}
                             {row.actualMinutes === null
                               ? "non registrati"
-                              : number(row.actualMinutes) + "′"}
+                              : matchMinutesLabel(row.actualMinutes, true)}
                           </span>
                         )}
                       </span>
                     </th>
-                    {row.cells.map((cell) => (
+                    {row.cells.slice(page * pageSize, (page + 1) * pageSize).map((cell) => (
                       <td key={cell.key} className="p-0.5 text-center">
                         <button
                           type="button"
@@ -354,14 +375,14 @@ export function MatchRotationComparison({
                           {cell.status}
                           {summary.hasReport && (
                             <small className="block text-[9px] font-normal">
-                              {number(cell.actualMinutes ?? 0)}′ eff.
+                              {matchMinutesLabel(cell.actualMinutes ?? 0, true)} eff.
                             </small>
                           )}
                         </button>
                       </td>
                     ))}
                     <td className="p-1 text-center font-semibold tabular-nums">
-                      {number(row.plannedMinutes)}′
+                      {matchMinutesLabel(row.plannedMinutes, true)}
                     </td>
                     <td className="match-eq-column p-1 text-center text-muted-foreground">
                       {number(row.plannedPeriods)}
@@ -370,7 +391,7 @@ export function MatchRotationComparison({
                       <td className="match-actual-column p-1 text-center font-semibold">
                         {row.actualMinutes === null
                           ? "—"
-                          : number(row.actualMinutes) + "′"}
+                          : matchMinutesLabel(row.actualMinutes, true)}
                       </td>
                     )}
                   </tr>
@@ -378,8 +399,8 @@ export function MatchRotationComparison({
               </tbody>
             </table>
             <p className="mt-2 text-[10px] text-muted-foreground">
-              T = titolare · P = panchina · — = non assegnato. A e B indicano
-              le due parti di un tempo. I minuti effettivi provengono dal resoconto.
+              T = titolare · P = panchina · — = non assegnato. Le lettere indicano
+              le frazioni di ogni tempo. I minuti effettivi provengono dal resoconto.
             </p>
             {!summary.hasReport && (
               <p className="mt-1 text-[10px] text-muted-foreground">
@@ -397,13 +418,13 @@ export function MatchRotationComparison({
             Schieramenti in tempo reale
           </h4>
           <div className="match-pitch-grid">
-            {summary.units.map((unit) => (
+            {units.map((unit) => (
               <article
                 key={unit.key}
                 className={renderPitch ? "min-w-0 space-y-2 rounded-lg border p-2 sm:p-3" : "min-w-0 space-y-2 rounded-lg border p-1.5"}
               >
                 <h5 className="text-[11px] font-semibold">
-                  {unit.label.replace(" tempo", "")} · {number(unit.minutes)}′
+                  {unit.label.replace(" tempo", "")} · {matchMinutesLabel(unit.minutes, true)}
                 </h5>
                 {renderPitch ? (
                   renderPitch(unit)
@@ -429,7 +450,7 @@ export function MatchRotationComparison({
       {controls && (
         <details className="rounded-lg border bg-background p-3">
           <DisclosureSummary className="text-xs font-semibold">
-            Durate, quarto tempo e regole
+            Strumenti per gli schieramenti
           </DisclosureSummary>
           <div className="mt-3">{controls}</div>
         </details>

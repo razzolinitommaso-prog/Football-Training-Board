@@ -1,5 +1,5 @@
 import { changeMatchLineupStatus, setLineupKeeper, splitMatchLineup } from "./match-lineup";
-import { matchPeriodFirstPartMinutes, matchPeriodIsSplit, type MatchReport } from "@workspace/api-zod";
+import { MATCH_REPORT_SUBSTITUTION_LIMIT, matchPeriodFirstPartMinutes, matchPeriodParts, matchPeriodPartKey, type MatchReport } from "@workspace/api-zod";
 export type RotationPeriod = {
   key: string;
   label: string;
@@ -15,6 +15,8 @@ export type RotationPeriod = {
   rotationLocks?: Record<string, "T" | "P">;
   lineupPositions?: Record<string, { x: number; y: number }>;
   secondPart?: RotationPeriod;
+  additionalParts?: RotationPeriod[];
+  fractionCount?: number;
   thirdPartMinutes?: number;
   firstPartMinutes?: number | null;
   splitAtHalf?: boolean;
@@ -27,40 +29,40 @@ export function firstPartDuration(period: RotationPeriod) {
   return matchPeriodFirstPartMinutes(period, periodMinutes(period.minutes));
 }
 
-export function secondPartOf<T extends RotationPeriod>(period: T): T {
+
+export function matchRotationPart<T extends RotationPeriod>(period: T, part: number, minutes?: number): T {
+  if (part === 0) return period;
+  const saved = part === 1 ? period.secondPart : period.additionalParts?.[part - 2];
   return {
     module: period.module,
     format: period.format,
-    ...period.secondPart,
-    key: period.key + "-second",
-    label: period.label + " · seconda parte",
-    minutes: String(periodMinutes(period.minutes) - firstPartDuration(period)),
+    ...saved,
+    key: matchPeriodPartKey(period.key, part),
+    label: period.label + " · parte " + (part + 1),
+    minutes: String(minutes ?? saved?.minutes ?? periodMinutes(period.minutes) / 2),
   } as T;
 }
 
-export function rotationUnits<T extends RotationPeriod>(periods: T[]) {
-  const fourth = periods.some((p) => p.key === "t4");
-  return periods.flatMap((period, index) =>
-    matchPeriodIsSplit(period, fourth)
-      ? [
-          { period, index, second: false, minutes: firstPartDuration(period) },
-          {
-            period: secondPartOf(period),
-            index,
-            second: true,
-            minutes: periodMinutes(period.minutes) - firstPartDuration(period),
-          },
-        ]
-      : [
-          {
-            period,
-            index,
-            second: false,
-            minutes: periodMinutes(period.minutes),
-          },
-        ],
-  );
+export function updateMatchRotationPart<T extends RotationPeriod>(period: T, part: number, updated: T): T {
+  if (part === 0) return { ...updated, secondPart: period.secondPart, additionalParts: period.additionalParts };
+  if (part === 1) return { ...period, secondPart: updated };
+  const additionalParts = [...(period.additionalParts ?? [])];
+  additionalParts[part - 2] = updated;
+  return { ...period, additionalParts };
 }
+
+export function rotationUnits<T extends RotationPeriod>(periods: T[]) {
+  const fourth = periods.some(p => p.key === "t4");
+  return periods.flatMap((period, index) => {
+    let start = 0;
+    return matchPeriodParts(period, fourth).map((minutes, part) => {
+      const unit = { period: matchRotationPart(period, part, minutes), index, part, minutes, start };
+      start += minutes;
+      return unit;
+    });
+  });
+}
+
 /** Keep manual selections, regenerate only automatic units; an explicit rebuild preserves the first lineup. */
 export function rotateMatchPeriods<T extends RotationPeriod>(
   periods: T[],
@@ -137,11 +139,9 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
               : {}),
           }
         : {}),
-      ...(unit.second ? { minutes: String(unit.minutes) } : {}),
+      ...(unit.part > 0 ? { minutes: String(unit.minutes) } : {}),
     } as T;
-    if (unit.second)
-      next[unit.index] = { ...next[unit.index], secondPart: updated };
-    else next[unit.index] = updated;
+    next[unit.index] = updateMatchRotationPart(next[unit.index], unit.part, updated);
     starters.forEach((id) =>
       totals.set(id, (totals.get(id) ?? 0) + unit.minutes),
     );
@@ -195,7 +195,8 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
     return false;
   };
   // Bounded deterministic local improvement; no expensive search during a tap.
-  for (let pass = 0; pass < 100; pass++) {
+  const improvementPasses = units.length > 24 ? 0 : 100;
+  for (let pass = 0; pass < improvementPasses; pass++) {
     let best = score(),
       swap: [number, number, number] | undefined;
     for (let i = 0; i < units.length; i++) {
@@ -254,13 +255,7 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
         ),
       ),
     } as T;
-    if (unit.second)
-      next[unit.index] = { ...next[unit.index], secondPart: updated };
-    else
-      next[unit.index] = {
-        ...updated,
-        secondPart: next[unit.index].secondPart,
-      };
+    next[unit.index] = updateMatchRotationPart(next[unit.index], unit.part, updated);
   });
   return next;
 }
@@ -298,13 +293,7 @@ export function selectRotationCell<T extends RotationPeriod>(
     rotationLocks: locks,
     rotationAuto: true,
   } as T;
-  const next = periods.map((p, index) =>
-    index !== unit.index
-      ? p
-      : unit.second
-        ? { ...p, secondPart: updated }
-        : updated,
-  );
+  const next = periods.map((p, index) => index === unit.index ? updateMatchRotationPart(p, unit.part, updated) : p);
   return rotateMatchPeriods(next, selected, limitFor, goalkeepers);
 }
 export function plannedPlayerMinutes<T extends RotationPeriod>(
@@ -338,23 +327,29 @@ export function seedMatchReport<T extends RotationPeriod>(
       starters: splitMatchLineup(p, limitFor(p), called).starters,
     })),
   };
-  for (const { period, index, second } of rotationUnits(periods)) {
-    if (!second || !periods[index].secondPart) continue;
-    const first = report.periods[index].starters;
+  const previous = report.periods.map(period => period.starters);
+  for (const { period, index, part, start } of rotationUnits(periods)) {
+    if (part === 0) continue;
+    if (part === 1 && !periods[index].secondPart && periods[index].fractionCount === undefined) continue;
+    const first = previous[index];
     const next = splitMatchLineup(period, limitFor(period), called).starters;
     const outgoing = first.filter(id => !next.includes(id));
     const incoming = next.filter(id => !first.includes(id));
     if (incoming.length > outgoing.length) {
-      throw Error("Completa gli schieramenti delle due parti del " + periods[index].label.toLowerCase() + " prima di generare il resoconto.");
+      throw Error("Completa gli schieramenti delle frazioni del " + periods[index].label.toLowerCase() + " prima di generare il resoconto.");
+    }
+    if (report.substitutions.length + outgoing.length > MATCH_REPORT_SUBSTITUTION_LIMIT) {
+      throw Error("Il piano supera il limite di " + MATCH_REPORT_SUBSTITUTION_LIMIT + " cambi precompilabili. Puoi compilare il resoconto a partire dai cambi effettivi.");
     }
     outgoing.forEach((id, i) => report.substitutions.push({
       id: "planned-" + period.key + "-" + i,
       outPlayerId: id,
       inPlayerId: incoming[i] ?? null,
       period: index,
-      minute: firstPartDuration(periods[index]),
-      notes: "Cambio tra le due parti del " + periods[index].label.toLowerCase(),
+      minute: start,
+      notes: "Cambio tra le frazioni del " + periods[index].label.toLowerCase(),
     }));
+    previous[index] = next;
   }
   return report;
 }
@@ -430,7 +425,7 @@ export function editManualLineupCell<T extends RotationPeriod>(periods:T[], sele
   lineupGoalkeeperId:keeper!=null&&!starters.includes(keeper)?null:keeper,
   lineupPositions:Object.fromEntries(Object.entries(unit.period.lineupPositions??{}).filter(([key])=>starters.includes(Number(key)))),
   boardConfirmed:false,lineupDetectedModule:null} as T;
- return periods.map((p,i)=>i!==unit.index?p:unit.second?{...p,secondPart:updated}:updated);
+ return periods.map((p,i)=>i!==unit.index?p:updateMatchRotationPart(p,unit.part,updated));
 }
 
 export function clearMatchLineups<T extends RotationPeriod, P extends {
@@ -455,6 +450,7 @@ export function clearMatchLineups<T extends RotationPeriod, P extends {
       boardSnapshotAt: null,
       boardConfirmed: false,
       ...(period.secondPart ? { secondPart: clear(period.secondPart as T) } : {}),
+      ...(period.additionalParts ? { additionalParts: period.additionalParts.map(part => clear(part as T)) } : {}),
     };
   }
   return {
@@ -473,11 +469,21 @@ export function designateMatchKeeper<T extends RotationPeriod,P extends {periods
    if(locks&&id!==null){delete locks[id];for(const key of Object.keys(locks))if(locks[key]==="T"&&!changed.lineupPlayerIds?.slice(0,changed.lineupStarterCount).includes(Number(key)))delete locks[key];}
    return {...changed,rotationLocks:locks};
  };
+
  const all=key==="all";
+ function updatePeriod(period: T, fourth: boolean): T {
+   let next = all || period.key === key ? update(period) : period;
+   const activeParts = matchPeriodParts(period, fourth);
+   const length = Math.max(activeParts.length, (period.additionalParts?.length ?? 0) + 2);
+   for (let part = 1; part < length; part++) {
+     const saved = part === 1 ? period.secondPart : period.additionalParts?.[part - 2];
+     if (!saved && part >= activeParts.length) continue;
+     const segment = matchRotationPart(period, part, activeParts[part]);
+     if (all || key === segment.key) next = updateMatchRotationPart(next, part, update(segment));
+   }
+   return next;
+ }
  const fourth = plan.periods.some(p => p.key === "t4");
- return {...plan,...(all?{matchGoalkeeperId:id}:{}),periods:plan.periods.map(p=>{
-   const next=all||p.key===key?update(p):p;
-   if ((!p.secondPart && !matchPeriodIsSplit(p, fourth)) || (!all && key !== p.key + "-second")) return next;
-   return {...next, secondPart: update(secondPartOf(p))};
- }),...(all&&plan.fourthPeriodDraft?{fourthPeriodDraft:update(plan.fourthPeriodDraft)}:{})};
+ return {...plan,...(all?{matchGoalkeeperId:id}:{}),periods:plan.periods.map(p=>updatePeriod(p, fourth)),
+   ...(all&&plan.fourthPeriodDraft?{fourthPeriodDraft:updatePeriod(plan.fourthPeriodDraft, true)}:{})};
 }

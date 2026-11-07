@@ -1,4 +1,4 @@
-import {boardMaterialId, matchPeriodIsSplit} from "@workspace/api-zod";
+import {boardMaterialId, matchPeriodParts, matchPeriodPartKey, matchPeriodPartAddress, matchPeriodLabel} from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { ADDITIONAL_EQUIPMENT, AdditionalEquipmentGlyph } from "./additional-equipment";
@@ -6,7 +6,7 @@ import { AnimationPanel } from "./animation-panel";
 import { useBoardAnimation } from "./use-board-animation";
 import { readAnimation } from "./board-animation";
 import { splitMatchLineup, lineupKeeper, setLineupKeeper, matchPeriodByKey } from "@/lib/match-lineup";
-import { designateMatchKeeper, secondPartOf, type RotationPeriod } from "@/lib/match-period-rotation";
+import { designateMatchKeeper, matchRotationPart, updateMatchRotationPart, type RotationPeriod } from "@/lib/match-period-rotation";
 import { capturePitch } from "./capture-pitch";
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -140,14 +140,17 @@ function inferSavedCoordinateSpace(data: TacticalBoardData): BoardCoordinateSpac
   return "desktop-landscape";
 }
 type BoardRootPeriodKey = "t1" | "t2" | "t3" | "t4";
-type BoardPeriodKey = BoardRootPeriodKey | `${BoardRootPeriodKey}-second`;
+type BoardPeriodKey = BoardRootPeriodKey | `${BoardRootPeriodKey}-second` | `${BoardRootPeriodKey}-part-${number}`;
 const boardPeriodLabels = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" } as const;
 
 function isBoardPeriodKey(key: unknown): key is BoardPeriodKey {
-  return typeof key === "string" && /^t[1-4](-second)?$/.test(key);
+  return typeof key === "string" && !!matchPeriodPartAddress(key);
 }
 type MatchPlanPeriodLite = {
   secondPart?: MatchPlanPeriodLite;
+  additionalParts?: MatchPlanPeriodLite[];
+  fractionCount?: number;
+  minutes?: string;
   splitAtHalf?: boolean;
   lineupGoalkeeperId?: number|null;
   key: string;
@@ -2356,8 +2359,9 @@ const QuickPage = () => {
     const periods = (plan as { periods?: MatchPlanPeriodLite[] }).periods;
     if (!Array.isArray(periods)) return null;
     const period = matchPeriodByKey(periods, matchPeriodKey);
-    if (!matchPeriodKey.endsWith("-second") || !period) return period ?? null;
-    const parent = periods.find(p => p.key + "-second" === matchPeriodKey);
+    const address = matchPeriodPartAddress(matchPeriodKey);
+    if (!address?.part || !period) return period ?? null;
+    const parent = periods.find(p => p.key === address.key);
     return { ...period, module: period.module ?? parent?.module, format: period.format ?? parent?.format };
   }, [matchPeriodKey, selectedMatchOption,boardLineupDraft]);
 
@@ -2886,14 +2890,16 @@ const QuickPage = () => {
     type Plan={periods:RotationPeriod[];fourthPeriodDraft?:RotationPeriod;matchGoalkeeperId?:number|null};
     let plan:Plan={...existingPlan,periods:Array.isArray(existingPlan.periods)?existingPlan.periods:[]};
     if(gameKeeperDraft!==undefined)plan=designateMatchKeeper<RotationPeriod,Plan>(plan,"all",gameKeeperDraft,new Set(playerIds),p=>startersLimitForPeriod(p as MatchPlanPeriodLite,boardFormat),id=>teamPlayers.some(player=>player.id===id&&isGoalkeeperPlayer(player)));
-    const rootKey = matchPeriodKey.replace(/-second$/, "") as BoardRootPeriodKey;
+    const address = matchPeriodPartAddress(matchPeriodKey);
+    if (!address) return plan;
+    const rootKey = address.key as BoardRootPeriodKey;
     const periods=plan.periods.some(p=>p.key===rootKey)?plan.periods:[...plan.periods,{key:rootKey,label:boardPeriodLabels[rootKey],minutes:"12"}];
     return {...plan,periods:periods.map(period=>{
       if(period.key!==rootKey)return period;
       const lineup={rotationAuto:false,lineupManual:true,rotationLocks:undefined,...changes};
-      return matchPeriodKey === rootKey
-        ? { ...period, ...lineup }
-        : { ...period, secondPart: { ...secondPartOf(period), ...lineup } };
+      const minutes = matchPeriodParts(period, periods.some(item => item.key === "t4"))[address.part];
+      const part = matchRotationPart(period, address.part, minutes);
+      return updateMatchRotationPart(period, address.part, { ...part, ...lineup });
     })};
   }
 
@@ -5557,11 +5563,11 @@ const QuickPage = () => {
                             {(Object.keys(boardPeriodLabels) as BoardRootPeriodKey[]).map(key => {
                               const periods = selectedMatchOption?.matchPlan?.periods ?? [];
                               const period = periods.find(p => p.key === key);
-                              const split = period && matchPeriodIsSplit(period, periods.some(p => p.key === "t4"));
-                              return <React.Fragment key={key}>
-                                <option value={key}>{boardPeriodLabels[key]}{split ? " · prima parte" : ""}</option>
-                                {split && <option value={key + "-second"}>{key.slice(1)}B · seconda parte</option>}
-                              </React.Fragment>;
+                              const parts = period ? matchPeriodParts(period, periods.some(p => p.key === "t4")) : [0];
+                              return parts.map((_, index) => {
+                                const value = matchPeriodPartKey(key, index);
+                                return <option key={value} value={value}>{matchPeriodLabel(key, index, parts.length)}</option>;
+                              });
                             })}
                           </ScrollableSelect>
                         </label>

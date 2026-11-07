@@ -49,3 +49,9 @@ Typecheck frontend/API e build web/API verificati separatamente. La prova intera
 “Azzera schieramenti” svuota titolari, riserve assegnate e scelte fissate in tutti i segmenti, comprese le formazioni temporaneamente inattive. Convocazione, durate, alternative e resoconto restano disponibili. Le lavagne scollegate restano nella libreria. Dopo il reset, il confronto modifica solo il segmento scelto; “Ricalcola alternanza” permette di ripristinare la proposta automatica per i segmenti successivi.
 
 Il portiere è una scelta della formazione: si può assegnare in scheda o dalla lavagna a un singolo segmento (anche 3B) o a tutta la partita, e poi fare eccezioni per singolo segmento. Qualsiasi convocato può stare in porta; il portiere di ruolo può giocare fuori. La scelta non aggiorna la posizione anagrafica. Restano in vigore i permessi e l'ambito società/squadra già applicati al salvataggio del piano.
+
+## Durata e frazioni nel confronto
+
+La durata si imposta sopra la tabella dei titolari. Il selettore propone frazioni uguali e ripartisce gli eventuali secondi residui. Con due frazioni resta disponibile la durata personalizzata della prima. Tabella, schieramenti, lavagna e minuti previsti usano la stessa sequenza. Per piani con molte frazioni, il confronto mostra gruppi di colonne e mantiene visibili i totali dell'intera partita.
+
+Ridurre il numero di frazioni conserva le formazioni escluse per un eventuale ripristino. La precompilazione di un nuovo resoconto usa i minuti cumulativi dei cambi e rispetta il limite del resoconto esistente. I resoconti già salvati restano distinti dalla pianificazione.

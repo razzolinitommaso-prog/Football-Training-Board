@@ -548,3 +548,33 @@ clientWithoutSplitFields.periods[0].splitAtHalf = false;
 backend.preserveMatchReport(clientWithoutSplitFields, { periods: splitAll });
 assert.equal(clientWithoutSplitFields.periods[0].splitAtHalf, false);
 console.log("PASS optional mid-period switches: all four segments, manual duration, report totals, and retained inactive/legacy drafts.");
+
+const sharedFractions = load(path.join(root, "lib/api-zod/src/match-rotation-summary.ts"));
+const fourParts = [{
+  key: "t1", label: "1° tempo", minutes: "10", fractionCount: 4,
+  lineupPlayerIds: [1], lineupStarterCount: 1,
+  secondPart: { lineupPlayerIds: [2], lineupStarterCount: 1 },
+  additionalParts: [{ lineupPlayerIds: [1], lineupStarterCount: 1 }, { lineupPlayerIds: [2], lineupStarterCount: 1, boardId: 900 }],
+}];
+same(rotation.rotationUnits(fourParts).map(u => [u.period.key, u.minutes, u.start]),
+  [["t1", 2.5, 0], ["t1-second", 2.5, 2.5], ["t1-part-3", 2.5, 5], ["t1-part-4", 2.5, 7.5]]);
+const fractionCalled = new Set([1, 2]);
+const actualFractions = rotation.seedMatchReport(fourParts, fractionCalled, () => 1);
+same(actualFractions.substitutions.map(change => [change.minute, change.outPlayerId, change.inPlayerId]), [[2.5, 1, 2], [5, 2, 1], [7.5, 1, 2]]);
+const fractionView = sharedFractions.buildMatchRotationSummary({ periods: fourParts, postMatchReport: actualFractions },
+  [{ id: 1, firstName: "A", lastName: "A" }, { id: 2, firstName: "B", lastName: "B" }], 1);
+same(fractionView.rows.map(row => [row.plannedMinutes, row.actualMinutes]), [[5, 5], [5, 5]]);
+same(fractionView.rows[0].cells.map(cell => cell.actualMinutes), [2.5, 0, 2.5, 0]);
+const fractionEdit = rotation.editManualLineupCell(fourParts, fractionCalled, () => 1, "t1-part-3", 2, false);
+same(lineup.matchPeriodByKey(fractionEdit, "t1-part-3").lineupPlayerIds, [2, 1]);
+assert.equal(lineup.matchPeriodByKey(fractionEdit, "t1-part-4").boardId, 900);
+const reducedParts = [{ ...fractionEdit[0], fractionCount: 1 }];
+assert.equal(rotation.rotationUnits(reducedParts).length, 1);
+assert.equal(lineup.matchPeriodByKey(reducedParts, "t1-part-4").boardId, 900);
+same(sharedFractions.matchPeriodParts({ key: "t2", minutes: "10", fractionCount: 7 }, false).map(m => Math.round(m * 60)),
+  [86, 86, 86, 86, 86, 85, 85]);
+const oldClientPlan = { periods: [{ key: "t1" }] };
+backend.preserveMatchReport(oldClientPlan, { periods: fourParts });
+assert.equal(oldClientPlan.periods[0].fractionCount, 4);
+assert.equal(oldClientPlan.periods[0].additionalParts[1].boardId, 900);
+console.log("PASS multiple fractions: cumulative substitutions, exact seconds, projected minutes, individual edits, dormant boards and older clients.");

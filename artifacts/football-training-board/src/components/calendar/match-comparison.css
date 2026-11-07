@@ -12,7 +12,7 @@
 .match-minute-grid {
   table-layout: fixed;
 }
-.match-minute-grid th:first-child {
+.match-minute-grid .match-player-column {
   width: 34%;
 }
 .match-mobile-equivalents {
@@ -34,7 +34,7 @@
   .match-minute-grid {
     font-size: 11px;
   }
-  .match-minute-grid th:first-child {
+  .match-minute-grid .match-player-column {
     width: calc(100% - (var(--match-unit-count) * var(--match-unit-width)) - var(--match-total-width));
   }
   .match-minute-grid {
@@ -45,7 +45,7 @@
     --match-unit-width: 8.5%;
     --match-total-width: 13%;
   }
-  .match-minute-grid thead th:not(:first-child) {
+  .match-minute-grid .match-unit-column {
     width: var(--match-unit-width);
   }
   .match-minute-grid thead th.match-planned-column {
@@ -57,7 +57,7 @@
     padding-right: 2px;
     overflow-wrap: normal;
   }
-  .match-minute-grid th:first-child {
+  .match-minute-grid .match-player-column {
     overflow-wrap: anywhere;
   }
   .match-minute-grid button {

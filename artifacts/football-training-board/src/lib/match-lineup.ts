@@ -59,7 +59,10 @@ export function setLineupKeeper<T extends LineupSelection & {lineupPositions?: R
   return {...period,lineupGoalkeeperId:id,lineupPlayerIds:[...starters,...[...selected].filter(player=>!starters.includes(player))],lineupStarterCount:starters.length,lineupPositions:Object.fromEntries(Object.entries(positions).filter(([key])=>starters.includes(Number(key)))),boardConfirmed:false,lineupDetectedModule:null};
 }
 
-export function matchPeriodByKey<T extends {key:string;secondPart?:T}>(periods:T[],key:string):T|undefined {
-  const period = periods.find(p => p.key === key || p.key + "-second" === key);
-  return period?.key === key ? period : period?.secondPart;
+export function matchPeriodByKey<T extends {key:string;secondPart?:T;additionalParts?:T[]}>(periods:T[],key:string):T|undefined {
+  const period = periods.find(p => p.key === key || key.startsWith(p.key + "-"));
+  if (!period || period.key === key) return period;
+  if (key === period.key + "-second") return period.secondPart;
+  const match = /-part-(\d+)$/.exec(key);
+  return match ? period.additionalParts?.[Number(match[1]) - 3] : undefined;
 }
