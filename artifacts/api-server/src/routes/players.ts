@@ -2,6 +2,8 @@ import { sessionTeamScope } from "../lib/session-team-scope";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import { playerMatchAttendance } from "../lib/player-match-attendance";
 import { Router, type IRouter } from "express";
+import { randomInt, randomUUID } from "node:crypto";
+import { ensureParentDelegateSecurityColumns } from "../lib/parent-delegate-access";
 import {
   db,
   seasonsTable,
@@ -100,6 +102,7 @@ const PLAYER_NOTE_ONLY_ROLES = [
 const PLAYER_META_MARKER = "[FTB_PLAYER_META]";
 const PLAYER_NOTES_MARKER = "[FTB_PLAYER_NOTES]";
 const ATTENDANCE_META_PREFIX = "[FTB_ATTENDANCE_META]";
+const PARENT_ACCESS_RESET_ROLES = ["secretary", "admin", "presidente"];
 const PARENT_DELEGATE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const DISCIPLINE_CARD_TYPES = new Set(["giallo", "doppio_giallo", "rosso"]);
 
@@ -136,10 +139,10 @@ function cleanText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function generateParentDelegateCode(): string {
+function generateParentDelegateCode(length = 8): string {
   let code = "";
-  for (let i = 0; i < 8; i += 1) {
-    code += PARENT_DELEGATE_CODE_ALPHABET[Math.floor(Math.random() * PARENT_DELEGATE_CODE_ALPHABET.length)];
+  for (let i = 0; i < length; i += 1) {
+    code += PARENT_DELEGATE_CODE_ALPHABET[randomInt(PARENT_DELEGATE_CODE_ALPHABET.length)];
   }
   return code;
 }
@@ -163,16 +166,6 @@ function sanitizeParentDelegates(raw: unknown): ParentDelegateInput[] {
     .filter((delegate) => Boolean(delegate.firstName || delegate.lastName || delegate.phone || delegate.email));
 }
 
-let ensuredParentDelegateSecurityColumns = false;
-
-async function ensureParentDelegateSecurityColumns() {
-  if (ensuredParentDelegateSecurityColumns) return;
-  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_hash TEXT`);
-  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_set_at TIMESTAMPTZ`);
-  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS reset_requested_at TIMESTAMPTZ`);
-  ensuredParentDelegateSecurityColumns = true;
-}
-
 async function listParentDelegates(clubId: number, playerId: number) {
   await ensureParentDelegateSecurityColumns();
   return db
@@ -182,33 +175,62 @@ async function listParentDelegates(clubId: number, playerId: number) {
     .orderBy(asc(playerParentDelegatesTable.id));
 }
 
+function parentDelegateView(delegate: typeof playerParentDelegatesTable.$inferSelect, includeAccessCode = true) {
+  return {
+    id: delegate.id,
+    firstName: delegate.firstName,
+    lastName: delegate.lastName,
+    relation: delegate.relation,
+    phone: delegate.phone,
+    email: delegate.email,
+    ...(includeAccessCode ? { accessCode: delegate.accessCode } : {}),
+    isActive: delegate.isActive,
+    deliveryChannel: delegate.deliveryChannel,
+    deliveryStatus: delegate.deliveryStatus,
+  };
+}
+
 async function replaceParentDelegates(clubId: number, playerId: number, incoming: ParentDelegateInput[]) {
-  const existing = await listParentDelegates(clubId, playerId);
-  const existingById = new Map(existing.map((delegate) => [delegate.id, delegate]));
-
-  await db
-    .delete(playerParentDelegatesTable)
-    .where(and(eq(playerParentDelegatesTable.clubId, clubId), eq(playerParentDelegatesTable.playerId, playerId)));
-
-  const values = sanitizeParentDelegates(incoming).map((delegate) => ({
-    clubId,
-    playerId,
-    firstName: cleanText(delegate.firstName) || "Delegato",
-    lastName: cleanText(delegate.lastName) || "Genitore",
-    relation: cleanText(delegate.relation) || "Genitore/Tutore",
-    phone: cleanText(delegate.phone) || null,
-    email: cleanText(delegate.email).toLowerCase() || null,
-    accessCode: delegate.id ? existingById.get(delegate.id)?.accessCode ?? generateParentDelegateCode() : generateParentDelegateCode(),
-    personalAccessCodeHash: delegate.id ? existingById.get(delegate.id)?.personalAccessCodeHash ?? null : null,
-    personalAccessCodeSetAt: delegate.id ? existingById.get(delegate.id)?.personalAccessCodeSetAt ?? null : null,
-    resetRequestedAt: delegate.id ? existingById.get(delegate.id)?.resetRequestedAt ?? null : null,
-    deliveryChannel: cleanText(delegate.phone) ? "sms_ready" : cleanText(delegate.email) ? "email_ready" : "manual",
-    deliveryStatus: "ready",
-    isActive: delegate.isActive !== false,
-  }));
-
-  if (values.length === 0) return [];
-  return db.insert(playerParentDelegatesTable).values(values).returning();
+  await ensureParentDelegateSecurityColumns();
+  return db.transaction(async tx => {
+    const [player] = await tx.select({ id: playersTable.id }).from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, playerId))).for("update");
+    if (!player) return [];
+    const scope = and(eq(playerParentDelegatesTable.clubId, clubId), eq(playerParentDelegatesTable.playerId, playerId));
+    const existing = await tx.select({ id: playerParentDelegatesTable.id }).from(playerParentDelegatesTable).where(scope);
+    const existingIds = new Set(existing.map(delegate => delegate.id));
+    const savedIds = new Set<number>();
+    const delegates = [];
+    for (const delegate of sanitizeParentDelegates(incoming)) {
+      const fields = {
+        firstName: cleanText(delegate.firstName) || "Delegato",
+        lastName: cleanText(delegate.lastName) || "Genitore",
+        relation: cleanText(delegate.relation) || "Genitore/Tutore",
+        phone: cleanText(delegate.phone) || null,
+        email: cleanText(delegate.email).toLowerCase() || null,
+        deliveryChannel: cleanText(delegate.phone) ? "sms_ready" : cleanText(delegate.email) ? "email_ready" : "manual",
+        deliveryStatus: "ready",
+        isActive: delegate.isActive !== false,
+      };
+      const id = delegate.id;
+      if (id !== undefined && existingIds.has(id)) {
+        if (savedIds.has(id)) continue;
+        const [saved] = await tx.update(playerParentDelegatesTable).set(fields)
+          .where(and(scope, eq(playerParentDelegatesTable.id, id))).returning();
+        savedIds.add(id);
+        delegates.push(saved);
+      } else {
+        const [saved] = await tx.insert(playerParentDelegatesTable)
+          .values({ ...fields, clubId, playerId, accessCode: generateParentDelegateCode() }).returning();
+        delegates.push(saved);
+      }
+    }
+    const removed = existing.filter(delegate => !savedIds.has(delegate.id)).map(delegate => delegate.id);
+    if (removed.length) {
+      await tx.delete(playerParentDelegatesTable).where(and(scope, inArray(playerParentDelegatesTable.id, removed)));
+    }
+    return delegates;
+  });
 }
 
 type PlayerMeta = {
@@ -700,7 +722,7 @@ async function notifyParentAvailabilityOverride(clubId: number, player: typeof p
   }
 }
 
-async function enrichPlayer(player: typeof playersTable.$inferSelect) {
+async function enrichPlayer(player: typeof playersTable.$inferSelect, role: unknown) {
   const availabilityOverride = player as PlayerWithAvailabilityOverride;
   const playerContact = player as typeof player & {
     phone?: string | null;
@@ -728,7 +750,8 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect) {
     const [supplementalTeam] = await db.select().from(teamsTable).where(and(eq(teamsTable.id, meta.supplementalTeamId), eq(teamsTable.clubId, player.clubId)));
     if (supplementalTeam) supplementalTeamName = supplementalTeam.name;
   }
-  const parentDelegates = await listParentDelegates(player.clubId, player.id);
+  const parentDelegates = (await listParentDelegates(player.clubId, player.id))
+    .map(delegate => parentDelegateView(delegate, PLAYER_MANAGE_ROLES.includes(normalizeSessionRole(role))));
   return {
     ...player,
     teamId: player.teamId ?? null,
@@ -861,7 +884,7 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
     ? await suspendedPlayerIdsForMatch(clubId, requestedMatchId, filtered.map((player) => player.id))
     : new Set<number>();
   const enriched = await Promise.all(filtered.map(async (player) => {
-    const row = await enrichPlayer(player);
+    const row = await enrichPlayer(player, req.session.role);
     const conflict = requestConflicts.get(player.id);
     if (disciplinarySuspensions.has(player.id)) {
       return {
@@ -929,7 +952,7 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
     await replaceParentDelegates(req.session.clubId!, player.id, incomingParentDelegates);
   }
 
-  const enriched = await enrichPlayer(player);
+  const enriched = await enrichPlayer(player, req.session.role);
   res.status(201).json(GetPlayerResponse.parse(enriched));
 });
 
@@ -950,7 +973,7 @@ router.get("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const enriched = await enrichPlayer(player);
+  const enriched = await enrichPlayer(player, req.session.role);
   res.json(GetPlayerResponse.parse(enriched));
 });
 
@@ -1238,7 +1261,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   }
 
   if (Object.keys(updateData).length === 0) {
-    const enrichedNoop = await enrichPlayer(existingPlayer);
+    const enrichedNoop = await enrichPlayer(existingPlayer, req.session.role);
     res.json(UpdatePlayerResponse.parse(enrichedNoop));
     return;
   }
@@ -1317,7 +1340,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  const enriched = await enrichPlayer(player);
+  const enriched = await enrichPlayer(player, req.session.role);
   res.json(UpdatePlayerResponse.parse(enriched));
 });
 
@@ -1337,7 +1360,9 @@ router.get("/players/:id/parent-delegates", requireAuth, async (req, res): Promi
     return;
   }
 
-  res.json(await listParentDelegates(req.session.clubId!, params.data.id));
+  const includeAccessCode = PLAYER_MANAGE_ROLES.includes(normalizeSessionRole(req.session.role));
+  const delegates = await listParentDelegates(req.session.clubId!, params.data.id);
+  res.json(delegates.map(delegate => parentDelegateView(delegate, includeAccessCode)));
 });
 
 router.put("/players/:id/parent-delegates", requireAuth, async (req, res): Promise<void> => {
@@ -1362,7 +1387,57 @@ router.put("/players/:id/parent-delegates", requireAuth, async (req, res): Promi
   }
 
   const delegates = await replaceParentDelegates(req.session.clubId!, params.data.id, sanitizeParentDelegates(req.body?.delegates));
-  res.json(delegates);
+  res.json(delegates.map(delegate => parentDelegateView(delegate)));
+});
+
+router.post("/players/:id/parent-delegates/:delegateId/reset-access", requireAuth, async (req, res): Promise<void> => {
+  const { clubId, role } = req.session;
+  if (!clubId || !PARENT_ACCESS_RESET_ROLES.includes(normalizeSessionRole(role))) {
+    res.status(403).json({ error: "Non sei autorizzato a resettare gli accessi dei genitori." });
+    return;
+  }
+
+  const playerId = Number(req.params.id);
+  const delegateId = Number(req.params.delegateId);
+  if (!Number.isSafeInteger(playerId) || playerId <= 0 || !Number.isSafeInteger(delegateId) || delegateId <= 0) {
+    res.status(400).json({ error: "Giocatore o delegato non valido." });
+    return;
+  }
+
+  await ensureParentDelegateSecurityColumns();
+  const scope = and(
+    eq(playerParentDelegatesTable.clubId, clubId),
+    eq(playerParentDelegatesTable.playerId, playerId),
+    eq(playerParentDelegatesTable.id, delegateId),
+    eq(playerParentDelegatesTable.isActive, true),
+  );
+  const accessCode = generateParentDelegateCode(12);
+  const [updated] = await db.update(playerParentDelegatesTable)
+    .set({
+      accessCode,
+      accessVersion: randomUUID(),
+      personalAccessCodeHash: null,
+      personalAccessCodeSetAt: null,
+      resetRequestedAt: null,
+      deliveryStatus: "ready",
+    })
+    .where(and(scope, sql`NOT EXISTS (
+      SELECT 1 FROM player_parent_delegates AS existing
+      WHERE existing.club_id = ${clubId} AND existing.access_code = ${accessCode}
+    )`))
+    .returning();
+
+  if (!updated) {
+    const [delegate] = await db.select({ id: playerParentDelegatesTable.id }).from(playerParentDelegatesTable).where(scope);
+    if (!delegate) {
+      res.status(404).json({ error: "Delegato attivo non trovato per questo giocatore." });
+      return;
+    }
+    res.status(409).json({ error: "Impossibile generare un nuovo codice. Riprova." });
+    return;
+  }
+  res.set("Cache-Control", "no-store");
+  res.json(parentDelegateView(updated));
 });
 
 router.delete("/players/:id", requireAuth, async (req, res): Promise<void> => {

@@ -23,6 +23,7 @@ export const playerParentDelegatesTable = pgTable("player_parent_delegates", {
   personalAccessCodeHash: text("personal_access_code_hash"),
   personalAccessCodeSetAt: timestamp("personal_access_code_set_at", { withTimezone: true }),
   resetRequestedAt: timestamp("reset_requested_at", { withTimezone: true }),
+  accessVersion: text("access_version"),
   deliveryChannel: text("delivery_channel").notNull().default("manual"),
   deliveryStatus: text("delivery_status").notNull().default("ready"),
   isActive: boolean("is_active").notNull().default(true),

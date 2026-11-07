@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1611,6 +1611,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const [isSavingKit, setIsSavingKit] = useState(false);
   const [parentDelegateRows, setParentDelegateRows] = useState<ParentDelegate[]>([emptyParentDelegate()]);
   const [isSavingParentDelegates, setIsSavingParentDelegates] = useState(false);
+  const [delegateToReset, setDelegateToReset] = useState<{ playerId: number; delegateId: number; name: string } | null>(null);
+  const [isResettingDelegate, setIsResettingDelegate] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isPrimaryCoachForPlayer = (player?: Player | null) => {
@@ -1635,6 +1637,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const canEditSportAvailability = ["technical_director", "coach", "fitness_coach", "athletic_director"].includes(nr) && playerDialogMode === "edit";
   const isLimitedEditor = !canManagePlayers && canWritePlayerNotes && !canEditSportAvailability;
   const canEditFullPlayer = canManagePlayers && playerDialogMode === "edit";
+  const canResetParentAccess = canEditFullPlayer && ["secretary", "admin", "presidente"].includes(nr);
   const canEditFinancials = nr === "secretary" && playerDialogMode === "edit";
   const canViewExtraTime = Boolean(editingPlayer);
   const canEditAvailability = (canManagePlayers || canEditSportAvailability) && playerDialogMode === "edit";
@@ -2805,6 +2808,36 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     }
   }
 
+  async function resetParentDelegateAccess() {
+    if (!delegateToReset || isResettingDelegate) return;
+    const { playerId, delegateId } = delegateToReset;
+    setIsResettingDelegate(true);
+    try {
+      const path = "/api/players/" + playerId + "/parent-delegates/" + delegateId + "/reset-access";
+      const response = await fetch(withApi(path), { method: "POST", credentials: "include" });
+      const updated = await response.json() as ParentDelegate & { error?: string };
+      if (!response.ok) throw new Error(updated.error || "Impossibile resettare l’accesso.");
+      const updateAccessCode = (delegate: ParentDelegate) => delegate.id === delegateId
+        ? { ...delegate, accessCode: updated.accessCode, deliveryStatus: updated.deliveryStatus }
+        : delegate;
+      setParentDelegateRows(rows => rows.map(updateAccessCode));
+      setEditingPlayer(current => current?.id === playerId
+        ? { ...current, parentDelegates: current.parentDelegates?.map(updateAccessCode) }
+        : current);
+      void queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+      setDelegateToReset(null);
+      toast({ title: "Accesso resettato", description: "Usa «Copia accesso iniziale» per copiare il nuovo codice." });
+    } catch (error) {
+      toast({
+        title: "Reset non riuscito",
+        description: error instanceof Error ? error.message : "Riprova.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsResettingDelegate(false);
+    }
+  }
+
   const openImageCropper = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -3644,6 +3677,25 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         </div>
       </div>
 
+      <Dialog open={delegateToReset !== null} onOpenChange={open => {
+        if (!open && !isResettingDelegate) setDelegateToReset(null);
+      }}>
+        <DialogContent className="w-[calc(100%-1rem)] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset accesso genitore</DialogTitle>
+            <DialogDescription>
+              Genera un nuovo codice iniziale per {delegateToReset?.name}. Il codice precedente, la chiave personale e le sessioni aperte verranno disattivati. Il genitore potrà scegliere una nuova chiave al prossimo accesso.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={isResettingDelegate} onClick={() => setDelegateToReset(null)}>Annulla</Button>
+            <Button type="button" variant="destructive" disabled={isResettingDelegate} onClick={() => void resetParentDelegateAccess()}>
+              {isResettingDelegate ? "Reset in corso…" : "Conferma reset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Dialog */}
       <Dialog open={!!editingPlayer} onOpenChange={(o) => !o && setEditingPlayer(null)}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-[900px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
@@ -4243,7 +4295,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                             <KeyRound className="h-4 w-4 text-primary" />
                             Delegato {index + 1}
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             {delegate.accessCode && (
                               <Badge variant="outline" className="font-mono">{delegate.accessCode}</Badge>
                             )}
@@ -4261,6 +4313,21 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                               <Copy className="h-4 w-4" />
                               Copia accesso iniziale
                             </Button>
+                            {canResetParentAccess && delegate.id && delegate.isActive !== false && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={isSavingParentDelegates || isResettingDelegate || updateMutation.isPending}
+                                onClick={() => {
+                                  if (!editingPlayer || !delegate.id) return;
+                                  const name = [delegate.firstName, delegate.lastName].filter(Boolean).join(" ").trim();
+                                  setDelegateToReset({ playerId: editingPlayer.id, delegateId: delegate.id, name: name || "il delegato selezionato" });
+                                }}
+                              >
+                                Reset accesso
+                              </Button>
+                            )}
                           </div>
                         </div>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

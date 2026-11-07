@@ -1,3 +1,4 @@
+import { normalizeParentAccessCode, PARENT_ACCESS_CODE_MAX_LENGTH, PARENT_ACCESS_CODE_MIN_LENGTH, validateParentAccessCode } from "@workspace/api-zod";
 import { useEffect, useState } from "react";
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,10 +25,6 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || `API error: ${res.status}`);
   return data;
-}
-
-function normalizeCode(value: string) {
-  return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 16);
 }
 
 export default function ParentAccess() {
@@ -59,11 +56,17 @@ export default function ParentAccess() {
   async function savePersonalCode() {
     setError("");
     setMessage("");
-    if (newCode.length < 6) {
-      setError("La nuova chiave deve avere almeno 6 caratteri.");
+    const normalized = normalizeParentAccessCode(newCode);
+    const validationError = validateParentAccessCode(normalized);
+    if (validationError) {
+      setError(validationError);
       return;
     }
-    if (newCode !== confirmCode) {
+    if (!normalizeParentAccessCode(currentCode)) {
+      setError("Inserisci la chiave attuale o il codice iniziale.");
+      return;
+    }
+    if (normalized !== normalizeParentAccessCode(confirmCode)) {
       setError("La conferma non coincide con la nuova chiave.");
       return;
     }
@@ -71,7 +74,7 @@ export default function ParentAccess() {
     try {
       const next = await apiFetch<AccessState>("/parent/access-code", {
         method: "POST",
-        body: JSON.stringify({ currentCode, newCode }),
+        body: JSON.stringify({ currentCode, newCode: normalized }),
       });
       setState((prev) => ({ ...(prev ?? {}), ...next }));
       setCurrentCode("");
@@ -145,33 +148,44 @@ export default function ParentAccess() {
           <h2 className="font-semibold">{hasPersonal ? "Cambia chiave personale" : "Imposta chiave personale"}</h2>
         </div>
 
-        {hasPersonal && (
-          <div className="space-y-2">
-            <Label>Chiave attuale</Label>
-            <Input
-              value={currentCode}
-              onChange={(e) => setCurrentCode(normalizeCode(e.target.value))}
-              placeholder="Chiave personale attuale"
-              className="font-mono tracking-widest"
-            />
-          </div>
-        )}
+        <p className="text-sm text-muted-foreground">Scegli una chiave da {PARENT_ACCESS_CODE_MIN_LENGTH} a {PARENT_ACCESS_CODE_MAX_LENGTH} caratteri, usando lettere e numeri.</p>
+
+        <div className="space-y-2">
+          <Label htmlFor="parent-current-code">{hasPersonal ? "Chiave attuale" : "Codice iniziale ricevuto"}</Label>
+          <Input
+            value={currentCode}
+            id="parent-current-code"
+            type="password"
+            autoComplete="current-password"
+            maxLength={PARENT_ACCESS_CODE_MAX_LENGTH}
+            onChange={(e) => setCurrentCode(e.target.value)}
+            className="font-mono tracking-widest"
+          />
+        </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label>Nuova chiave</Label>
+            <Label htmlFor="parent-new-code">Nuova chiave</Label>
             <Input
               value={newCode}
-              onChange={(e) => setNewCode(normalizeCode(e.target.value))}
-              placeholder="Minimo 6 caratteri"
+              id="parent-new-code"
+              type="password"
+              autoComplete="new-password"
+              maxLength={PARENT_ACCESS_CODE_MAX_LENGTH}
+              onChange={(e) => setNewCode(e.target.value)}
+              placeholder={`Da ${PARENT_ACCESS_CODE_MIN_LENGTH} a ${PARENT_ACCESS_CODE_MAX_LENGTH} caratteri`}
               className="font-mono tracking-widest"
             />
           </div>
           <div className="space-y-2">
-            <Label>Conferma nuova chiave</Label>
+            <Label htmlFor="parent-confirm-code">Conferma nuova chiave</Label>
             <Input
               value={confirmCode}
-              onChange={(e) => setConfirmCode(normalizeCode(e.target.value))}
+              id="parent-confirm-code"
+              type="password"
+              autoComplete="new-password"
+              maxLength={PARENT_ACCESS_CODE_MAX_LENGTH}
+              onChange={(e) => setConfirmCode(e.target.value)}
               placeholder="Ripeti la chiave"
               className="font-mono tracking-widest"
             />

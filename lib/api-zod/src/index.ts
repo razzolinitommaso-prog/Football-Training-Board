@@ -27,3 +27,4 @@ export * from "./match-rotation-summary";
 export { prepareReusedBoard } from "./reuse-training-station";
 
 export * from "./championship-match-links";
+export * from "./parent-access-code";

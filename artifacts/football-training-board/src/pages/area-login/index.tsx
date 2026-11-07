@@ -1,3 +1,4 @@
+import { PARENT_ACCESS_CODE_MAX_LENGTH } from "@workspace/api-zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -493,10 +494,13 @@ export function ParentLoginPage() {
                   onChange={e => setDelegateCode(e.target.value.toUpperCase())}
                   type="text"
                   placeholder="Es. ABCD2345"
-                  maxLength={8}
+                  maxLength={PARENT_ACCESS_CODE_MAX_LENGTH}
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  spellCheck={false}
                   className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500/50 transition-all text-sm tracking-widest font-mono text-center text-lg"
                 />
-                <p className="text-xs text-gray-600 mt-1.5">Codice personale del genitore/delegato, generato nella scheda giocatore</p>
+                <p className="text-xs text-gray-600 mt-1.5">Usa la chiave personale oppure il codice iniziale ricevuto dalla segreteria.</p>
               </div>
 
               {error && <p className="text-sm text-red-400 text-center">{error}</p>}

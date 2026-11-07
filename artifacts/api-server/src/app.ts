@@ -9,6 +9,7 @@ import cookieParser from "cookie-parser";
 import connectPgSimple from "connect-pg-simple";
 import routes from "./routes";
 import { attachBearerSession } from "./lib/auth";
+import { requireCurrentParentAccess } from "./lib/parent-delegate-access";
 const PgSession = connectPgSimple(session);
 
 const app: Express = express();
@@ -99,6 +100,6 @@ app.use(
 
 app.use(attachBearerSession);
 
-app.use("/api", routes);
+app.use("/api", requireCurrentParentAccess, routes);
 
 export default app;

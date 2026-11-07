@@ -4,6 +4,8 @@ import { sessionTeamScope, sessionTeamIds } from "../lib/session-team-scope";
 import { overlaySharedTrainingRows, trainingReplyMatches } from "@workspace/api-zod";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
+import { ensureParentDelegateSecurityColumns } from "../lib/parent-delegate-access";
+import { normalizeParentAccessCode, validateParentAccessCode } from "@workspace/api-zod";
 import bcrypt from "bcryptjs";
 import {
   db, clubsTable, playersTable, teamsTable,
@@ -15,7 +17,7 @@ import {
   playerFitnessDataTable,
   playerParentDelegatesTable,
 } from "@workspace/db";
-import { eq, and, gte, lte, asc, desc, or, inArray, sql } from "drizzle-orm";
+import { eq, and, gte, lte, asc, desc, or, inArray, isNull, sql } from "drizzle-orm";
 import { parentPlayedMinutes, parentTrainingOccurrence, parentTrainingType, type ParentActivity, type ParentTrainingActivity } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -44,22 +46,6 @@ function getParentPlayerId(req: any): number | null {
 function getParentDelegateId(req: any): number | null {
   const id = Number(req.session.parentDelegateId ?? 0);
   return Number.isFinite(id) && id > 0 ? id : null;
-}
-
-async function ensureParentDelegateSecurityColumns() {
-  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_hash TEXT`);
-  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_set_at TIMESTAMPTZ`);
-  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS reset_requested_at TIMESTAMPTZ`);
-}
-
-function normalizeAccessCode(value: unknown): string {
-  return String(value ?? "").trim().toUpperCase();
-}
-
-function validatePersonalAccessCode(value: string): string | null {
-  if (value.length < 6 || value.length > 16) return "La chiave personale deve avere da 6 a 16 caratteri.";
-  if (!/^[A-Z0-9]+$/.test(value)) return "Usa solo lettere e numeri.";
-  return null;
 }
 
 let ensuredParentAvailabilityColumns = false;
@@ -257,9 +243,9 @@ router.post("/parent/access-code", requireParentSession, async (req, res): Promi
     res.status(403).json({ error: "Delegato genitore non collegato" });
     return;
   }
-  const currentCode = normalizeAccessCode(req.body?.currentCode);
-  const newCode = normalizeAccessCode(req.body?.newCode);
-  const validationError = validatePersonalAccessCode(newCode);
+  const currentCode = normalizeParentAccessCode(req.body?.currentCode);
+  const newCode = normalizeParentAccessCode(req.body?.newCode);
+  const validationError = validateParentAccessCode(newCode);
   if (validationError) {
     res.status(400).json({ error: validationError });
     return;
@@ -298,7 +284,7 @@ router.post("/parent/access-code", requireParentSession, async (req, res): Promi
       res.status(401).json({ error: "Chiave attuale non valida." });
       return;
     }
-  } else if (currentCode && currentCode !== delegate.accessCode) {
+  } else if (currentCode !== delegate.accessCode) {
     res.status(401).json({ error: "Codice iniziale non valido." });
     return;
   }
@@ -334,9 +320,18 @@ router.post("/parent/access-code", requireParentSession, async (req, res): Promi
     .where(and(
       eq(playerParentDelegatesTable.clubId, clubId),
       eq(playerParentDelegatesTable.id, parentDelegateId),
+      eq(playerParentDelegatesTable.isActive, true),
+      eq(playerParentDelegatesTable.accessCode, delegate.accessCode),
+      delegate.personalAccessCodeHash === null
+        ? isNull(playerParentDelegatesTable.personalAccessCodeHash)
+        : eq(playerParentDelegatesTable.personalAccessCodeHash, delegate.personalAccessCodeHash),
     ))
     .returning();
 
+  if (!updated) {
+    res.status(409).json({ error: "La chiave è cambiata. Accedi di nuovo e riprova." });
+    return;
+  }
   res.json({
     hasPersonalAccessCode: true,
     personalAccessCodeSetAt: updated.personalAccessCodeSetAt ?? null,

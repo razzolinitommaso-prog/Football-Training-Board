@@ -27,7 +27,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "auth.ts"),
-      `export function requireAuth(req:any,res:any,next:any){if(req.headers['x-anonymous']){res.status(401).json({error:'No session'});return;}next();}export function createAuthToken(){return 'isolated-test-token';}`,
+      `export function requireAuth(req:any,res:any,next:any){if(req.headers['x-anonymous']){res.status(401).json({error:'No session'});return;}next();}export {createAuthToken} from '../../artifacts/api-server/src/lib/auth.ts';`,
     );
     fs.writeFileSync(
       path.join(dir, "email.ts"),
@@ -35,7 +35,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "entry.ts"),
-      `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
+      `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
     await esbuild.build({
@@ -157,6 +157,10 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     const app = req("express")();
     app.use(req("express").json());
     app.use((request, _res, next) => {
+      if (request.headers.authorization) {
+        request.session = { save: callback => callback() };
+        return routes.attachBearerSession(request, _res, next);
+      }
       request.session = {
         clubId: Number(request.headers["x-club"] ?? 1),
         userId: Number(request.headers["x-user"] ?? 1),
@@ -167,7 +171,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       };
       next();
     });
-    app.use("/api", routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
+    app.use("/api", routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -495,6 +499,58 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     console.log(
       "PASS training eligibility: parent refusal, global unavailability, dated overrides, staff present/absent, correction and templates.",
     );
+    await pg.exec("UPDATE clubs SET access_code='RESET-CLUB', parent_code='PARENTS1' WHERE id=1");
+    await pg.exec("INSERT INTO player_parent_delegates(id,club_id,player_id,first_name,last_name,relation,access_code,is_active) VALUES (33001,1,101,'Test','Genitore','Madre','DELEGATE1',true), (33002,1,101,'Altro','Genitore','Padre','DELEGATE2',true)");
+    async function parentRequest(url, method, body, headers = {}) {
+      const response = await fetch(base + url, {
+        method,
+        headers: { "Content-Type": "application/json", ...headers },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      return { status: response.status, data: await response.json() };
+    }
+    const parentLogin = delegateCode => parentRequest("/auth/parent-login", "POST", { clubCode: "RESET-CLUB", parentCode: "PARENTS1", delegateCode });
+    const bearer = login => ({ Authorization: "Bearer " + login.data.authToken });
+    const changeCode = (login, currentCode, newCode) => parentRequest("/parent/access-code", "POST", { currentCode, newCode }, bearer(login));
+    const initial = await parentLogin("DELEGATE1");
+    assert.equal(initial.status, 200, JSON.stringify(initial.data));
+    assert.equal(initial.data.parentDelegate.requiresPersonalAccessCode, true);
+    assert.equal((await changeCode(initial, "", "PERSONALE1234567")).status, 401);
+    assert.equal((await changeCode(initial, "DELEGATE1", "PERSONALE12345678")).status, 400);
+    assert.equal((await changeCode(initial, "DELEGATE1", "PERSONALE1234567")).status, 200);
+    const personal = await parentLogin("personale1234567");
+    assert.equal(personal.status, 200, JSON.stringify(personal.data));
+    assert.equal(personal.data.parentDelegate.requiresPersonalAccessCode, false);
+    const otherDelegate = await parentLogin("DELEGATE2");
+    assert.equal(otherDelegate.status, 200);
+    const resetPath = "/players/101/parent-delegates/33001/reset-access";
+    assert.equal((await parentRequest(resetPath, "POST", undefined, { "x-role": "coach" })).status, 403);
+    assert.equal((await parentRequest(resetPath, "POST", undefined, { "x-role": "secretary", "x-club": "2" })).status, 404);
+    const reset = await parentRequest(resetPath, "POST", undefined, { "x-role": "secretary" });
+    assert.equal(reset.status, 200, JSON.stringify(reset.data));
+    assert.equal(reset.data.id, 33001);
+    assert.equal(reset.data.personalAccessCodeHash, undefined);
+    assert.match(reset.data.accessCode, /^[A-Z0-9]{12}$/);
+    assert.equal((await parentLogin("DELEGATE1")).status, 401);
+    assert.equal((await parentLogin("PERSONALE1234567")).status, 401);
+    assert.equal((await call("/auth/me", bearer(personal))).status, 401);
+    assert.equal((await call("/auth/me", bearer(otherDelegate))).status, 200);
+    const metadataSave = await parentRequest("/players/101/parent-delegates", "PUT", {
+      delegates: [
+        { id: 33001, firstName: "Test", lastName: "Genitore", phone: "012345" },
+        { id: 33002, firstName: "Altro", lastName: "Genitore" },
+      ],
+    }, { "x-role": "secretary" });
+    assert.equal(metadataSave.status, 200, JSON.stringify(metadataSave.data));
+    assert.equal(metadataSave.data[0].id, 33001);
+    assert.equal(metadataSave.data[0].accessCode, reset.data.accessCode);
+    const recovered = await parentLogin(reset.data.accessCode);
+    assert.equal(recovered.status, 200, JSON.stringify(recovered.data));
+    assert.equal(recovered.data.parentDelegate.requiresPersonalAccessCode, true);
+    assert.equal((await changeCode(recovered, reset.data.accessCode, "NUOVACHIAVE2026")).status, 200);
+    assert.equal((await parentLogin(reset.data.accessCode)).status, 401);
+    assert.equal((await parentLogin("NUOVACHIAVE2026")).status, 200);
+    console.log("PASS parent access recovery: 16-character sign-in, per-delegate reset, permissions, previous sessions revoked and new key survives metadata edits.");
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
     await pg.close();

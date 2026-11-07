@@ -8,8 +8,11 @@ import {
   LoginUserResponse,
   GetCurrentUserResponse,
   LogoutUserResponse,
+  normalizeParentAccessCode,
+  validateParentAccessCode,
 } from "@workspace/api-zod";
 import { createAuthToken, requireAuth } from "../lib/auth";
+import { ensureParentDelegateSecurityColumns } from "../lib/parent-delegate-access";
 import { normalizeSessionRole } from "../lib/club-scope";
 import { limitsForPlan } from "../lib/plan-limits";
 import { normalizeSeasonName } from "../lib/season-defaults";
@@ -33,12 +36,6 @@ function sessionAuthToken(req: any): string {
     section: req.session.section ?? null,
     isSuperAdmin: req.session.isSuperAdmin === true,
   });
-}
-
-async function ensureParentDelegateSecurityColumns() {
-  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_hash TEXT`);
-  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS personal_access_code_set_at TIMESTAMPTZ`);
-  await db.execute(sql`ALTER TABLE player_parent_delegates ADD COLUMN IF NOT EXISTS reset_requested_at TIMESTAMPTZ`);
 }
 
 function membershipSections(membership: { clubSection?: string[] | string | null } | null | undefined): string[] {
@@ -397,9 +394,14 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 router.post("/auth/parent-login", async (req, res): Promise<void> => {
   const { clubCode, parentCode, delegateCode } = req.body as { clubCode?: string; parentCode?: string; delegateCode?: string };
 
-  const cleanedDelegateCode = String(delegateCode ?? "").trim().toUpperCase();
-  if (!clubCode || !parentCode || !cleanedDelegateCode) {
+  const cleanedDelegateCode = normalizeParentAccessCode(delegateCode);
+  if (typeof clubCode !== "string" || typeof parentCode !== "string" || !clubCode.trim() || !parentCode.trim() || !cleanedDelegateCode) {
     res.status(400).json({ error: "Codice club, codice genitori e codice delegato richiesti" });
+    return;
+  }
+
+  if (validateParentAccessCode(cleanedDelegateCode)) {
+    res.status(401).json({ error: "Codice delegato non valido" });
     return;
   }
 
@@ -463,9 +465,10 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
   req.session.role = "parent";
   req.session.parentDelegateId = parentDelegate.id;
   req.session.parentPlayerId = parentDelegate.playerId;
+  req.session.parentAccessVersion = parentDelegate.accessVersion ?? undefined;
   await saveSession(req);
 
-  const authPayload = { userId: 0, clubId: club.id, role: "parent", parentDelegateId: parentDelegate.id, parentPlayerId: parentDelegate.playerId };
+  const authPayload = { userId: 0, clubId: club.id, role: "parent", parentDelegateId: parentDelegate.id, parentPlayerId: parentDelegate.playerId, parentAccessVersion: req.session.parentAccessVersion };
   res.json({
     user: {
       id: 0,
