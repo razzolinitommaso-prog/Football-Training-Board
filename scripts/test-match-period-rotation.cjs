@@ -476,3 +476,38 @@ legacyKeeperClient.periods[0].lineupGoalkeeperId=null;
 backend.preserveMatchReport(legacyKeeperClient,segmentKeeper);
 assert.equal(legacyKeeperClient.periods[0].lineupGoalkeeperId,null,'Explicit removal stays removed');
 console.log('PASS manual reset, rotation isolation, keeper promotion/swap, 3B, fourth and legacy saves.');
+
+
+// The coach can leave empty slots in automatic mode, or bench the entire roster at once.
+let individuallyBenched = balanced;
+const removedFromThirdB = new Set();
+for (let index = 0; index < eight.size; index++) {
+  const current = lineup.matchPeriodByKey(individuallyBenched, "t3-second");
+  const id = lineup.splitMatchLineup(current, 5).starters.find(id => !removedFromThirdB.has(id));
+  if (id === undefined) break;
+  removedFromThirdB.add(id);
+  individuallyBenched = rotation.selectRotationCell(individuallyBenched, eight, limit, new Set(), "t3-second", id, true);
+}
+const emptyThirdB = lineup.splitMatchLineup(lineup.matchPeriodByKey(individuallyBenched, "t3-second"), 5);
+same(emptyThirdB.starters, []);
+same(emptyThirdB.reserves, [...eight]);
+
+const allBenched = rotation.clearMatchLineups(prepared, eight);
+const benchedReloaded = actual.ensurePlanPeriods(json(allBenched), defaults);
+const summaryReloaded = rotation.rotateMatchPeriods(benchedReloaded.periods, eight, limit);
+for (const { period } of rotation.rotationUnits(summaryReloaded)) {
+  const { starters, reserves } = lineup.splitMatchLineup(period, 5);
+  same(starters, []);
+  same(reserves, [...eight]);
+  assert.equal(period.lineupManual, true);
+}
+same(allBenched.fourthPeriodDraft.lineupPlayerIds, [...eight]);
+same(allBenched.periods[0].lineupAlternatives, [retained]);
+same(allBenched.postMatchReport, report);
+let rebuiltFromBench = rotation.editManualLineupCell(summaryReloaded, eight, limit, "t1", 8, false);
+rebuiltFromBench = rotation.editManualLineupCell(rebuiltFromBench, eight, limit, "t1", 3, false);
+const edited = rotation.rotateMatchPeriods(rebuiltFromBench, eight, limit);
+same(lineup.splitMatchLineup(edited[0], 5).starters, [8, 3]);
+same(lineup.splitMatchLineup(edited[1], 5).reserves, [...eight]);
+assert.equal(lineup.splitMatchLineup(edited[1], 5).starters.length, 0);
+console.log("PASS all-bench: individual reserve constraints, bulk reset, reload, manual order and independent segments.");

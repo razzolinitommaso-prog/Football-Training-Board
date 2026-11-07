@@ -64,16 +64,25 @@
   .match-mobile-equivalents {
     display: block;
   }
-  .match-comparison-pitches [role="img"] [role="button"],
-  .match-comparison-pitches [role="img"] > button {
+  .match-comparison-layout:not(.match-comparison-layout--editor) .match-comparison-pitches [role="img"] [role="button"],
+  .match-comparison-layout:not(.match-comparison-layout--editor) .match-comparison-pitches [role="img"] > button {
     transform: scale(0.65);
     font-size: 9px;
   }
-  .match-comparison-pitches [role="img"] > button > span:last-child {
+  .match-comparison-layout:not(.match-comparison-layout--editor) .match-comparison-pitches [role="img"] > button > span:last-child {
     display: none;
   }
-  .match-comparison-pitches article > p,
-  .match-comparison-pitches article > div > p {
+  .match-comparison-layout:not(.match-comparison-layout--editor) .match-comparison-pitches article > p,
+  .match-comparison-layout:not(.match-comparison-layout--editor) .match-comparison-pitches article > div > p {
     display: none;
   }
+}
+
+/* Give the editor's fields the full width of the match sheet, including on mobile. */
+.match-comparison-layout--editor {
+  grid-template-columns: minmax(0, 1fr);
+}
+.match-comparison-layout--editor .match-pitch-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
 }

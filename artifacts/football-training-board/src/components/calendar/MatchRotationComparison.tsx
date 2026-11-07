@@ -99,6 +99,7 @@ export function MatchRotationComparison({
   roster,
   onCallup,
   onStatus,
+  onBenchAll,
   renderPitch,
   controls,
   footer,
@@ -109,6 +110,7 @@ export function MatchRotationComparison({
   roster?: RosterPlayer[];
   onCallup?: (id: number, called: boolean) => void;
   onStatus?: (id: number, key: string, reserve: boolean) => void;
+  onBenchAll?: () => void;
   renderPitch?: (unit: RotationSummaryUnit) => ReactNode;
   controls?: ReactNode;
   footer?: ReactNode;
@@ -148,7 +150,7 @@ export function MatchRotationComparison({
           )}
         </DialogContent>
       </Dialog>
-      <div className="match-comparison-layout">
+      <div className={renderPitch ? "match-comparison-layout match-comparison-layout--editor" : "match-comparison-layout"}>
         <div className="min-w-0 space-y-3">
           {roster && (
             <section
@@ -227,6 +229,11 @@ export function MatchRotationComparison({
                 </span>
               )}
             </div>
+            {onBenchAll && (
+              <Button type="button" variant="outline" size="sm" className="mb-2" disabled={!summary.rows.length} onClick={onBenchAll}>
+                Tutti in panchina
+              </Button>
+            )}
             <p className="mb-2 text-[11px] text-muted-foreground">
               {onStatus && automatic
                 ? "Scegli i titolari: le celle non fissate si riequilibrano. Le formazioni manuali nelle alternative restano protette."
@@ -394,7 +401,7 @@ export function MatchRotationComparison({
             {summary.units.map((unit) => (
               <article
                 key={unit.key}
-                className="min-w-0 space-y-2 rounded-lg border p-1.5"
+                className={renderPitch ? "min-w-0 space-y-2 rounded-lg border p-2 sm:p-3" : "min-w-0 space-y-2 rounded-lg border p-1.5"}
               >
                 <h5 className="text-[11px] font-semibold">
                   {unit.label.replace(" tempo", "")} · {number(unit.minutes)}′

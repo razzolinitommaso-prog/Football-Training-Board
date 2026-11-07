@@ -2062,7 +2062,7 @@ function MatchCard({
   const preparation = matchPreparation(planDraft, playerLimitForFormat(matchFormat), selectionReady ? selectedPlayerIds : undefined);
   const statusColor = isPostponedOriginalView ? "opacity-60" : "";
 
-  const [resetLineupsOpen,setResetLineupsOpen]=useState(false);
+  const [resetLineupsMode, setResetLineupsMode] = useState<"clear" | "bench" | null>(null);
   function chooseMatchKeeper(key:string,id:number|null){
     setPlanDraft(previous=>designateMatchKeeper<MatchPlanPeriodRuntime,MatchPlanData>(previous,key,id,selectedPlayerIds,p=>startersLimitForPeriod(p,matchFormat),id=>!!convokedById.get(id)&&isGoalkeeperPlayer(convokedById.get(id)!)));
   }
@@ -2872,8 +2872,9 @@ function MatchCard({
                   roster={sortedTeamPlayers.map(p=>({id:p.id,name:(p.jerseyNumber? p.jerseyNumber+' · ':'')+p.lastName+' '+p.firstName,called:selectedPlayerIds.has(p.id),disabled:p.available===false||parentUnavailableCallupsByPlayer.has(p.id),note:parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':playerUnavailableLabel(p).replace(/^\s*-\s*/,'')}))}
                   onCallup={(id,called)=>setSelectedPlayerIds(previous=>{const next=new Set(previous);if(called)next.add(id);else next.delete(id);return next;})}
                   onStatus={selectComparisonCell}
+                  onBenchAll={() => setResetLineupsMode("bench")}
                   automatic={autoReserveRuleEnabled && !planDraft.periods.every(p=>p.lineupManual)}
-                  controls={<div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-2 text-xs"><Button type="button" size="sm" variant="outline" onClick={()=>setResetLineupsOpen(true)}>Azzera schieramenti</Button><label className="min-w-0 max-w-full">Portiere per tutta la partita<ScrollableSelect aria-label="Portiere per tutta la partita" value={String(planDraft.matchGoalkeeperId??"")} onValueChange={value=>chooseMatchKeeper("all",value?Number(value):null)}><option value="">Nessuna assegnazione unica</option>{convokedPlayers.map(p=><option key={p.id} value={p.id}>{p.lastName} {p.firstName}</option>)}</ScrollableSelect></label><span>{planDraft.periods.length} tempi · {planDraft.periods.map(p=>periodMinutes(p.minutes)).join(' / ')} min</span>{!planDraft.fourthTime&&planDraft.periods.some(p=>p.key==='t3')&&<span>3°: {thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} + {periodMinutes(planDraft.periods.find(p=>p.key==='t3')!.minutes)-thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} min</span>}                {matchSection === "scuola_calcio" && (
+                  controls={<div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-2 text-xs"><Button type="button" size="sm" variant="outline" onClick={() => setResetLineupsMode("clear")}>Azzera schieramenti</Button><label className="min-w-0 max-w-full">Portiere per tutta la partita<ScrollableSelect aria-label="Portiere per tutta la partita" value={String(planDraft.matchGoalkeeperId??"")} onValueChange={value=>chooseMatchKeeper("all",value?Number(value):null)}><option value="">Nessuna assegnazione unica</option>{convokedPlayers.map(p=><option key={p.id} value={p.id}>{p.lastName} {p.firstName}</option>)}</ScrollableSelect></label><span>{planDraft.periods.length} tempi · {planDraft.periods.map(p=>periodMinutes(p.minutes)).join(' / ')} min</span>{!planDraft.fourthTime&&planDraft.periods.some(p=>p.key==='t3')&&<span>3°: {thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} + {periodMinutes(planDraft.periods.find(p=>p.key==='t3')!.minutes)-thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} min</span>}                {matchSection === "scuola_calcio" && (
                   <div className="flex items-center gap-2">
                     <Checkbox
                       aria-label="Abilita 4° tempo" checked={!!planDraft.fourthTime}
@@ -2897,7 +2898,27 @@ function MatchCard({
                   }}
                   footer={<div className="sticky bottom-0 z-10 flex justify-end border-t bg-background p-2"><Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button></div>}
                 />
-                <Dialog open={resetLineupsOpen} onOpenChange={setResetLineupsOpen}><DialogContent className="w-[calc(100%-1rem)] max-w-md"><DialogHeader><DialogTitle>Azzera schieramenti</DialogTitle></DialogHeader><p className="text-sm">Svuota gli slot e le scelte fissate di tutti i tempi. Potrai ripartire a mano; convocati, durate, alternative e resoconto restano disponibili.</p><div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setResetLineupsOpen(false)}>Annulla</Button><Button onClick={()=>{setPlanDraft(previous=>clearMatchLineups<MatchPlanPeriodRuntime,MatchPlanData>(previous));setResetLineupsOpen(false);}}>Azzera tutti gli slot</Button></div></DialogContent></Dialog>
+                <Dialog open={resetLineupsMode !== null} onOpenChange={open => { if (!open) setResetLineupsMode(null); }}>
+                  <DialogContent className="w-[calc(100%-1rem)] max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>{resetLineupsMode === "bench" ? "Tutti in panchina" : "Azzera schieramenti"}</DialogTitle>
+                      <DialogDescription>
+                        {resetLineupsMode === "bench"
+                          ? "Metti tutti i convocati in panchina in ogni tempo. Potrai scegliere i titolari dalla tabella nell’ordine che preferisci."
+                          : "Svuota gli slot e le scelte fissate di tutti i tempi. Potrai ripartire a mano."}
+                        {" "}Convocati, durate, alternative e resoconto restano disponibili.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button variant="outline" onClick={() => setResetLineupsMode(null)}>Annulla</Button>
+                      <Button onClick={() => {
+                        const bench = resetLineupsMode === "bench" ? selectedPlayerIds : undefined;
+                        setPlanDraft(previous => clearMatchLineups<MatchPlanPeriodRuntime, MatchPlanData>(previous, bench));
+                        setResetLineupsMode(null);
+                      }}>{resetLineupsMode === "bench" ? "Metti tutti in panchina" : "Azzera tutti gli slot"}</Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
                 <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Lavora sui possibili schieramenti</DisclosureSummary>{planDraft.periods.map((previewPeriod,previewPeriodIndex)=><div key={previewPeriod.key}>                <Button type="button" variant="outline" className="mt-3 min-h-10 w-full whitespace-normal" aria-expanded={openAlternativePeriods.has(previewPeriod.key)} onClick={() => {
                   if (!openAlternativePeriods.has(previewPeriod.key)) addLineupAlternatives(previewPeriodIndex, true);
                   setOpenAlternativePeriods(previous => { const next = new Set(previous); if (next.has(previewPeriod.key)) next.delete(previewPeriod.key); else next.add(previewPeriod.key); return next; });

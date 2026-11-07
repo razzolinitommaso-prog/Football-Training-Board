@@ -293,8 +293,7 @@ export function selectRotationCell<T extends RotationPeriod>(
     .filter(([, status]) => status === "T")
     .map(([player]) => Number(player));
   const capacity = Math.min(limitFor(unit.period), selected.size);
-  const eligible = [...selected].filter((player) => locks[player] !== "P");
-  if (fixed.length > capacity || eligible.length < capacity)
+  if (fixed.length > capacity)
     throw Error(
       "Scelta incompatibile con i posti in campo. Libera una scelta fissata prima di cambiarla.",
     );
@@ -449,11 +448,36 @@ export function editManualLineupCell<T extends RotationPeriod>(periods:T[], sele
  return periods.map((p,i)=>i!==unit.index?p:unit.second?{...p,secondPart:updated}:updated);
 }
 
-export function clearMatchLineups<T extends RotationPeriod,P extends {periods:T[];fourthPeriodDraft?:T;matchGoalkeeperId?:number|null}>(plan:P):P {
- const clear=(p:T):T=>({...p,lineupPlayerIds:[],lineupStarterCount:0,lineupManual:true,lineupGoalkeeperId:null,
-  rotationAuto:false,rotationLocks:undefined,lineupPositions:{},lineupDetectedModule:null,boardId:null,boardUrl:null,boardTitle:null,boardSnapshotAt:null,boardConfirmed:false,
-  ...(p.secondPart?{secondPart:clear(p.secondPart as T)}:{})});
- return {...plan,matchGoalkeeperId:null,periods:plan.periods.map(clear),...(plan.fourthPeriodDraft?{fourthPeriodDraft:clear(plan.fourthPeriodDraft)}:{})};
+export function clearMatchLineups<T extends RotationPeriod, P extends {
+  periods: T[];
+  fourthPeriodDraft?: T;
+  matchGoalkeeperId?: number | null;
+}>(plan: P, bench: ReadonlySet<number> = new Set()): P {
+  function clear(period: T): T {
+    return {
+      ...period,
+      lineupPlayerIds: [...bench],
+      lineupStarterCount: 0,
+      lineupManual: true,
+      lineupGoalkeeperId: null,
+      rotationAuto: false,
+      rotationLocks: undefined,
+      lineupPositions: {},
+      lineupDetectedModule: null,
+      boardId: null,
+      boardUrl: null,
+      boardTitle: null,
+      boardSnapshotAt: null,
+      boardConfirmed: false,
+      ...(period.secondPart ? { secondPart: clear(period.secondPart as T) } : {}),
+    };
+  }
+  return {
+    ...plan,
+    matchGoalkeeperId: null,
+    periods: plan.periods.map(clear),
+    ...(plan.fourthPeriodDraft ? { fourthPeriodDraft: clear(plan.fourthPeriodDraft) } : {}),
+  };
 }
 
 export function designateMatchKeeper<T extends RotationPeriod,P extends {periods:T[];fourthPeriodDraft?:T;matchGoalkeeperId?:number|null}>(plan:P,key:string,id:number|null,selected:Set<number>,limitFor:(p:T)=>number,natural:(id:number)=>boolean):P{
