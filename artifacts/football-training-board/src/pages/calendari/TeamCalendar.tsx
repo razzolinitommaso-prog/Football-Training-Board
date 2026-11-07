@@ -2,12 +2,12 @@ import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/
 import {MatchRotationComparison} from "@/components/calendar/MatchRotationComparison";
 import {buildMatchRotationSummary} from "@workspace/api-zod";
 import {matchPreparation, upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
-import {selectRotationCell, rotationUnits, rotateMatchPeriods, periodMinutes, thirdPartDuration, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
+import {clearMatchLineups, designateMatchKeeper, editManualLineupCell, selectRotationCell, rotationUnits, rotateMatchPeriods, periodMinutes, thirdPartDuration, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
 import SharedTournamentHub from "./SharedTournamentHub";
 import { trainingSlotOnDate } from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
-import { splitMatchLineup, changeMatchLineupStatus } from "@/lib/match-lineup";
+import { splitMatchLineup, changeMatchLineupStatus, lineupKeeper } from "@/lib/match-lineup";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
@@ -278,6 +278,7 @@ type LineupDialogState = {
   module: string;
   lineupPlayerIds: number[];
   lineupStarterCount?: number;
+  lineupGoalkeeperId?: number | null;
   positions: LineupPositionMap;
   drawings: LineupDrawing[];
   tool: "select" | "pen" | "arrow";
@@ -299,6 +300,8 @@ type MatchPlanPeriodRuntime = MatchPlanPeriod & {
   secondPart?: MatchPlanPeriodRuntime;
   thirdPartMinutes?: number;
   rotationAuto?: boolean;
+  lineupManual?: boolean;
+  lineupGoalkeeperId?: number | null;
   rotationLocks?: Record<string, "T" | "P">;
   lineupPlayerIds?: number[];
   lineupStarterCount?: number;
@@ -320,13 +323,15 @@ type MatchLineupAlternative = {
   lineupStarterCount?: number;
   lineupPositions: LineupPositionMap;
   lineupDrawings: LineupDrawing[];
+  lineupGoalkeeperId?: number | null;
 };
 
-function copyLineupAlternative(period: Pick<MatchPlanPeriodRuntime, "module" | "lineupPlayerIds" | "lineupStarterCount" | "lineupPositions" | "lineupDrawings">, id: string, title: string): MatchLineupAlternative {
+function copyLineupAlternative(period: Pick<MatchPlanPeriodRuntime, "module" | "lineupPlayerIds" | "lineupStarterCount" | "lineupPositions" | "lineupDrawings" | "lineupGoalkeeperId">, id: string, title: string): MatchLineupAlternative {
   return {
     id, title, module: period.module ?? "",
     lineupPlayerIds: [...(period.lineupPlayerIds ?? [])],
     lineupStarterCount: period.lineupStarterCount,
+    lineupGoalkeeperId: period.lineupGoalkeeperId,
     lineupPositions: Object.fromEntries(Object.entries(period.lineupPositions ?? {}).map(([key, point]) => [key, { ...point }])),
     lineupDrawings: (period.lineupDrawings ?? []).map(drawing => ({ ...drawing, points: drawing.points.map(point => ({ ...point })) })),
   };
@@ -336,7 +341,7 @@ function applyLineupAlternative(period: MatchPlanPeriodRuntime, alternative: Mat
   const layout = copyLineupAlternative(alternative, alternative.id, alternative.title);
   return {
     ...period, module: layout.module, lineupPlayerIds: layout.lineupPlayerIds, lineupStarterCount: layout.lineupStarterCount,
-    lineupPositions: layout.lineupPositions, lineupDrawings: layout.lineupDrawings,
+    lineupGoalkeeperId: layout.lineupGoalkeeperId !== undefined ? layout.lineupGoalkeeperId : period.lineupGoalkeeperId, lineupPositions: layout.lineupPositions, lineupDrawings: layout.lineupDrawings,
     lineupDetectedModule: null, boardConfirmed: false,
     boardId: null, boardUrl: null, boardTitle: null, boardSnapshotAt: null,
   };
@@ -354,6 +359,7 @@ type MatchPlanData = {
   postMatchReport?: MatchReport;
   boardLink?: string;
   fourthTime?: boolean;
+  matchGoalkeeperId?: number | null;
   fourthPeriodDraft?: MatchPlanPeriodRuntime;
   convocationAt?: string;
   convocationPlace?: string;
@@ -1187,17 +1193,19 @@ function detectLineupModuleLabel(
   format: MatchFormat,
   limit: number,
   playersById: Map<number, Player>,
+  keeperId?: number|null,
 ): string {
   const starters = lineupIds.slice(0, limit);
   if (starters.length === 0) return "";
   const slots = formationSlotsForLineup(module, format, limit);
+  const keeper=lineupKeeper({lineupGoalkeeperId:keeperId},starters,id=>!!playersById.get(id)&&isGoalkeeperPlayer(playersById.get(id)!));
   let goalkeepers = 0;
   const outfield = starters
     .map((id, index) => {
       const player = playersById.get(id);
       const fallback = slots[index] ?? { x: 50, y: 50, role: "player" as const };
       const position = positions?.[String(id)] ?? fallback;
-      const isGoalkeeper = player ? isGoalkeeperPlayer(player) : fallback.role === "goalkeeper";
+      const isGoalkeeper = id===keeper;
       if (isGoalkeeper) goalkeepers += 1;
       return isGoalkeeper ? null : { x: Number(position.x ?? fallback.x) };
     })
@@ -1473,6 +1481,7 @@ function ensurePlanPeriods(base: MatchPlanData | null | undefined, defaults: Mat
       format: map.get(d.key)?.format ?? undefined,
       lineupPlayerIds: Array.isArray(map.get(d.key)?.lineupPlayerIds) ? map.get(d.key)!.lineupPlayerIds : [],
       lineupStarterCount: map.get(d.key)?.lineupStarterCount,
+      lineupGoalkeeperId: map.get(d.key)?.lineupGoalkeeperId !== undefined ? map.get(d.key)?.lineupGoalkeeperId : base?.matchGoalkeeperId,
       lineupPositions: map.get(d.key)?.lineupPositions && typeof map.get(d.key)?.lineupPositions === "object" ? map.get(d.key)!.lineupPositions : {},
       lineupDrawings: Array.isArray(map.get(d.key)?.lineupDrawings) ? map.get(d.key)!.lineupDrawings : [],
       lineupAlternatives: Array.isArray(map.get(d.key)?.lineupAlternatives) ? map.get(d.key)!.lineupAlternatives!.map(alternative => copyLineupAlternative(alternative, alternative.id, alternative.title)) : [],
@@ -1673,7 +1682,9 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
   const ids = groups.lineupPlayerIds;
   const starterCount = groups.starters.length;
   const slots = formationSlotsForLineup(period.module, period.format ?? matchFormat, limit);
-  const positionAt = (id: number, index: number) => period.lineupPositions?.[String(id)] ?? slots[index] ?? { x: 50, y: 50 };
+  const keeper = lineupKeeper(period, groups.starters, id => !!playersById.get(id) && isGoalkeeperPlayer(playersById.get(id)!));
+  const displayOrder=keeper===null?groups.starters:[keeper,...groups.starters.filter(id=>id!==keeper)];
+  const positionAt = (id: number, index: number) => period.lineupPositions?.[String(id)] ?? slots[displayOrder.indexOf(id)>=0?displayOrder.indexOf(id):index] ?? { x: 50, y: 50 };
   const pointerPoint = (clientX: number, clientY: number) => {
     const pointer = pointerRef.current;
     if (!pointer) return null;
@@ -1748,7 +1759,7 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
             onChange({ lineupPositions: { ...period.lineupPositions, [String(id)]: lineupPointFromPortrait({ x, y }) } });
           }}
         >
-          <span className={cn("flex h-7 w-7 items-center justify-center rounded-full border border-white text-[10px] font-bold text-white", player && isGoalkeeperPlayer(player) ? "bg-yellow-600" : "bg-blue-500")}>{player?.jerseyNumber ?? (player && isGoalkeeperPlayer(player) ? "GK" : index + 1)}</span>
+          <span className={cn("flex h-7 w-7 items-center justify-center rounded-full border border-white text-[10px] font-bold text-white", id === keeper ? "bg-yellow-600" : "bg-blue-500")}>{player?.jerseyNumber ?? (id === keeper ? "GK" : index + 1)}</span>
           <span className="max-w-20 truncate rounded bg-black/60 px-1 text-[9px] text-white">{player ? shortPlayerLabel(player) : id}</span>
         </button>;
       })}
@@ -2051,10 +2062,18 @@ function MatchCard({
   const preparation = matchPreparation(planDraft, playerLimitForFormat(matchFormat), selectionReady ? selectedPlayerIds : undefined);
   const statusColor = isPostponedOriginalView ? "opacity-60" : "";
 
+  const [resetLineupsOpen,setResetLineupsOpen]=useState(false);
+  function chooseMatchKeeper(key:string,id:number|null){
+    setPlanDraft(previous=>designateMatchKeeper<MatchPlanPeriodRuntime,MatchPlanData>(previous,key,id,selectedPlayerIds,p=>startersLimitForPeriod(p,matchFormat),id=>!!convokedById.get(id)&&isGoalkeeperPlayer(convokedById.get(id)!)));
+  }
+
   function selectComparisonCell(id: number, key: string, reserve: boolean) {
     const unit = rotationUnits(planDraft.periods).find(u => u.period.key === key);
     if (!unit) return;
-    if (!autoReserveRuleEnabled) { setPeriodPlayerReserveStatus(id, reserve, unit.index); return; }
+    if (!autoReserveRuleEnabled || unit.period.lineupManual) {
+      setPlanDraft(previous=>({...previous,periods:editManualLineupCell(previous.periods,selectedPlayerIds,p=>startersLimitForPeriod(p,matchFormat),key,id,reserve)}));
+      return;
+    }
     try {
       const keepers = new Set(convokedPlayers.filter(isGoalkeeperPlayer).map(p => p.id));
       const periods = selectRotationCell(planDraft.periods, selectedPlayerIds, p => startersLimitForPeriod(p, matchFormat), keepers, key, id, reserve);
@@ -2181,7 +2200,7 @@ function MatchCard({
     ? `${window.location.pathname}${window.location.search}`
     : `/calendari/${match.teamId ?? ""}?openMatchId=${match.id}&phase=${matchPhase(match)}`;
   const tacticalBaseUrl = `/tactical-board?teamId=${match.teamId ?? ""}&matchId=${match.id}&source=match-plan&phase=${matchPhase(match)}&preset=${encodeURIComponent(tacticalPreset)}&convocati=${encodeURIComponent(Array.from(selectedPlayerIds).join(","))}&matchTitle=${encodeURIComponent(boardTitleForMatch)}&returnTo=${encodeURIComponent(returnToMatchUrl)}`;
-  const savedFirstPeriodBoardId = planDraft.periods[0]?.boardId;
+  const savedFirstPeriodBoardId = planDraft.periods[0]?.boardConfirmed ? planDraft.periods[0]?.boardId : null;
   const tacticalUrl = `${tacticalBaseUrl}&periodKey=t1${savedFirstPeriodBoardId ? `&boardId=${savedFirstPeriodBoardId}` : ""}`;
   const canOpenBoard =
     selectedPlayerIds.size > 0 &&
@@ -2198,7 +2217,7 @@ function MatchCard({
     const periodModule = period.module ?? "";
     const recentModule = readRecentLineupModule(match.teamId, periodFormat);
     const periodLimit = startersLimitForPeriod(period, matchFormat);
-    const initialLineup = existing.length > 0
+    const initialLineup = existing.length > 0 || period.lineupStarterCount != null
       ? normalizePeriodLineup(period, convokedById, periodLimit, selected).lineupPlayerIds
       : buildAutomaticLineup(convokedPlayers, periodLimit);
     setLineupDialog({
@@ -2207,6 +2226,7 @@ function MatchCard({
       module: periodModule || recentModule || moduleOptionsForFormat(periodFormat)[0] || "",
       lineupPlayerIds: initialLineup,
       lineupStarterCount: period.lineupStarterCount,
+      lineupGoalkeeperId: period.lineupGoalkeeperId,
       positions: { ...(period.lineupPositions ?? {}) },
       drawings: [...(period.lineupDrawings ?? [])],
       tool: "select",
@@ -2241,6 +2261,7 @@ function MatchCard({
               ...normalized,
               lineupPlayerIds,
               lineupPositions: lineupDialog.positions,
+              lineupGoalkeeperId: lineupDialog.lineupGoalkeeperId,
               lineupDrawings: lineupDialog.drawings,
               lineupDetectedModule: detectLineupModuleLabel(
                 lineupPlayerIds,
@@ -2248,7 +2269,7 @@ function MatchCard({
                 lineupDialog.module,
                 period.format ?? matchFormat,
                 limit,
-                convokedById,
+                convokedById,lineupDialog.lineupGoalkeeperId,
               ),
               boardConfirmed: false,
               };
@@ -2371,7 +2392,7 @@ function MatchCard({
         const groups = splitMatchLineup(period, startersLimitForPeriod(period, matchFormat), selectedPlayerIds);
         let lineup = groups.lineupPlayerIds;
         // 1st period: keep manual order, but ensure all convocated players are present.
-        if (idx === 0 && selectedPlayersOrdered.length > 0) {
+        if (idx === 0 && !period.lineupManual && selectedPlayersOrdered.length > 0) {
           if (lineup.length === 0) {
             lineup = [...selectedPlayersOrdered];
           } else {
@@ -2399,12 +2420,15 @@ function MatchCard({
   }, [selectionReady, selectedPlayersOrdered, selectedPlayerIds, autoReserveRuleEnabled, matchFormat]);
 
   async function saveMatchPlanAndCallups() {
-    if (!canManageMatchPlan) return;
+    if (!canManageMatchPlan) return false;
     try {
       const selected = new Set(selectedPlayerIds);
       const selectedKeys = new Set(Array.from(selected).map(String));
+      const savedKeeper = (id: number | null | undefined) => id != null && !selected.has(id) ? null : id;
       const normalizedPlan: MatchPlanData = {
         ...planDraft,
+        matchGoalkeeperId: savedKeeper(planDraft.matchGoalkeeperId),
+        ...(planDraft.fourthPeriodDraft ? { fourthPeriodDraft: { ...planDraft.fourthPeriodDraft, lineupGoalkeeperId: savedKeeper(planDraft.fourthPeriodDraft.lineupGoalkeeperId) } } : {}),
         periods: planDraft.periods.map((p) => {
           const normalized = normalizePeriodLineup(p, convokedById, startersLimitForPeriod(p, matchFormat), selected);
           const { lineupPlayerIds } = normalized;
@@ -2414,21 +2438,23 @@ function MatchCard({
           return {
             ...p,
             ...normalized,
+            lineupGoalkeeperId: savedKeeper(p.lineupGoalkeeperId),
             lineupPlayerIds,
             lineupPositions,
             lineupAlternatives: (p.lineupAlternatives ?? []).map(alternative => ({
               ...copyLineupAlternative(alternative, alternative.id, alternative.title),
               ...normalizePeriodLineup(alternative, convokedById, startersLimitForPeriod({ ...p, ...alternative }, matchFormat), selected),
+              lineupGoalkeeperId: savedKeeper(alternative.lineupGoalkeeperId),
               lineupPositions: Object.fromEntries(Object.entries(alternative.lineupPositions ?? {}).filter(([id]) => selectedKeys.has(id))),
             })),
-            ...(p.secondPart?{secondPart:{...p.secondPart,...normalizePeriodLineup(p.secondPart,convokedById,startersLimitForPeriod({...p,...p.secondPart},matchFormat),selected),lineupPositions:Object.fromEntries(Object.entries(p.secondPart.lineupPositions??{}).filter(([id])=>selectedKeys.has(id)))}}:{}),
+            ...(p.secondPart?{secondPart:{...p.secondPart,...normalizePeriodLineup(p.secondPart,convokedById,startersLimitForPeriod({...p,...p.secondPart},matchFormat),selected),lineupGoalkeeperId:savedKeeper(p.secondPart.lineupGoalkeeperId),lineupPositions:Object.fromEntries(Object.entries(p.secondPart.lineupPositions??{}).filter(([id])=>selectedKeys.has(id)))}}:{}),
             lineupDetectedModule: detectLineupModuleLabel(
               lineupPlayerIds,
               lineupPositions,
               p.module,
               p.format ?? matchFormat,
               splitMatchLineup(normalized, startersLimitForPeriod(p, matchFormat)).starters.length,
-              convokedById,
+              convokedById,p.lineupGoalkeeperId,
             ),
           };
         }),
@@ -2444,15 +2470,17 @@ function MatchCard({
       qc.invalidateQueries({ queryKey: ["/api/matches", match.id, "callups"] });
       toast({ title: "Rosa e schieramenti salvati" });
       setPlanOpen(true);
+      return true;
     } catch (err: any) {
       if (isNoopMatchUpdateError(err)) {
         qc.invalidateQueries({ queryKey: ["/api/matches"] });
         qc.invalidateQueries({ queryKey: ["/api/matches", match.id, "callups"] });
         toast({ title: "Rosa e schieramenti salvati" });
         setPlanOpen(true);
-        return;
+        return true;
       }
       toast({ title: err?.message ?? "Errore salvataggio piano partita", variant: "destructive" });
+      return false;
     }
   }
 
@@ -2537,16 +2565,14 @@ function MatchCard({
   const lineupStarters = dialogGroups.starters;
   const lineupReserves = dialogGroups.reserves;
   const lineupSelected = new Set(lineupDialog?.lineupPlayerIds ?? []);
-  const lineupHasStarterGoalkeeper = lineupStarters.some((id) => {
-    const player = convokedById.get(id);
-    return player ? isGoalkeeperPlayer(player) : false;
-  });
+  const dialogKeeper = lineupKeeper(lineupDialog,lineupStarters,id=>!!convokedById.get(id)&&isGoalkeeperPlayer(convokedById.get(id)!));
+  const orderedDialogStarters=dialogKeeper===null?lineupStarters:[dialogKeeper,...lineupStarters.filter(id=>id!==dialogKeeper)];
   const lineupStarterPlayers = lineupStarters.map((id) => convokedById.get(id)).filter((p): p is Player => Boolean(p));
   const lineupAvailablePlayers = convokedPlayers.filter((player) => selectedPlayerIds.has(player.id));
   const lineupModuleOptions = moduleOptionsForFormat(lineupFormat);
   const lineupReadOnly = lineupDialog?.mode === "view";
   const lineupDetectedModule = lineupDialog
-    ? detectLineupModuleLabel(lineupDialog.lineupPlayerIds, lineupDialog.positions, lineupDialog.module, lineupFormat, lineupStarters.length, convokedById)
+    ? detectLineupModuleLabel(lineupDialog.lineupPlayerIds, lineupDialog.positions, lineupDialog.module, lineupFormat, lineupStarters.length, convokedById,lineupDialog.lineupGoalkeeperId)
     : "";
   const lineupColors = ["#facc15", "#ffffff", "#38bdf8", "#22c55e", "#ef4444", "#111827"];
   const lineupPitchPoint = (event: { currentTarget: EventTarget & Element; clientX: number; clientY: number }) => {
@@ -2846,8 +2872,8 @@ function MatchCard({
                   roster={sortedTeamPlayers.map(p=>({id:p.id,name:(p.jerseyNumber? p.jerseyNumber+' · ':'')+p.lastName+' '+p.firstName,called:selectedPlayerIds.has(p.id),disabled:p.available===false||parentUnavailableCallupsByPlayer.has(p.id),note:parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':playerUnavailableLabel(p).replace(/^\s*-\s*/,'')}))}
                   onCallup={(id,called)=>setSelectedPlayerIds(previous=>{const next=new Set(previous);if(called)next.add(id);else next.delete(id);return next;})}
                   onStatus={selectComparisonCell}
-                  automatic={autoReserveRuleEnabled}
-                  controls={<div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-2 text-xs"><span>{planDraft.periods.length} tempi · {planDraft.periods.map(p=>periodMinutes(p.minutes)).join(' / ')} min</span>{!planDraft.fourthTime&&planDraft.periods.some(p=>p.key==='t3')&&<span>3°: {thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} + {periodMinutes(planDraft.periods.find(p=>p.key==='t3')!.minutes)-thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} min</span>}                {matchSection === "scuola_calcio" && (
+                  automatic={autoReserveRuleEnabled && !planDraft.periods.every(p=>p.lineupManual)}
+                  controls={<div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-2 text-xs"><Button type="button" size="sm" variant="outline" onClick={()=>setResetLineupsOpen(true)}>Azzera schieramenti</Button><label className="min-w-0 max-w-full">Portiere per tutta la partita<ScrollableSelect aria-label="Portiere per tutta la partita" value={String(planDraft.matchGoalkeeperId??"")} onValueChange={value=>chooseMatchKeeper("all",value?Number(value):null)}><option value="">Nessuna assegnazione unica</option>{convokedPlayers.map(p=><option key={p.id} value={p.id}>{p.lastName} {p.firstName}</option>)}</ScrollableSelect></label><span>{planDraft.periods.length} tempi · {planDraft.periods.map(p=>periodMinutes(p.minutes)).join(' / ')} min</span>{!planDraft.fourthTime&&planDraft.periods.some(p=>p.key==='t3')&&<span>3°: {thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} + {periodMinutes(planDraft.periods.find(p=>p.key==='t3')!.minutes)-thirdPartDuration(planDraft.periods.find(p=>p.key==='t3')!)} min</span>}                {matchSection === "scuola_calcio" && (
                   <div className="flex items-center gap-2">
                     <Checkbox
                       aria-label="Abilita 4° tempo" checked={!!planDraft.fourthTime}
@@ -2862,12 +2888,16 @@ function MatchCard({
                     const runtime = rotationUnits(planDraft.periods).find(u => u.period.key === unit.key);
                     if (!runtime) return null;
                     const period = { ...runtime.period, label: unit.label, minutes: String(unit.minutes) };
-                    return <><p className="text-[10px] text-muted-foreground">{period.rotationAuto ? "Automatico" : "Manuale"}</p>
+                    const starters=splitMatchLineup(period,startersLimitForPeriod(period,matchFormat),selectedPlayerIds).starters;
+                    const keeper=lineupKeeper(period,starters,id=>!!convokedById.get(id)&&isGoalkeeperPlayer(convokedById.get(id)!));
+                    return <><p className="text-[10px] text-muted-foreground">{period.rotationAuto && !period.lineupManual ? "Automatico" : "Manuale"}</p>
+                      <ScrollableSelect aria-label={"Portiere "+unit.label} value={String(keeper??"")} onValueChange={value=>chooseMatchKeeper(unit.key,value?Number(value):null)} className="w-full min-w-0 text-xs"><option value="">Portiere da scegliere</option>{convokedPlayers.map(p=><option key={p.id} value={p.id}>{p.lastName} {p.firstName}</option>)}</ScrollableSelect>
                       <MatchDraftLineupPreview period={period} matchFormat={matchFormat} selectedIds={selectedPlayerIds} playersById={convokedById}/>
-                      <Button type="button" variant="ghost" size="sm" className="w-full px-0 text-[10px]" onClick={() => setPreviewBoard({ ...period, boardUrl: undefined, boardTitle: undefined })}>Ingrandisci</Button></>;
+                      <Button type="button" variant="ghost" size="sm" className="w-full px-0 text-[10px]" onClick={() => setPreviewBoard({ ...period, boardUrl: undefined, boardTitle: undefined })}>Ingrandisci</Button><Button type="button" variant="ghost" size="sm" disabled={!selectedPlayerIds.size} className="h-auto w-full whitespace-normal px-1 text-[10px]" onClick={async()=>{if(await saveMatchPlanAndCallups())window.location.assign(`${tacticalBaseUrl}&periodKey=${unit.key}${period.boardId&&period.boardConfirmed?`&boardId=${period.boardId}`:""}`);}}>Salva e apri lavagna</Button></>;
                   }}
                   footer={<div className="sticky bottom-0 z-10 flex justify-end border-t bg-background p-2"><Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button></div>}
                 />
+                <Dialog open={resetLineupsOpen} onOpenChange={setResetLineupsOpen}><DialogContent className="w-[calc(100%-1rem)] max-w-md"><DialogHeader><DialogTitle>Azzera schieramenti</DialogTitle></DialogHeader><p className="text-sm">Svuota gli slot e le scelte fissate di tutti i tempi. Potrai ripartire a mano; convocati, durate, alternative e resoconto restano disponibili.</p><div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setResetLineupsOpen(false)}>Annulla</Button><Button onClick={()=>{setPlanDraft(previous=>clearMatchLineups<MatchPlanPeriodRuntime,MatchPlanData>(previous));setResetLineupsOpen(false);}}>Azzera tutti gli slot</Button></div></DialogContent></Dialog>
                 <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Lavora sui possibili schieramenti</DisclosureSummary>{planDraft.periods.map((previewPeriod,previewPeriodIndex)=><div key={previewPeriod.key}>                <Button type="button" variant="outline" className="mt-3 min-h-10 w-full whitespace-normal" aria-expanded={openAlternativePeriods.has(previewPeriod.key)} onClick={() => {
                   if (!openAlternativePeriods.has(previewPeriod.key)) addLineupAlternatives(previewPeriodIndex, true);
                   setOpenAlternativePeriods(previous => { const next = new Set(previous); if (next.has(previewPeriod.key)) next.delete(previewPeriod.key); else next.add(previewPeriod.key); return next; });
@@ -2983,7 +3013,7 @@ function MatchCard({
                     const starters = splitMatchLineup(p, startersLimit, selectedPlayerIds).starters.length;
                     const hasLineup = lineupIds.length > 0;
                     const detectedPeriodModule = hasLineup
-                      ? detectLineupModuleLabel(lineupIds, p.lineupPositions, p.module, periodFormat, starters, convokedById)
+                      ? detectLineupModuleLabel(lineupIds, p.lineupPositions, p.module, periodFormat, starters, convokedById,p.lineupGoalkeeperId)
                       : "";
                     return (
                       <div key={p.key} className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">
@@ -3856,13 +3886,9 @@ function MatchCard({
                   })}
                 </svg>
                 {lineupSlots.map((slot, idx) => {
-                  const dataIndex = slot.role === "goalkeeper" || lineupHasStarterGoalkeeper ? idx : idx - 1;
-                  const candidatePlayerId = dataIndex >= 0 ? lineupStarters[dataIndex] : null;
-                  const candidatePlayer = candidatePlayerId ? convokedById.get(candidatePlayerId) : null;
-                  const playerId =
-                    slot.role === "goalkeeper" && candidatePlayer && !isGoalkeeperPlayer(candidatePlayer)
-                      ? null
-                      : candidatePlayerId;
+                  const candidatePlayerId = orderedDialogStarters[idx] ?? null;
+                  const playerId = candidatePlayerId;
+                  const dataIndex = playerId===null?idx:lineupStarters.indexOf(playerId);
                   const player = playerId ? convokedById.get(playerId) : null;
                   const position = playerId ? lineupDialog.positions[String(playerId)] ?? slot : slot;
                   const displayPosition = lineupPointToPortrait(position);
@@ -3931,6 +3957,7 @@ function MatchCard({
                                 return {
                                   ...prev,
                                   selectedPlayerId: nextId,
+                                  ...(slot.role==="goalkeeper"?{lineupGoalkeeperId:nextId}:{}),
                                   lineupPlayerIds: replaceLineupPlayerAtSlot(prev.lineupPlayerIds, Math.max(0, dataIndex), playerId, nextId),
                                   lineupStarterCount: prev.lineupStarterCount == null || playerId ? prev.lineupStarterCount : Math.min(lineupLimit, prev.lineupStarterCount + 1),
                                 };
@@ -3938,7 +3965,7 @@ function MatchCard({
                             }}
                           >
                             {lineupAvailablePlayers
-                              .filter((p) => slot.role === "goalkeeper" ? true : (!isGoalkeeperPlayer(p) || p.id === playerId))
+                               .filter((p) => slot.role === "goalkeeper" || p.id!==dialogKeeper || p.id===playerId)
                               .map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.jerseyNumber ? `${p.jerseyNumber} - ` : ""}{p.firstName} {p.lastName}
@@ -3974,9 +4001,9 @@ function MatchCard({
                       <span className="truncate">{player.jerseyNumber ? `${player.jerseyNumber} - ` : ""}{player.firstName} {player.lastName}</span>
                       <span className={cn(
                         "ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                        isGoalkeeperPlayer(player) ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800",
+                        player.id===dialogKeeper ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800",
                       )}>
-                        {isGoalkeeperPlayer(player) ? "GK" : "Titolare"}
+                        {player.id===dialogKeeper ? "GK" : "Titolare"}
                       </span>
                     </div>
                   )) : (

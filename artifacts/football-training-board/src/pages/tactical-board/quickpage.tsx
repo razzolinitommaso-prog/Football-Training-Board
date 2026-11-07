@@ -5,7 +5,8 @@ import { ADDITIONAL_EQUIPMENT, AdditionalEquipmentGlyph } from "./additional-equ
 import { AnimationPanel } from "./animation-panel";
 import { useBoardAnimation } from "./use-board-animation";
 import { readAnimation } from "./board-animation";
-import { splitMatchLineup } from "@/lib/match-lineup";
+import { splitMatchLineup, lineupKeeper, setLineupKeeper, matchPeriodByKey } from "@/lib/match-lineup";
+import { designateMatchKeeper, type RotationPeriod } from "@/lib/match-period-rotation";
 import { capturePitch } from "./capture-pitch";
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -138,7 +139,11 @@ function inferSavedCoordinateSpace(data: TacticalBoardData): BoardCoordinateSpac
   }
   return "desktop-landscape";
 }
+type BoardPeriodKey = "t1"|"t2"|"t3"|"t3-second"|"t4";
+const boardPeriodLabels:Record<BoardPeriodKey,string>={t1:"1° tempo",t2:"2° tempo",t3:"3° tempo", "t3-second":"3B · seconda parte",t4:"4° tempo"};
 type MatchPlanPeriodLite = {
+  secondPart?: MatchPlanPeriodLite;
+  lineupGoalkeeperId?: number|null;
   key: string;
   module?: string;
   format?: TacticalBoardFormat;
@@ -1330,7 +1335,7 @@ const QuickPage = () => {
   const initialPeriodKeyFromQuery = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const key = params.get("periodKey");
-    return key === "t1" || key === "t2" || key === "t3" || key === "t4" ? key : "t1";
+    return key === "t1" || key === "t2" || key === "t3" || key === "t3-second" || key === "t4" ? key : "t1";
   }, []);
   const isMatchPlanBoard = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1403,7 +1408,10 @@ const QuickPage = () => {
   const [boardType, setBoardType] = useState<(typeof BOARD_TYPES)[number]>("Training");
   const [boardNotes, setBoardNotes] = useState("Obiettivo: attirare la prima pressione e uscire sul lato debole con la mezzala dentro.");
   const [activeBoardAction, setActiveBoardAction] = useState<BoardActionPanel>("load");
-  const [matchPeriodKey, setMatchPeriodKey] = useState<"t1" | "t2" | "t3" | "t4">(initialPeriodKeyFromQuery);
+  const [matchPeriodKey, setMatchPeriodKey] = useState<BoardPeriodKey>(initialPeriodKeyFromQuery);
+  const [boardLineupDraft,setBoardLineupDraft]=useState<(MatchPlanPeriodLite & {key:BoardPeriodKey})|null>(null);
+  const [gameKeeperDraft,setGameKeeperDraft]=useState<number|undefined>();
+  const [boardPeriodChanged,setBoardPeriodChanged]=useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(initialMatchIdFromQuery);
   const [matchPlanPlayerId, setMatchPlanPlayerId] = useState<string>("");
   const [matchSheetSaveHint, setMatchSheetSaveHint] = useState<string | null>(null);
@@ -1602,8 +1610,10 @@ const QuickPage = () => {
       setBoardType(BOARD_TYPES.includes(data.boardType as any) ? data.boardType as (typeof BOARD_TYPES)[number] : "Training");
       setBoardNotes(typeof data.notes === "string" ? data.notes : "");
       setSelectedMatchId(parseNumericId(data.matchId) ?? null);
+      setBoardLineupDraft(null);
+      setGameKeeperDraft(undefined);
       matchPrepBindingCommittedRef.current = true;
-      if (data.matchPeriodKey === "t1" || data.matchPeriodKey === "t2" || data.matchPeriodKey === "t3" || data.matchPeriodKey === "t4") {
+      if (data.matchPeriodKey === "t1" || data.matchPeriodKey === "t2" || data.matchPeriodKey === "t3" || data.matchPeriodKey === "t3-second" || data.matchPeriodKey === "t4") {
         setMatchPeriodKey(data.matchPeriodKey);
       }
       setSelectedPreset(data.preset ?? null);
@@ -2334,12 +2344,16 @@ const QuickPage = () => {
   }, [boardTeamId, selectedMatchId]);
 
   const activeMatchPlanPeriod = React.useMemo(() => {
+    if(boardLineupDraft?.key===matchPeriodKey)return boardLineupDraft;
     const plan = selectedMatchOption?.matchPlan;
     if (!plan || typeof plan !== "object") return null;
     const periods = (plan as { periods?: MatchPlanPeriodLite[] }).periods;
     if (!Array.isArray(periods)) return null;
-    return periods.find((p) => p.key === matchPeriodKey) ?? null;
-  }, [matchPeriodKey, selectedMatchOption]);
+    const period = matchPeriodByKey(periods, matchPeriodKey);
+    if (matchPeriodKey !== "t3-second" || !period) return period ?? null;
+    const third = periods.find(p => p.key === "t3");
+    return { ...period, module: period.module ?? third?.module, format: period.format ?? third?.format };
+  }, [matchPeriodKey, selectedMatchOption,boardLineupDraft]);
 
   const matchPlanStartersLimit = React.useMemo(
     () => startersLimitForPeriod(activeMatchPlanPeriod, boardFormat),
@@ -2393,6 +2407,8 @@ const QuickPage = () => {
       const orderedAll = orderMatchPlanRosterPlayers(roster, activeMatchPlanPeriod);
       const startersCap = activeMatchPlanPeriod?.lineupStarterCount == null ? matchPlanStartersLimit : splitMatchLineup(activeMatchPlanPeriod, matchPlanStartersLimit).starters.length;
       const officialStarters = orderedAll.slice(0, startersCap);
+      const keeper=lineupKeeper(activeMatchPlanPeriod,officialStarters.map(p=>p.id),id=>officialStarters.some(p=>p.id===id&&isGoalkeeperPlayer(p)));
+      if(keeper!==null)officialStarters.sort((a,b)=>Number(b.id===keeper)-Number(a.id===keeper));
       const officialReserves = orderedAll.slice(startersCap);
 
       const presetElements = formation.slots.map((slot) => {
@@ -2414,11 +2430,11 @@ const QuickPage = () => {
             const slot = formation.slots[index];
             const point = savedPoint && Number.isFinite(savedPoint.x) && Number.isFinite(savedPoint.y) ? savedPoint : slot;
             const displayPoint = isMobileViewport ? formationPointToPortrait(point) : point;
-            return { type: isGoalkeeperPlayer(player) ? "goalkeeper" : "player", ...buildPlayerAssignment(player),
+            return { type: player.id===keeper ? "goalkeeper" : "player", ...buildPlayerAssignment(player),
               x: displayPoint.x, y: displayPoint.y } as TacticalBoardElement;
           })
         : startersForAssign.length > 0
-          ? assignPlayersToElements(presetElements, startersForAssign)
+          ? presetElements.map((slot,i)=>startersForAssign[i]?{...slot,...buildPlayerAssignment(startersForAssign[i]),type:startersForAssign[i].id===keeper?"goalkeeper":"player",markerColor:undefined}:slot)
           : presetElements.map((p) => ({ ...p }));
 
       const placed = new Set(filled.map((e) => ("playerId" in e ? e.playerId : null)).filter(Boolean).map(String));
@@ -2427,7 +2443,7 @@ const QuickPage = () => {
       const benchEls: TacticalBoardElement[] = benchPlayers.map((p, idx) => {
         const benchPoint = benchSpotForReserve(idx);
         const pos = isMobileViewport ? formationPointToPortrait(benchPoint) : benchPoint;
-        const isGk = isGoalkeeperPlayer(p);
+        const isGk = p.id===keeper;
         return {
           type: isGk ? "goalkeeper" : "player",
           x: pos.x,
@@ -2566,7 +2582,7 @@ const QuickPage = () => {
         const id = String(entry.player.id);
         if (used.has(id) || reserveIds.has(id)) return false;
         return slot.role === "goalkeeper"
-          ? entry.item.type === "goalkeeper" || isGoalkeeperPlayer(entry.player)
+          ? entry.item.type === "goalkeeper"
           : entry.item.type !== "goalkeeper";
       });
       if (!candidates.length) continue;
@@ -2600,7 +2616,7 @@ const QuickPage = () => {
         })
         .filter((entry): entry is [string, { x: number; y: number }] => Boolean(entry)),
     );
-    return { lineupPlayerIds: orderedIds, lineupPositions, lineupStarterCount: orderedIds.filter(id => !reserveIds.has(String(id))).length };
+    return { lineupPlayerIds: [...new Set(orderedIds)], lineupPositions, lineupStarterCount: new Set(orderedIds.filter(id => !reserveIds.has(String(id)))).size, lineupGoalkeeperId: playerElements.find(entry=>entry.item.type==="goalkeeper"&&!reserveIds.has(String(entry.player.id)))?.player.id??null };
   }, [boardFormat, boardMode, elements, isMatchPreparationUi, isMobileViewport, matchPlanPitchPlacement, selectedPreset, teamPlayers]);
 
   const getLineupPlayerIdsForMatchPlan = React.useCallback(() => {
@@ -2677,7 +2693,7 @@ const QuickPage = () => {
   React.useEffect(() => {
     if (!isMatchPreparationUi || boardMode !== "assigned" || !selectedMatchId) return;
     // The saved period must arrive before deciding starters, reserves and coordinates.
-    if (isMatchPlanBoard && (!selectedMatchOption || initialBoardIdFromQuery || typeof isMobileViewport !== "boolean")) return;
+    if (isMatchPlanBoard && (!selectedMatchOption || (initialBoardIdFromQuery&&!boardPeriodChanged) || typeof isMobileViewport !== "boolean")) return;
     setElements((prev) => {
       const alreadyHasMatchPlayers = prev.some((item) => isPlayerType(item.type) && item.type !== "opponent" && item.playerId);
       if (alreadyHasMatchPlayers) return prev;
@@ -2720,7 +2736,7 @@ const QuickPage = () => {
     selectedPreset,
     selectedMatchOption,
     isMatchPlanBoard,
-    initialBoardIdFromQuery,
+    initialBoardIdFromQuery, boardPeriodChanged, matchPeriodKey,
     isMobileViewport,
   ]);
 
@@ -2729,7 +2745,7 @@ const QuickPage = () => {
     if (!player) return;
     const currentElement = elements[elementIndex];
     const previousPlayerIdRaw = currentElement?.playerId ?? null;
-    const isGoalkeeper = currentElement?.type === "goalkeeper" || isGoalkeeperPlayer(player);
+    const isGoalkeeper = currentElement?.type === "goalkeeper";
     setElements((prev) =>
       rebuildMatchPlanLayout(
         prev.map((item, index) =>
@@ -2765,7 +2781,7 @@ const QuickPage = () => {
     }
     const player = matchPlanAvailablePlayers.find((item) => String(item.id) === playerIdRaw);
     if (!player || usedPlayerIds.has(String(player.id))) return;
-    const isGoalkeeper = isGoalkeeperPlayer(player);
+    const isGoalkeeper = activeMatchPlanPeriod?.lineupGoalkeeperId===player.id;
     const stub: TacticalBoardElement = {
       type: isGoalkeeper ? "goalkeeper" : "player",
       x: 50,
@@ -2837,6 +2853,42 @@ const QuickPage = () => {
     setSaveState("Unsaved");
   };
 
+  function chooseBoardKeeper(id:number|null,wholeGame=false){
+    const current=getMatchPlanLineupSnapshot();
+    const ids=new Set(matchPlanPitchPlacement.ordered.map(row=>row.player.id));
+    if(id!==null&&!ids.has(id))return;
+    const formerStarters=new Set(current.lineupPlayerIds.slice(0,current.lineupStarterCount));
+    const positions=Object.fromEntries(elements.filter(el=>formerStarters.has(Number(el.playerId))&&el.type!=="opponent").map(el=>[String(el.playerId),{x:el.x??50,y:el.y??50}]));
+    const next=setLineupKeeper({...current,lineupPositions:positions},id,matchPlanStartersLimit,ids,()=>false);
+    const reserves=next.lineupPlayerIds.slice(next.lineupStarterCount);
+    setBoardLineupDraft({key:matchPeriodKey,...next});
+    if(wholeGame&&id!==null)setGameKeeperDraft(id);
+    const keeperPoint=isMobileViewport?formationPointToPortrait({x:10,y:50}):{x:10,y:50};
+    setElements(old=>old.map(el=>{
+      const player=Number(el.playerId);
+      if(el.type==="opponent"||!ids.has(player))return el;
+      const movedToBench=formerStarters.has(player)&&reserves.includes(player);
+      const bench=movedToBench?benchSpotForReserve(reserves.indexOf(player)):undefined;
+      const point=next.lineupPositions[player]??(player===id?keeperPoint:bench&&isMobileViewport?formationPointToPortrait(bench):bench);
+      const type=player===id?"goalkeeper":"player";
+      return {...el,...point,type,markerColor:el.type!==type?undefined:el.markerColor};
+    }));
+    setSaveState("Unsaved");
+  }
+
+  function updatedBoardMatchPlan(existingPlan:Record<string,unknown>, playerIds:number[], changes:Record<string,unknown>){
+    type Plan={periods:RotationPeriod[];fourthPeriodDraft?:RotationPeriod;matchGoalkeeperId?:number|null};
+    let plan:Plan={...existingPlan,periods:Array.isArray(existingPlan.periods)?existingPlan.periods:[]};
+    if(gameKeeperDraft!==undefined)plan=designateMatchKeeper<RotationPeriod,Plan>(plan,"all",gameKeeperDraft,new Set(playerIds),p=>startersLimitForPeriod(p as MatchPlanPeriodLite,boardFormat),id=>teamPlayers.some(player=>player.id===id&&isGoalkeeperPlayer(player)));
+    const rootKey=matchPeriodKey==="t3-second"?"t3":matchPeriodKey;
+    const periods=plan.periods.some(p=>p.key===rootKey)?plan.periods:[...plan.periods,{key:rootKey,label:boardPeriodLabels[rootKey],minutes:"12"}];
+    return {...plan,periods:periods.map(period=>{
+      if(period.key!==rootKey)return period;
+      const lineup={rotationAuto:false,lineupManual:true,rotationLocks:undefined,...changes};
+      return matchPeriodKey==="t3-second"?{...period,secondPart:{key:"t3-second",label:boardPeriodLabels["t3-second"],minutes:String((Number(period.minutes)||12)/2),...period.secondPart,...lineup}}:{...period,...lineup};
+    })};
+  }
+
   const linkSavedBoardToMatchPeriod = async (savedBoardId: number | null, savedBoardTitle: string) => {
     if (!savedBoardId || !selectedMatchId || !boardTeamId) return;
     const matchesRes = await fetch(withApi(`/api/matches?teamId=${boardTeamId}`), { credentials: "include" });
@@ -2844,40 +2896,20 @@ const QuickPage = () => {
     const matches = await matchesRes.json();
     const match = Array.isArray(matches) ? matches.find((item) => parseNumericId(item?.id) === selectedMatchId) : null;
     if (!match) throw new Error("Partita da collegare non trovata");
-    const existingPlan = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
-    const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
-    const periodLabels: Record<typeof matchPeriodKey, string> = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" };
+    const existingPlan: Record<string, unknown> = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
     const boardUrl = `/tactical-board?boardId=${savedBoardId}&teamId=${boardTeamId}&matchId=${selectedMatchId}&periodKey=${matchPeriodKey}&returnTo=${encodeURIComponent(`/calendari/${boardTeamId}?openMatchId=${selectedMatchId}`)}`;
-    const { lineupPlayerIds, lineupPositions, lineupStarterCount } = getMatchPlanLineupSnapshot();
-    const playerIds = Array.from(new Set([
-      ...matchCallups.map((callup) => callup.playerId),
-      ...lineupPlayerIds,
-    ]));
-    const hasPeriod = currentPeriods.some((period: any) => period?.key === matchPeriodKey);
-    const periods = (hasPeriod ? currentPeriods : [...currentPeriods, { key: matchPeriodKey, label: periodLabels[matchPeriodKey], minutes: "" }]).map((period: any) =>
-      period?.key === matchPeriodKey
-        ? {
-            ...period,
-            rotationAuto: false, rotationLocks: undefined,
-            lineupPlayerIds,
-            lineupStarterCount,
-            lineupPositions,
-            lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null,
-            boardId: savedBoardId,
-            boardTitle: savedBoardTitle,
-            boardUrl,
-            boardSnapshotAt: new Date().toISOString(),
-            boardConfirmed: true,
-          }
-        : period
-    );
+    const snapshot = getMatchPlanLineupSnapshot();
+    const playerIds = [...new Set([...matchCallups.map(c=>c.playerId),...snapshot.lineupPlayerIds])];
+    const matchPlan=updatedBoardMatchPlan(existingPlan,playerIds,{...snapshot,lineupDetectedModule:detectedModule||null,boardId:savedBoardId,boardTitle:savedBoardTitle,boardUrl,boardSnapshotAt:new Date().toISOString(),boardConfirmed:true});
     const planRes = await fetch(withApi(`/api/matches/${selectedMatchId}/plan`), {
       method: "PUT",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ playerIds, matchPlan: { ...existingPlan, periods } }),
+      body: JSON.stringify({ playerIds, matchPlan }),
     });
     if (!planRes.ok) throw new Error("Errore collegamento scheda partita");
+    setMatchOptions(options => options.map(item => item.id === selectedMatchId ? { ...item, matchPlan: { periods: matchPlan.periods as MatchPlanPeriodLite[] } } : item));
+    setGameKeeperDraft(undefined);
     await loadMatchCallups(selectedMatchId);
   };
 
@@ -2893,27 +2925,19 @@ const QuickPage = () => {
       const matches = await matchesRes.json();
       const match = Array.isArray(matches) ? matches.find((item) => parseNumericId(item?.id) === selectedMatchId) : null;
       if (!match) throw new Error("match");
-      const existingPlan = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
-      const currentPeriods = Array.isArray(existingPlan.periods) ? existingPlan.periods : [];
-      const { lineupPlayerIds, lineupPositions, lineupStarterCount } = getMatchPlanLineupSnapshot();
-      const playerIds = Array.from(new Set([
-        ...matchCallups.map((callup) => callup.playerId),
-        ...lineupPlayerIds,
-      ]));
-      const periodLabels: Record<typeof matchPeriodKey, string> = { t1: "1° tempo", t2: "2° tempo", t3: "3° tempo", t4: "4° tempo" };
-      const hasPeriod = currentPeriods.some((period: any) => period?.key === matchPeriodKey);
-      const periods = (hasPeriod ? currentPeriods : [...currentPeriods, { key: matchPeriodKey, label: periodLabels[matchPeriodKey], minutes: "" }]).map((period: any) =>
-        period?.key === matchPeriodKey
-          ? { ...period, rotationAuto: false, rotationLocks: undefined, lineupPlayerIds, lineupStarterCount, lineupPositions, lineupDetectedModule: detectedModule || period?.lineupDetectedModule || null, boardConfirmed: false }
-          : period
-      );
+      const existingPlan: Record<string, unknown> = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
+      const snapshot=getMatchPlanLineupSnapshot();
+      const playerIds=[...new Set([...matchCallups.map(c=>c.playerId),...snapshot.lineupPlayerIds])];
+      const matchPlan=updatedBoardMatchPlan(existingPlan,playerIds,{...snapshot,lineupDetectedModule:detectedModule||null,boardConfirmed:false});
       const patchRes = await fetch(withApi(`/api/matches/${selectedMatchId}/plan`), {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerIds, matchPlan: { ...existingPlan, periods } }),
+        body: JSON.stringify({ playerIds, matchPlan }),
       });
       if (!patchRes.ok) throw new Error("patch");
+      setMatchOptions(options => options.map(item => item.id === selectedMatchId ? { ...item, matchPlan: { periods: matchPlan.periods as MatchPlanPeriodLite[] } } : item));
+      setGameKeeperDraft(undefined);
       await loadMatchCallups(selectedMatchId);
       setMatchSheetSaveHint("Scheda partita salvata (da confermare in calendario).");
       window.setTimeout(() => setMatchSheetSaveHint(null), 5000);
@@ -3773,6 +3797,12 @@ const QuickPage = () => {
                 <MousePointer2 size={15} />
                 Seleziona
               </button>
+              {isMatchPreparationUi&&matchPlanPitchPlacement.ordered.length>0&&<div className="col-span-2 flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-white/10 p-2 text-xs text-white">
+                <ScrollableSelect aria-label="Portiere di questo tempo in lavagna" className="min-w-0 max-w-full text-xs" value={String(getMatchPlanLineupSnapshot().lineupGoalkeeperId??"")} onValueChange={v=>chooseBoardKeeper(v?Number(v):null)}><option value="">Portiere da scegliere</option>{matchPlanPitchPlacement.ordered.map(row=><option key={row.player.id} value={row.player.id}>{fullPlayerName(row.player)}</option>)}</ScrollableSelect>
+                <button type="button" className="rounded-md border border-white/20 px-2 py-1" disabled={getMatchPlanLineupSnapshot().lineupGoalkeeperId===null} onClick={()=>chooseBoardKeeper(getMatchPlanLineupSnapshot().lineupGoalkeeperId,true)}>Usa per tutta la partita</button>
+                {gameKeeperDraft!==undefined&&<span>Scelta per tutta la partita da salvare</span>}
+              </div>}
+              {!isMatchPreparationUi&&canAssignRealPlayer&&selectedElementIndex!==null&&<button type="button" className="rounded-lg border border-white/20 px-2 py-1 text-xs text-white" onClick={()=>{setElements(old=>old.map((el,i)=>i!==selectedElementIndex?el:{...el,type:el.type==="goalkeeper"?"player":"goalkeeper",markerColor:undefined}));setSaveState("Unsaved");}}>{selectedElement?.type==="goalkeeper"?"Giocatore di movimento":"Imposta come portiere"}</button>}
               <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white/70">
                 <span className="font-semibold text-white">Strumento</span>
                 <span>{activeToolLabelMap[activeTool] ?? activeTool}</span>
@@ -5513,12 +5543,13 @@ const QuickPage = () => {
                           <span className="text-[11px] font-semibold text-white/55">Tempo lavagna</span>
                           <ScrollableSelect
                             value={matchPeriodKey}
-                            onValueChange={(e) => setMatchPeriodKey(e as "t1" | "t2" | "t3" | "t4")}
+                            onValueChange={(e) => {if(e===matchPeriodKey)return;if(saveState==="Unsaved"&&!window.confirm("Cambiare tempo e abbandonare le modifiche non salvate?"))return;setBoardPeriodChanged(true);setBoardLineupDraft(null);setGameKeeperDraft(undefined);setCurrentBoardId(null);setElements(old=>old.filter(el=>!el.playerId||el.type==="opponent"));setMatchPeriodKey(e as BoardPeriodKey);}}
                             className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                           >
                             <option value="t1">1° tempo</option>
                             <option value="t2">2° tempo</option>
                             <option value="t3">3° tempo</option>
+                            {(selectedMatchOption?.matchPlan as {periods?:MatchPlanPeriodLite[]}|null)?.periods?.some(p=>p.key==="t3") && !(selectedMatchOption?.matchPlan as {periods?:MatchPlanPeriodLite[]}|null)?.periods?.some(p=>p.key==="t4") && <option value="t3-second">3B · seconda parte</option>}
                             <option value="t4">4° tempo</option>
                           </ScrollableSelect>
                         </label>

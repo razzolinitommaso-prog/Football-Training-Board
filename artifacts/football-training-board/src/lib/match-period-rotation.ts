@@ -1,4 +1,4 @@
-import { splitMatchLineup } from "./match-lineup";
+import { changeMatchLineupStatus, setLineupKeeper, splitMatchLineup } from "./match-lineup";
 import type { MatchReport } from "@workspace/api-zod";
 export type RotationPeriod = {
   key: string;
@@ -9,6 +9,8 @@ export type RotationPeriod = {
   lineupPlayerIds?: number[];
   lineupStarterCount?: number;
   rotationAuto?: boolean;
+  lineupManual?: boolean;
+  lineupGoalkeeperId?: number | null;
   /** Individual choices from the comparison. Advanced/manual lineups remain whole-period choices. */
   rotationLocks?: Record<string, "T" | "P">;
   lineupPositions?: Record<string, { x: number; y: number }>;
@@ -84,11 +86,11 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
     let starters = groups.starters;
     const locks = force && unitIndex > 0 ? {} : (source.rotationLocks ?? {});
     const partial = source.rotationLocks !== undefined;
-    const automatic =
+    const automatic = (!source.lineupManual || (force && unitIndex > 0)) && (
       empty ||
       (!(force && unitIndex === 0) &&
         (partial ||
-          (unitIndex > 0 && (force || source.rotationAuto === true))));
+          (unitIndex > 0 && (force || source.rotationAuto === true)))));
     if (automatic) {
       const ranked = [...selected].sort(
         (a, b) =>
@@ -100,24 +102,19 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
       const eligible = ranked.filter(
         (id) => locks[id] !== "P" && !fixed.includes(id),
       );
-      const keeper =
-        limit > 3 && !fixed.some((id) => goalkeepers.has(id))
-          ? eligible.find((id) => goalkeepers.has(id))
-          : undefined;
-      starters = [
-        ...fixed,
-        ...(keeper === undefined ? [] : [keeper]),
-        ...eligible
-          .filter((id) => id !== keeper && (limit <= 3 || !goalkeepers.has(id)))
-          .slice(
-            0,
-            Math.max(0, limit - fixed.length - (keeper === undefined ? 0 : 1)),
-          ),
-      ];
+      const designated=source.lineupGoalkeeperId;
+      const keeper=designated!==undefined
+        ? designated!==null&&selected.has(designated)&&locks[designated]!=="P"?designated:undefined
+        : limit>3?fixed.find(id=>goalkeepers.has(id))??eligible.find(id=>goalkeepers.has(id)):undefined;
+      const chosen=[...fixed];
+      if(keeper!==undefined&&!chosen.includes(keeper)&&chosen.length<limit)chosen.push(keeper);
+      starters=[...chosen,...eligible.filter(id=>!chosen.includes(id)).slice(0,Math.max(0,limit-chosen.length))];
+      if(keeper!==undefined&&starters.includes(keeper))starters=[keeper,...starters.filter(id=>id!==keeper)];
+
     }
     const lineup = [
       ...starters,
-      ...[...selected].filter((id) => !starters.includes(id)),
+      ...(source.lineupManual&&!automatic?groups.reserves:[...selected].filter((id) => !starters.includes(id))),
     ];
     const changed =
       JSON.stringify(source.lineupPlayerIds) !== JSON.stringify(lineup) ||
@@ -127,7 +124,7 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
       lineupPlayerIds: lineup,
       lineupStarterCount: starters.length,
       ...(automatic ? { rotationAuto: true } : {}),
-      ...(force && unitIndex > 0 ? { rotationLocks: undefined } : {}),
+      ...(force && unitIndex > 0 ? { rotationLocks: undefined, lineupManual: false } : {}),
       ...(changed
         ? {
             boardConfirmed: false,
@@ -163,7 +160,7 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
   const originalUnits = rotationUnits(periods);
   const editable = units.map((_, i) => {
     const p = originalUnits[i].period;
-    if (force && i === 0) return false;
+    if ((force && i === 0) || (p.lineupManual && !force)) return false;
     return (
       p.rotationLocks !== undefined ||
       (i > 0 &&
@@ -210,13 +207,13 @@ export function rotateMatchPeriods<T extends RotationPeriod>(
       if (!editable[i]) continue;
       const locks = units[i].period.rotationLocks ?? {};
       for (const outgoing of startersByUnit[i]) {
-        if (locks[outgoing] === "T") continue;
+        if (locks[outgoing] === "T" || units[i].period.lineupGoalkeeperId === outgoing) continue;
         for (const incoming of ids) {
           if (startersByUnit[i].includes(incoming) || locks[incoming] === "P")
             continue;
           if (
-            limitFor(units[i].period) > 3 &&
-            goalkeepers.has(outgoing) !== goalkeepers.has(incoming)
+            units[i].period.lineupGoalkeeperId === undefined && limitFor(units[i].period) > 3 &&
+            startersByUnit[i].some(id=>goalkeepers.has(id)) && goalkeepers.has(outgoing) && !goalkeepers.has(incoming) && !startersByUnit[i].some(id=>id!==outgoing&&goalkeepers.has(id))
           )
             continue;
           const index = startersByUnit[i].indexOf(outgoing);
@@ -301,21 +298,9 @@ export function selectRotationCell<T extends RotationPeriod>(
     throw Error(
       "Scelta incompatibile con i posti in campo. Libera una scelta fissata prima di cambiarla.",
     );
-  if (
-    capacity > 3 &&
-    goalkeepers.size &&
-    (fixed.filter((player) => goalkeepers.has(player)).length > 1 ||
-      (fixed.length === capacity &&
-        !fixed.some((player) => goalkeepers.has(player))) ||
-      !eligible.some((player) => goalkeepers.has(player)) ||
-      eligible.filter((player) => !goalkeepers.has(player)).length <
-        capacity - 1)
-  )
-    throw Error(
-      "La scelta deve consentire un portiere e i giocatori di movimento previsti.",
-    );
   const updated = {
     ...unit.period,
+    lineupGoalkeeperId: unit.period.lineupGoalkeeperId!=null && ((reserve&&unit.period.lineupGoalkeeperId===id)||(fixed.length===capacity&&!fixed.includes(unit.period.lineupGoalkeeperId))) ? null : unit.period.lineupGoalkeeperId,
     rotationLocks: locks,
     rotationAuto: true,
   } as T;
@@ -393,6 +378,7 @@ export function toggleFourthPeriod<
   T extends RotationPeriod,
   P extends {
     fourthTime?: boolean;
+    matchGoalkeeperId?: number | null;
     periods: T[];
     fourthPeriodDraft?: T;
     postMatchReport?: MatchReport;
@@ -404,6 +390,8 @@ export function toggleFourthPeriod<
     ({
       module: plan.periods[2]?.module ?? plan.periods[0]?.module,
       format: plan.periods[2]?.format ?? plan.periods[0]?.format,
+      lineupGoalkeeperId: plan.matchGoalkeeperId,
+      ...(plan.periods.every(p=>p.lineupManual)?{lineupManual:true,lineupStarterCount:0,lineupPlayerIds:[]}:{}),
       key: "t4",
       label: "4° tempo",
       minutes: String(
@@ -446,4 +434,41 @@ export function toggleFourthPeriod<
     fourthPeriodDraft: fourth,
     ...(report ? { postMatchReport: report } : {}),
   };
+}
+
+
+export function editManualLineupCell<T extends RotationPeriod>(periods:T[], selected:Set<number>,limitFor:(p:T)=>number,key:string,id:number,reserve:boolean):T[]{
+ const unit=rotationUnits(periods).find(u=>u.period.key===key);
+ if(!unit||!selected.has(id))return periods;
+ const change=changeMatchLineupStatus(unit.period,limitFor(unit.period),id,reserve,selected);
+ const keeper=unit.period.lineupGoalkeeperId,starters=change.lineupPlayerIds.slice(0,change.lineupStarterCount);
+ const updated={...unit.period,...change,lineupManual:true,rotationAuto:false,rotationLocks:undefined,
+  lineupGoalkeeperId:keeper!=null&&!starters.includes(keeper)?null:keeper,
+  lineupPositions:Object.fromEntries(Object.entries(unit.period.lineupPositions??{}).filter(([key])=>starters.includes(Number(key)))),
+  boardConfirmed:false,lineupDetectedModule:null} as T;
+ return periods.map((p,i)=>i!==unit.index?p:unit.second?{...p,secondPart:updated}:updated);
+}
+
+export function clearMatchLineups<T extends RotationPeriod,P extends {periods:T[];fourthPeriodDraft?:T;matchGoalkeeperId?:number|null}>(plan:P):P {
+ const clear=(p:T):T=>({...p,lineupPlayerIds:[],lineupStarterCount:0,lineupManual:true,lineupGoalkeeperId:null,
+  rotationAuto:false,rotationLocks:undefined,lineupPositions:{},lineupDetectedModule:null,boardId:null,boardUrl:null,boardTitle:null,boardSnapshotAt:null,boardConfirmed:false,
+  ...(p.secondPart?{secondPart:clear(p.secondPart as T)}:{})});
+ return {...plan,matchGoalkeeperId:null,periods:plan.periods.map(clear),...(plan.fourthPeriodDraft?{fourthPeriodDraft:clear(plan.fourthPeriodDraft)}:{})};
+}
+
+export function designateMatchKeeper<T extends RotationPeriod,P extends {periods:T[];fourthPeriodDraft?:T;matchGoalkeeperId?:number|null}>(plan:P,key:string,id:number|null,selected:Set<number>,limitFor:(p:T)=>number,natural:(id:number)=>boolean):P{
+ if(id!==null&&!selected.has(id))return plan;
+ const update=(p:T):T=>{
+   const changed=setLineupKeeper(p,id,limitFor(p),selected,natural);
+   const locks=p.rotationLocks?{...p.rotationLocks}:undefined;
+   if(locks&&id!==null){delete locks[id];for(const key of Object.keys(locks))if(locks[key]==="T"&&!changed.lineupPlayerIds?.slice(0,changed.lineupStarterCount).includes(Number(key)))delete locks[key];}
+   return {...changed,rotationLocks:locks};
+ };
+ const all=key==="all";
+ return {...plan,...(all?{matchGoalkeeperId:id}:{}),periods:plan.periods.map(p=>{
+   const next=all||p.key===key?update(p):p;
+   if(p.key!=="t3"||(!all&&key!=="t3-second"))return next;
+   const second={module:p.module,format:p.format,key:"t3-second",label:"3° tempo · seconda parte",minutes:String(periodMinutes(p.minutes)/2),...p.secondPart} as T;
+   return {...next,secondPart:update(second)};
+ }),...(all&&plan.fourthPeriodDraft?{fourthPeriodDraft:update(plan.fourthPeriodDraft)}:{})};
 }

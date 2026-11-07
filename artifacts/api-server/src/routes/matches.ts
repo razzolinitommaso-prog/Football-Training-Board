@@ -298,6 +298,9 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
   if (next && next.postMatchReport === undefined && old?.postMatchReport !== undefined) {
     next.postMatchReport = old.postMatchReport;
   }
+  if (next && next.matchGoalkeeperId === undefined && old?.matchGoalkeeperId !== undefined) {
+    next.matchGoalkeeperId = old.matchGoalkeeperId;
+  }
   if(next&&next.fourthPeriodDraft===undefined&&old?.fourthPeriodDraft!==undefined)next.fourthPeriodDraft=old.fourthPeriodDraft;
   // Older clients do not know about alternatives: omission must not erase them.
   if (next && Array.isArray(next.periods) && Array.isArray(old?.periods)) {
@@ -306,6 +309,15 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
       if (!period || typeof period !== "object" || Array.isArray(period)) continue;
       const previousPeriod = previousPeriods.get(period.key);
       for(const field of ["secondPart","thirdPartMinutes"]){if(!Object.prototype.hasOwnProperty.call(period,field)&&previousPeriod?.[field]!==undefined)period[field]=previousPeriod[field];}
+      const preserveLineupChoices = (current: Record<string, unknown>, previous: Record<string, unknown> | null | undefined) => {
+        if (!previous || JSON.stringify(current.lineupPlayerIds) !== JSON.stringify(previous.lineupPlayerIds)) return;
+        for (const field of ["lineupGoalkeeperId", "lineupManual"]) {
+          if (current[field] === undefined && previous[field] !== undefined) current[field] = previous[field];
+        }
+      };
+      preserveLineupChoices(period, previousPeriod);
+      const second = normalizeMatchPlan(period.secondPart);
+      if (second) preserveLineupChoices(second, normalizeMatchPlan(previousPeriod?.secondPart));
       // Keep an explicit bench boundary when an older client resaves the same lineup.
       if (period.lineupStarterCount === undefined && typeof previousPeriod?.lineupStarterCount === "number"
         && JSON.stringify(period.lineupPlayerIds) === JSON.stringify(previousPeriod.lineupPlayerIds)) {

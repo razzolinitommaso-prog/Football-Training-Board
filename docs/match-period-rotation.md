@@ -34,7 +34,7 @@ La creazione di un nuovo resoconto precompila i cambi tra le due parti del terzo
 
 I resoconti esistenti non vengono rigenerati. Abilitando il quarto si può aggiungere un periodo vuoto al resoconto senza alterare gol o cambi precedenti; disabilitarlo viene bloccato se contiene già dati effettivi. Il mister deve correggerli esplicitamente prima della rimozione.
 
-Il server conserva le nuove informazioni annidate se un client precedente le omette. Nessuna migrazione del database: il piano usa il campo JSON esistente. I normali piani a due tempi del settore giovanile/prima squadra mantengono il percorso precedente. La seconda parte ha l'anteprima modificabile nella scheda; non usa né sovrascrive il riferimento della lavagna del primo segmento.
+Il server conserva le nuove informazioni annidate se un client precedente le omette. Nessuna migrazione del database: il piano usa il campo JSON esistente. I normali piani a due tempi del settore giovanile/prima squadra mantengono il percorso precedente. La seconda parte ha anteprima e lavagna proprie; non usa né sovrascrive il riferimento del primo segmento.
 
 ## Verifiche
 
@@ -43,3 +43,9 @@ node scripts/test-match-period-rotation.cjs esegue il codice effettivo dei calco
 Provati: riapertura con quarto/minuti/posizioni/alternative salvati; ordine personalizzato; terzo in 6+6 e 4+8; quattro tempi completi; totali dei minuti; stabilità di ricalcoli ripetuti; rose dispari; portieri; scelte manuali e panchina esplicitamente vuota; rimozione di un convocato da tutti i segmenti; conservazione delle preparazioni non attive; cambi a metà del terzo coerenti con il resoconto; quarto con dati effettivi non eliminabile; client precedenti; due tempi esistenti.
 
 Typecheck frontend/API e build web/API verificati separatamente. La prova interattiva in pagina e su telefono resta da eseguire: il controllo browser integrato non è disponibile. Nessuna partita reale è stata modificata per il collaudo e nessun test con interfaccia è presentato come eseguito.
+
+## Ripartire a mano e assegnare il portiere
+
+“Azzera schieramenti” svuota titolari, riserve assegnate e scelte fissate in tutti i segmenti, comprese le formazioni temporaneamente inattive. Convocazione, durate, alternative e resoconto restano disponibili. Le lavagne scollegate restano nella libreria. Dopo il reset, il confronto modifica solo il segmento scelto; “Ricalcola alternanza” permette di ripristinare la proposta automatica per i segmenti successivi.
+
+Il portiere è una scelta della formazione: si può assegnare in scheda o dalla lavagna a un singolo segmento (anche 3B) o a tutta la partita, e poi fare eccezioni per singolo segmento. Qualsiasi convocato può stare in porta; il portiere di ruolo può giocare fuori. La scelta non aggiorna la posizione anagrafica. Restano in vigore i permessi e l'ambito società/squadra già applicati al salvataggio del piano.
