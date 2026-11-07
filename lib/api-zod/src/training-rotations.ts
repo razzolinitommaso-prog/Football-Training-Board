@@ -1,8 +1,8 @@
 import {boardPlayerIds} from "./exercise-board-roster";
 export const TRAINING_ROTATION_PHASES=["iniziale","centrale","finale"] as const;
 export type RotationPhase=typeof TRAINING_ROTATION_PHASES[number];
-export type RotationStation={linkId:number;playerIds:number[];seconds:number;manualPlayers?:boolean;boardJson?:string;boardPreview?:string};
-export type RotationTurn={id:string;stations:RotationStation[];recoverySeconds?:number;groupSource?:{phase:RotationPhase;linkId:number}};
+export type RotationStation={linkId:number;playerIds:number[];seconds:number;manualPlayers?:boolean;confirmedGroups?:number[][];boardJson?:string;boardPreview?:string};
+export type RotationTurn={id:string;stations:RotationStation[];recoverySeconds?:number;groupSource?:{phase:RotationPhase;linkId?:number}};
 export type TrainingRotations=Partial<Record<RotationPhase,RotationTurn[]>>;
 export type RotationActivity={id:number;phase:string|null;seconds:number;playerIds:number[]};
 export function rotationSeconds(rotations:TrainingRotations):number {
@@ -36,10 +36,17 @@ export function validateTrainingRotations(value:unknown,activities:{id:number;ph
   for(const turn of turns){
    if(!turn||typeof turn.id!=="string"||!turn.id||turn.id.length>100||turnIds.has(turn.id)||!Array.isArray(turn.stations)||turn.stations.length>100)return "Turno non valido";
    if(turn.recoverySeconds!==undefined&&(!Number.isInteger(turn.recoverySeconds)||turn.recoverySeconds<0||turn.recoverySeconds>18000||(turn===turns[turns.length-1]&&turn.recoverySeconds!==0)))return "Recupero tra turni non valido";
-   if(turn.groupSource&&(!TRAINING_ROTATION_PHASES.includes(turn.groupSource.phase)||TRAINING_ROTATION_PHASES.indexOf(turn.groupSource.phase)>=TRAINING_ROTATION_PHASES.indexOf(phase)||!activities.some(a=>a.id===turn.groupSource!.linkId&&a.phase===turn.groupSource!.phase)))return "Origine dei gruppi non valida";
+   const origin = turn.groupSource;
+   if (origin && (
+     !TRAINING_ROTATION_PHASES.includes(origin.phase) ||
+     TRAINING_ROTATION_PHASES.indexOf(origin.phase) >= TRAINING_ROTATION_PHASES.indexOf(phase) ||
+     (origin.linkId === undefined && turn.stations.length !== 1) ||
+     !activities.some(activity => activity.phase === origin.phase && (origin.linkId === undefined || activity.id === origin.linkId))
+   )) return "Origine dei gruppi non valida";
    turnIds.add(turn.id);const used=new Set<number>(),stationIds=new Set<number>();
    for(const station of turn.stations){
     if(!station||!Number.isInteger(station.linkId)||stationIds.has(station.linkId)||!activities.some(item=>item.id===station.linkId&&item.phase===phase))return "Stazione non appartenente alla fase della seduta";
+    if (station.confirmedGroups !== undefined && (!Array.isArray(station.confirmedGroups) || station.confirmedGroups.length > 100 || station.confirmedGroups.some(group => !Array.isArray(group) || group.length > 500 || group.some(id => !allowed.has(id))))) return "Gruppi confermati non validi";
     if(station.manualPlayers!==undefined&&typeof station.manualPlayers!=="boolean")return "Eccezione giocatori non valida";
     if(station.boardJson!==undefined&&(typeof station.boardJson!=="string"||station.boardJson.length>2000000))return "Lavagna del passaggio non valida";
     if(station.boardJson!==undefined){try{const data=JSON.parse(station.boardJson)?.data;if(!data||!Array.isArray(data.elements)||boardPlayerIds(station.boardJson).some(id=>!station.playerIds.includes(id)))return "Giocatori della lavagna diversi dal passaggio";}catch{return "Lavagna del passaggio non valida";}}

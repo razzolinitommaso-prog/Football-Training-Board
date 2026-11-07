@@ -7,10 +7,10 @@ import { ensureTrainingTrials, listTrainingTrials, trainingTrialsForSession, TRA
 import { readSessionEligibility } from "../lib/training-session-attendance";
 import { excludeTrainingPlayers, validateTrainingRotations, type TrainingRotations } from "@workspace/api-zod";
 import { rosterMembers, playerBirthYear } from "../lib/training-roster-policy";
-import { planningActivities, resolvedStationRotations, recalculateRotationPlan, planningVersion, rotationTimings } from "../lib/training-session-planning";
+import { planningActivities, planningExercises, resolvedStationRotations, recalculateRotationPlan, planningVersion, rotationTimings } from "../lib/training-session-planning";
 import { sessionTeamScope, sessionTeamIds, consolidateSharedDrafts } from "../lib/session-team-scope";
 import { ensureTrainingSuppressions, sameTrainingMinute, trainingDeletionSummary } from "../lib/training-session-integrity";
-import { readSessionPlan, ensureSessionPlans, resultRows, recalculatePlan, timingSignature, type PlanningExercise } from "../lib/training-session-planning";
+import { readSessionPlan, ensureSessionPlans, resultRows, recalculatePlan, timingSignature } from "../lib/training-session-planning";
 import { AUTO_TRAINING_MARKER } from "../lib/automatic-training-drafts";
 import { Router, type IRouter } from "express";
 import { db, trainingSessionsTable, trainingDirectivesTable, teamsTable, teamStaffAssignmentsTable, playersTable, usersTable, clubMembershipsTable, exercisesTable, trainingSessionExercisesTable } from "@workspace/db";
@@ -669,11 +669,6 @@ router.get("/training-sessions/:id/roster",requireAuth,async(req,res):Promise<vo
  res.json(roster.map(player=>({id:player.id,firstName:player.firstName,lastName:player.lastName,dateOfBirth:player.dateOfBirth,teamId:guests.get(player.id)??player.teamId,teamName:guests.has(player.id)?"Ospite in prova":teams.find(team=>team.id===player.teamId)?.name??null,available:player.available,position:player.position,jerseyNumber:player.jerseyNumber,status:player.status,unavailabilityReason:player.unavailabilityReason,availabilityOverrideActive:player.availabilityOverrideActive,availabilityOverrideFrom:player.availabilityOverrideFrom,availabilityOverrideUntil:player.availabilityOverrideUntil})));
 });
 
-async function planningExercises(sessionId:number,clubId:number) {
-  return resultRows<PlanningExercise>(await db.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title, exercise.selected_player_ids_json AS "playerIdsJson", exercise.training_phase AS phase
-    FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${clubId}
-    WHERE link.training_session_id=${sessionId} ORDER BY link."order",link.id`));
-}
 router.get("/training-sessions/:id/participants",requireAuth,async(req,res):Promise<void>=>{
  const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0){res.status(400).json({error:"Seduta non valida"});return;}
  const session=await planningAccess(req,id,false);if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
@@ -721,9 +716,8 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
       await tx.execute(sql`SELECT id FROM training_sessions WHERE id=${id} AND club_id=${session.clubId} FOR UPDATE`);
       const [current]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.id,id),eq(trainingSessionsTable.clubId,session.clubId)));
       if(!current) throw new Error("Seduta non disponibile");
-      const [stored]=resultRows<{plan:Awaited<ReturnType<typeof readSessionPlan>>}>(await tx.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${id} AND club_id=${session.clubId}`));
-      const old:Awaited<ReturnType<typeof readSessionPlan>>=stored?.plan??{recoveries:[0,0],timings:{}};
-      const exercises=resultRows<PlanningExercise>(await tx.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title, exercise.selected_player_ids_json AS "playerIdsJson", exercise.training_phase AS phase FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${session.clubId} WHERE link.training_session_id=${id} ORDER BY link."order",link.id`));
+      const old = await readSessionPlan(id, session.clubId, tx);
+      const exercises = await planningExercises(id, session.clubId, tx);
       const eligibility = await readSessionEligibility(session.clubId,current,tx);
       attendanceIds = eligibility.blockedPlayerIds;
       if(req.body.version!==undefined&&req.body.version!==planningVersion(old,attendanceIds,exercises))throw Error("CONFLICT:La pianificazione è cambiata. Riapri la seduta prima di salvare le stazioni.");

@@ -242,3 +242,43 @@ console.log(
 const oldSingle={iniziale:[{id:'old',stations:[{linkId:1,seconds:900,playerIds:[1,2]},{linkId:2,seconds:900,playerIds:[3,4]}],recoverySeconds:300},{id:'after',stations:[{linkId:3,seconds:1200,playerIds:[1,2,3,4]}],recoverySeconds:0}]};
 const oldCopy=JSON.stringify(oldSingle),completed=org.reconcileStationOrganization(oldSingle,acts);assert.equal(completed.iniziale.length,3);assert.equal(rot.rotationSeconds(completed),3000);assert.equal(completed.iniziale[0].recoverySeconds,0);assert.equal(completed.iniziale[1].recoverySeconds,300);assert.equal(JSON.stringify(oldSingle),oldCopy);
 console.log('PASS: previously saved single passage completed without mutating storage or losing the recovery before the next independent station');
+
+const phasePlayers = org.reconcileStationOrganization(undefined, [
+  { id: 91, phase: "iniziale", seconds: 900, playerIds: [1, 2] },
+  { id: 92, phase: "iniziale", seconds: 900, playerIds: [3, 4] },
+  { id: 93, phase: "centrale", seconds: 600, playerIds: [5] },
+  { id: 94, phase: "finale", seconds: 720, playerIds: [] },
+]);
+phasePlayers.iniziale = org.associateStation(phasePlayers.iniziale, 92, 91, true);
+phasePlayers.iniziale = org.setStationPassPlayers(phasePlayers.iniziale, 92, 1, [1, 6]);
+phasePlayers.centrale = org.setStationPassPlayers(phasePlayers.centrale, 93, 0, [5]);
+const mergedPhase = org.inheritPreviousPhasePlayers(phasePlayers, "centrale", 93);
+assert.deepEqual(plain(mergedPhase.centrale[0].stations[0].playerIds), [1, 2, 3, 4, 6]);
+assert.deepEqual(plain(mergedPhase.centrale[0].groupSource), { phase: "iniziale" });
+assert.equal(mergedPhase.centrale.length, 1);
+assert.equal(mergedPhase.centrale[0].stations[0].seconds, 600);
+const finalPhase = org.inheritPreviousPhasePlayers(mergedPhase, "finale", 94);
+assert.deepEqual(plain(finalPhase.finale[0].stations[0].playerIds), [1, 2, 3, 4, 6]);
+assert.deepEqual(plain(finalPhase.finale[0].groupSource), { phase: "centrale" });
+assert.equal(rot.validateTrainingRotations(JSON.parse(JSON.stringify(finalPhase)),
+  [{ id: 91, phase: "iniziale" }, { id: 92, phase: "iniziale" }, { id: 93, phase: "centrale" }, { id: 94, phase: "finale" }],
+  [1, 2, 3, 4, 5, 6]), null);
+const customPhase = org.prepareStationOrganization({
+  ...finalPhase,
+  centrale: org.assignStationPlayers(finalPhase.centrale, 93, [2, 3]),
+});
+assert.equal(customPhase.centrale[0].groupSource, undefined);
+assert.deepEqual(plain(customPhase.finale[0].stations[0].playerIds), [2, 3]);
+console.log("PASS: one station inherits all distinct players across passages without changing duration, and remains editable.");
+
+const allocation = load(path.join(lib, "station-allocation.ts"));
+const rosterIds = [1, 2, 3, 4];
+const choices = {
+  iniziale: [{ id: "first", stations: [{ linkId: 21, playerIds: [1, 2], seconds: 60 }, { linkId: 22, playerIds: [3, 4], seconds: 60 }] }],
+  centrale: [{ id: "central", stations: [{ linkId: 23, playerIds: [1, 2], seconds: 60, confirmedGroups: [[1, 2]] }] }],
+};
+const suggested = allocation.stationAllocationProposal(choices, "centrale", rosterIds);
+assert.deepEqual(plain(suggested.groups), [{ playerIds: [1, 2], confirmedAt: 23 }, { playerIds: [3, 4] }]);
+const sole = allocation.stationAllocationProposal(choices, "finale", [1, 2, 4]);
+assert.deepEqual(plain(sole.groups), [{ playerIds: [1, 2] }, { playerIds: [4] }]);
+console.log("PASS: unconfirmed players stay available for the next station and unavailable players disappear from proposals.");

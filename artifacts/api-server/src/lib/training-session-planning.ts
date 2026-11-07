@@ -14,12 +14,18 @@ export function ensureSessionPlans() {
   )`).catch(error => { ready = undefined; throw error; });
 }
 export const resultRows = <T>(result: unknown): T[] => (Array.isArray(result) ? result : (result as {rows?:T[]}).rows ?? []) as T[];
-export async function readSessionPlan(sessionId: number, clubId: number): Promise<SessionPlan> {
+export async function readSessionPlan(sessionId: number, clubId: number, reader: Pick<typeof db, "execute"> = db): Promise<SessionPlan> {
   await ensureSessionPlans();
-  const [row] = resultRows<{plan:SessionPlan}>(await db.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${sessionId} AND club_id=${clubId}`));
+  const [row] = resultRows<{plan:SessionPlan}>(await reader.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${sessionId} AND club_id=${clubId}`));
   return row?.plan ?? {recoveries:[0,0],timings:{}};
 }
 export type PlanningExercise = { id: number; duration: number | null; description: string | null; title: string | null; phase?:string|null; playerIdsJson?:string|null };
+export async function planningExercises(sessionId: number, clubId: number, reader: Pick<typeof db, "execute"> = db) {
+  return resultRows<PlanningExercise>(await reader.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title, exercise.selected_player_ids_json AS "playerIdsJson", exercise.training_phase AS phase
+    FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${clubId}
+    WHERE link.training_session_id=${sessionId} ORDER BY link."order",link.id`));
+}
+
 export function planningActivities(exercises:PlanningExercise[]):RotationActivity[]{return exercises.map(ex=>{let ids:number[]=[];try{const raw=JSON.parse(ex.playerIdsJson??"[]");if(Array.isArray(raw))ids=raw.filter(Number.isSafeInteger);}catch{}return {id:ex.id,phase:ex.phase??null,seconds:Math.round((ex.duration??15)*60),playerIds:ids};});}
 export function resolvedStationRotations(plan:SessionPlan,exercises:PlanningExercise[],blocked:number[]=[]){
  const activities=planningActivities(exercises);

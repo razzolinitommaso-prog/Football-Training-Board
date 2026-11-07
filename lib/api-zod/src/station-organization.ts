@@ -429,6 +429,42 @@ export function inheritStationGroups(
     ),
   });
 }
+export function previousPhaseWithPlayers(rotations: TrainingRotations, phase: RotationPhase) {
+  const source = TRAINING_ROTATION_PHASES.slice(0, TRAINING_ROTATION_PHASES.indexOf(phase))
+    .reverse()
+    .find(previous => rotations[previous]?.length);
+  if (source && rotations[source]?.some(turn => turn.stations.some(station => station.playerIds.length))) {
+    return source;
+  }
+  return undefined;
+}
+
+export function inheritPreviousPhasePlayers(
+  rotations: TrainingRotations,
+  phase: RotationPhase,
+  stationId: number,
+): TrainingRotations {
+  const turns = rotations[phase] ?? [];
+  const group = stationGroups(turns).find(candidate => candidate.ids.includes(stationId));
+  if (group?.ids.length !== 1) return rotations;
+  const source = previousPhaseWithPlayers(rotations, phase);
+  if (!source) return rotations;
+
+  return prepareStationOrganization({
+    ...rotations,
+    [phase]: turns.map((turn, index) => {
+      if (!group.indexes.includes(index)) return turn;
+      return {
+        ...turn,
+        groupSource: { phase: source },
+        stations: index === group.indexes[0]
+          ? turn.stations.map(station => ({ ...station, manualPlayers: undefined }))
+          : turn.stations,
+      };
+    }),
+  });
+}
+
 export function resolveInheritedStationGroups(
   rotations: TrainingRotations,
 ): TrainingRotations {
@@ -443,22 +479,21 @@ export function resolveInheritedStationGroups(
           TRAINING_ROTATION_PHASES.indexOf(phase)
       )
         continue;
-      const sourceTurns = next[origin.phase] ?? [],
-        source = stationGroups(sourceTurns).find((g) =>
-          g.ids.includes(origin.linkId),
-        );
-      if (!source || source.ids.length !== group.ids.length) {
+      const sourceTurns = next[origin.phase] ?? [];
+      const wholePhase = origin.linkId === undefined;
+      const sourceId = origin.linkId;
+      const source = sourceId === undefined ? undefined : stationGroups(sourceTurns).find(g => g.ids.includes(sourceId));
+      const assignments = wholePhase && group.ids.length === 1 && sourceTurns.length
+        ? [unique(sourceTurns.flatMap(turn => turn.stations.flatMap(station => station.playerIds)))]
+        : source && source.ids.length === group.ids.length
+          ? source.ids.map(linkId => sourceTurns.flatMap(turn => turn.stations).find(station => station.linkId === linkId)!.playerIds)
+          : [];
+      if (!assignments.length) {
         turns = turns.map((t, i) =>
           group.indexes.includes(i) ? { ...t, groupSource: undefined } : t,
         );
         continue;
       }
-      const first = source.ids.map(
-        (linkId) =>
-          sourceTurns
-            .flatMap((t) => t.stations)
-            .find((s) => s.linkId === linkId)!,
-      );
       turns = turns.map((turn, index) => {
         const pass = group.indexes.indexOf(index);
         if (pass < 0 || turn.stations.some((s) => s.manualPlayers)) return turn;
@@ -467,12 +502,12 @@ export function resolveInheritedStationGroups(
           stations: turn.stations.map((s) => ({
             ...s,
             playerIds: [
-              ...first[
+              ...assignments[
                 (group.ids.indexOf(s.linkId) -
-                  (pass % first.length) +
-                  first.length) %
-                  first.length
-              ].playerIds,
+                  (pass % assignments.length) +
+                  assignments.length) %
+                  assignments.length
+              ],
             ],
           })),
         };
@@ -517,15 +552,18 @@ export function prepareStationOrganization(
     next[phase] = (next[phase] ?? []).map((turn) => ({
       ...turn,
       stations: turn.stations.map((station) => {
-        if (!station.boardJson) return station;
+        const confirmedGroups = station.confirmedGroups?.map(group =>
+          group.filter(id => station.playerIds.includes(id))).filter(group => group.length);
+        const assignment = confirmedGroups ? { ...station, confirmedGroups } : station;
+        if (!station.boardJson) return assignment;
         const ids = boardPlayerIds(station.boardJson);
         if (
           ids.length === station.playerIds.length &&
           ids.every((id) => station.playerIds.includes(id))
         )
-          return station;
+          return assignment;
         return {
-          ...station,
+          ...assignment,
           boardJson: syncExerciseBoardRoster(
             station.boardJson,
             station.playerIds,

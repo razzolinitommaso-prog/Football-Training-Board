@@ -600,6 +600,30 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     }, 3, "coach", "PATCH");
     assert.equal(trialBoard.status, 200, JSON.stringify(trialBoard.data));
     assert.deepEqual(JSON.parse(trialBoard.data.selectedPlayerIdsJson), [guestId]);
+
+    await pg.query("INSERT INTO exercises(id,club_id,title,team_id,created_by_user_id,duration_minutes,training_phase,selected_player_ids_json) VALUES (34012,1,'Trial group two',11,3,15,'iniziale',$1)", [JSON.stringify([coachGuest.data.playerId])]);
+    await pg.exec('INSERT INTO training_session_exercises(id,training_session_id,exercise_id,"order") VALUES(34012,34002,34012,1)');
+    const setupVersion = (await call("/training-sessions/34002/planning", coach)).data.version;
+    const eligible = (await roster(34002)).map(player => player.id).filter(id => !trialParticipants.data.blockedPlayerIds.includes(id));
+    const otherIds = eligible.filter(id => id !== guestId && id !== coachGuest.data.playerId).sort((a, b) => a - b);
+    const firstIds = [guestId, coachGuest.data.playerId, ...otherIds];
+    const guidedStation = (title, version, groups, ids) => write("/exercises", {
+      programSessionId: 34002, trainingPhase: "centrale", teamId: 11, title, durationMinutes: 12,
+      scegliGiocatori: true, playersRequired: ids.length, selectedPlayerIdsJson: JSON.stringify(ids),
+      stationAllocation: { version, groups },
+    });
+    const grouped = await guidedStation("Guided group one", setupVersion, otherIds.length ? [0, 1, 2] : [0, 1], firstIds);
+    assert.equal(grouped.status, 201, JSON.stringify(grouped.data));
+    const linkedBeforeMove = await call("/training-sessions/34002/planning", coach);
+    assert.deepEqual(linkedBeforeMove.data.rotations.centrale[0].stations[0].playerIds, firstIds);
+    assert.equal((await guidedStation("Stale guided station", setupVersion, [1], [coachGuest.data.playerId])).status, 409);
+    assert.equal((await pg.query("SELECT id FROM exercises WHERE title = 'Stale guided station'")).rows.length, 0);
+    const moved = await guidedStation("Guided group two", linkedBeforeMove.data.version, [1], [coachGuest.data.playerId]);
+    assert.equal(moved.status, 201, JSON.stringify(moved.data));
+    const afterMove = (await call("/training-sessions/34002/planning", coach)).data.rotations.centrale;
+    assert.deepEqual(afterMove.map(turn => turn.stations[0].playerIds), [[guestId, ...otherIds], [coachGuest.data.playerId]]);
+    assert.deepEqual(afterMove.map(turn => turn.stations[0].seconds), [720, 720]);
+    console.log("PASS guided station allocation: explicit group confirmation, redistribution in one write, stale proposal leaves no orphan.");
     const reviewPath = trialPath + "/" + guestId;
     assert.equal((await parentRequest(reviewPath, "PATCH", { score: 8, decision: "approved" }, secretary)).status, 403);
     assert.equal((await parentRequest(reviewPath, "PATCH", { score: 11, decision: "approved" }, coach)).status, 400);

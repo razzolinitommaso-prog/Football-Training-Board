@@ -14,6 +14,8 @@ import {
   prepareStationOrganization,
   setStationPassPlayers,
   inheritPreviousStationGroups,
+  inheritPreviousPhasePlayers,
+  previousPhaseWithPlayers,
 } from "@workspace/api-zod";
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -204,10 +206,12 @@ export function StationOrganization({
     }
   }
   const stations: Record<number, ReactNode> = {};
+  const phaseNames = { iniziale: "fase iniziale", centrale: "fase centrale", finale: "fase finale" };
   for (const phase of TRAINING_ROTATION_PHASES) {
     const turns = draft[phase] ?? [],
       phaseActivities = activities.filter((a) => a.phase === phase),
-      groups = stationGroups(turns);
+      groups = stationGroups(turns),
+      previousPhase = previousPhaseWithPlayers(draft, phase);
     phaseActivities.forEach((activity, index) => {
       const group = groups.find((g) => g.ids.includes(activity.id));
       if (!group) return;
@@ -223,6 +227,9 @@ export function StationOrganization({
         .filter((s) => s.linkId !== activity.id)
         .flatMap((s) => s.playerIds);
       const used = new Set(firstAssignments.flatMap((s) => s.playerIds));
+      const origin = turns[group.indexes[0]].groupSource;
+      const wholePhaseOrigin = origin?.linkId === undefined ? origin?.phase : undefined;
+      const canInheritPhase = group.ids.length === 1 && phase !== "iniziale";
       stations[activity.id] = (
         <div className="space-y-2 border-t px-2 py-2 text-xs sm:px-3">
           {previous && (
@@ -342,6 +349,31 @@ export function StationOrganization({
               />
             )}
           </div>
+          {canInheritPhase && (
+            wholePhaseOrigin ? (
+              <p className="text-muted-foreground">
+                Giocatori ripresi dalla {phaseNames[wholePhaseOrigin]}.
+                {!readOnly && " Usa Giocatori per scegliere un gruppo diverso."}
+              </p>
+            ) : !readOnly && (
+              <div className="space-y-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-auto whitespace-normal text-[11px]"
+                  disabled={disabled || !previousPhase}
+                  onClick={() => setConfirmation({
+                    text: "Assegnare a questa stazione tutti i giocatori disponibili della fase precedente?",
+                    apply: () => updateAll(inheritPreviousPhasePlayers(draft, phase, activity.id)),
+                  })}
+                >
+                  Riprendi tutti dalla fase precedente
+                </Button>
+                {!disabled && !previousPhase && <p className="text-muted-foreground">Assegna prima i giocatori nella fase precedente.</p>}
+              </div>
+            )
+          )}
           {group.ids.length === 1 && group.indexes[0] < turns.length - 1 && (
             <label className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-muted-foreground">
               Recupero successivo
@@ -545,12 +577,14 @@ export function StationOrganization({
       changed =
         ids.length !== targetStation.playerIds.length ||
         ids.some((id) => !targetStation.playerIds.includes(id));
-    let next = {
-      ...draft,
-      [boardTarget.phase]: changed
-        ? setStationPassPlayers(turns, boardTarget.id, boardTarget.pass, ids)
-        : turns,
-    };
+    const origin = turns[targetIndex].groupSource;
+    const changesInheritedGroup = boardTarget.pass === 0 && origin && origin.linkId === undefined;
+    const nextTurns = changed
+      ? changesInheritedGroup
+        ? assignStationPlayers(turns, boardTarget.id, ids)
+        : setStationPassPlayers(turns, boardTarget.id, boardTarget.pass, ids)
+      : turns;
+    let next = { ...draft, [boardTarget.phase]: nextTurns };
     next[boardTarget.phase] = next[boardTarget.phase]!.map((t, i) =>
       i === targetIndex
         ? {

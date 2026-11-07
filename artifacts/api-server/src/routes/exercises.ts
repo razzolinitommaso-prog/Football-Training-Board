@@ -12,10 +12,12 @@ import {
   usersTable,
   clubMembershipsTable,
 } from "@workspace/db";
-import { eq, and, desc, asc, inArray, isNull, or, lt } from "drizzle-orm";
-import { mergeBoardMaterials, attendanceExerciseView,boardPlayerIds,sessionTeamIds } from "@workspace/api-zod";
+import { eq, and, desc, asc, inArray, isNull, or, lt, sql } from "drizzle-orm";
+import { mergeBoardMaterials, attendanceExerciseView,boardPlayerIds,sessionTeamIds, assignStationPlayers, firstStationAssignment, reconcileStationOrganization, stationAllocationProposal, stationSources, TRAINING_ROTATION_PHASES, type RotationPhase } from "@workspace/api-zod";
 import {rosterMembers} from "../lib/training-roster-policy";
-import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
+import { ensureTrainingTrials, TRAINING_TRIAL_STATUS } from "../lib/training-trials";
+import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
+import { ensureSessionPlans, planningActivities, planningExercises, planningVersion, readSessionPlan, resolvedStationRotations, rotationTimings } from "../lib/training-session-planning";
 import { readSessionEligibility } from "../lib/training-session-attendance";
 import { resolveAllowedClubSections, normalizeSessionRole, isClubWideListRole } from "../lib/club-scope";
 import { requireAuth } from "../lib/auth";
@@ -320,7 +322,7 @@ router.post("/exercises", requireAuth, async (req, res): Promise<void> => {
     }
     normalizedSourceExerciseId = source.sourceExerciseId ?? source.id;
   }
-  const [exercise] = await db.insert(exercisesTable).values({
+  const exerciseValues = {
     clubId, title, category: category ?? null, description: description ?? null,
     durationMinutes: durationMinutes ?? null, playersRequired: playersRequired ?? null, equipment: typeof statoLavagnaJson === "string" ? mergeBoardMaterials(equipment, statoLavagnaJson) || null : equipment ?? null,
     // Legacy (deprecated) — scritti solo se presenti nel body per retrocompatibilità client precedenti
@@ -342,7 +344,77 @@ router.post("/exercises", requireAuth, async (req, res): Promise<void> => {
     trainingPhase: trainingPhase ?? null,
     createdByUserId: userId,
     sourceExerciseId: normalizedSourceExerciseId,
-  }).returning();
+  };
+  const allocation = req.body.stationAllocation;
+  if (allocation !== undefined) {
+    const sessionId = Number(req.body.programSessionId);
+    const phase = trainingPhase as RotationPhase;
+    if (!allocation || typeof allocation.version !== "string" || !Array.isArray(allocation.groups) ||
+        !allocation.groups.length || allocation.groups.length > 100 || !allocation.groups.every(Number.isSafeInteger) ||
+        new Set(allocation.groups).size !== allocation.groups.length || !TRAINING_ROTATION_PHASES.includes(phase) ||
+        !Number.isSafeInteger(sessionId) || sessionId < 1) {
+      res.status(400).json({ error: "Conferma una proposta valida per questa stazione." });
+      return;
+    }
+    if (!await canChangeSessionLinks(sessionId, clubId, userId, normalizeSessionRole(role))) {
+      res.status(403).json({ error: "Seduta non modificabile" });
+      return;
+    }
+    await ensureSessionPlans();
+    await ensureParentTrainingAvailabilityTable();
+    await ensureTrainingTrials();
+    const exercise = await db.transaction(async tx => {
+      const [session] = await tx.select().from(trainingSessionsTable)
+        .where(and(eq(trainingSessionsTable.id, sessionId), eq(trainingSessionsTable.clubId, clubId))).for("update");
+      if (!session?.teamId || session.sessionKind === "tipo" || ["cancelled", "canceled"].includes(session.status)) return null;
+      const plan = await readSessionPlan(sessionId, clubId, tx);
+      const exercises = await planningExercises(sessionId, clubId, tx);
+      const eligibility = await readSessionEligibility(clubId, session, tx);
+      if (planningVersion(plan, eligibility.blockedPlayerIds, exercises) !== allocation.version) return null;
+      const players = await tx.select({ id: playersTable.id, teamId: playersTable.teamId, notes: playersTable.notes })
+        .from(playersTable).where(eq(playersTable.clubId, clubId));
+      const availableIds = [...rosterMembers(players, sessionTeamIds(session.teamId, session.notes)).map(player => player.id),
+        ...eligibility.guestPlayerIds].filter(id => !eligibility.blockedPlayerIds.includes(id));
+      const rotations = resolvedStationRotations(plan, exercises, eligibility.blockedPlayerIds);
+      const proposal = stationAllocationProposal(rotations, phase, availableIds);
+      const groups = (allocation.groups as number[]).map(index => proposal?.groups[index]);
+      if (!groups.every(group => group && (group.confirmedAt === undefined || group.moveFrom !== undefined))) return null;
+      const confirmed = groups.filter(group => group !== undefined);
+      const selected = confirmed.flatMap(group => group.playerIds);
+      const ids = new Set(selected);
+      if (JSON.stringify(selected) !== selectedPlayerIdsJson || boardPlayerIds(statoLavagnaJson).some(id => !ids.has(id))) return null;
+
+      const [created] = await tx.insert(exercisesTable).values(exerciseValues).returning();
+      const [last] = await tx.select({ order: trainingSessionExercisesTable.order }).from(trainingSessionExercisesTable)
+        .where(eq(trainingSessionExercisesTable.trainingSessionId, sessionId)).orderBy(desc(trainingSessionExercisesTable.order)).limit(1);
+      const [link] = await tx.insert(trainingSessionExercisesTable).values({
+        trainingSessionId: sessionId, exerciseId: created.id, order: (last?.order ?? 0) + 1, notes: allocation.notes ?? null,
+      }).returning();
+      const movedFrom = confirmed.find(group => group.moveFrom !== undefined)?.moveFrom;
+      const existingTurns = rotations[phase] ?? [];
+      const previous = movedFrom === undefined ? undefined : firstStationAssignment(rotations, movedFrom);
+      const turns = previous ? assignStationPlayers(existingTurns, previous.linkId, previous.playerIds.filter(id => !ids.has(id))) : existingTurns;
+      const allExercises = [...exercises, {
+        id: link.id, duration: created.durationMinutes, description: created.description, title: created.title,
+        phase, playerIdsJson: created.selectedPlayerIdsJson,
+      }];
+      const activities = planningActivities(allExercises);
+      const nextRotations = reconcileStationOrganization({ ...rotations, [phase]: turns }, activities);
+      const assignment = firstStationAssignment(nextRotations, link.id)!;
+      assignment.confirmedGroups = confirmed.map(group => group.playerIds);
+      const next = { ...plan, rotations: nextRotations, timings: rotationTimings(allExercises, nextRotations), stationSources: stationSources(activities) };
+      await tx.execute(sql`INSERT INTO training_session_plans(session_id,club_id,plan) VALUES(${sessionId},${clubId},${JSON.stringify(next)}::jsonb)
+        ON CONFLICT(session_id) DO UPDATE SET plan=EXCLUDED.plan,updated_at=now() WHERE training_session_plans.club_id=${clubId}`);
+      return created;
+    });
+    if (!exercise) {
+      res.status(409).json({ error: "La seduta, l’appello o i gruppi sono cambiati. Riapri la proposta prima di salvare." });
+      return;
+    }
+    res.status(201).json(await enrichExercise(exercise, { clubId, userId, role }));
+    return;
+  }
+  const [exercise] = await db.insert(exercisesTable).values(exerciseValues).returning();
   res.status(201).json(await enrichExercise(exercise, { clubId, userId, role }));
 });
 
