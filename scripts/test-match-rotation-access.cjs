@@ -35,7 +35,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "entry.ts"),
-      `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
+      `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
     await esbuild.build({
@@ -171,7 +171,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       };
       next();
     });
-    app.use("/api", routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
+    app.use("/api", routes.restrictTeamManagerApi, routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -181,7 +181,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     const base = "http://127.0.0.1:" + server.address().port + "/api",
       call = async (url, headers = {}) => {
         const response = await fetch(base + url, { headers });
-        return { status: response.status, data: await response.json() };
+        return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
     const activity = await call("/parent/activity?playerId=102");
     assert.equal(activity.status, 200, JSON.stringify(activity.data));
@@ -249,6 +249,49 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     await pg.exec(
       "INSERT INTO call_ups(id,match_id,player_id,status,created_at) VALUES(4,504,101,'called',now())",
     );
+    const reportDay = new Date().toLocaleDateString("sv-SE", {timeZone:"Europe/Rome"});
+    const joinedSlot = {day:"martedi",startTime:"17:30",endTime:"19:00",jointTeamId:911,validFrom:"2025-01-01"};
+    await pg.exec("INSERT INTO clubs(id,name) VALUES(91,'Attendance fixture');");
+    await pg.query("INSERT INTO seasons(id,club_id,name,start_date,end_date,is_active) VALUES(91,91,'Current','2025-01-01','2098-12-31',true),(92,91,'Other','2024-01-01','2024-12-31',false);");
+    await pg.query("INSERT INTO teams(id,club_id,name,club_section,season_id,training_schedule,coach_id) VALUES(911,91,'Primi Calci','scuola_calcio',91,NULL,91),(912,91,'Piccoli Amici','scuola_calcio',91,$1::jsonb,91),(913,91,'Different season','scuola_calcio',92,$1::jsonb,91),(914,91,'Different section','settore_giovanile',91,$1::jsonb,91),(915,91,'Future group','scuola_calcio',91,$2::jsonb,91);", [JSON.stringify([joinedSlot]),JSON.stringify([{...joinedSlot,validFrom:"2099-01-01"}])]);
+    await pg.exec("INSERT INTO club_memberships(id,club_id,user_id,role,club_section) VALUES(91,91,91,'team_manager','{scuola_calcio}'); INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(91,91,91,911,'team_manager'); INSERT INTO players(id,club_id,team_id,first_name,last_name) VALUES(911,91,911,'Main','Player'),(912,91,912,'Joined','Player'),(913,91,913,'Other season','Player'),(914,91,914,'Other sector','Player'),(915,91,915,'Future','Player');");
+    await pg.query("INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,status,notes) VALUES(911,91,911,'Joint training',$1,'scheduled','[FTB_SESSION_TEAMS]911,912'),(914,91,914,'Foreign sector training',$1,'scheduled','[FTB_SESSION_TEAMS]911,914');", [reportDay]);
+    await pg.exec("INSERT INTO training_attendances(id,club_id,training_session_id,player_id,status) VALUES(911,91,911,912,'present');");
+    const registerPlan = {periods:[{key:"t1",minutes:"12",lineupPlayerIds:[912],lineupStarterCount:1}], postMatchReport:{version:1,goals:[],substitutions:[],periods:[{minutes:12,starters:[912]}]}};
+    await pg.query("INSERT INTO matches(id,club_id,team_id,season_id,opponent,date,home_away,match_plan,notes,is_postponed,reschedule_tbd) VALUES(911,91,911,91,'Legacy report',$1,'home',NULL,$2,false,false),(912,91,912,91,'Joined team match',$1,'home',$3::jsonb,NULL,false,false),(913,91,911,92,'Wrong season',$1,'home',NULL,NULL,false,false),(914,91,914,91,'Wrong sector',$1,'home',NULL,NULL,false,false),(915,91,911,91,'Availability only',$1,'home',NULL,NULL,false,false),(916,91,911,91,'Postponed',$1,'home',NULL,NULL,true,true),(917,91,911,91,'Planned only',$1,'home',$4::jsonb,NULL,false,false),(918,91,912,91,'Unrelated match',$1,'home',NULL,NULL,false,false);", [reportDay,"Public [FTB_MATCH_PLAN]"+JSON.stringify(registerPlan),JSON.stringify(registerPlan),JSON.stringify({periods:registerPlan.periods})]);
+    await pg.exec("INSERT INTO call_ups(id,match_id,player_id,status,created_at) VALUES(911,911,912,'called',now()),(912,911,912,'called',now()),(913,912,912,'called',now()),(914,913,912,'called',now()),(915,914,912,'called',now()),(916,915,912,'available',now()),(917,916,912,'called',now()),(918,917,912,'called',now()),(919,918,201,'called',now());");
+    const registerUrl = "/attendance-register?teamId=911";
+    const managerHeaders = {"x-role":"team_manager","x-club":"91","x-user":"91"};
+    const jointOverview = await call("/dirigenti/overview?teamId=911", managerHeaders);
+    assert.deepEqual(jointOverview.data.players.map(player=>player.id).sort(),[911,912]);
+    assert.equal(jointOverview.data.players.find(player=>player.id===912).teamName,"Piccoli Amici");
+    assert.ok(!jointOverview.data.matches.some(match=>match.id===912));
+    const managerRegister = await call(registerUrl, managerHeaders);
+    assert.equal(managerRegister.status,200,JSON.stringify(managerRegister.data));
+    assert.equal(managerRegister.data.canEdit,false);
+    assert.deepEqual(managerRegister.data.sessions.map(session=>session.id),[911]);
+    assert.deepEqual(managerRegister.data.matches.map(match=>match.id).sort(),[911,915,917]);
+    const joinedPlayer = managerRegister.data.players.find(player=>player.id===912);
+    assert.equal(joinedPlayer.attendance[911],"present");
+    assert.deepEqual(joinedPlayer.games[911],{called:true,plannedMinutes:12,minutes:12});
+    assert.deepEqual(joinedPlayer.games[917],{called:true,plannedMinutes:12,minutes:null});
+    assert.equal(joinedPlayer.games[915],undefined);
+    assert.equal((await call("/attendance-register?teamId=912",managerHeaders)).status,403);
+    assert.equal((await call(registerUrl,{...managerHeaders,"x-club":"1"})).status,403);
+    assert.equal((await call(registerUrl,{...managerHeaders,"x-user":"92"})).status,403);
+    assert.equal((await fetch(base+"/attendance",{method:"POST",headers:managerHeaders})).status,403);
+    const coachRegister = await call(registerUrl,{...managerHeaders,"x-role":"coach"});
+    assert.ok(coachRegister.data.matches.some(match=>match.id===912));
+    assert.ok(!coachRegister.data.matches.some(match=>match.id===918));
+    const parentRegister = await call("/attendance-register?teamId=912",{...managerHeaders,"x-role":"parent","x-child":"912"});
+    assert.deepEqual(parentRegister.data.players.map(player=>player.id),[912]);
+    assert.equal(parentRegister.data.players[0].games[911].minutes,12);
+    await pg.query("UPDATE teams SET training_schedule=$1::jsonb WHERE id=912", [JSON.stringify([{...joinedSlot,validUntil:"2025-01-02"}])]);
+    const separated = await call("/dirigenti/overview?teamId=911",managerHeaders);
+    assert.deepEqual(separated.data.players.map(player=>player.id),[911]);
+    const history = await call(registerUrl,managerHeaders);
+    assert.equal(history.data.players.find(player=>player.id===912).attendance[911],"present");
+    console.log("PASS attendance register: joined current and historical roster, manager read only, protected away fixtures, saved callups, legacy report, and planned versus actual.");
     const future = await call("/parent/activity");
     const upcoming = future.data.matches.find((match) => match.id === 504);
     assert.equal(upcoming.rotation.rows.length, 1);

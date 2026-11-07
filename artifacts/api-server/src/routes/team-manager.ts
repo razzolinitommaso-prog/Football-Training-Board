@@ -1,9 +1,11 @@
-import {buildMatchRotationSummary,defaultRotationCapacity,matchPreparationStatus} from "@workspace/api-zod";
+import {buildMatchRotationSummary,defaultRotationCapacity,matchPreparationStatus,trainingLocalDate} from "@workspace/api-zod";
+import { activeTrainingGroup } from "../lib/joint-training-program";
 import { sessionTeamScope } from "../lib/session-team-scope";
 import { Router } from "express";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { db, clubMembershipsTable, teamStaffAssignmentsTable, teamsTable, playersTable, matchesTable, callUpsTable, trainingSessionsTable, clubsTable, trainingCalendarOverridesTable } from "@workspace/db";
 import { managerMatchComparison } from "../lib/team-manager-comparison";
+import { splitPublicNotesAndPlan } from "../lib/match-plan-notes";
 import { requireAuth } from "../lib/auth";
 
 const router = Router();
@@ -32,18 +34,25 @@ router.get("/dirigenti/overview", requireAuth, async (req, res): Promise<void> =
   const selectedTeamId = rawTeamId === undefined ? teams[0]?.id ?? null : Number(rawTeamId);
   if (rawTeamId !== undefined && (!Number.isInteger(selectedTeamId) || !teams.some(team=>team.id===selectedTeamId))) { res.status(403).json({ error: "Squadra non assegnata" }); return; }
   if (!selectedTeamId) { res.json({ teams, selectedTeamId:null, players:[], training:[], matches:[], trainingCalendar:null }); return; }
-  const [players, training, matchRows, schedules, changes] = await Promise.all([
-    db.select({ id:playersTable.id, firstName:playersTable.firstName, lastName:playersTable.lastName, jerseyNumber:playersTable.jerseyNumber, position:playersTable.position, registered:playersTable.registered, registrationNumber:playersTable.registrationNumber, medicalCertificateExpiry:playersTable.medicalCertificateExpiry }).from(playersTable).where(and(eq(playersTable.clubId,clubId),eq(playersTable.teamId,selectedTeamId))).orderBy(asc(playersTable.lastName)),
+  const programTeams = await db.select({ id: teamsTable.id, name: teamsTable.name, clubSection: teamsTable.clubSection,
+    seasonId: teamsTable.seasonId, trainingSchedule: teamsTable.trainingSchedule,
+    seasonTrainingStartDate: teamsTable.seasonTrainingStartDate, officialTrainingEndDate: teamsTable.officialTrainingEndDate,
+  }).from(teamsTable).where(eq(teamsTable.clubId, clubId));
+  const selectedProgram = programTeams.find(team => team.id === selectedTeamId);
+  const rosterTeamIds = selectedProgram ? activeTrainingGroup(programTeams, selectedProgram, trainingLocalDate()) : [selectedTeamId];
+  const rosterTeams = programTeams.filter(team => rosterTeamIds.includes(team.id)).map(({ id, name }) => ({ id, name }));
+  const [playerRows, training, matchRows, changes] = await Promise.all([
+    db.select({ id:playersTable.id, firstName:playersTable.firstName, lastName:playersTable.lastName, teamId:playersTable.teamId, jerseyNumber:playersTable.jerseyNumber, position:playersTable.position, registered:playersTable.registered, registrationNumber:playersTable.registrationNumber, medicalCertificateExpiry:playersTable.medicalCertificateExpiry }).from(playersTable).where(and(eq(playersTable.clubId,clubId),inArray(playersTable.teamId,rosterTeamIds))).orderBy(asc(playersTable.lastName)),
     db.select({ id:trainingSessionsTable.id, title:trainingSessionsTable.title, scheduledAt:trainingSessionsTable.scheduledAt, location:trainingSessionsTable.location, durationMinutes:trainingSessionsTable.durationMinutes, shared:sql<boolean>`${trainingSessionsTable.notes} LIKE '%[FTB_SESSION_TEAMS]%'`, status:trainingSessionsTable.status }).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),sessionTeamScope(selectedTeamId),sql`${trainingSessionsTable.notes} IS DISTINCT FROM '[FTB_AUTO_TRAINING] GROUPED'`)).orderBy(asc(trainingSessionsTable.scheduledAt)),
-    db.select({ id:matchesTable.id, opponent:matchesTable.opponent, date:matchesTable.date, competition:matchesTable.competition, location:matchesTable.location, homeAway:matchesTable.homeAway, result:matchesTable.result, isPostponed:matchesTable.isPostponed, rescheduleDate:matchesTable.rescheduleDate, rescheduleTbd:matchesTable.rescheduleTbd, matchPlan:matchesTable.matchPlan }).from(matchesTable).where(and(eq(matchesTable.clubId,clubId),eq(matchesTable.teamId,selectedTeamId))).orderBy(asc(matchesTable.date)),
-    db.select({ start:teamsTable.seasonTrainingStartDate, end:teamsTable.officialTrainingEndDate, slots:teamsTable.trainingSchedule }).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),eq(teamsTable.id,selectedTeamId))),
+    db.select({ id:matchesTable.id, opponent:matchesTable.opponent, date:matchesTable.date, competition:matchesTable.competition, location:matchesTable.location, homeAway:matchesTable.homeAway, result:matchesTable.result, isPostponed:matchesTable.isPostponed, rescheduleDate:matchesTable.rescheduleDate, rescheduleTbd:matchesTable.rescheduleTbd, matchPlan:matchesTable.matchPlan, notes:matchesTable.notes }).from(matchesTable).where(and(eq(matchesTable.clubId,clubId),eq(matchesTable.teamId,selectedTeamId))).orderBy(asc(matchesTable.date)),
     db.select({id:trainingCalendarOverridesTable.id, teamId:trainingCalendarOverridesTable.teamId, originalDate:trainingCalendarOverridesTable.originalDate, originalStartTime:trainingCalendarOverridesTable.originalStartTime, originalEndTime:trainingCalendarOverridesTable.originalEndTime, status:trainingCalendarOverridesTable.status, newDate:trainingCalendarOverridesTable.newDate, newStartTime:trainingCalendarOverridesTable.newStartTime, newEndTime:trainingCalendarOverridesTable.newEndTime, targetDate:trainingCalendarOverridesTable.targetDate, targetStartTime:trainingCalendarOverridesTable.targetStartTime, targetEndTime:trainingCalendarOverridesTable.targetEndTime, location:trainingCalendarOverridesTable.location})
       .from(trainingCalendarOverridesTable).innerJoin(teamsTable,and(eq(teamsTable.id,trainingCalendarOverridesTable.teamId),eq(teamsTable.clubId,clubId)))
       .where(and(eq(trainingCalendarOverridesTable.clubId,clubId),or(eq(trainingCalendarOverridesTable.teamId,selectedTeamId),and(eq(trainingCalendarOverridesTable.status,"joined"),eq(trainingCalendarOverridesTable.targetTeamId,selectedTeamId))))),
   ]);
+  const players = playerRows.map(({ teamId, ...player }) => ({ ...player, teamName: rosterTeams.find(team => team.id === teamId)?.name }));
   const trainingCalendar = {
-    start:schedules[0]?.start ?? null, end:schedules[0]?.end ?? null,
-    slots:(schedules[0]?.slots ?? []).map(slot=>({day:slot.day,startTime:slot.startTime,endTime:slot.endTime,campo:slot.campo ?? null})),
+    start:selectedProgram?.seasonTrainingStartDate ?? null, end:selectedProgram?.officialTrainingEndDate ?? null,
+    slots:(selectedProgram?.trainingSchedule ?? []).map(slot=>({day:slot.day,startTime:slot.startTime,endTime:slot.endTime,campo:slot.campo ?? null})),
     changes:changes.map(change=>({id:change.id,status:change.status,location:change.location,
       originalDate:change.teamId === selectedTeamId ? change.originalDate : null,
       originalStartTime:change.teamId === selectedTeamId ? change.originalStartTime : null,
@@ -63,7 +72,11 @@ router.get("/dirigenti/overview", requireAuth, async (req, res): Promise<void> =
     const date = match.isPostponed ? match.rescheduleTbd ? null : match.rescheduleDate : match.date;
     comparison = await managerMatchComparison(clubId,selectedTeamId,date,coachCallups.filter(callup=>callup.matchId===match.id).map(callup=>callup.id));
   }
-  const matches = matchRows.map(({matchPlan,...match})=>({...match, preparationStatus:matchPreparationStatus(matchPlan,defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), rotation:buildMatchRotationSummary(matchPlan,coachCallups.filter(callup=>callup.matchId===match.id).map(callup=>({...callup,jerseyNumber:players.find(p=>p.id===callup.id)?.jerseyNumber})),defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), convocationAt:typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null, convocationPlace:typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null, callups:coachCallups.filter(callup=>callup.matchId===match.id).map(({status,...callup})=>callup)}));
-  res.json({ teams, selectedTeamId, players, training, matches, trainingCalendar, ...(comparison ? {comparison} : {}) });
+  const matches = matchRows.map(({ matchPlan: savedPlan, notes, ...match }) => {
+    const legacy = splitPublicNotesAndPlan(notes).plan;
+    const matchPlan = savedPlan ?? (legacy && typeof legacy === "object" && !Array.isArray(legacy) ? legacy as Record<string, unknown> : null);
+    return {...match, preparationStatus:matchPreparationStatus(matchPlan,defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), rotation:buildMatchRotationSummary(matchPlan,coachCallups.filter(callup=>callup.matchId===match.id).map(callup=>({...callup,jerseyNumber:players.find(p=>p.id===callup.id)?.jerseyNumber})),defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), convocationAt:typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null, convocationPlace:typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null, callups:coachCallups.filter(callup=>callup.matchId===match.id).map(({status,...callup})=>callup)};
+  });
+  res.json({ teams, selectedTeamId, players, rosterTeams, training, matches, trainingCalendar, ...(comparison ? {comparison} : {}) });
 });
 export default router;

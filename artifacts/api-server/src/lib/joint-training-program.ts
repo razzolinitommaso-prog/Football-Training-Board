@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db, teamsTable, type Team } from "@workspace/db";
-import { sessionTeamIds, withSessionTeams, trainingLocalDate, trainingSlotOnDate, trainingSlotPeriodsOverlap, type ProgramTrainingSlot } from "@workspace/api-zod";
+import { sessionTeamIds, withSessionTeams, trainingLocalDate, trainingSlotOnDate, trainingProgramLeader, trainingSlotPeriodsOverlap, type ProgramTrainingSlot } from "@workspace/api-zod";
 import { resultRows } from "./training-availability";
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export class TrainingProgramError extends Error {
@@ -14,6 +14,19 @@ export function slotsBefore(slots: ProgramTrainingSlot[], date: string): Program
 }
 export function programParticipants(teams: Pick<Team, "id" | "trainingSchedule">[], leader: number, date: string, _start: string): number[] {
   return [leader, ...teams.filter(team => team.id !== leader && team.trainingSchedule?.some(slot => slot.jointTeamId === leader && trainingSlotOnDate(slot, date))).map(team => team.id)];
+}
+export function activeTrainingGroup(
+  teams: Pick<Team, "id" | "clubSection" | "seasonId" | "trainingSchedule" | "seasonTrainingStartDate" | "officialTrainingEndDate">[],
+  team: typeof teams[number],
+  date: string,
+): number[] {
+  const peers = teams.filter(candidate => candidate.clubSection === team.clubSection && candidate.seasonId === team.seasonId &&
+    (!candidate.seasonTrainingStartDate || candidate.seasonTrainingStartDate <= date) &&
+    (!candidate.officialTrainingEndDate || candidate.officialTrainingEndDate >= date));
+  if (!peers.some(candidate => candidate.id === team.id)) return [team.id];
+  const leader = trainingProgramLeader(team.trainingSchedule, date) ?? team.id;
+  if (!peers.some(candidate => candidate.id === leader)) return [team.id];
+  return programParticipants(peers, leader, date, "");
 }
 export function automaticProgramNotes(notes: string | null): boolean {
   return (notes ?? "").split("\n").filter(line => !line.startsWith("[FTB_SESSION_TEAMS]") && !line.startsWith(PROGRAM_MARKER)).join("\n").trim() === "[FTB_AUTO_TRAINING]";

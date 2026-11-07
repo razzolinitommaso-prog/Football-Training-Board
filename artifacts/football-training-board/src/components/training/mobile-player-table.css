@@ -35,6 +35,11 @@
     font-weight: 600;
     margin-bottom: 0.2rem;
   }
+  .attendance-summary-table tbody tr {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.15rem 0.25rem;
+  }
+
   .mobile-rotation-table tbody tr {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }

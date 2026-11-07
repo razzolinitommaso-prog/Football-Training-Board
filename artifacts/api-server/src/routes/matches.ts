@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 import { eq, and, asc, desc, inArray, sql, notInArray } from "drizzle-orm";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
+import { composeNotesWithPlan, splitPublicNotesAndPlan } from "../lib/match-plan-notes";
 import { requireAuth } from "../lib/auth";
 import { sendParentNotificationEmail } from "../lib/parent-email";
 import { analyseMatchReport, matchReportSchema } from "@workspace/api-zod";
@@ -81,7 +82,6 @@ const POST_NOTES_ROLES = [
 ];
 const MATCH_PLAN_EDIT_ROLES = ["coach", "fitness_coach", "athletic_director"];
 const MATCH_PLAN_VIEW_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
-const MATCH_PLAN_MARKER = "[FTB_MATCH_PLAN]";
 const MATCH_SECTION_VALUES = new Set(["scuola_calcio", "settore_giovanile", "prima_squadra"]);
 const DISCIPLINE_CARD_TYPES = new Set(["giallo", "doppio_giallo", "rosso"]);
 const APP_TIME_ZONE = "Europe/Rome";
@@ -262,29 +262,6 @@ function normalizeMatchSection(value: unknown): string | undefined {
 function parseRouteIdParam(value: string | string[] | undefined): number {
   if (Array.isArray(value)) return Number.parseInt(value[0] ?? "", 10);
   return Number.parseInt(value ?? "", 10);
-}
-
-function splitPublicNotesAndPlan(raw?: string | null): { publicNotes: string | null; plan: unknown | null } {
-  const text = (raw ?? "").trim();
-  if (!text) return { publicNotes: null, plan: null };
-  const idx = text.lastIndexOf(MATCH_PLAN_MARKER);
-  if (idx < 0) return { publicNotes: text, plan: null };
-  const before = text.slice(0, idx).trim();
-  const jsonPart = text.slice(idx + MATCH_PLAN_MARKER.length).trim();
-  let parsed: unknown = null;
-  try {
-    parsed = jsonPart ? JSON.parse(jsonPart) : null;
-  } catch {
-    parsed = null;
-  }
-  return { publicNotes: before || null, plan: parsed };
-}
-
-function composeNotesWithPlan(publicNotes: string | null, plan: unknown | null): string | null {
-  const cleanNotes = (publicNotes ?? "").trim();
-  if (plan == null) return cleanNotes || null;
-  const encoded = `${MATCH_PLAN_MARKER}${JSON.stringify(plan)}`;
-  return cleanNotes ? `${cleanNotes}\n\n${encoded}` : encoded;
 }
 
 function normalizeMatchPlan(value: unknown): Record<string, unknown> | null {

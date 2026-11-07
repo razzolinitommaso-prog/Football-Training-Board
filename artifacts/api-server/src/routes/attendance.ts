@@ -1,19 +1,22 @@
+import { activeTrainingGroup } from "../lib/joint-training-program";
+import { splitPublicNotesAndPlan } from "../lib/match-plan-notes";
 import { listTrainingTrials, trainingTrialsForSession, trialIncludesDate, TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { resolveAllowedClubSections } from "../lib/club-scope";
 import { rosterMembers } from "../lib/training-roster-policy";
 import { assignedTrainingProgram } from "../lib/training-program-access";
 import { sessionTeamScope } from "../lib/session-team-scope";
-import { parentPlayedMinutes, sessionTeamIds, trainingLocalDate } from "@workspace/api-zod";
+import { buildMatchRotationSummary, defaultRotationCapacity, parentPlayedMinutes, sessionTeamIds, trainingLocalDate } from "@workspace/api-zod";
 import { saveAttendanceAndNotify } from "../lib/attendance-notifications";
 import { trainingAvailability } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
 import { db, seasonsTable, clubMembershipsTable, matchesTable, callUpsTable, trainingAttendancesTable, playersTable, teamStaffAssignmentsTable, teamsTable, trainingSessionsTable } from "@workspace/db";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray, isNull, or, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
 const ATTENDANCE_MANAGE_ALL_ROLES = ["admin", "presidente", "director", "sporting_director", "technical_director"];
 const ATTENDANCE_TEAM_ROLES = ["coach", "fitness_coach", "athletic_director"];
+type RegisterGame = { called: boolean | null; minutes: number | null; plannedMinutes: number | null };
 type PlayerAvailabilityOverrideFields = {
   availabilityOverrideActive?: boolean | null;
   availabilityOverrideFrom?: string | null;
@@ -191,43 +194,40 @@ router.get("/attendance-register", requireAuth, async (req, res) => {
     return;
   }
 
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const today = trainingLocalDate();
   const [season] = team.seasonId ? await db.select().from(seasonsTable).where(and(eq(seasonsTable.clubId, clubId), eq(seasonsTable.id, team.seasonId))) :
     await db.select().from(seasonsTable).where(and(eq(seasonsTable.clubId, clubId), eq(seasonsTable.isActive, true))).limit(1);
   const year = Number(today.slice(0, 4)) - (Number(today.slice(5, 7)) < 7 ? 1 : 0);
   const start = season?.startDate ?? team.seasonTrainingStartDate ?? `${year}-07-01`;
   const end = season?.endDate ?? `${year + 1}-06-30`;
   const through = today < end ? today : end;
-  const [sessionRows, matchRows] = await Promise.all([
-    db.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId, clubId),
-      sessionTeamScope(team.id), sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date BETWEEN ${start}::date AND ${end}::date`,
+  const sectionTeams = clubTeams.filter(candidate => candidate.clubSection === team.clubSection && candidate.seasonId === team.seasonId);
+  const sectionTeamIds = sectionTeams.map(candidate => candidate.id);
+  const activeRosterTeams = activeTrainingGroup(sectionTeams, team, through);
+  const [sessionRows, roster] = await Promise.all([
+    db.select({ id: trainingSessionsTable.id, teamId: trainingSessionsTable.teamId, scheduledAt: trainingSessionsTable.scheduledAt,
+      title: trainingSessionsTable.title, notes: trainingSessionsTable.notes }).from(trainingSessionsTable).where(and(
+      eq(trainingSessionsTable.clubId, clubId), or(isNull(trainingSessionsTable.teamId), inArray(trainingSessionsTable.teamId, sectionTeamIds)),
+      sessionTeamScope(team.id),
+      sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date BETWEEN ${start}::date AND ${end}::date`,
       sql`${trainingSessionsTable.status} NOT IN ('cancelled','canceled')`,
       sql`${trainingSessionsTable.notes} IS DISTINCT FROM '[FTB_AUTO_TRAINING] GROUPED'`)),
-    db.select().from(matchesTable).where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, team.id),
-      sql`(COALESCE(${matchesTable.rescheduleDate}, ${matchesTable.date}) AT TIME ZONE 'Europe/Rome')::date BETWEEN ${start}::date AND ${end}::date`)),
+    parent ? Promise.resolve(own) : db.select(rosterFields).from(playersTable).where(eq(playersTable.clubId, clubId)),
   ]);
   const sessions = sessionRows.map(session => ({
     id: session.id, date: session.scheduledAt.toISOString(), title: session.title,
-    teamIds: sessionTeamIds(session.teamId, session.notes).filter(id =>
-      clubTeams.some(candidate => candidate.id === id && candidate.clubSection === team.clubSection)),
+    teamIds: sessionTeamIds(session.teamId, session.notes).filter(id => sectionTeamIds.includes(id)),
   }));
-  const rosterTeams = [...new Set([team.id, ...sessions.flatMap(session => session.teamIds)])];
-  const [roster, records, callups] = await Promise.all([
-    parent ? Promise.resolve(own) : db.select(rosterFields).from(playersTable).where(eq(playersTable.clubId, clubId)),
-    sessions.length ? db.select().from(trainingAttendancesTable).where(and(eq(trainingAttendancesTable.clubId, clubId),
-      inArray(trainingAttendancesTable.trainingSessionId, sessions.map(session => session.id)),
-      parent ? eq(trainingAttendancesTable.playerId, own[0].id) : undefined)) : Promise.resolve([]),
-    matchRows.length ? db.select().from(callUpsTable).where(and(inArray(callUpsTable.matchId, matchRows.map(match => match.id)),
-      parent ? eq(callUpsTable.playerId, own[0].id) : undefined)) : Promise.resolve([] as Array<typeof callUpsTable.$inferSelect>),
-  ]);
-  const called = (status: string) => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(status.toLowerCase());
-  const publishedIds = matchRows.length ? await db.selectDistinct({ id: callUpsTable.matchId }).from(callUpsTable)
-    .where(and(inArray(callUpsTable.matchId, matchRows.map(match => match.id)),
-      sql`lower(${callUpsTable.status}) NOT IN ('available','unavailable','availability','absent','declined','not_called')`)) : [];
-  const recordMap = new Map(records.map(record => [`${record.trainingSessionId}:${record.playerId}`, record.status]));
-  const calledKeys = new Set(callups.filter(row => called(row.status)).map(row => `${row.matchId}:${row.playerId}`));
+  const rosterTeams = [...new Set([...activeRosterTeams, ...sessions.flatMap(session => session.teamIds)])];
   const rosterIds = new Set(rosterMembers(roster, rosterTeams).map(player => player.id));
-  const trials = parent ? [] : await listTrainingTrials(clubId, rosterTeams);
+  const [records, trials] = await Promise.all([
+    sessions.length ? db.select({ sessionId: trainingAttendancesTable.trainingSessionId, playerId: trainingAttendancesTable.playerId,
+      status: trainingAttendancesTable.status }).from(trainingAttendancesTable).where(and(eq(trainingAttendancesTable.clubId, clubId),
+      inArray(trainingAttendancesTable.trainingSessionId, sessions.map(session => session.id)),
+      parent ? eq(trainingAttendancesTable.playerId, own[0].id) : undefined)) : [],
+    parent ? [] : listTrainingTrials(clubId, rosterTeams),
+  ]);
+  const recordMap = new Map(records.map(record => [`${record.sessionId}:${record.playerId}`, record.status]));
   const membersBySession = new Map(sessions.map(session => {
     const members = new Set(rosterMembers(roster, session.teamIds).map(player => player.id));
     const date = trainingLocalDate(new Date(session.date));
@@ -239,15 +239,56 @@ router.get("/attendance-register", requireAuth, async (req, res) => {
     }
     return [session.id, members];
   }));
-  const eligible = roster.filter(player => rosterIds.has(player.id) ||
-    records.some(record => record.playerId === player.id) ||
-    callups.some(row => row.playerId === player.id && called(row.status)));
-  const matches = matchRows.filter(match => !match.isPostponed || !match.rescheduleTbd && match.rescheduleDate);
+  const recordedIds = new Set(records.map(record => record.playerId));
+  const scopedPlayers = roster.filter(player => rosterIds.has(player.id) || recordedIds.has(player.id));
+  const scopedIds = new Set(scopedPlayers.map(player => player.id));
+  const otherTeams = role === "team_manager" ? [] : (parent ? sectionTeams : teams)
+    .filter(candidate => candidate.id !== team.id && sectionTeamIds.includes(candidate.id)).map(candidate => candidate.id);
+  const confirmedCallup = sql`lower(${callUpsTable.status}) NOT IN ('available','unavailable','availability','absent','declined','not_called')`;
+  // Joint training grants attendance access. Only an authorized match and a saved callup grant extra match visibility.
+  const matchRows = await db.select({ id: matchesTable.id, teamId: matchesTable.teamId, opponent: matchesTable.opponent,
+    date: matchesTable.date, rescheduleDate: matchesTable.rescheduleDate, matchPlan: matchesTable.matchPlan, notes: matchesTable.notes,
+  }).from(matchesTable).where(and(eq(matchesTable.clubId, clubId),
+    or(eq(matchesTable.teamId, team.id), otherTeams.length && scopedIds.size ? and(inArray(matchesTable.teamId, otherTeams),
+      sql`EXISTS (SELECT 1 FROM ${callUpsTable} WHERE ${callUpsTable.matchId} = ${matchesTable.id}
+        AND ${inArray(callUpsTable.playerId, [...scopedIds])} AND ${confirmedCallup})`) : undefined),
+    sql`(${matchesTable.seasonId} IS NULL OR ${matchesTable.seasonId} = ${season?.id ?? team.seasonId})`,
+    sql`(${matchesTable.isPostponed} IS NOT TRUE OR (${matchesTable.rescheduleTbd} IS NOT TRUE AND ${matchesTable.rescheduleDate} IS NOT NULL))`,
+    sql`(COALESCE(${matchesTable.rescheduleDate}, ${matchesTable.date}) AT TIME ZONE 'Europe/Rome')::date BETWEEN ${start}::date AND ${end}::date`));
+  const savedCallups = matchRows.length ? await db.select({ matchId: callUpsTable.matchId, id: playersTable.id,
+    firstName: playersTable.firstName, lastName: playersTable.lastName }).from(callUpsTable)
+    .innerJoin(playersTable, and(eq(playersTable.id, callUpsTable.playerId), eq(playersTable.clubId, clubId)))
+    .where(and(inArray(callUpsTable.matchId, matchRows.map(match => match.id)), confirmedCallup)) : [];
+  const callupsByMatch = new Map<number, Map<number, (typeof savedCallups)[number]>>();
+  for (const callup of savedCallups) {
+    const callups = callupsByMatch.get(callup.matchId) ?? new Map();
+    callups.set(callup.id, callup);
+    callupsByMatch.set(callup.matchId, callups);
+  }
+  const gamePlayers = new Set<number>();
+  const matchStats = matchRows.map(match => {
+    const other = match.teamId !== team.id;
+    const matchTeam = sectionTeams.find(candidate => candidate.id === match.teamId);
+    const saved = callupsByMatch.get(match.id);
+    const called = [...(saved?.values() ?? [])].filter(player => parent ? player.id === own[0].id : !other || scopedIds.has(player.id));
+    const plan = match.matchPlan ?? splitPublicNotesAndPlan(match.notes).plan;
+    const rotation = buildMatchRotationSummary(plan, called, defaultRotationCapacity(matchTeam?.name, matchTeam?.category, matchTeam?.clubSection));
+    const stats = new Map(rotation.rows.map(row => {
+      gamePlayers.add(row.playerId);
+      return [row.playerId, { called: true,
+        plannedMinutes: row.cells.some(cell => cell.status !== "—") ? row.plannedMinutes : null,
+        minutes: parentPlayedMinutes(plan, row.playerId),
+      }];
+    }));
+    return { id: match.id, date: (match.rescheduleDate ?? match.date).toISOString(), title: match.opponent,
+      team: matchTeam?.name, other, published: !!saved?.size, stats };
+  });
+  const eligible = roster.filter(player => scopedIds.has(player.id) || gamePlayers.has(player.id));
   res.json({
-    teams: options, teamId: team.id, start, through, today,
+    teams: options, activeRosterTeams, teamId: team.id, start, through, today,
     canEdit: !parent && role !== "secretary" && role !== "team_manager" && role !== "technical_director",
     sessions: sessions.map(({ teamIds, ...session }) => ({ ...session, shared: teamIds.length > 1 })),
-    matches: matches.map(match => ({ id: match.id, date: (match.rescheduleDate ?? match.date).toISOString(), title: match.opponent })),
+    matches: matchStats.map(({ id, date, title, team }) => ({ id, date, title, team })),
     players: eligible.map(player => ({
       id: player.id,
       name: `${player.lastName} ${player.firstName}`,
@@ -255,16 +296,13 @@ router.get("/attendance-register", requireAuth, async (req, res) => {
       team: clubTeams.find(item => item.id === player.teamId)?.name ?? team.name,
       attendance: Object.fromEntries(sessions.flatMap(session => {
         const status = recordMap.get(`${session.id}:${player.id}`);
-        const eligible = membersBySession.get(session.id)?.has(player.id);
-        return status || eligible ? [[session.id, status ?? null]] : [];
+        return status || membersBySession.get(session.id)?.has(player.id) ? [[session.id, status ?? null]] : [];
       })),
-      games: Object.fromEntries(matches.flatMap(match => {
-        const called = calledKeys.has(`${match.id}:${player.id}`);
-        if (player.teamId !== team.id && !called) return [];
-        return [[match.id, {
-          called: called ? true : publishedIds.some(row => row.id === match.id) ? false : null,
-          minutes: called ? parentPlayedMinutes(match.matchPlan, player.id) : null,
-        }]];
+      games: Object.fromEntries(matchStats.flatMap<[number, RegisterGame]>(match => {
+        const stats = match.stats.get(player.id);
+        if (stats) return [[match.id, stats]];
+        if (match.other || player.teamId !== team.id) return [];
+        return [[match.id, { called: match.published ? false : null, minutes: null, plannedMinutes: null }]];
       })),
     })).sort((a, b) => a.name.localeCompare(b.name, "it")),
   });
