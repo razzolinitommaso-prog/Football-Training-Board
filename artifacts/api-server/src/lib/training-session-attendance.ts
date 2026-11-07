@@ -26,7 +26,7 @@ export async function readSessionEligibility(
   reader: Pick<typeof db, "select" | "execute"> = db,
 ) {
   const state = await readSessionAttendance(clubId, session.id, reader);
-  if (!session.teamId || session.sessionKind === "tipo") return { ...state, beforeAppello: null };
+  if (!session.teamId || session.sessionKind === "tipo") return { ...state, beforeAppello: null, guestPlayerIds: [] as number[] };
 
   const { date, start } = trainingLocalSlot(session.scheduledAt);
   const teamIds = sessionTeamIds(session.teamId, session.notes);
@@ -41,6 +41,7 @@ export async function readSessionEligibility(
   return {
     ...state,
     beforeAppello: replies.beforeAppello,
-    blockedPlayerIds: [...new Set([...state.blockedPlayerIds, ...parentBlocked, ...secretaryBlocked])].sort((a, b) => a - b),
+    guestPlayerIds: replies.guestPlayerIds,
+    blockedPlayerIds: [...new Set([...state.blockedPlayerIds, ...parentBlocked, ...secretaryBlocked, ...replies.excludedTrialPlayerIds])].sort((a, b) => a - b),
   };
 }

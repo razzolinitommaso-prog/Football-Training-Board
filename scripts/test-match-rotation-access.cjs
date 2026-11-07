@@ -551,6 +551,66 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     assert.equal((await parentLogin(reset.data.accessCode)).status, 401);
     assert.equal((await parentLogin("NUOVACHIAVE2026")).status, 200);
     console.log("PASS parent access recovery: 16-character sign-in, per-delegate reset, permissions, previous sessions revoked and new key survives metadata edits.");
+
+    await pg.exec("UPDATE teams SET coach_id=3 WHERE id=11");
+    await pg.exec("INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,duration_minutes,status,notes,session_kind,created_by_user_id) VALUES (34001,1,11,'Trial first','2026-10-12T15:30:00Z',90,'scheduled','','regular',3), (34002,1,11,'Trial last','2026-10-14T15:30:00Z',90,'scheduled','','regular',3), (34003,1,11,'After trial','2026-10-15T15:30:00Z',90,'scheduled','','regular',3), (34004,1,12,'Other team','2026-10-14T15:30:00Z',90,'scheduled','','regular',3)");
+    const trialPath = "/training-sessions/34001/trial-players";
+    const trialBody = { firstName: "Giocatore", lastName: "Ospite", startsOn: "2026-10-12", endsOn: "2026-10-14" };
+    const secretary = { "x-role": "secretary" };
+    const coach = { "x-role": "coach", "x-user": "3" };
+    assert.equal((await parentRequest(trialPath, "POST", trialBody)).status, 403);
+    assert.equal((await parentRequest(trialPath, "POST", { ...trialBody, startsOn: "2026-10-13" }, secretary)).status, 400);
+    const guest = await parentRequest(trialPath, "POST", trialBody, secretary);
+    assert.equal(guest.status, 201, JSON.stringify(guest.data));
+    const guestId = guest.data.playerId;
+    const coachGuest = await parentRequest(trialPath, "POST", { ...trialBody, firstName: "Secondo" }, coach);
+    assert.equal(coachGuest.status, 201, JSON.stringify(coachGuest.data));
+    const roster = async (sessionId) => {
+      const result = await call("/training-sessions/" + sessionId + "/roster", secretary);
+      assert.equal(result.status, 200, JSON.stringify(result.data));
+      return result.data;
+    };
+    assert.equal((await roster(34001)).find(player => player.id === guestId)?.teamName, "Ospite in prova");
+    assert.ok((await roster(34002)).some(player => player.id === guestId));
+    assert.ok(!(await roster(34003)).some(player => player.id === guestId));
+    assert.ok(!(await roster(34004)).some(player => player.id === guestId));
+    const trialAppello = await call("/attendance-roster/34002/guests", coach);
+    assert.equal(trialAppello.status, 200, JSON.stringify(trialAppello.data));
+    assert.ok(trialAppello.data.some(player => player.id === guestId));
+    const guestPresent = await parentRequest("/attendance", "POST", { trainingSessionId: 34002, playerId: guestId, status: "present" }, coach);
+    assert.ok([200, 201].includes(guestPresent.status), JSON.stringify(guestPresent.data));
+    assert.equal((await parentRequest("/attendance", "POST", { trainingSessionId: 34003, playerId: guestId, status: "present" }, coach)).status, 400);
+    const trialParticipants = await call("/training-sessions/34002/participants", coach);
+    assert.equal(trialParticipants.status, 200, JSON.stringify(trialParticipants.data));
+    assert.equal(trialParticipants.data.beforeAppello.guests, 2);
+    assert.ok(trialParticipants.data.presentPlayerIds.includes(guestId));
+    await pg.exec(`INSERT INTO exercises(id,club_id,title,team_id,created_by_user_id,duration_minutes,training_phase) VALUES (34011,1,'Trial station',11,3,15,'iniziale');
+      INSERT INTO training_session_exercises(id,training_session_id,exercise_id,"order") VALUES(34011,34002,34011,0);`);
+    const trialRotations = {
+      iniziale: [{ id: "trial", stations: [{ linkId: 34011, playerIds: [guestId], seconds: 900 }], recoverySeconds: 0 }],
+      centrale: [],
+      finale: [],
+    };
+    const trialPlanning = await write("/training-sessions/34002/planning", { recoveries: [0, 0], recalculate: false, rotations: trialRotations }, 3, "coach", "PUT");
+    assert.equal(trialPlanning.status, 200, JSON.stringify(trialPlanning.data));
+    assert.deepEqual(trialPlanning.data.rotations.iniziale[0].stations[0].playerIds, [guestId]);
+    const trialBoard = await write("/exercises/34011", {
+      programSessionId: 34002,
+      statoLavagnaJson: JSON.stringify({ boardId: null, data: { teamId: 11, elements: [{ type: "player", playerId: guestId }] } }),
+    }, 3, "coach", "PATCH");
+    assert.equal(trialBoard.status, 200, JSON.stringify(trialBoard.data));
+    assert.deepEqual(JSON.parse(trialBoard.data.selectedPlayerIdsJson), [guestId]);
+    const reviewPath = trialPath + "/" + guestId;
+    assert.equal((await parentRequest(reviewPath, "PATCH", { score: 8, decision: "approved" }, secretary)).status, 403);
+    assert.equal((await parentRequest(reviewPath, "PATCH", { score: 11, decision: "approved" }, coach)).status, 400);
+    assert.equal((await parentRequest(reviewPath, "PATCH", { score: 8, decision: "approved" }, coach)).status, 200);
+    assert.equal((await call(trialPath, coach)).data.find(trial => trial.playerId === guestId)?.decision, "approved");
+    assert.ok(!(await roster(34003)).some(player => player.id === guestId));
+    await pg.exec("UPDATE players SET status=coalesce(status,'active'), created_at=coalesce(created_at,now())");
+    const official = await call("/players", secretary);
+    assert.equal(official.status, 200, JSON.stringify(official.data));
+    assert.ok(!official.data.some(player => player.id === guestId));
+    console.log("PASS training guests: coach/secretary permissions, inclusive dates, team scope, attendance, station planning, board, review and exclusion from the official roster.");
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
     await pg.close();

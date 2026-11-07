@@ -2,6 +2,7 @@ import { trainingSlotOnDate } from "@workspace/api-zod";
 import { and, eq, sql } from "drizzle-orm";
 import { db, playersTable, teamsTable } from "@workspace/db";
 import { rosterMembers } from "./training-roster-policy";
+import { listTrainingTrials, trialIncludesDate, TRAINING_TRIAL_STATUS } from "./training-trials";
 let ready = false;
 export async function ensureParentTrainingAvailabilityTable() {
   if (ready) return;
@@ -20,6 +21,7 @@ export async function trainingAvailability(clubId:number,teamId:number,date:stri
     teamId: playersTable.teamId,
     notes: playersTable.notes,
     available: playersTable.available,
+    status: playersTable.status,
     overrideActive: playersTable.availabilityOverrideActive,
     overrideFrom: playersTable.availabilityOverrideFrom,
     overrideUntil: playersTable.availabilityOverrideUntil,
@@ -76,7 +78,14 @@ export async function trainingAvailability(clubId:number,teamId:number,date:stri
     const status=statuses.size===1?current[0]?.status:'pending';
     return {playerId:player.id,status:status==='available'||status==='unavailable'?status:'pending'};
   });
-  const beforeAppello = { available: 0, parentUnavailable: 0, secretaryUnavailable: secretaryUnavailable.size, pending: 0, total: records.length };
+  const guests = (await listTrainingTrials(clubId, teamIds, reader)).filter(trial => trialIncludesDate(trial, date));
+  const guestPlayerIds = guests.map(guest => guest.playerId);
+  const guestSet = new Set(guestPlayerIds);
+  const excludedTrialPlayerIds = players.filter(player => player.status === TRAINING_TRIAL_STATUS && !guestSet.has(player.id)).map(player => player.id);
+  const beforeAppello = {
+    available: 0, parentUnavailable: 0, secretaryUnavailable: secretaryUnavailable.size,
+    pending: 0, ...(guests.length ? { guests: guests.length } : {}), total: records.length + guests.length,
+  };
   for (const { playerId, status } of records) {
     if (secretaryUnavailable.has(playerId)) continue;
     if (status === "available") beforeAppello.available++;
@@ -84,5 +93,5 @@ export async function trainingAvailability(clubId:number,teamId:number,date:stri
     else beforeAppello.pending++;
   }
 
-  return {records, beforeAppello, secretaryUnavailablePlayerIds: [...secretaryUnavailable],available:records.filter(row=>row.status==='available').length,unavailable:records.filter(row=>row.status==='unavailable').length,pending:records.filter(row=>row.status==='pending').length,total:records.length};
+  return {records, beforeAppello, guestPlayerIds, excludedTrialPlayerIds, secretaryUnavailablePlayerIds: [...secretaryUnavailable],available:records.filter(row=>row.status==='available').length,unavailable:records.filter(row=>row.status==='unavailable').length,pending:records.filter(row=>row.status==='pending').length,total:records.length};
 }

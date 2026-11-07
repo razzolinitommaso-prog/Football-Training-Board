@@ -15,6 +15,7 @@ import {
 import { eq, and, desc, asc, inArray, isNull, or, lt } from "drizzle-orm";
 import { mergeBoardMaterials, attendanceExerciseView,boardPlayerIds,sessionTeamIds } from "@workspace/api-zod";
 import {rosterMembers} from "../lib/training-roster-policy";
+import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { readSessionEligibility } from "../lib/training-session-attendance";
 import { resolveAllowedClubSections, normalizeSessionRole, isClubWideListRole } from "../lib/club-scope";
 import { requireAuth } from "../lib/auth";
@@ -401,6 +402,33 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
   if (principio !== undefined) updates.principio = principio;
   if (trainingPhase !== undefined) updates.trainingPhase = trainingPhase;
   if (sourceExerciseId !== undefined) updates.sourceExerciseId = sourceExerciseId;
+  let allowedBoardGuests: number[] = [];
+  const boardIds = typeof statoLavagnaJson === "string" ? boardPlayerIds(statoLavagnaJson) : [];
+  if (boardIds.length && selectedPlayerIdsJson === undefined) {
+    const guests = await db.select({ id: playersTable.id }).from(playersTable).where(and(
+      eq(playersTable.clubId, clubId), eq(playersTable.status, TRAINING_TRIAL_STATUS), inArray(playersTable.id, boardIds),
+    ));
+    if (guests.length) {
+      const sessionId = Number(req.body.programSessionId);
+      const links = await db.select({ session: trainingSessionsTable }).from(trainingSessionExercisesTable)
+        .innerJoin(trainingSessionsTable, eq(trainingSessionsTable.id, trainingSessionExercisesTable.trainingSessionId))
+        .where(and(eq(trainingSessionExercisesTable.exerciseId, id), eq(trainingSessionsTable.clubId, clubId),
+          Number.isSafeInteger(sessionId) && sessionId > 0 ? eq(trainingSessionsTable.id, sessionId) : undefined)).limit(2);
+      const session = links.length === 1 ? links[0].session : null;
+      if (session && await canChangeSessionLinks(session.id, clubId, userId, normalizeSessionRole(role))) {
+        const eligibility = await readSessionEligibility(clubId, session);
+        allowedBoardGuests = eligibility.guestPlayerIds.filter(id => !eligibility.blockedPlayerIds.includes(id));
+      }
+      if (guests.some(guest => !allowedBoardGuests.includes(guest.id))) {
+        res.status(400).json({ error: "Uno degli ospiti in prova non è disponibile per questa seduta." });
+        return;
+      }
+    }
+  }
+  const syncBoardPlayers = typeof statoLavagnaJson === "string" && selectedPlayerIdsJson === undefined &&
+    (boardIds.length > 0 || boardPlayerIds(existing.statoLavagnaJson).length > 0);
+  const hasProgramAccess = syncBoardPlayers &&
+    await programExerciseAccess(clubId, userId, role, req.body.programSessionId, existing.teamId, existing.id);
   // A direct board save has no equipment field. Merge with the current row under lock.
   const [exercise] = typeof statoLavagnaJson === "string"
     ? await db.transaction(async tx => {
@@ -408,15 +436,16 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
         .where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).for("update");
       if (!current) return [];
       updates.equipment = mergeBoardMaterials(equipment !== undefined ? equipment : current.equipment, statoLavagnaJson) || null;
-      if(selectedPlayerIdsJson===undefined&&(boardPlayerIds(statoLavagnaJson).length||boardPlayerIds(existing.statoLavagnaJson).length)){
-        const candidates=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,clubId));
+      if (syncBoardPlayers) {
+        const candidates=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes,status:playersTable.status}).from(playersTable).where(eq(playersTable.clubId,clubId));
         let teamIds=existing.teamId?[existing.teamId]:[];
-        if(await programExerciseAccess(clubId,userId,role,req.body.programSessionId,existing.teamId,existing.id)){
+        if (hasProgramAccess) {
           const [session]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),eq(trainingSessionsTable.id,Number(req.body.programSessionId))));
           if(session)teamIds=sessionTeamIds(session.teamId,session.notes);
         }
-        const allowed=new Set((teamIds.length?rosterMembers(candidates,teamIds):candidates).map(p=>p.id));
-        const ids=boardPlayerIds(statoLavagnaJson).filter(id=>allowed.has(id));
+        const regular = (teamIds.length ? rosterMembers(candidates, teamIds) : candidates).filter(player => player.status !== TRAINING_TRIAL_STATUS);
+        const allowed = new Set([...regular.map(player => player.id), ...allowedBoardGuests]);
+        const ids = boardIds.filter(id => allowed.has(id));
         updates.selectedPlayerIdsJson=JSON.stringify(ids);updates.playersRequired=ids.length;updates.scegliGiocatori=true;updates.caricaRosaIntera=false;
       }
       return tx.update(exercisesTable).set(updates).where(and(eq(exercisesTable.id, id), eq(exercisesTable.clubId, clubId))).returning();

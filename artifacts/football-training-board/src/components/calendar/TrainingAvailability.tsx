@@ -23,6 +23,7 @@ function BeforeAppelloCounts({ counts }: { counts: BeforeAppello }) {
       <dt>Indisponibili da segreteria</dt><dd className="font-semibold">{counts.secretaryUnavailable}</dd>
       <dt>Indisponibili dichiarati dai genitori</dt><dd className="font-semibold">{counts.parentUnavailable}</dd>
       <dt>Senza risposta e senza blocchi</dt><dd className="font-semibold">{counts.pending}</dd>
+      {!!counts.guests && <><dt>Ospiti in prova</dt><dd className="font-semibold">{counts.guests}</dd></>}
     </dl>
   );
 }

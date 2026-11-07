@@ -1,3 +1,4 @@
+import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { sessionTeamScope } from "../lib/session-team-scope";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import { playerMatchAttendance } from "../lib/player-match-attendance";
@@ -817,7 +818,7 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   const requestedSection = typeof req.query.section === "string" ? req.query.section : undefined;
   const sections = await resolveAllowedClubSections(req, requestedSection);
 
-  let conditions = [eq(playersTable.clubId, clubId)];
+  let conditions = [eq(playersTable.clubId, clubId), sql`${playersTable.status} IS DISTINCT FROM ${TRAINING_TRIAL_STATUS}`];
   if (sections) {
     if (sections.length === 0) {
       res.json(ListPlayersResponse.parse([]));

@@ -1,8 +1,9 @@
+import { listTrainingTrials, trainingTrialsForSession, trialIncludesDate, TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { resolveAllowedClubSections } from "../lib/club-scope";
 import { rosterMembers } from "../lib/training-roster-policy";
 import { assignedTrainingProgram } from "../lib/training-program-access";
 import { sessionTeamScope } from "../lib/session-team-scope";
-import { parentPlayedMinutes, sessionTeamIds } from "@workspace/api-zod";
+import { parentPlayedMinutes, sessionTeamIds, trainingLocalDate } from "@workspace/api-zod";
 import { saveAttendanceAndNotify } from "../lib/attendance-notifications";
 import { trainingAvailability } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
@@ -81,11 +82,14 @@ async function playerIsValidForSession(playerId: number, clubId: number, session
   const session = await getSessionForAttendance(sessionId, clubId);
   if (!session) return false;
   const [player] = await db
-    .select({ id: playersTable.id, teamId: playersTable.teamId, notes: playersTable.notes })
+    .select({ id: playersTable.id, teamId: playersTable.teamId, notes: playersTable.notes, status: playersTable.status })
     .from(playersTable)
     .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)))
     .limit(1);
   if (!player) return false;
+  if (player.status === TRAINING_TRIAL_STATUS) {
+    return (await trainingTrialsForSession(session)).some(trial => trial.playerId === playerId);
+  }
   if (!session.teamId) return true;
   const ids=sessionTeamIds(session.teamId,session.notes);
   return ids.includes(player.teamId??0) || ids.includes(extractSupplementalTeamId(player.notes)??0);
@@ -223,9 +227,18 @@ router.get("/attendance-register", requireAuth, async (req, res) => {
   const recordMap = new Map(records.map(record => [`${record.trainingSessionId}:${record.playerId}`, record.status]));
   const calledKeys = new Set(callups.filter(row => called(row.status)).map(row => `${row.matchId}:${row.playerId}`));
   const rosterIds = new Set(rosterMembers(roster, rosterTeams).map(player => player.id));
-  const membersBySession = new Map(sessions.map(session => [
-    session.id, new Set(rosterMembers(roster, session.teamIds).map(player => player.id)),
-  ]));
+  const trials = parent ? [] : await listTrainingTrials(clubId, rosterTeams);
+  const membersBySession = new Map(sessions.map(session => {
+    const members = new Set(rosterMembers(roster, session.teamIds).map(player => player.id));
+    const date = trainingLocalDate(new Date(session.date));
+    for (const trial of trials) {
+      if (session.teamIds.includes(trial.teamId) && trialIncludesDate(trial, date)) {
+        members.add(trial.playerId);
+        rosterIds.add(trial.playerId);
+      }
+    }
+    return [session.id, members];
+  }));
   const eligible = roster.filter(player => rosterIds.has(player.id) ||
     records.some(record => record.playerId === player.id) ||
     callups.some(row => row.playerId === player.id && called(row.status)));
@@ -273,6 +286,22 @@ router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
   res.json(enriched);
 });
 
+router.get("/attendance-roster/:id/guests", requireAuth, async (req, res): Promise<void> => {
+  const { userId, clubId, role } = req.session;
+  const id = Number(req.params.id);
+  if (!clubId || !userId || !Number.isSafeInteger(id) || id <= 0 ||
+      !await userCanReadAttendance(userId, clubId, role ?? "", id)) {
+    res.sendStatus(403);
+    return;
+  }
+  const session = await getSessionForAttendance(id, clubId);
+  const guests = session ? await trainingTrialsForSession(session) : [];
+  res.json(guests.map(({ playerId, firstName, lastName, teamId }) => ({
+    id: playerId, firstName, lastName, teamId,
+    status: TRAINING_TRIAL_STATUS, teamName: "Ospite in prova", available: true,
+  })));
+});
+
 router.get("/attendance-summary", requireAuth, async (req, res): Promise<void> => {
   const rawIds = String(req.query.sessionIds ?? "")
     .split(",")
@@ -293,12 +322,13 @@ router.get("/attendance-summary", requireAuth, async (req, res): Promise<void> =
     if (!session) continue;
 
     const players = await db
-      .select({ id: playersTable.id, teamId: playersTable.teamId, notes: playersTable.notes })
+      .select({ id: playersTable.id, teamId: playersTable.teamId, notes: playersTable.notes, status: playersTable.status })
       .from(playersTable)
       .where(eq(playersTable.clubId, req.session.clubId!));
     const total = session.teamId
       ? players.filter((player) => sessionTeamIds(session.teamId,session.notes).includes(player.teamId??0) || sessionTeamIds(session.teamId,session.notes).includes(extractSupplementalTeamId(player.notes)??0)).length
-      : players.length;
+      + (await trainingTrialsForSession(session)).length
+      : players.filter(player => player.status !== TRAINING_TRIAL_STATUS).length;
 
     const records = await db
       .select({ status: trainingAttendancesTable.status })

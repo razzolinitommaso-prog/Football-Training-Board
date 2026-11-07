@@ -196,9 +196,17 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
     if (directSessionMode || !annataScope) return sessions;
     return sessions.filter((session) => teamAnnataKey(teamsById.get(Number(session.teamId))) === annataScope);
   }, [annataScope, directSessionMode, sessions, teamsById]);
+  const sharedSession = rawSessions.find(session => session.id === sessionId && session.notes?.includes("[FTB_PROGRAM_TEAMS]"));
   const { data: players = [] } = useQuery<Player[]>({
-    queryKey: ["/api/players", section || "all", "attendance",rawSessions.find(s=>s.id===sessionId)?.notes?.includes("[FTB_PROGRAM_TEAMS]")?sessionId:null],
-    queryFn: () => apiFetch(rawSessions.find(s=>s.id===sessionId)?.notes?.includes("[FTB_PROGRAM_TEAMS]")?`/api/training-sessions/${sessionId}/roster`:section ? `/api/players?section=${encodeURIComponent(section)}` : "/api/players"),
+    queryKey: ["/api/players", section || "all", "attendance", sharedSession?.id],
+    queryFn: () => apiFetch(sharedSession
+      ? "/api/training-sessions/" + sharedSession.id + "/roster"
+      : section ? "/api/players?section=" + encodeURIComponent(section) : "/api/players"),
+  });
+  const { data: trialPlayers = [] } = useQuery<Player[]>({
+    queryKey: ["training-trial-attendance", sessionId],
+    queryFn: () => apiFetch("/api/attendance-roster/" + sessionId + "/guests"),
+    enabled: Boolean(sessionId && !sharedSession),
   });
   const { data: attendance = [], isLoading: attLoading } = useQuery<AttendanceRecord[]>({
     queryKey: ["/api/attendance", sessionId],
@@ -403,13 +411,14 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
   const filteredPlayers = useMemo(() => {
     if (!selectedSession) return players;
     if (selectedSession.teamId != null) {
-      return players.filter((p) => sessionTeamIds(selectedSession.teamId,selectedSession.notes).includes(p.teamId??0) || sessionTeamIds(selectedSession.teamId,selectedSession.notes).includes(p.supplementalTeamId??0));
+      const teamIds = sessionTeamIds(selectedSession.teamId, selectedSession.notes);
+      return [...players.filter(player => teamIds.includes(player.teamId ?? 0) || teamIds.includes(player.supplementalTeamId ?? 0)), ...(sharedSession ? [] : trialPlayers)];
     }
     if (sessionAnnata) {
       return players.filter((p) => (p.teamName ?? "").toLowerCase().includes(sessionAnnata));
     }
     return players;
-  }, [players, selectedSession, sessionAnnata]);
+  }, [players, selectedSession, sessionAnnata, sharedSession, trialPlayers]);
   const sortedFilteredPlayers = useMemo(() => {
     const collator = new Intl.Collator("it", { sensitivity: "base", numeric: true });
     return [...filteredPlayers].sort((a, b) => {
@@ -690,7 +699,7 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
                       ) : (
                         <div className="col-span-2 grid min-w-0 grid-cols-[minmax(0,1fr)_112px] items-center gap-2 md:col-span-2 md:grid-cols-[minmax(0,1fr)_auto_132px]">
                         <div className="contents">
-                          {parentAvailabilityError?<span role="alert" className="text-xs text-destructive">Disponibilità non disponibili</span>:parentAvailabilityLoading?<span className="text-xs">Caricamento disponibilità...</span>:<ParentAvailabilityBadge status={parentAvailability?.records.find(record=>record.playerId===player.id)?.status}/>}
+                          {player.status === "training_trial" ? <span className="text-xs font-medium">Ospite in prova</span> : parentAvailabilityError?<span role="alert" className="text-xs text-destructive">Disponibilità non disponibili</span>:parentAvailabilityLoading?<span className="text-xs">Caricamento disponibilità...</span>:<ParentAvailabilityBadge status={parentAvailability?.records.find(record=>record.playerId===player.id)?.status}/>}
                           <div role="group" aria-label={`Presenza di ${player.lastName} ${player.firstName}`} className="col-span-2 row-start-2 grid grid-cols-4 gap-1 md:col-span-1 md:row-start-auto">
                           {(["present", "absent", "requested", "injured"] as const).map(s => (
                             <Button key={s} size="sm" variant={status === s ? "default" : "outline"}

@@ -3,6 +3,7 @@ import { programParticipants, PROGRAM_MARKER } from "../lib/joint-training-progr
 import { trainingLocalDate, trainingProgramLeader } from "@workspace/api-zod";
 import { assignedTrainingProgram } from "../lib/training-program-access";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
+import { ensureTrainingTrials, listTrainingTrials, trainingTrialsForSession, TRAINING_TRIAL_STATUS, validTrainingTrialDate } from "../lib/training-trials";
 import { readSessionEligibility } from "../lib/training-session-attendance";
 import { excludeTrainingPlayers, validateTrainingRotations, type TrainingRotations } from "@workspace/api-zod";
 import { rosterMembers, playerBirthYear } from "../lib/training-roster-policy";
@@ -572,17 +573,100 @@ async function planningAccess(req: Parameters<typeof resolveAllowedClubSections>
   return session;
 }
 
+router.get("/training-sessions/:id/trial-players", requireAuth, async (req, res): Promise<void> => {
+  const role = normalizeSessionRole(req.session.role);
+  const session = ["coach", "secretary"].includes(role) ? await planningAccess(req, Number(req.params.id), true) : null;
+  if (!session?.teamId || session.sessionKind === "tipo") {
+    res.status(403).json({ error: "Ospiti in prova non gestibili per questa seduta." });
+    return;
+  }
+  res.json(await listTrainingTrials(session.clubId, sessionTeamIds(session.teamId, session.notes)));
+});
+
+router.post("/training-sessions/:id/trial-players", requireAuth, async (req, res): Promise<void> => {
+  const role = normalizeSessionRole(req.session.role);
+  const session = ["coach", "secretary"].includes(role) ? await planningAccess(req, Number(req.params.id), true) : null;
+  if (!session?.teamId || session.sessionKind === "tipo" || ["cancelled", "canceled"].includes(session.status)) {
+    res.status(403).json({ error: "Ospiti in prova non gestibili per questa seduta." });
+    return;
+  }
+  const { startsOn, endsOn } = req.body ?? {};
+  const firstName = typeof req.body?.firstName === "string" ? req.body.firstName.trim() : "";
+  const lastName = typeof req.body?.lastName === "string" ? req.body.lastName.trim() : "";
+  const sessionDay = trainingLocalDate(session.scheduledAt);
+  if (!firstName || !lastName || firstName.length > 80 || lastName.length > 80 ||
+      !validTrainingTrialDate(startsOn) || !validTrainingTrialDate(endsOn) ||
+      startsOn > sessionDay || endsOn < sessionDay) {
+    res.status(400).json({ error: "Inserisci nome, cognome e un periodo che includa la data della seduta." });
+    return;
+  }
+  const teamId = session.teamId;
+  const [team] = await db.select({ section: teamsTable.clubSection }).from(teamsTable)
+    .where(and(eq(teamsTable.id, teamId), eq(teamsTable.clubId, session.clubId)));
+  if (!team) {
+    res.status(404).json({ error: "Squadra non trovata." });
+    return;
+  }
+  await ensureTrainingTrials();
+  const playerId = await db.transaction(async tx => {
+    const [player] = await tx.insert(playersTable).values({
+      clubId: session.clubId, teamId: null, firstName, lastName,
+      status: TRAINING_TRIAL_STATUS, clubSection: team.section, available: true,
+    }).returning({ id: playersTable.id });
+    await tx.execute(sql`
+      INSERT INTO training_player_trials (player_id, club_id, team_id, starts_on, ends_on)
+      VALUES (${player.id}, ${session.clubId}, ${teamId}, ${startsOn}::date, ${endsOn}::date)
+    `);
+    return player.id;
+  });
+  res.status(201).json({ playerId });
+});
+
+router.patch("/training-sessions/:id/trial-players/:playerId", requireAuth, async (req, res): Promise<void> => {
+  const session = normalizeSessionRole(req.session.role) === "coach" ? await planningAccess(req, Number(req.params.id), true) : null;
+  if (!session?.teamId || session.sessionKind === "tipo") {
+    res.status(403).json({ error: "La valutazione è riservata al mister della seduta." });
+    return;
+  }
+  const playerId = Number(req.params.playerId);
+  const { score, decision } = req.body ?? {};
+  if (!Number.isSafeInteger(playerId) || playerId <= 0 || !Number.isInteger(score) || score < 1 || score > 10 ||
+      (decision !== "approved" && decision !== "rejected")) {
+    res.status(400).json({ error: "Inserisci un punteggio da 1 a 10 e scegli l’esito della prova." });
+    return;
+  }
+  const trials = await listTrainingTrials(session.clubId, sessionTeamIds(session.teamId, session.notes));
+  const trial = trials.find(trial => trial.playerId === playerId);
+  if (!trial) {
+    res.status(404).json({ error: "Ospite in prova non trovato." });
+    return;
+  }
+  if (trainingLocalDate() < trial.endsOn) {
+    res.status(409).json({ error: "Puoi valutare la prova a partire dall’ultimo giorno." });
+    return;
+  }
+  await db.execute(sql`
+    UPDATE training_player_trials SET score = ${score}, decision = ${decision},
+      evaluated_by = ${req.session.userId}, evaluated_at = NOW()
+    WHERE player_id = ${playerId} AND club_id = ${session.clubId} AND team_id = ${trial.teamId}
+  `);
+  res.json({ playerId, score, decision });
+});
+
 router.get("/training-sessions/:id/roster",requireAuth,async(req,res):Promise<void>=>{
  const session=await planningAccess(req,Number(req.params.id),false);if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
  const players=await db.select().from(playersTable).where(eq(playersTable.clubId,session.clubId));
  const teams=await db.select({id:teamsTable.id,name:teamsTable.name}).from(teamsTable).where(eq(teamsTable.clubId,session.clubId));
+ const guests = new Map((await trainingTrialsForSession(session)).map(trial => [trial.playerId, trial.teamId]));
+ const roster = rosterMembers(players, sessionTeamIds(session.teamId, session.notes));
+ roster.push(...players.filter(player => guests.has(player.id)));
  if(req.query.groups==="1"){
-   const ids=sessionTeamIds(session.teamId,session.notes),roster=rosterMembers(players,ids);
+   const ids=sessionTeamIds(session.teamId,session.notes);
    const exists=resultRows<{present:boolean}>(await db.execute(sql`SELECT to_regclass('training_roster_groups') IS NOT NULL AND to_regclass('training_roster_group_players') IS NOT NULL AS present`))[0]?.present;
    const groups=exists&&ids.length?resultRows<{id:number;name:string;criterion:string;birthYear:number|null;playerIds:number[]}>(await db.execute(sql`SELECT g.id,g.name,g.criterion,g.birth_year AS "birthYear",coalesce(array_agg(m.player_id) FILTER (WHERE m.player_id IS NOT NULL),'{}'::int[]) AS "playerIds" FROM training_roster_groups g LEFT JOIN training_roster_group_players m ON m.group_id=g.id WHERE g.club_id=${session.clubId} AND g.kind='work' AND NOT g.archived AND g.anchor_team_id IN (${sql.join(ids.map(id=>sql`${id}`),sql`,`)}) GROUP BY g.id,g.name,g.criterion,g.birth_year`)):[];
    res.json({workGroups:groups.map(group=>({...group,playerIds:roster.filter(player=>group.criterion==="year"?playerBirthYear(player.dateOfBirth)===group.birthYear:group.playerIds.includes(player.id)).map(player=>player.id)}))});return;
  }
- res.json(rosterMembers(players,sessionTeamIds(session.teamId,session.notes)).map(player=>({id:player.id,firstName:player.firstName,lastName:player.lastName,dateOfBirth:player.dateOfBirth,teamId:player.teamId,teamName:teams.find(team=>team.id===player.teamId)?.name??null,available:player.available,position:player.position,jerseyNumber:player.jerseyNumber,status:player.status,unavailabilityReason:player.unavailabilityReason,availabilityOverrideActive:player.availabilityOverrideActive,availabilityOverrideFrom:player.availabilityOverrideFrom,availabilityOverrideUntil:player.availabilityOverrideUntil})));
+ res.json(roster.map(player=>({id:player.id,firstName:player.firstName,lastName:player.lastName,dateOfBirth:player.dateOfBirth,teamId:guests.get(player.id)??player.teamId,teamName:guests.has(player.id)?"Ospite in prova":teams.find(team=>team.id===player.teamId)?.name??null,available:player.available,position:player.position,jerseyNumber:player.jerseyNumber,status:player.status,unavailabilityReason:player.unavailabilityReason,availabilityOverrideActive:player.availabilityOverrideActive,availabilityOverrideFrom:player.availabilityOverrideFrom,availabilityOverrideUntil:player.availabilityOverrideUntil})));
 });
 
 async function planningExercises(sessionId:number,clubId:number) {
@@ -596,6 +680,7 @@ router.get("/training-sessions/:id/participants",requireAuth,async(req,res):Prom
  const players=await db.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
  const ids=new Set(rosterMembers(players,sessionTeamIds(session.teamId,session.notes)).map(player=>player.id));
  const state=await readSessionEligibility(session.clubId,session);
+ for (const guestId of state.guestPlayerIds) ids.add(guestId);
  const presentPlayerIds = state.presentPlayerIds.filter(id => ids.has(id));
  const recordedPlayerIds = state.recordedPlayerIds.filter(id => ids.has(id));
  res.json({
@@ -629,6 +714,7 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
   if(!session){res.status(403).json({error:"Non puoi preparare questa seduta"});return;}
   await ensureSessionPlans();
   await ensureParentTrainingAvailabilityTable();
+  await ensureTrainingTrials();
   let attendanceIds:number[]=[],savedVersion="";
   try {
     const plan=await db.transaction(async tx=>{
@@ -638,12 +724,13 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
       const [stored]=resultRows<{plan:Awaited<ReturnType<typeof readSessionPlan>>}>(await tx.execute(sql`SELECT plan FROM training_session_plans WHERE session_id=${id} AND club_id=${session.clubId}`));
       const old:Awaited<ReturnType<typeof readSessionPlan>>=stored?.plan??{recoveries:[0,0],timings:{}};
       const exercises=resultRows<PlanningExercise>(await tx.execute(sql`SELECT link.id, exercise.duration_minutes AS duration, exercise.description, exercise.title, exercise.selected_player_ids_json AS "playerIdsJson", exercise.training_phase AS phase FROM training_session_exercises link LEFT JOIN exercises exercise ON exercise.id=link.exercise_id AND exercise.club_id=${session.clubId} WHERE link.training_session_id=${id} ORDER BY link."order",link.id`));
-      attendanceIds=(await readSessionEligibility(session.clubId,current,tx)).blockedPlayerIds;
+      const eligibility = await readSessionEligibility(session.clubId,current,tx);
+      attendanceIds = eligibility.blockedPlayerIds;
       if(req.body.version!==undefined&&req.body.version!==planningVersion(old,attendanceIds,exercises))throw Error("CONFLICT:La pianificazione è cambiata. Riapri la seduta prima di salvare le stazioni.");
       const rotations=req.body.rotations===undefined?(resolvedStationRotations(old,exercises,attendanceIds)):req.body.rotations;
       if(rotations!==undefined){
         const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
-        const allowed=rosterMembers(players,sessionTeamIds(current.teamId,current.notes)).map(player=>player.id).filter(id=>!attendanceIds.includes(id));
+        const allowed = [...rosterMembers(players, sessionTeamIds(current.teamId, current.notes)).map(player => player.id), ...eligibility.guestPlayerIds].filter(id => !attendanceIds.includes(id));
         const issue=validateTrainingRotations(rotations,exercises.map(ex=>({id:ex.id,phase:ex.phase??null})),allowed);
         if(issue)throw Error(issue);
       }
@@ -836,7 +923,7 @@ router.get("/dashboard/stats", requireAuth, async (req, res): Promise<void> => {
     : eq(playersTable.clubId, clubId);
 
   const [teamsCount] = await db.select({ count: sql<number>`count(*)::int` }).from(teamsTable).where(teamIdWhere);
-  const [playersCount] = await db.select({ count: sql<number>`count(*)::int` }).from(playersTable).where(playerIdWhere);
+  const [playersCount] = await db.select({ count: sql<number>`count(*)::int` }).from(playersTable).where(and(playerIdWhere, sql`${playersTable.status} IS DISTINCT FROM ${TRAINING_TRIAL_STATUS}`));
 
   const [membersCount] = await db
     .select({ count: sql<number>`count(*)::int` })

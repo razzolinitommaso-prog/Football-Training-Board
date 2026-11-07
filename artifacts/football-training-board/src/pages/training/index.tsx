@@ -19,6 +19,7 @@ import { SessionObjectivePicker } from "@/components/training/SessionObjectivePi
 import { PrinciplePicker } from "@/components/training/PrinciplePicker";
 import { trainingPrincipleLabel } from "@workspace/api-zod";
 import { inferTrainingSlot, trainingSlotOptions } from "@/lib/training-session-slot";
+import { TrainingTrialPlayers } from "@/components/training/TrainingTrialPlayers";
 import { TrainingRosterPicker } from "@/components/training/TrainingRosterPicker";
 import { MaterialPicker } from "@/components/training/MaterialPicker";
 import { divideExerciseMinutes, sumExerciseMinutes, mergeExerciseMaterials } from "@/lib/exercise-station-timing";
@@ -169,6 +170,7 @@ type InitialSessionDraft = {
 };
 
 interface PlayerOption {
+  status?: string | null;
   id: number;
   firstName: string;
   lastName: string;
@@ -1851,8 +1853,8 @@ function SessionDetailsDialog({
     enabled: !!session?.id,
   });
   const selectablePlayersQuery = useQuery<PlayerOption[]>({
-    queryKey: ["training-rosters", "training-session-exercise-selection", exerciseForm.teamId || "all", exerciseFormOpen, exerciseForm.playersRequiredMode,session.notes],
-    queryFn: async () => {if(session.notes?.includes("[FTB_PROGRAM_TEAMS]"))return apiFetch(`/api/training-sessions/${session.id}/roster`);const ids=sessionTeamIds(session.teamId,session.notes);if(!ids.length)return apiFetch("/api/players");const lists=await Promise.all(ids.map(id=>apiFetch(`/api/training-rosters/${id}?scope=team`)));return [...new Map(lists.flatMap(list=>list.players as PlayerOption[]).map(player=>[player.id,player])).values()];},
+    queryKey: ["training-rosters", "training-session-exercise-selection", session.id, exerciseForm.teamId || "all", exerciseFormOpen, exerciseForm.playersRequiredMode,session.notes],
+    queryFn: async () => {if(session.sessionKind !== "tipo" && session.teamId)return apiFetch(`/api/training-sessions/${session.id}/roster`);const ids=sessionTeamIds(session.teamId,session.notes);if(!ids.length)return apiFetch("/api/players");const lists=await Promise.all(ids.map(id=>apiFetch(`/api/training-rosters/${id}?scope=team`)));return [...new Map(lists.flatMap(list=>list.players as PlayerOption[]).map(player=>[player.id,player])).values()];},
     enabled: exerciseFormOpen,
   });
 
@@ -1888,7 +1890,7 @@ function SessionDetailsDialog({
       const created = await apiFetch("/api/exercises", {
         method: "POST",
         body: JSON.stringify({
-          programSessionId: session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined,
+          programSessionId: session.sessionKind !== "tipo" ? session.id : undefined,
           title: form.title,
           category: form.category || null,
           description: composeExerciseDescription(form.description, stations, form.stationVariants),
@@ -1943,7 +1945,7 @@ function SessionDetailsDialog({
       return apiFetch(`/api/exercises/${link.exercise.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          programSessionId: session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined,
+          programSessionId: session.sessionKind !== "tipo" ? session.id : undefined,
           title: form.title,
           category: form.category || null,
           description: composeExerciseDescription(form.description, stations, form.stationVariants),
@@ -2199,7 +2201,19 @@ function SessionDetailsDialog({
         <StationOrganization sessionId={session.sessionKind !== "tipo" ? session.id : undefined} activities={stationActivities} blockedPlayerIds={blockedPlayerIds} attendanceLoading={participants.isLoading||participants.isError} teamId={session.teamId} teamIds={sessionTeamIds(session.teamId,session.notes)} saved={planQuery.data?.rotations} version={planQuery.data?.version} readOnly={readOnly||planQuery.isLoading||planQuery.isError} onDirtyChange={setRotationDirty} onSave={async(rotations,recalculate,version)=>{await apiFetch(`/api/training-sessions/${session.id}/planning`,{method:"PUT",body:JSON.stringify({recoveries,recalculate,rotations,version})});setRecoveriesDirty(false);await qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});toast({title:"Organizzazione delle stazioni salvata"});}} onPreviewChange={setRotationPreview}>
         {({toolbar,stations})=><TrainingSessionOverview
           editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>{setEditingMetadata(false);setMetadataDirty(false);}} onSaved={()=>{setMetadataDirty(false);void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
-          attendance={session.sessionKind !== "tipo" && <TrainingAttendanceComparison data={participants.data} loading={participants.isLoading} error={participants.isError} />}
+          attendance={session.sessionKind !== "tipo" && <>
+            <TrainingAttendanceComparison data={participants.data} loading={participants.isLoading} error={participants.isError} />
+            {session.teamId && (role === "secretary" || (role === "coach" && !readOnly)) && (
+              <TrainingTrialPlayers
+                key={session.id}
+                sessionId={session.id}
+                scheduledAt={session.scheduledAt}
+                teamName={session.teamName}
+                canEvaluate={role === "coach"}
+                canAdd={!["cancelled", "canceled"].includes(session.status)}
+              />
+            )}
+          </>}
           phaseRecoveries={[0,1].map(index=><div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 text-sm"><Label htmlFor={`recovery-${session.id}-${index}`}>Recupero tra fase {index+1} e {index+2}</Label><Input id={`recovery-${session.id}-${index}`} aria-label={`Recupero tra fase ${index+1} e ${index+2}`} className="w-20" type="number" min={0} max={300} step={1} disabled={readOnly||planQuery.isLoading||planQuery.isError||savePlan.isPending} value={recoveries[index]} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value)&&value>=0&&value<=300){setRecoveries(previous=>index===0?[value,previous[1]]:[previous[0],value]);setRecoveriesDirty(true);}}}/><span>min</span></div>)}
           metadata={editingMetadata&&canEditMetadata?[]:[
             { label: "Giorno", value: format(new Date(session.scheduledAt), "EEEE", { locale: itLocale }) },
@@ -2495,6 +2509,7 @@ function SessionDetailsDialog({
                       key={exerciseForm.teamId || "all"}
                       teamId={exerciseForm.teamId}
                       eligiblePlayerIds={session.sessionKind === "tipo" ? undefined : selectablePlayers.map(player => player.id)}
+                      guests={selectablePlayers.filter(player => player.status === "training_trial")}
                       disabled={session.sessionKind !== "tipo" && (participants.isLoading || participants.isError || selectablePlayersQuery.isLoading || selectablePlayersQuery.isError)}
                       onSelect={ids => setExerciseForm(prev => ({
                         ...prev,
@@ -2549,7 +2564,7 @@ function SessionDetailsDialog({
                         ) : selectablePlayers.length === 0 ? (
                           <p className="text-sm text-muted-foreground italic">Nessun giocatore disponibile per la selezione.</p>
                         ) : (
-                          <TrainingRosterPicker sessionId={session.notes?.includes("[FTB_PROGRAM_TEAMS]")?session.id:undefined} excludedIds={blockedPlayerIds} players={selectablePlayers} selectedIds={selectedPlayerIds} teamId={exerciseForm.teamId} onConfirm={ids => setExerciseForm(prev => ({ ...prev, selectedPlayerIdsJson: JSON.stringify(ids.filter(id=>!blockedPlayerIds.includes(id)&&!reservedPlayers.has(id))) }))} />
+                          <TrainingRosterPicker sessionId={session.sessionKind !== "tipo" && session.teamId ? session.id : undefined} excludedIds={blockedPlayerIds} players={selectablePlayers} selectedIds={selectedPlayerIds} teamId={exerciseForm.teamId} onConfirm={ids => setExerciseForm(prev => ({ ...prev, selectedPlayerIdsJson: JSON.stringify(ids.filter(id=>!blockedPlayerIds.includes(id)&&!reservedPlayers.has(id))) }))} />
                         )}
                       </div>
                     )}

@@ -5,6 +5,7 @@ export type BeforeAppello = {
   available: number;
   parentUnavailable: number;
   secretaryUnavailable: number;
+  guests?: number;
   pending: number;
   total: number;
 };
