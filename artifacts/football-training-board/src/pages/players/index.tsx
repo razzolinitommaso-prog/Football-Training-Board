@@ -45,6 +45,11 @@ const zNullableNumberInput = z.preprocess((v) => {
   return v;
 }, z.coerce.number().optional().nullable());
 
+const zEntryMeasurement = z.preprocess(
+  value => value === "" ? null : value,
+  z.coerce.number().int().positive().max(2147483647).nullish(),
+);
+
 const zNullableSquadInput = z.preprocess((v) => {
   if (v === "") return null;
   return v;
@@ -56,6 +61,8 @@ const zNullableLineupStatusInput = z.preprocess((v) => {
 }, z.enum(["starter", "reserve"]).optional().nullable());
 
 const playerSchema = z.object({
+  height: zEntryMeasurement,
+  weight: zEntryMeasurement,
   firstName: z.string().min(2, "Required"),
   lastName: z.string().min(2, "Required"),
   teamId: zNullableNumberInput,
@@ -130,8 +137,8 @@ const editSchema = z.object({
   shuttleRoute: z.string().optional().nullable(),
   shuttleDirection: z.string().optional().nullable(),
   nationality: z.string().optional(),
-  height: zNullableNumberInput,
-  weight: zNullableNumberInput,
+  height: zEntryMeasurement,
+  weight: zEntryMeasurement,
   notes: z.string().optional(),
   available: z.boolean().optional(),
   unavailabilityReason: z.string().optional(),
@@ -791,7 +798,12 @@ const profileRoleLabel = (role?: string | null) =>
 const profileMeasure = (value: number | null | undefined, unit: string) =>
   value == null ? "—" : value.toLocaleString("it-IT", { maximumFractionDigits: 2 }) + " " + unit;
 
-function PlayerEntryValues({ entry, player, showIdentity }: { entry?: ProfileEntry; player: Player; showIdentity?: boolean }) {
+function PlayerEntryValues({ entry, player, showIdentity, inputs }: {
+  entry?: ProfileEntry;
+  player: Player;
+  showIdentity?: boolean;
+  inputs?: Partial<Record<"height" | "weight", React.ReactNode>>;
+}) {
   const values = entry ?? player;
   const label = entry?.source === "entry" ? "Dati d’ingresso" : "Primo dato disponibile";
   return <div className="mt-3 space-y-2">
@@ -801,11 +813,15 @@ function PlayerEntryValues({ entry, player, showIdentity }: { entry?: ProfileEnt
         ...(showIdentity ? [["Nazionalità", player.nationality || "—"], ["Data di nascita", profileDateLabel(player.dateOfBirth) || "—"]] : []),
         [entry?.source === "entry" ? "Ruolo iniziale" : "Primo ruolo noto", profileRoleLabel(values.position)],
         [entry?.source === "entry" ? "Maglia iniziale" : "Prima maglia nota", values.jerseyNumber ?? "—"],
-        ["Altezza", profileMeasure(values.height, "cm")],
-        ["Peso", profileMeasure(values.weight, "kg")],
       ].map(([title, value]) => <div key={title} className="min-w-0 rounded-md border bg-muted/25 p-2">
         <dt className="text-xs text-muted-foreground">{title}</dt>
         <dd className="break-words text-sm font-medium">{value}</dd>
+      </div>)}
+      {(["height", "weight"] as const).map(field => <div key={field} className="min-w-0 rounded-md border bg-muted/25 p-2">
+        {inputs?.[field] ?? <>
+          <dt className="text-xs text-muted-foreground">{field === "height" ? "Altezza" : "Peso"}</dt>
+          <dd className="break-words text-sm font-medium">{profileMeasure(values[field], field === "height" ? "cm" : "kg")}</dd>
+        </>}
       </div>)}
     </dl>
   </div>;
@@ -2645,7 +2661,14 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const watchPhoneOwnerEdit = editForm.watch("phoneOwnerType");
   const watchShuttleCreate = form.watch("shuttleService");
   const watchShuttleEdit = editForm.watch("shuttleService");
-  const playerDataStatus = completionStatus([editForm.watch("dateOfBirth"), editForm.watch("nationality")]);
+  const entryMeasures = playerActivity.data?.profile?.entry ?? editingPlayer;
+  const initialHeight = (entryMeasures?.height ?? 0) > 0 ? entryMeasures?.height : null;
+  const initialWeight = (entryMeasures?.weight ?? 0) > 0 ? entryMeasures?.weight : null;
+  const playerDataStatus = completionStatus([
+    editForm.watch("dateOfBirth"),
+    editForm.watch("nationality"),
+    ...(watchRegisteredEdit ? [initialHeight ?? editForm.watch("height"), initialWeight ?? editForm.watch("weight")] : []),
+  ]);
   const contactStatus = completionStatus([
     editForm.watch("phone") || editForm.watch("email") || editForm.watch("parentPhone") || editForm.watch("parentEmail") ||
     editForm.watch("secondaryContactPhone") || editForm.watch("secondaryContactEmail"),
@@ -2824,8 +2847,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       shuttleRoute: player.shuttleRoute ?? undefined,
       shuttleDirection: player.shuttleDirection ?? "round_trip",
       nationality: player.nationality ?? undefined,
-      height: player.height ?? undefined,
-      weight: player.weight ?? undefined,
+      height: player.height && player.height > 0 ? player.height : undefined,
+      weight: player.weight && player.weight > 0 ? player.weight : undefined,
       notes: composePlayerNotes(parsedNotes.plainNote, parsedNotes.thread) ?? undefined,
       available: player.available ?? true,
       unavailabilityReason: player.unavailabilityReason ?? undefined,
@@ -3121,6 +3144,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       ),
       parentDelegates: cleanParentDelegates(parentDelegateRows),
     };
+    if (initialHeight || !editForm.getFieldState("height").isDirty || data.height == null) delete payload.height;
+    if (initialWeight || !editForm.getFieldState("weight").isDirty || data.weight == null) delete payload.weight;
     if (payload.shuttleService !== true) {
       payload.shuttleRoute = null;
       payload.shuttleDirection = null;
@@ -3503,6 +3528,17 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 <div className="space-y-2">
                   <Label htmlFor="jerseyNumber">{t.jerseyNumber}</Label>
                   <Input id="jerseyNumber" type="number" {...form.register("jerseyNumber")} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="create-entry-height">Altezza iniziale (cm)</Label>
+                  <Input id="create-entry-height" type="number" min={1} step={1} {...form.register("height")} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="create-entry-weight">Peso iniziale (kg)</Label>
+                  <Input id="create-entry-weight" type="number" min={1} step={1} {...form.register("weight")} />
                 </div>
               </div>
 
@@ -4181,7 +4217,18 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     <Input type="date" {...editForm.register("dateOfBirth")} disabled={!canEditFullPlayer} />
                   </div>
                 </div>
-                {playerActivity.isLoading ? <Skeleton className="mt-3 h-14 rounded-md" /> : <PlayerEntryValues entry={playerActivity.data?.profile?.entry} player={editingPlayer} />}
+                {playerActivity.isLoading ? <Skeleton className="mt-3 h-14 rounded-md" /> : (
+                  <PlayerEntryValues entry={playerActivity.data?.profile?.entry} player={editingPlayer} inputs={canEditFullPlayer ? {
+                    height: initialHeight == null ? <>
+                      <dt><Label htmlFor="edit-entry-height" className="text-xs text-muted-foreground">Altezza iniziale (cm)</Label></dt>
+                      <dd><Input id="edit-entry-height" className="mt-1" type="number" min={1} step={1} {...editForm.register("height")} /></dd>
+                    </> : undefined,
+                    weight: initialWeight == null ? <>
+                      <dt><Label htmlFor="edit-entry-weight" className="text-xs text-muted-foreground">Peso iniziale (kg)</Label></dt>
+                      <dd><Input id="edit-entry-weight" className="mt-1" type="number" min={1} step={1} {...editForm.register("weight")} /></dd>
+                    </> : undefined,
+                  } : undefined} />
+                )}
               </details>
 
               <PlayerActivitySummaryPanel player={editingPlayer} isYouthSection={editingPlayerIsYouthSection} summary={playerActivity} />
@@ -5405,17 +5452,6 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       </Select>
                     )}
                   />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>{t.height} (cm)</Label>
-                  <Input type="number" {...editForm.register("height")} disabled={!canEditFullPlayer} />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t.weight} (kg)</Label>
-                  <Input type="number" {...editForm.register("weight")} disabled={!canEditFullPlayer} />
                 </div>
               </div>
 

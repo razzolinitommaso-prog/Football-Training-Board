@@ -887,6 +887,12 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   res.json(ListPlayersResponse.parse(enriched));
 });
 
+const entryMeasurementFields = ["height", "weight"] as const;
+
+function entryMeasurement(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 2147483647 ? value : null;
+}
+
 function playerProfileEntry(
   player: Partial<Pick<typeof playersTable.$inferSelect, "position" | "jerseyNumber" | "height" | "weight">>,
   date: string | null = null,
@@ -896,9 +902,25 @@ function playerProfileEntry(
     date,
     position: player.position ?? null,
     jerseyNumber: player.jerseyNumber ?? null,
-    height: player.height ?? null,
-    weight: player.weight ?? null,
+    height: entryMeasurement(player.height),
+    weight: entryMeasurement(player.weight),
   };
+}
+
+function profileEntryForPlayer(player: typeof playersTable.$inferSelect): PlayerProfileEntry {
+  const entry = player.profileHistory?.entry ?? playerProfileEntry(player);
+  return {
+    ...entry,
+    height: entryMeasurement(entry.height) ?? entryMeasurement(player.height),
+    weight: entryMeasurement(entry.weight) ?? entryMeasurement(player.weight),
+  };
+}
+
+function hasInvalidEntryMeasurement(values: { height?: unknown; weight?: unknown }) {
+  return entryMeasurementFields.some(field => {
+    const value = values[field];
+    return value != null && value !== 0 && entryMeasurement(value) == null;
+  });
 }
 
 function profileDate() {
@@ -923,6 +945,10 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
   }
 
   const { parentDelegates: incomingParentDelegates, ...playerData } = parsed.data as typeof parsed.data & { parentDelegates?: ParentDelegateInput[] };
+  if (hasInvalidEntryMeasurement(playerData)) {
+    res.status(400).json({ error: "Altezza e peso iniziali devono essere numeri interi positivi." });
+    return;
+  }
   let clubSection = typeof req.session.section === "string" && req.session.section
     ? req.session.section
     : "scuola_calcio";
@@ -1083,7 +1109,7 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
   res.json({
     period: { start, through },
     profile: showProfile ? {
-      entry: player.profileHistory?.entry ?? playerProfileEntry(player),
+      entry: profileEntryForPlayer(player),
       changes: player.profileHistory?.changes ?? [],
       height: lastHeight ? { value: lastHeight.heightCm, date: lastHeight.date } : null,
       weight: lastWeight ? { value: lastWeight.weightKg, date: lastWeight.date } : null,
@@ -1284,13 +1310,25 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   const previousIds = new Set(previousThread.map((n) => n.id));
   const newlyAddedThreadItems = updatedThread.filter((n) => n?.id && !previousIds.has(n.id));
 
+  if (hasInvalidEntryMeasurement(updateData)) {
+    res.status(400).json({ error: "Altezza e peso iniziali devono essere numeri interi positivi." });
+    return;
+  }
   const clubId = req.session.clubId!;
   const playerScope = and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, clubId));
   const affectsProfile = ["height", "weight", "position", "jerseyNumber"].some(field => Object.hasOwn(updateData, field));
   const [player] = affectsProfile ? await db.transaction(async (tx) => {
     const [current] = await tx.select().from(playersTable).where(playerScope).for("update");
     if (!current) return [];
-    const profile = current.profileHistory ?? { entry: playerProfileEntry(current), changes: [] };
+    const entry = profileEntryForPlayer(current);
+    const profile = {
+      entry: {
+        ...entry,
+        height: entry.height ?? entryMeasurement(updateData.height),
+        weight: entry.weight ?? entryMeasurement(updateData.weight),
+      },
+      changes: current.profileHistory?.changes ?? [],
+    };
     const nextRole = updateData.position === undefined ? current.position : updateData.position as string | null;
     const nextJersey = updateData.jerseyNumber === undefined ? current.jerseyNumber : updateData.jerseyNumber as number | null;
     if (nextRole !== current.position || nextJersey !== current.jerseyNumber) {
