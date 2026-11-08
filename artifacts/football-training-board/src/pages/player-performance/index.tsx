@@ -15,6 +15,7 @@ import { customFetch } from "@workspace/api-client-react/custom-fetch";
 import { useListPlayers, useListTeams } from "@workspace/api-client-react";
 import { useForm, Controller } from "react-hook-form";
 import { format } from "date-fns";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface FitnessEntry {
   id: number;
@@ -24,6 +25,9 @@ interface FitnessEntry {
   endurance: number | null;
   strength: number | null;
   speed: number | null;
+  heightCm?: number | null;
+  weightKg?: number | null;
+  observedRole?: string | null;
   notes: string | null;
   activityType?: string | null;
   teamId?: number | null;
@@ -40,9 +44,19 @@ interface FormValues {
   endurance: number | "";
   strength: number | "";
   speed: number | "";
+  heightCm?: string;
+  weightKg?: string;
+  observedRole?: string;
   notes: string;
   parentNote: string;
 }
+
+const observedRoles = [
+  { value: "GK", label: "Portiere" },
+  { value: "DEF", label: "Difensore" },
+  { value: "MID", label: "Centrocampista" },
+  { value: "FWD", label: "Attaccante" },
+];
 
 const ACTIVITY_TYPES = [
   { value: "test_atletico", label: "Test atletico" },
@@ -73,6 +87,7 @@ function ScoreBar({ value, color }: { value: number | null; color: string }) {
 export default function PlayerPerformance() {
   const { t } = useLanguage();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [entries, setEntries] = useState<FitnessEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
@@ -138,6 +153,9 @@ export default function PlayerPerformance() {
           endurance: values.endurance !== "" ? Number(values.endurance) : null,
           strength: values.strength !== "" ? Number(values.strength) : null,
           speed: values.speed !== "" ? Number(values.speed) : null,
+          heightCm: values.targetMode === "single" && values.heightCm ? Number(values.heightCm) : null,
+          weightKg: values.targetMode === "single" && values.weightKg ? Number(values.weightKg) : null,
+          observedRole: values.targetMode === "single" ? values.observedRole || null : null,
           notes: values.notes || null,
           parentNote: values.parentNote || null,
         }),
@@ -145,6 +163,7 @@ export default function PlayerPerformance() {
       toast({ title: t.saved });
       setIsOpen(false);
       form.reset({ targetMode: "single", teamId: "", date: new Date().toISOString().slice(0, 10), activityType: "test_atletico", playerId: "", endurance: "", strength: "", speed: "", notes: "", parentNote: "" });
+      void queryClient.invalidateQueries({ queryKey: ["/api/players", Number(values.playerId), "activity-summary"] });
       loadEntries();
     } catch {
       toast({ title: "Error", variant: "destructive" });
@@ -156,6 +175,8 @@ export default function PlayerPerformance() {
   const deleteEntry = async (id: number) => {
     try {
       await customFetch(`/api/player-fitness-data/${id}`, { method: "DELETE" });
+      const playerId = entries.find(entry => entry.id === id)?.playerId;
+      if (playerId != null) void queryClient.invalidateQueries({ queryKey: ["/api/players", playerId, "activity-summary"] });
       setEntries(e => e.filter(x => x.id !== id));
       toast({ title: t.saved });
     } catch {
@@ -174,7 +195,7 @@ export default function PlayerPerformance() {
           <DialogTrigger asChild>
             <Button><Plus className="w-4 h-4 mr-2" />{t.addTestResult}</Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-h-[90dvh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{t.recordPerformance}</DialogTitle>
             </DialogHeader>
@@ -286,6 +307,29 @@ export default function PlayerPerformance() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">{t.outOf100}</p>
+              {targetMode === "single" && <fieldset className="space-y-3 rounded-lg border p-3">
+                <legend className="px-1 text-sm font-medium">Crescita e ruolo osservato</legend>
+                <p className="text-xs text-muted-foreground">Dati facoltativi. Le misure aggiornano lo storico del giocatore alla data del test.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="test-height">Altezza (cm)</Label>
+                    <Input id="test-height" type="number" step="0.01" min="0.01" {...form.register("heightCm")} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="test-weight">Peso (kg)</Label>
+                    <Input id="test-weight" type="number" step="0.01" min="0.01" {...form.register("weightKg")} />
+                  </div>
+                </div>
+                <Controller control={form.control} name="observedRole" render={({ field }) => (
+                  <Select value={field.value || "none"} onValueChange={value => field.onChange(value === "none" ? "" : value)}>
+                    <SelectTrigger aria-label="Ruolo osservato"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Ruolo osservato · Non indicato</SelectItem>
+                      {observedRoles.map(role => <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )} />
+              </fieldset>}
               <div className="space-y-2">
                 <Label>Note staff</Label>
                 <Textarea {...form.register("notes")} rows={2} />
@@ -386,6 +430,12 @@ export default function PlayerPerformance() {
                         <ScoreBar value={entry.speed} color="bg-purple-400" />
                       </div>
                     </div>
+                    {(entry.heightCm != null || entry.weightKg != null || entry.observedRole) &&
+                      <p className="mt-2 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                        {entry.heightCm != null && <span>Altezza {entry.heightCm.toLocaleString("it-IT", { maximumFractionDigits: 2 })} cm</span>}
+                        {entry.weightKg != null && <span>Peso {entry.weightKg.toLocaleString("it-IT", { maximumFractionDigits: 2 })} kg</span>}
+                        {entry.observedRole && <span>Ruolo osservato {observedRoles.find(role => role.value === entry.observedRole)?.label ?? entry.observedRole}</span>}
+                      </p>}
                     {entry.notes && (
                       <p className="text-xs text-muted-foreground mt-2 italic">{entry.notes}</p>
                     )}

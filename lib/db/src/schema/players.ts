@@ -1,8 +1,25 @@
-import { pgTable, text, serial, timestamp, integer, date, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, date, boolean, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { clubsTable } from "./clubs";
 import { teamsTable } from "./teams";
+
+export type PlayerProfileEntry = {
+  source: "entry" | "legacy";
+  date: string | null;
+  position: string | null;
+  jerseyNumber: number | null;
+  height: number | null;
+  weight: number | null;
+};
+
+export type PlayerAssignmentChange = {
+  date: string;
+  team: string | null;
+  season: string | null;
+  role?: { from: string | null; to: string | null };
+  jersey?: { from: number | null; to: number | null };
+};
 
 export const playersTable = pgTable("players", {
   id: serial("id").primaryKey(),
@@ -17,6 +34,7 @@ export const playersTable = pgTable("players", {
   status: text("status").notNull().default("active"),
   height: integer("height"),
   weight: integer("weight"),
+  profileHistory: jsonb("profile_history").$type<{ entry: PlayerProfileEntry; changes: PlayerAssignmentChange[] }>(),
   notes: text("notes"),
   phone: text("phone"),
   email: text("email"),
@@ -53,6 +71,6 @@ export const playersTable = pgTable("players", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
-export const insertPlayerSchema = createInsertSchema(playersTable).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPlayerSchema = createInsertSchema(playersTable).omit({ id: true, createdAt: true, updatedAt: true, profileHistory: true });
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
 export type Player = typeof playersTable.$inferSelect;

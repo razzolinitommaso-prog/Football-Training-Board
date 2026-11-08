@@ -12,6 +12,8 @@ console.log("[env] PORT =", process.env.PORT ?? "(default)");
 
 const port = Number(process.env.PORT) || 3001;
 
+const { ensurePlayerProfileSchema } = await import("./lib/player-profile-schema");
+await ensurePlayerProfileSchema();
 const { default: app } = await import("./app");
 
 app.listen(port, () => {

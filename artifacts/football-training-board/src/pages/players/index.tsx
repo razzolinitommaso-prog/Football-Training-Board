@@ -311,7 +311,29 @@ type ExtraTimeRow = {
   parentVisible: boolean;
 };
 
+type ProfileEntry = {
+  source: "entry" | "legacy";
+  date: string | null;
+  position: string | null;
+  jerseyNumber: number | null;
+  height: number | null;
+  weight: number | null;
+};
+type AssignmentChange = {
+  date: string;
+  team: string | null;
+  season: string | null;
+  role?: { from: string | null; to: string | null };
+  jersey?: { from: number | null; to: number | null };
+};
 type PlayerActivitySummary = {
+  profile?: {
+    entry: ProfileEntry;
+    changes: AssignmentChange[];
+    height: { value: number; date: string } | null;
+    weight: { value: number; date: string } | null;
+    observedRole: { value: string; date: string } | null;
+  };
   period?: { start: string; through: string };
   conduct: { status: string; reason?: string | null; training?: Record<string, number> };
   trainingAttendance: {
@@ -749,22 +771,61 @@ function percentLabel(value: number | null): string {
   return value == null ? "N/D" : `${value}%`;
 }
 
-function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: number; isYouthSection: boolean }) {
-  const { t } = useLanguage();
-  const { data, isLoading, isError } = useQuery<PlayerActivitySummary>({
-    queryKey: ["/api/players", playerId, "activity-summary"],
+function usePlayerActivitySummary(playerId: number | undefined) {
+  const { club, user, role } = useAuth();
+  return useQuery<PlayerActivitySummary>({
+    queryKey: ["/api/players", playerId, "activity-summary", club?.id, user?.id, role],
     queryFn: async () => {
       const res = await fetch(withApi(`/api/players/${playerId}/activity-summary`), { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    enabled: Number.isFinite(playerId),
+    enabled: playerId != null,
   });
+}
 
+const profileDateLabel = (date?: string | null) => date ? date.split("-").reverse().join("/") : "";
+const profileRoleLabel = (role?: string | null) =>
+  ({ GK: "Portiere", DEF: "Difensore", MID: "Centrocampista", FWD: "Attaccante" } as Record<string, string>)[role ?? ""] ?? role ?? "—";
+const profileMeasure = (value: number | null | undefined, unit: string) =>
+  value == null ? "—" : value.toLocaleString("it-IT", { maximumFractionDigits: 2 }) + " " + unit;
+
+function PlayerEntryValues({ entry, player, showIdentity }: { entry?: ProfileEntry; player: Player; showIdentity?: boolean }) {
+  const values = entry ?? player;
+  const label = entry?.source === "entry" ? "Dati d’ingresso" : "Primo dato disponibile";
+  return <div className="mt-3 space-y-2">
+    <p className="text-xs font-medium text-muted-foreground">{label}{entry?.date ? " · " + profileDateLabel(entry.date) : ""}</p>
+    <dl className={showIdentity ? "grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" : "grid grid-cols-2 gap-2 sm:grid-cols-4"}>
+      {[
+        ...(showIdentity ? [["Nazionalità", player.nationality || "—"], ["Data di nascita", profileDateLabel(player.dateOfBirth) || "—"]] : []),
+        [entry?.source === "entry" ? "Ruolo iniziale" : "Primo ruolo noto", profileRoleLabel(values.position)],
+        [entry?.source === "entry" ? "Maglia iniziale" : "Prima maglia nota", values.jerseyNumber ?? "—"],
+        ["Altezza", profileMeasure(values.height, "cm")],
+        ["Peso", profileMeasure(values.weight, "kg")],
+      ].map(([title, value]) => <div key={title} className="min-w-0 rounded-md border bg-muted/25 p-2">
+        <dt className="text-xs text-muted-foreground">{title}</dt>
+        <dd className="break-words text-sm font-medium">{value}</dd>
+      </div>)}
+    </dl>
+  </div>;
+}
+
+function PlayerActivitySummaryPanel({ player, isYouthSection, summary }: {
+  player: Player;
+  isYouthSection: boolean;
+  summary: ReturnType<typeof usePlayerActivitySummary>;
+}) {
+  const { t } = useLanguage();
+  const { data, isLoading, isError } = summary;
+  const profile = data?.profile;
+  const changes = [...(profile?.changes ?? [])].reverse();
+  const latestRole = changes.find(change => change.role);
+  const latestJersey = changes.find(change => change.jersey);
   return (
-    <details className="group rounded-lg border p-3">
+    <details className="group rounded-lg border p-3" open>
       <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3" indicator={false}>
-        <span className="text-sm font-semibold">Storico sportivo automatico</span>
+        <span className="flex-1 text-sm font-semibold">Storico sportivo automatico</span>
+        <span className="text-xs text-muted-foreground">Sola lettura</span>
         <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
       </DisclosureSummary>
       {isLoading ? (
@@ -776,6 +837,29 @@ function PlayerActivitySummaryPanel({ playerId, isYouthSection }: { playerId: nu
         <p className="mt-3 text-sm text-muted-foreground">Riepilogo non disponibile.</p>
       ) : (
         <div className="mt-3 space-y-3">
+          {profile && <section className="space-y-2 border-t pt-3">
+            <h3 className="text-sm font-semibold">Crescita e percorso</h3>
+            <dl className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+              {[
+                { label: "Altezza · Test", value: profileMeasure(profile.height?.value, "cm"), date: profile.height?.date },
+                { label: "Peso · Test", value: profileMeasure(profile.weight?.value, "kg"), date: profile.weight?.date },
+                { label: "Ruolo assegnato", value: profileRoleLabel(player.position), date: latestRole?.date },
+                { label: "Maglia attuale", value: player.jerseyNumber ?? "—", date: latestJersey?.date },
+              ].map(item => <div key={item.label} className="min-w-0 rounded-md border border-primary/15 bg-primary/5 p-2">
+                <dt className="text-xs text-muted-foreground">{item.label}</dt>
+                <dd className="break-words text-sm font-semibold">{item.value}</dd>
+                {item.date && <dd className="text-xs text-muted-foreground">{profileDateLabel(item.date)}</dd>}
+              </div>)}
+            </dl>
+            {profile.observedRole && <p className="text-xs text-muted-foreground">Ruolo osservato nel test · {profileRoleLabel(profile.observedRole.value)} · {profileDateLabel(profile.observedRole.date)}</p>}
+            {changes.length > 0 && <ul className="space-y-1 border-t pt-2 text-xs text-muted-foreground">
+              {changes.map((change, index) => <li key={index} className="break-words">
+                {[profileDateLabel(change.date), change.team, change.season].filter(Boolean).join(" · ")}
+                {change.role && <> · Ruolo {profileRoleLabel(change.role.from)} → {profileRoleLabel(change.role.to)}</>}
+                {change.jersey && <> · Maglia {change.jersey.from ?? "—"} → {change.jersey.to ?? "—"}</>}
+              </li>)}
+            </ul>}
+          </section>}
           {data.period && <p className="text-xs text-muted-foreground">Stagione: {data.period.start.split("-").reverse().join("/")} – {data.period.through.split("-").reverse().join("/")}</p>}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div className="rounded-lg border bg-muted/20 p-3">
@@ -1556,6 +1640,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const [heightMax, setHeightMax] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const playerActivity = usePlayerActivitySummary(editingPlayer?.id);
   const [playerDialogMode, setPlayerDialogMode] = useState<"view" | "edit">("view");
   const [openedFromQuery, setOpenedFromQuery] = useState(false);
   const [formSeasonFilter, setFormSeasonFilter] = useState<string>("all");
@@ -1761,15 +1846,25 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     return { tone: "green" as const, label: "Completo" };
   })();
 
-  function SectionStatusBadge({ status }: { status: { tone: "red" | "yellow" | "green"; label: string } }) {
+  type SectionStatus = { tone: "red" | "yellow" | "green" | "neutral"; label: string };
+  const notApplicable: SectionStatus = { tone: "neutral", label: "Non applicabile" };
+  function completionStatus(required: unknown[]): SectionStatus {
+    const present = required.filter(value => typeof value === "string" ? value.trim() !== "" : Boolean(value)).length;
+    if (present === 0) return { tone: "red", label: "Mancanti" };
+    if (present < required.length) return { tone: "yellow", label: "Da completare" };
+    return { tone: "green", label: "Completi" };
+  }
+
+  function SectionStatusBadge({ status }: { status: SectionStatus }) {
     const classes = {
+      neutral: "border-border bg-muted text-muted-foreground",
       red: "border-red-200 bg-red-50 text-red-700",
       yellow: "border-amber-200 bg-amber-50 text-amber-800",
       green: "border-emerald-200 bg-emerald-50 text-emerald-700",
     }[status.tone];
     return (
       <span className={`ml-auto inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${classes}`}>
-        <span className={`h-2 w-2 rounded-full ${status.tone === "red" ? "bg-red-500" : status.tone === "yellow" ? "bg-amber-500" : "bg-emerald-500"}`} />
+        <span className={`h-2 w-2 rounded-full ${status.tone === "red" ? "bg-red-500" : status.tone === "yellow" ? "bg-amber-500" : status.tone === "green" ? "bg-emerald-500" : "bg-muted-foreground"}`} />
         {status.label}
       </span>
     );
@@ -1782,7 +1877,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     tone = "muted",
   }: {
     title: string;
-    status?: { tone: "red" | "yellow" | "green"; label: string };
+    status?: SectionStatus;
     icon?: React.ReactNode;
     tone?: "muted" | "success";
   }) {
@@ -2556,6 +2651,16 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const watchPhoneOwnerEdit = editForm.watch("phoneOwnerType");
   const watchShuttleCreate = form.watch("shuttleService");
   const watchShuttleEdit = editForm.watch("shuttleService");
+  const playerDataStatus = completionStatus([editForm.watch("dateOfBirth"), editForm.watch("nationality")]);
+  const contactStatus = completionStatus([
+    editForm.watch("phone") || editForm.watch("email") || editForm.watch("parentPhone") || editForm.watch("parentEmail") ||
+    editForm.watch("secondaryContactPhone") || editForm.watch("secondaryContactEmail"),
+  ]);
+  const savedDelegateCount = parentDelegateRows.filter(row => row.id && row.isActive !== false).length;
+  const delegatesStatus = savedDelegateCount > 0
+    ? completionStatus([true]) : editingPlayerIsYouthSection || (editingPlayerTeam as TeamWithSeason | undefined)?.clubSection === "scuola_calcio" || section === "scuola_calcio" ? completionStatus([false]) : notApplicable;
+  const shuttleStatus = watchShuttleEdit ? completionStatus([true, editForm.watch("shuttleRoute")]) : notApplicable;
+  const assignedTeamStatus = completionStatus([editForm.watch("teamId")]);
   const watchMedicalCertificateEdit = editForm.watch("medicalCertificateExpiry");
   const watchMedicalCertificateCreate = form.watch("medicalCertificateExpiry");
   const editAvailabilityBlocks = getAvailabilityBlocks(watchRegisteredEdit, watchMedicalCertificateEdit);
@@ -3706,19 +3811,19 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
       {/* Edit Dialog */}
       <Dialog open={!!editingPlayer} onOpenChange={(o) => !o && setEditingPlayer(null)}>
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-[900px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-[900px] max-h-[90dvh] overflow-y-auto overflow-x-hidden p-3 sm:p-6">
           <DialogHeader>
             <DialogTitle>{playerDialogMode === "edit" ? t.editPlayer : "Scheda giocatore"}</DialogTitle>
           </DialogHeader>
           {editingPlayer && (
             playerDialogMode === "view" ? (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit, handleEditInvalid)} className="space-y-4 pt-2">
-              <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
                 {editForm.watch("imageUrl") ? (
-                  <img src={editForm.watch("imageUrl") ?? ""} alt="Giocatore" className="h-32 w-32 shrink-0 rounded-lg border bg-background object-cover shadow-sm sm:h-36 sm:w-36" />
+                  <img src={editForm.watch("imageUrl") ?? ""} alt="Giocatore" className="h-12 w-12 shrink-0 rounded-lg border bg-background object-cover sm:h-16 sm:w-16" />
                 ) : (
-                  <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground shadow-sm sm:h-36 sm:w-36">
-                    <User className="h-14 w-14" />
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground sm:h-16 sm:w-16">
+                    <User className="h-6 w-6 sm:h-8 sm:w-8" />
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
@@ -3742,7 +3847,14 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <details className="group rounded-lg border p-3" open>
+                <CollapsibleSectionSummary title="Dati giocatore" status={playerDataStatus} />
+                {playerActivity.isLoading ? <Skeleton className="mt-3 h-14 rounded-md" /> : <PlayerEntryValues entry={playerActivity.data?.profile?.entry} player={editingPlayer} showIdentity />}
+              </details>
+
+              <PlayerActivitySummaryPanel player={editingPlayer} isYouthSection={editingPlayerIsYouthSection} summary={playerActivity} />
+
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                 <div className="rounded-lg border bg-background p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tesseramento</p>
                   <p className="mt-1 text-sm font-semibold">{editingPlayer.registered ? t.registered : "Non tesserato"}</p>
@@ -3757,12 +3869,12 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 </div>
                 <div className="rounded-lg border bg-background p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">App genitori</p>
-                  <p className="mt-1 text-sm font-semibold">{parentDelegateRows.length > 0 ? `${parentDelegateRows.length} delegati` : "Nessun delegato"}</p>
+                  <p className="mt-1 text-sm font-semibold">{savedDelegateCount === 0 ? "Nessun delegato" : savedDelegateCount === 1 ? "1 delegato" : savedDelegateCount + " delegati"}</p>
                 </div>
               </div>
 
               <details className="group rounded-lg border p-3">
-                <CollapsibleSectionSummary title="Comunicazioni" />
+                <CollapsibleSectionSummary title="Comunicazioni" status={{ tone: "neutral", label: "Messaggi" }} />
                 <div className="mt-3">
                   <p className="mb-2 text-xs text-muted-foreground">Puoi inviare una nota o rispondere a una richiesta.</p>
                 {(() => {
@@ -3846,8 +3958,6 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 </div>
               </details>
 
-              <PlayerActivitySummaryPanel playerId={editingPlayer.id} isYouthSection={editingPlayerIsYouthSection} />
-
               {canViewExtraTime && (
                 <details className="group rounded-lg border p-3">
                   <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} />
@@ -3858,24 +3968,30 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               )}
 
               <details className="group rounded-lg border p-3" open>
-                <CollapsibleSectionSummary title="Dati principali" />
+                <CollapsibleSectionSummary title="Squadra assegnata" status={assignedTeamStatus} />
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-muted-foreground">Squadra principale</span><p>{editingPlayer.teamName || t.unassigned}</p></div>
                   <div><span className="text-muted-foreground">Gruppo principale</span><p>{editingPrimarySquad || "-"}</p></div>
                   <div><span className="text-muted-foreground">Ruolo principale</span><p>{specificRoleLabel(editingPrimarySpecificRole)}</p></div>
                   <div><span className="text-muted-foreground">Stato principale</span><p>{lineupStatusLabel(editingPrimaryLineupStatus)}</p></div>
+                  <div><span className="text-muted-foreground">Stato giocatore</span><p>{statusLabel(editingPlayer.status)}</p></div>
                   <div><span className="text-muted-foreground">Squadra supplementare</span><p>{editingPlayer.supplementalTeamName || editingSupplementalTeam?.name || (editingSupplementalTeamId ? `Squadra #${editingSupplementalTeamId}` : "-")}</p></div>
                   <div><span className="text-muted-foreground">Gruppo supplementare</span><p>{editingSupplementalSquad || "-"}</p></div>
                   <div><span className="text-muted-foreground">Ruolo supplementare</span><p>{specificRoleLabel(editingSupplementalSpecificRole)}</p></div>
                   <div><span className="text-muted-foreground">Stato supplementare</span><p>{lineupStatusLabel(editingSupplementalLineupStatus)}</p></div>
-                  <div><span className="text-muted-foreground">Nato il</span><p>{editingPlayer.dateOfBirth || "-"}</p></div>
-                  <div><span className="text-muted-foreground">Nazionalita</span><p>{editingPlayer.nationality || "-"}</p></div>
-                  <div><span className="text-muted-foreground">Altezza</span><p>{editingPlayer.height ? `${editingPlayer.height} cm` : "-"}</p></div>
-                  <div><span className="text-muted-foreground">Peso</span><p>{editingPlayer.weight ? `${editingPlayer.weight} kg` : "-"}</p></div>
+                </div>
+              </details>
+              <details className="group rounded-lg border p-3">
+                <CollapsibleSectionSummary title="Tesseramento e certificato" status={registrationSectionStatus} />
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-muted-foreground">Tesseramento</span><p>{editingPlayer.registered ? t.registered : "-"}</p></div>
                   <div><span className="text-muted-foreground">Numero matricola</span><p>{editingPlayer.registrationNumber || "-"}</p></div>
-                  <div><span className="text-muted-foreground">Ruolo generico</span><p>{editingPlayer.position || "-"}</p></div>
                   <div><span className="text-muted-foreground">Certificato medico</span><p>{isMedicalCertificateValid(editingPlayer.medicalCertificateExpiry) ? `Valido fino al ${editingPlayer.medicalCertificateExpiry}` : "Assente o scaduto"}</p></div>
+                </div>
+              </details>
+              <details className="group rounded-lg border p-3">
+                <CollapsibleSectionSummary title="Pulmino" status={shuttleStatus} />
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-muted-foreground">Pulmino</span><p>{editingPlayer.shuttleService ? "Si" : "No"}</p></div>
                   {editingPlayer.shuttleService && (
                     <>
@@ -3883,7 +3999,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       <div><span className="text-muted-foreground">Tipo tratta</span><p>{editingPlayer.shuttleDirection === "outbound" ? "Solo andata" : editingPlayer.shuttleDirection === "return" ? "Solo ritorno" : "Andata e ritorno"}</p></div>
                     </>
                   )}
-                  <div><span className="text-muted-foreground">Stato</span><p>{statusLabel(editingPlayer.status)}</p></div>
+                </div>
+              </details>
+              <details className="group rounded-lg border p-3">
+                <CollapsibleSectionSummary title="Contatti" status={contactStatus} />
+                <div className="mt-3 grid grid-cols-1 gap-3 break-words text-sm sm:grid-cols-2">
                   <div><span className="text-muted-foreground">Telefono</span><PhoneLink value={editingPlayer.phone} /></div>
                   <div><span className="text-muted-foreground">Email</span><p>{editingPlayer.email || "-"}</p></div>
                   {(editingPlayer.phoneOwnerType === "parent" || Boolean(editingPlayer.parentFirstName || editingPlayer.parentLastName || editingPlayer.parentPhone || editingPlayer.parentEmail || editingPlayer.parentRelation)) && (
@@ -3898,6 +4018,15 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   <div><span className="text-muted-foreground">Relazione secondo referente</span><p>{editingPlayer.secondaryContactRelation || "-"}</p></div>
                   <div><span className="text-muted-foreground">Telefono secondo referente</span><PhoneLink value={editingPlayer.secondaryContactPhone} /></div>
                   <div><span className="text-muted-foreground">Email secondo referente</span><p>{editingPlayer.secondaryContactEmail || "-"}</p></div>
+                </div>
+              </details>
+
+              <details className="group rounded-lg border p-3">
+                <CollapsibleSectionSummary title="Documenti giocatore" icon={<FileText className="h-4 w-4" />} status={documentSectionStatus} />
+                <div className="mt-2 space-y-1 text-sm">
+                  {editingPlayerDocuments.length ? editingPlayerDocuments.map(doc => (
+                    <p key={doc.id} className="break-words">{playerDocumentLabel(doc.type)}{doc.expiryDate && " · Scadenza " + profileDateLabel(doc.expiryDate)}</p>
+                  )) : <p className="text-muted-foreground">Nessun documento registrato.</p>}
                 </div>
               </details>
 
@@ -3957,7 +4086,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
             </form>
             ) : (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit, handleEditInvalid)} className="space-y-4 pt-2">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_1fr]">
+              <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[5rem_minmax(0,1fr)]">
                 <div className="space-y-2">
                   <Label>Immagine giocatore</Label>
                   <div className="flex items-center gap-3">
@@ -3965,11 +4094,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       <img
                         src={editForm.watch("imageUrl") ?? ""}
                         alt="Anteprima giocatore"
-                        className="h-36 w-36 rounded-lg border bg-background object-cover shadow-sm"
+                        className="h-14 w-14 rounded-lg border bg-background object-cover sm:h-16 sm:w-16"
                       />
                     ) : (
-                      <div className="flex h-36 w-36 items-center justify-center rounded-lg border bg-muted text-muted-foreground shadow-sm">
-                        <User className="h-14 w-14" />
+                      <div className="flex h-14 w-14 items-center justify-center rounded-lg border bg-muted text-muted-foreground sm:h-16 sm:w-16">
+                        <User className="h-6 w-6 sm:h-8 sm:w-8" />
                       </div>
                     )}
                   </div>
@@ -4046,10 +4175,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 </Button>
               )}
 
-              <PlayerActivitySummaryPanel playerId={editingPlayer.id} isYouthSection={editingPlayerIsYouthSection} />
-
               <details className="group rounded-lg border border-border/60 bg-muted/10 p-3" open>
-                <CollapsibleSectionSummary title="Dati giocatore" />
+                <CollapsibleSectionSummary title="Dati giocatore" status={playerDataStatus} />
                 <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{t.nationality}</Label>
@@ -4059,42 +4186,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     <Label>{t.dateOfBirth}</Label>
                     <Input type="date" {...editForm.register("dateOfBirth")} disabled={!canEditFullPlayer} />
                   </div>
-                  <div className="space-y-2">
-                    <Label>{t.jerseyNumber}</Label>
-                    <Input type="number" {...editForm.register("jerseyNumber")} disabled={!canEditFullPlayer} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t.registrationNumber}</Label>
-                    <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Ruolo generico</Label>
-                    <Controller
-                      control={editForm.control}
-                      name="position"
-                      render={({ field }) => (
-                        <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditPlayerRole}>
-                          <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="GK">{t.goalkeeper}</SelectItem>
-                            <SelectItem value="DEF">{t.defender}</SelectItem>
-                            <SelectItem value="MID">{t.midfielder}</SelectItem>
-                            <SelectItem value="FWD">{t.forward}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t.height} (cm)</Label>
-                    <Input type="number" {...editForm.register("height")} disabled={!canEditFullPlayer} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t.weight} (kg)</Label>
-                    <Input type="number" {...editForm.register("weight")} disabled={!canEditFullPlayer} />
-                  </div>
                 </div>
+                {playerActivity.isLoading ? <Skeleton className="mt-3 h-14 rounded-md" /> : <PlayerEntryValues entry={playerActivity.data?.profile?.entry} player={editingPlayer} />}
               </details>
+
+              <PlayerActivitySummaryPanel player={editingPlayer} isYouthSection={editingPlayerIsYouthSection} summary={playerActivity} />
 
               {false && canViewFinancials && (
                 <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3">
@@ -4210,7 +4306,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               )}
 
               <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                <CollapsibleSectionSummary title="Contatti" />
+                <CollapsibleSectionSummary title="Contatti" status={contactStatus} />
                 <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
@@ -4290,7 +4386,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               </details>
 
               <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                <CollapsibleSectionSummary title="Utenti collegati App Genitori" />
+                <CollapsibleSectionSummary title="Utenti collegati App Genitori" status={delegatesStatus} />
                 <div className="mt-3 space-y-3">
                   <p className="text-xs text-muted-foreground">
                     Inserisci fino a 3 delegati. Al salvataggio viene generato il codice iniziale/reset collegato a questo giocatore.
@@ -4395,6 +4491,10 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     <Label>Scadenza certificato medico</Label>
                     <Input type="date" {...editForm.register("medicalCertificateExpiry")} disabled={!canEditFullPlayer} />
                   </div>
+                  <div className="space-y-2">
+                    <Label>{t.registrationNumber}</Label>
+                    <Input {...editForm.register("registrationNumber")} disabled={!canEditFullPlayer} />
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
@@ -4438,7 +4538,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               </details>
 
               <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                <CollapsibleSectionSummary title="Pulmino" />
+                <CollapsibleSectionSummary title="Pulmino" status={shuttleStatus} />
                 <div className="mt-3 space-y-3">
                   <div className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
                     <Controller
@@ -4568,8 +4668,32 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               </details>
 
               <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                <CollapsibleSectionSummary title="Squadra assegnata" />
+                <CollapsibleSectionSummary title="Squadra assegnata" status={assignedTeamStatus} />
                 <div className="mt-3 space-y-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Ruolo assegnato</Label>
+                    <Controller
+                      control={editForm.control}
+                      name="position"
+                      render={({ field }) => (
+                        <Select onValueChange={field.onChange} value={field.value || ""} disabled={!canEditPlayerRole}>
+                          <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="GK">{t.goalkeeper}</SelectItem>
+                            <SelectItem value="DEF">{t.defender}</SelectItem>
+                            <SelectItem value="MID">{t.midfielder}</SelectItem>
+                            <SelectItem value="FWD">{t.forward}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                    <div className="space-y-2">
+                      <Label>Maglia attuale</Label>
+                      <Input type="number" {...editForm.register("jerseyNumber")} disabled={!canEditFullPlayer} />
+                    </div>
+                  </div>
                   <div className="rounded-md border bg-background p-3 space-y-3">
                     <p className="text-sm font-semibold">Assegnazione principale</p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

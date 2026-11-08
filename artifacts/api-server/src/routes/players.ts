@@ -21,6 +21,8 @@ import {
   matchesTable,
   callUpsTable,
   playerFitnessDataTable,
+  type PlayerProfileEntry,
+  type PlayerAssignmentChange,
 } from "@workspace/db";
 import { eq, and, or, asc, desc, inArray, sql } from "drizzle-orm";
 import {
@@ -35,7 +37,7 @@ import {
   DeletePlayerParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
-import { isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
+import { isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections, getAssignedTeamIds, getPlayerMeasurementTeamScope, canAccessPlayerMeasurements } from "../lib/club-scope";
 import { requireClubAndUserIds } from "../lib/session-context";
 import { assertCanCreateWithinPlan } from "../lib/plan-limits";
 import { sendParentNotificationEmail } from "../lib/parent-email";
@@ -332,29 +334,6 @@ async function playerRequestConflictsForMatch(clubId: number, matchId: number, p
     });
   }
   return conflicts;
-}
-
-async function getAssignedTeamIds(userId: number, clubId: number): Promise<number[]> {
-  const staffRows = await db
-    .select({ teamId: teamStaffAssignmentsTable.teamId })
-    .from(teamStaffAssignmentsTable)
-    .where(and(
-      eq(teamStaffAssignmentsTable.userId, userId),
-      eq(teamStaffAssignmentsTable.clubId, clubId),
-    ));
-
-  const coachedRows = await db
-    .select({ teamId: teamsTable.id })
-    .from(teamsTable)
-    .where(and(
-      eq(teamsTable.coachId, userId),
-      eq(teamsTable.clubId, clubId),
-    ));
-
-  return Array.from(new Set([
-    ...staffRows.map((row) => row.teamId),
-    ...coachedRows.map((row) => row.teamId),
-  ]));
 }
 
 function staffRoleForSection(raw: string | null | undefined, section: string | null | undefined): string | null {
@@ -908,6 +887,24 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
   res.json(ListPlayersResponse.parse(enriched));
 });
 
+function playerProfileEntry(
+  player: Partial<Pick<typeof playersTable.$inferSelect, "position" | "jerseyNumber" | "height" | "weight">>,
+  date: string | null = null,
+): PlayerProfileEntry {
+  return {
+    source: date ? "entry" : "legacy",
+    date,
+    position: player.position ?? null,
+    jerseyNumber: player.jerseyNumber ?? null,
+    height: player.height ?? null,
+    weight: player.weight ?? null,
+  };
+}
+
+function profileDate() {
+  return new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
+}
+
 router.post("/players", requireAuth, async (req, res): Promise<void> => {
   const role = normalizeSessionRole(req.session.role);
   if (!PLAYER_MANAGE_ROLES.includes(role)) {
@@ -946,7 +943,7 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
 
   const [player] = await db
     .insert(playersTable)
-    .values(values)
+    .values({ ...values, profileHistory: { entry: playerProfileEntry(values, profileDate()), changes: [] } })
     .returning();
 
   if (incomingParentDelegates) {
@@ -1076,10 +1073,22 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
     .select()
     .from(playerFitnessDataTable)
     .where(and(eq(playerFitnessDataTable.clubId, clubId), eq(playerFitnessDataTable.playerId, player.id)))
-    .orderBy(desc(playerFitnessDataTable.date));
+    .orderBy(desc(playerFitnessDataTable.date), desc(playerFitnessDataTable.id));
 
+  const measurementScope = await getPlayerMeasurementTeamScope(req);
+  const showProfile = canAccessPlayerMeasurements(measurementScope, player.teamId ?? supplementalTrainingTeam(player.notes));
+  const lastHeight = fitnessData.find(entry => entry.heightCm != null);
+  const lastWeight = fitnessData.find(entry => entry.weightKg != null);
+  const lastObservedRole = fitnessData.find(entry => entry.observedRole != null);
   res.json({
     period: { start, through },
+    profile: showProfile ? {
+      entry: player.profileHistory?.entry ?? playerProfileEntry(player),
+      changes: player.profileHistory?.changes ?? [],
+      height: lastHeight ? { value: lastHeight.heightCm, date: lastHeight.date } : null,
+      weight: lastWeight ? { value: lastWeight.weightKg, date: lastWeight.date } : null,
+      observedRole: lastObservedRole ? { value: lastObservedRole.observedRole, date: lastObservedRole.date } : null,
+    } : undefined,
     conduct: {
       status: conductCounts.insufficiente > 0 ? "Da monitorare" : player.available === false ? "Da monitorare" : "Regolare",
       reason: player.available === false ? player.unavailabilityReason ?? "non_disponibile" : null,
@@ -1275,11 +1284,30 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   const previousIds = new Set(previousThread.map((n) => n.id));
   const newlyAddedThreadItems = updatedThread.filter((n) => n?.id && !previousIds.has(n.id));
 
-  const [player] = await db
-    .update(playersTable)
-    .set(updateData)
-    .where(and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, req.session.clubId!)))
-    .returning();
+  const clubId = req.session.clubId!;
+  const playerScope = and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, clubId));
+  const affectsProfile = ["height", "weight", "position", "jerseyNumber"].some(field => Object.hasOwn(updateData, field));
+  const [player] = affectsProfile ? await db.transaction(async (tx) => {
+    const [current] = await tx.select().from(playersTable).where(playerScope).for("update");
+    if (!current) return [];
+    const profile = current.profileHistory ?? { entry: playerProfileEntry(current), changes: [] };
+    const nextRole = updateData.position === undefined ? current.position : updateData.position as string | null;
+    const nextJersey = updateData.jerseyNumber === undefined ? current.jerseyNumber : updateData.jerseyNumber as number | null;
+    if (nextRole !== current.position || nextJersey !== current.jerseyNumber) {
+      const teamId = updateData.teamId === undefined ? current.teamId : updateData.teamId as number | null;
+      const [team] = teamId == null ? [] : await tx.select({ name: teamsTable.name, season: seasonsTable.name })
+        .from(teamsTable)
+        .leftJoin(seasonsTable, and(eq(seasonsTable.id, teamsTable.seasonId), eq(seasonsTable.clubId, clubId)))
+        .where(and(eq(teamsTable.id, teamId), eq(teamsTable.clubId, clubId))).limit(1);
+      const [activeSeason] = team?.season ? [] : await tx.select({ name: seasonsTable.name }).from(seasonsTable)
+        .where(and(eq(seasonsTable.clubId, clubId), eq(seasonsTable.isActive, true))).limit(1);
+      const change: PlayerAssignmentChange = { date: profileDate(), team: team?.name ?? null, season: team?.season ?? activeSeason?.name ?? null };
+      if (nextRole !== current.position) change.role = { from: current.position, to: nextRole };
+      if (nextJersey !== current.jerseyNumber) change.jersey = { from: current.jerseyNumber, to: nextJersey };
+      profile.changes = [...profile.changes, change];
+    }
+    return tx.update(playersTable).set({ ...updateData, profileHistory: profile }).where(playerScope).returning();
+  }) : await db.update(playersTable).set(updateData).where(playerScope).returning();
 
   if (!player) {
     res.status(404).json({ error: "Player not found" });

@@ -1,6 +1,6 @@
 import type { Request } from "express";
-import { and, eq } from "drizzle-orm";
-import { clubMembershipsTable, db } from "@workspace/db";
+import { and, eq, inArray } from "drizzle-orm";
+import { clubMembershipsTable, db, teamsTable, teamStaffAssignmentsTable } from "@workspace/db";
 
 /**
  * Ruoli che devono vedere squadre/giocatori/sessioni/statistiche a livello di tutto il club,
@@ -96,4 +96,47 @@ export function resolveClubSectionFilter(
   if (isClubWideListRole(role)) return undefined;
   if (typeof querySection === "string" && querySection.length > 0) return querySection;
   return sessionSection;
+}
+
+export async function getAssignedTeamIds(userId: number, clubId: number): Promise<number[]> {
+  const staffRows = await db
+    .select({ teamId: teamStaffAssignmentsTable.teamId })
+    .from(teamStaffAssignmentsTable)
+    .where(and(
+      eq(teamStaffAssignmentsTable.userId, userId),
+      eq(teamStaffAssignmentsTable.clubId, clubId),
+    ));
+
+  const coachedRows = await db
+    .select({ teamId: teamsTable.id })
+    .from(teamsTable)
+    .where(and(
+      eq(teamsTable.coachId, userId),
+      eq(teamsTable.clubId, clubId),
+    ));
+
+  return Array.from(new Set([
+    ...staffRows.map((row) => row.teamId),
+    ...coachedRows.map((row) => row.teamId),
+  ]));
+}
+
+export async function getPlayerMeasurementTeamScope(req: Request): Promise<Set<number> | null> {
+  const role = normalizeSessionRole(req.session.role);
+  if (isClubWideListRole(role)) return null;
+  if (!["coach", "fitness_coach", "athletic_director"].includes(role) || !req.session.userId || !req.session.clubId) return new Set();
+  const [assigned, sections] = await Promise.all([
+    getAssignedTeamIds(req.session.userId, req.session.clubId),
+    resolveAllowedClubSections(req, undefined),
+  ]);
+  if (!sections) return new Set(assigned);
+  if (!sections.length || !assigned.length) return new Set();
+  const teams = await db.select({ id: teamsTable.id }).from(teamsTable).where(and(
+    eq(teamsTable.clubId, req.session.clubId), inArray(teamsTable.id, assigned), inArray(teamsTable.clubSection, sections),
+  ));
+  return new Set(teams.map(team => team.id));
+}
+
+export function canAccessPlayerMeasurements(scope: Set<number> | null, teamId: number | null | undefined) {
+  return scope === null || (teamId != null && scope.has(teamId));
 }
