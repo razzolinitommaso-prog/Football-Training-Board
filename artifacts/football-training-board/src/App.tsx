@@ -55,6 +55,7 @@ import EquipmentPage from "@/pages/secretary/equipment";
 import WarehousePage from "@/pages/secretary/warehouse";
 import FeeListPage from "@/pages/secretary/fee-list";
 import { feeListRoles } from "@/lib/fee-list";
+import { paymentViewRoles } from "@/lib/payment-summary";
 import SecretaryParentApp from "@/pages/secretary/parent-app";
 import BillingPage from "@/pages/billing/index";
 import CredentialsPage from "@/pages/club/credentials";
@@ -176,7 +177,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={secretaryRoles}><RegistrationsPage /></ProtectedRoute>
         </Route>
         <Route path="/secretary/payments">
-          <ProtectedRoute allowedRoles={secretaryRoles}><PaymentsPage /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={paymentViewRoles}><PaymentsPage /></ProtectedRoute>
         </Route>
         <Route path="/secretary/shuttle">
           <ProtectedRoute allowedRoles={shuttleRoles}><ShuttlePage /></ProtectedRoute>

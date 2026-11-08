@@ -26,6 +26,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { Link, useLocation } from "wouter";
 import { MAX_PLAYER_PAYMENT_AMOUNT } from "@/lib/fee-list";
+import { paymentStatus, quotePaymentStatus } from "@/lib/payment-summary";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
@@ -1791,10 +1792,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     plannedExtraTimeTotal;
   const plannedUpfrontAmount = economicPlanPaid ? plannedEconomicTotal : Math.max(0, parseEuroInput(upfrontPaymentTotal) || 0);
   const plannedResidualTotal = Math.max(0, plannedEconomicTotal - plannedUpfrontAmount);
-  const overduePlayerPayments = editingPlayerPayments.filter((payment) => {
-    if (payment.status === "paid" || !payment.dueDate) return false;
-    return payment.dueDate <= new Date().toISOString().slice(0, 10);
-  });
+  const paymentToday = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
+  const overduePlayerPayments = editingPlayerPayments.filter(payment => paymentStatus(payment, paymentToday) === "overdue");
   const editingMedicalCertificate = editingPlayerDocuments
     .filter((doc) => doc.type === "medicalCertificate")
     .sort((a, b) => String(b.expiryDate ?? "").localeCompare(String(a.expiryDate ?? "")))[0] ?? null;
@@ -1833,12 +1832,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     if (PLAYER_DOCUMENT_TYPES.some((docType) => !uploadedTypes.has(docType.value))) return { tone: "yellow" as const, label: "Manca qualcosa" };
     return { tone: "green" as const, label: "Completo" };
   })();
-  const paymentSectionStatus = (() => {
-    if (overduePlayerPayments.length > 0) return { tone: "red" as const, label: "Scadute" };
-    if (editingPlayerPayments.length === 0) return { tone: "yellow" as const, label: "Non registrate" };
-    if (editingPlayerPayments.some((payment) => payment.status !== "paid")) return { tone: "yellow" as const, label: "Da saldare" };
-    return { tone: "green" as const, label: "In regola" };
-  })();
+  const paymentSectionStatus = quotePaymentStatus(editingPlayerPayments, paymentToday);
   const kitSectionStatus = (() => {
     const activeRows = displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || row.listItemId);
     if (activeRows.length === 0) return { tone: "red" as const, label: "Non registrato" };
@@ -4871,7 +4865,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   <div className="mt-3 space-y-3">
                   {overduePlayerPayments.length > 0 && (
                     <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                      Rata scaduta non versata: il giocatore viene bloccato automaticamente.
+                      Ci sono pagamenti scaduti. Le voci con blocco attivo possono incidere sulla disponibilità.
                     </div>
                   )}
                   {canEditFinancials && (

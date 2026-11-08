@@ -288,11 +288,22 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });
     return;
   }
-  const { playerId, amount, dueDate, status, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod } = req.body;
+  const { playerId, amount, dueDate, status, paymentDate, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod } = req.body;
   if (!playerId || amount == null) { res.status(400).json({ error: "playerId and amount required" }); return; }
+  const clubId = req.session.clubId!;
+  const [player] = await db.select({ id: playersTable.id }).from(playersTable)
+    .where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, clubId))).limit(1);
+  if (!player) { res.status(404).json({ error: "Giocatore non trovato." }); return; }
+  const paidDate = status === "paid" ? paymentDate || new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" }) : null;
+  if (paidDate !== null && (typeof paidDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate) ||
+      !Number.isFinite(Date.parse(paidDate)) || new Date(paidDate).toISOString().slice(0, 10) !== paidDate)) {
+    res.status(400).json({ error: "Data di incasso non valida." });
+    return;
+  }
   const [record] = await db.insert(playerPaymentsTable).values({
-    clubId: req.session.clubId!, playerId: Number(playerId), amount: Number(amount),
+    clubId, playerId: player.id, amount: Number(amount),
     dueDate: dueDate ?? null, status: status ?? "pending", description: description ?? null,
+    paymentDate: paidDate,
     paymentType: paymentType ?? "annual_fee_installment",
     installmentNumber: installmentNumber ? Number(installmentNumber) : null,
     totalInstallments: totalInstallments ? Number(totalInstallments) : null,
@@ -300,7 +311,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     availabilityBlocking: availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1,
     paymentMethod: paymentMethod ?? null,
   }).returning();
-  await enforcePaymentAvailability(req.session.clubId!, Number(playerId));
+  await enforcePaymentAvailability(clubId, player.id);
   res.status(201).json(record);
 });
 
