@@ -4,6 +4,7 @@ import { sessionTeamScope, sessionTeamIds } from "../lib/session-team-scope";
 import { overlaySharedTrainingRows, trainingReplyMatches } from "@workspace/api-zod";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
+import { clubWideAppointment } from "../lib/calendar-appointment-scope";
 import { ensureParentDelegateSecurityColumns } from "../lib/parent-delegate-access";
 import { normalizeParentAccessCode, validateParentAccessCode } from "@workspace/api-zod";
 import bcrypt from "bcryptjs";
@@ -17,7 +18,7 @@ import {
   playerFitnessDataTable,
   playerParentDelegatesTable,
 } from "@workspace/db";
-import { eq, and, gte, lte, asc, desc, or, inArray, isNull, sql } from "drizzle-orm";
+import { eq, and, gte, lte, asc, desc, or, inArray, isNull, ne, sql, getTableColumns } from "drizzle-orm";
 import { parentPlayedMinutes, parentTrainingOccurrence, parentTrainingType, type ParentActivity, type ParentTrainingActivity } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -753,41 +754,27 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
 router.get("/parent/calendar-extra-events", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
   const parentPlayerId = getParentPlayerId(req);
-  let parentTeamId: number | null = null;
+  const [player] = parentPlayerId ? await db.select({ teamId: playersTable.teamId, section: playersTable.clubSection })
+    .from(playersTable).where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, parentPlayerId))).limit(1) : [];
+  if (parentPlayerId && !player) { res.json([]); return; }
 
-  if (parentPlayerId) {
-    const [player] = await db.select({ teamId: playersTable.teamId }).from(playersTable)
-      .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, parentPlayerId)));
-    parentTeamId = player?.teamId ?? null;
-    if (!parentTeamId) {
-      res.json([]);
-      return;
-    }
-  }
-
+  const event = calendarExtraEventsTable;
   const rows = await db
-    .select()
-    .from(calendarExtraEventsTable)
+    .select({ ...getTableColumns(event), clubWide: sql<boolean>`(${clubWideAppointment})` })
+    .from(event)
     .where(and(
-      eq(calendarExtraEventsTable.clubId, clubId),
-      or(
-        eq(calendarExtraEventsTable.targetAudience, "all"),
-        eq(calendarExtraEventsTable.targetAudience, "parents"),
-        eq(calendarExtraEventsTable.notifyParents, 1),
-      ) as any,
+      eq(event.clubId, clubId),
+      ne(event.targetAudience, "staff"),
+      or(eq(event.targetAudience, "all"), eq(event.targetAudience, "parents"), eq(event.notifyParents, 1)),
     ))
-    .orderBy(asc(calendarExtraEventsTable.dateFrom));
+    .orderBy(asc(event.dateFrom));
 
-  if (!parentPlayerId || !parentTeamId) {
-    res.json(rows);
-    return;
-  }
-
-  res.json(rows.filter((event) => {
-    if (event.targetMode === "all") return true;
-    const teamIds = Array.isArray(event.teamIds) ? event.teamIds.map(Number) : [];
-    const playerIds = Array.isArray(event.playerIds) ? event.playerIds.map(Number) : [];
-    return teamIds.includes(parentTeamId!) || playerIds.includes(parentPlayerId);
+  res.json(rows.filter(item => {
+    if (item.clubWide) return true;
+    if (item.playerIds?.length) return parentPlayerId != null && item.playerIds.map(Number).includes(parentPlayerId);
+    if (item.teamIds?.length) return player?.teamId != null && item.teamIds.map(Number).includes(player.teamId);
+    if (item.memberIds?.length || item.targetAudience === "teams") return false;
+    return item.targetMode === "all" && item.section === player?.section;
   }));
 });
 

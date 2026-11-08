@@ -71,6 +71,7 @@ type DashboardMatch = {
 
 type DashboardExtraEvent = {
   id: number;
+  clubWide?: boolean;
   section?: string | null;
   category?: string | null;
   title: string;
@@ -84,6 +85,7 @@ type DashboardExtraEvent = {
   targetAudience?: "all" | "staff" | "parents" | "teams" | string | null;
   notifyStaff?: number | boolean | null;
   notifyParents?: number | boolean | null;
+  locationName?: string | null;
   notes?: string | null;
   attachmentName?: string | null;
   attachmentMimeType?: string | null;
@@ -800,7 +802,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   const trainingSessionsForDash = useMemo(()=>trainingSessionsData.filter(session=>!workScope.enabled||sessionTeamIds(session.teamId,session.notes).some(id=>scopedTeamIds.has(id))),[trainingSessionsData,workScope.enabled,scopedTeamIds]);
   const dashboardMatches = useMemo(()=>dashboardMatchesData.filter(match=>!workScope.enabled||scopedTeamIds.has(Number(match.teamId))),[dashboardMatchesData,workScope.enabled,scopedTeamIds]);
   const { data: dashboardExtraEvents = [] } = useQuery<DashboardExtraEvent[]>({
-    queryKey: ["/api/calendar-extra-events", clubIdNum, nr, dashboardSectionsKey || dashboardSection, "dashboard-calendar"],
+    queryKey: ["/api/calendar-extra-events", clubIdNum, user?.id, nr, dashboardSectionsKey || dashboardSection, "dashboard-calendar"],
     queryFn: async () => {
       const targetSections = dashboardSections.length ? dashboardSections : [dashboardSection];
       const results = await Promise.all(
@@ -1490,9 +1492,8 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       });
     });
 
-    return items
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .slice(0, 200);
+    items.sort((a, b) => a.date.getTime() - b.date.getTime());
+    return items.filter((item, index) => index < 200 || (item.kind === "extra" && item.extraEvent?.clubWide));
   }, [dashboardTeams, dashboardMatches, dashboardExtraEvents, dashboardCalendarMonth, dashboardSelectedTeamIds, dashboardTrainingOverrides, trainingSessionsForDash]);
 
   const dashboardCalendarDays = useMemo(
@@ -2965,7 +2966,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                                       : "Allenamento"
                       : item.kind === "tournament"
                         ? "Torneo"
-                        : "Partita";
+                        : item.kind === "extra" ? "Appuntamento" : "Partita";
                   const notePreview =
                     item.kind === "training" && item.trainingNotes
                       ? item.trainingNotes.replace(/\s+/g, " ").trim()
@@ -3006,13 +3007,14 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                     const today = startOfDay(day).getTime() === startOfDay(new Date()).getTime();
                     const selected = key === dashboardSelectedDayKey;
                     const hasMatch = events.some(event => event.kind === "match");
-                    const hasOtherEvents = events.some(event => event.kind !== "match");
+                    const hasAppointment = events.some(event => event.kind === "extra");
+                    const hasOtherEvents = events.some(event => event.kind !== "match" && event.kind !== "extra");
                     return (
                       <button
                         key={`mobile-day-${key}`}
                         type="button"
                         aria-pressed={selected}
-                        aria-label={format(day, "d MMMM yyyy", { locale: itLocale }) + (hasMatch ? ", partita in calendario" : "") + (hasOtherEvents ? ", altri impegni" : "")}
+                        aria-label={format(day, "d MMMM yyyy", { locale: itLocale }) + (hasMatch ? ", partita in calendario" : "") + (hasAppointment ? ", appuntamento" : "") + (hasOtherEvents ? ", altri impegni" : "")}
                         className={cn(
                           "relative flex h-12 flex-col items-center justify-center rounded-lg text-xs transition",
                           muted && "text-muted-foreground/50",
@@ -3025,6 +3027,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                         {events.length > 0 && <span aria-hidden="true" className="mt-1 flex h-1.5 gap-1">
                           {hasMatch && <span className={cn("h-1.5 w-1.5 rounded-full", selected ? "bg-orange-200" : "bg-orange-600 dark:bg-orange-400")} />}
                           {hasOtherEvents && <span className={cn("h-1.5 w-1.5 rounded-full", selected ? "bg-white" : "bg-emerald-500")} />}
+                          {hasAppointment && <span className={cn("h-1.5 w-1.5 rounded-full", selected ? "bg-sky-200" : "bg-sky-500")} />}
                         </span>}
                       </button>
                     );
@@ -3059,7 +3062,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                                           : "Allenamento"
                                   : item.kind === "tournament"
                                     ? "Torneo"
-                                    : "Partita";
+                                    : item.kind === "extra" ? "Appuntamento" : "Partita";
                               const className = dashboardCalendarItemClassName(item, postponed);
                         return (
                           <button
@@ -3133,7 +3136,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                                         : "Allen."
                               : item.kind === "tournament"
                                 ? "Torneo"
-                                : "Partita";
+                                : item.kind === "extra" ? "Appuntamento" : "Partita";
                           const className = dashboardCalendarItemClassName(item, postponed);
                           return (
                             <button
@@ -3186,7 +3189,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                                   : "Allenamento"
                           : item.kind === "tournament"
                             ? "Torneo"
-                            : "Partita";
+                            : item.kind === "extra" ? "Appuntamento" : "Partita";
                       const className = dashboardCalendarItemClassName(item, postponed);
                       return (
                         <button
@@ -3275,6 +3278,9 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                   )}
                 {selectedCalendarItem.teamName && (
                   <p className="mt-1 text-muted-foreground">Squadra: {selectedCalendarItem.teamName}</p>
+                )}
+                {selectedCalendarItem.kind === "extra" && selectedCalendarItem.extraEvent?.locationName && (
+                  <p className="mt-2 text-muted-foreground">Luogo: {selectedCalendarItem.extraEvent.locationName}</p>
                 )}
                 {selectedCalendarItem.kind === "extra" && selectedCalendarItem.extraEvent?.notes && (
                   <p className="mt-2 whitespace-pre-line text-muted-foreground">{selectedCalendarItem.extraEvent.notes}</p>
@@ -3718,7 +3724,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                 </>
               )}
 
-              {selectedCalendarItem.kind === "extra" && canPrepareFromDashboardCalendar && (
+              {selectedCalendarItem.kind === "extra" && canPrepareFromDashboardCalendar && !["evento_generico", "riunione", "evento_societario"].includes(selectedCalendarItem.extraEvent?.category ?? "") && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Button type="button" onClick={() => setLocation("/training")}>
                     Pianifica attività
@@ -3728,7 +3734,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                   </Button>
                 </div>
               )}
-              {(selectedCalendarItem.kind === "extra" || (selectedCalendarItem.kind === "training" && !canPrepareFromDashboardCalendar && !canEditDashboardCalendar)) && (
+              {selectedCalendarItem.kind === "training" && !canPrepareFromDashboardCalendar && !canEditDashboardCalendar && (
                 <div className="rounded-xl border bg-muted/30 p-3 text-sm text-muted-foreground">
                   Evento visualizzato dal cruscotto. Le azioni tecniche sono disponibili solo allo staff tecnico.
                 </div>

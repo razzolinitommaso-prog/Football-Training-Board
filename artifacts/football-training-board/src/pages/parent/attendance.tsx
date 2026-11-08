@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { withApi } from "@/lib/api-base";
+import { appointmentOccursOn, type CalendarAppointment } from "@/lib/calendar-appointments";
 
 async function apiFetch(path: string, options?: RequestInit) {
   const res = await fetch(withApi(`/api${path}`), {
@@ -406,6 +407,8 @@ export default function ParentAttendance() {
   const [callups, setCallups] = useState<any[]>([]);
   const [callupError, setCallupError] = useState(false);
   const [matches, setMatches] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
+  const [appointmentsError, setAppointmentsError] = useState(false);
   const [matchFilter, setMatchFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [selectedDateKey, setSelectedDateKey] = useState(dateKey(new Date()));
@@ -419,6 +422,7 @@ export default function ParentAttendance() {
     return acc;
   }, {});
   const selectedTraining = trainingByDay[selectedDateKey] ?? [];
+  const selectedAppointments = appointments.filter(event => appointmentOccursOn(event, new Date(selectedDateKey + "T12:00:00")));
   const selectedHistory = history.filter(item => dateKey(item.scheduledAt) === selectedDateKey);
   const isPastDay = selectedDateKey < dateKey(new Date());
   const matchesByDay = matches.reduce<Record<string, any[]>>((acc, match) => {
@@ -446,6 +450,9 @@ export default function ParentAttendance() {
   }
 
   useEffect(() => {
+    apiFetch("/parent/calendar-extra-events")
+      .then(rows => setAppointments(Array.isArray(rows) ? rows : []))
+      .catch(() => setAppointmentsError(true));
     Promise.all([
       apiFetch("/parent/training"),
       apiFetch("/parent/matches"),
@@ -494,7 +501,7 @@ export default function ParentAttendance() {
           </Button>
           <div className="text-center">
             <h2 className="text-base font-semibold capitalize">{monthTitle(visibleMonth)}</h2>
-            <p className="text-xs text-muted-foreground">Tocca una data per vedere allenamenti e partite.</p>
+            <p className="text-xs text-muted-foreground">Tocca una data per vedere allenamenti, partite e appuntamenti.</p>
           </div>
           <Button type="button" variant="outline" size="icon" onClick={() => setVisibleMonth((current) => addMonths(current, 1))}>
             <ChevronRight className="h-4 w-4" />
@@ -514,11 +521,14 @@ export default function ParentAttendance() {
             const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
             const hasTraining = sessions.length > 0 || history.some(item => dateKey(item.scheduledAt) === key);
             const hasMatch = dayMatches.length > 0;
+            const hasAppointment = appointments.some(event => appointmentOccursOn(event, day));
 
             return (
               <button
                 type="button"
                 key={key}
+                aria-label={day.toLocaleDateString("it-IT") + (hasAppointment ? ", appuntamento" : "")}
+                aria-pressed={isSelected}
                 onClick={() => setSelectedDateKey(key)}
                 className={[
                   "min-h-14 rounded-xl border p-1 text-left transition-colors",
@@ -530,6 +540,7 @@ export default function ParentAttendance() {
                 <span className="mt-2 flex gap-1">
                   {hasTraining && <span className="block h-1.5 w-1.5 rounded-full bg-emerald-500" />}
                   {hasMatch && <span className="block h-1.5 w-1.5 rounded-full bg-amber-500" />}
+                  {hasAppointment && <span className="block h-1.5 w-1.5 rounded-full bg-sky-500" />}
                 </span>
               </button>
             );
@@ -538,6 +549,7 @@ export default function ParentAttendance() {
         <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Allenamento</span>
           <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Partita</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-sky-500" /> Appuntamento</span>
         </div>
       </div>
 
@@ -548,6 +560,13 @@ export default function ParentAttendance() {
           </h2>
           <p className="text-xs text-muted-foreground">Sono mostrati calendario generale e partite della squadra.</p>
         </div>
+        {appointmentsError && <p role="status" className="text-sm text-muted-foreground">Appuntamenti societari non disponibili.</p>}
+        {selectedAppointments.map(event => <article key={event.id} className="space-y-1 rounded-2xl border border-sky-200 bg-card p-4 text-sm">
+          <p className="text-xs font-medium text-sky-700 dark:text-sky-300">Appuntamento · {[event.startTime, event.endTime].filter(Boolean).join("–")}</p>
+          <h3 className="break-words font-semibold">{event.title}</h3>
+          {event.locationName && <p className="break-words text-muted-foreground">{event.locationName}</p>}
+          {event.notes && <p className="whitespace-pre-line break-words text-muted-foreground">{event.notes}</p>}
+        </article>)}
         {selectedHistory.map(item => <div key={item.id} className="rounded-2xl border bg-card p-4 text-sm space-y-2">
           <p className="font-semibold">Allenamento · {item.teamName}</p>
           <p>{new Date(item.scheduledAt).toLocaleString("it-IT")}</p>

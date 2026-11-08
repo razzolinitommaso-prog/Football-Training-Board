@@ -1,14 +1,15 @@
 import { Router, type IRouter } from "express";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, ne, or, sql } from "drizzle-orm";
 import { db, parentNotificationsTable, parentPlayerRelationsTable, playersTable, teamStaffAssignmentsTable, teamsTable, clubNotificationsTable, clubMembershipsTable } from "@workspace/db";
 import { calendarExtraEventsTable } from "@workspace/db/schema";
 import { requireAuth } from "../lib/auth";
-import { normalizeSessionRole } from "../lib/club-scope";
+import { clubWideAppointment } from "../lib/calendar-appointment-scope";
+import { getAssignedTeamIds, normalizeSessionRole } from "../lib/club-scope";
 import { sendParentNotificationEmail } from "../lib/parent-email";
 
 const router: IRouter = Router();
 
-const CALENDAR_VIEW_ROLES = ["admin", "presidente", "director", "technical_director", "secretary", "coach", "fitness_coach", "athletic_director"];
+const CALENDAR_VIEW_ROLES = ["admin", "presidente", "director", "technical_director", "sporting_director", "secretary", "coach", "fitness_coach", "athletic_director"];
 const CALENDAR_MANAGE_ROLES = ["admin", "presidente", "director", "technical_director", "secretary"];
 const VALID_AUDIENCES = ["all", "staff", "parents", "teams"] as const;
 
@@ -71,10 +72,24 @@ async function resolveStaffRecipients(clubId: number, section: string, teamIds: 
 }
 
 router.get("/calendar-extra-events", requireAuth, async (req, res): Promise<void> => {
-  await ensureCalendarExtraEventColumns();
   const role = normalizeSessionRole(req.session.role);
-  if (!CALENDAR_VIEW_ROLES.includes(role)) {
+  const { clubId, userId } = req.session;
+  if (!clubId || !userId || (!CALENDAR_VIEW_ROLES.includes(role) && role !== "team_manager")) {
     res.status(403).json({ error: "Non autorizzato" });
+    return;
+  }
+  if (role === "team_manager") {
+    const [membership] = await db.select({ userId: clubMembershipsTable.userId }).from(clubMembershipsTable)
+      .where(and(eq(clubMembershipsTable.clubId, clubId), eq(clubMembershipsTable.userId, userId),
+        eq(clubMembershipsTable.role, "team_manager"))).limit(1);
+    if (!membership) { res.status(403).json({ error: "Membro non autorizzato" }); return; }
+    await ensureCalendarExtraEventColumns();
+    const event = calendarExtraEventsTable;
+    const appointments = await db.select({
+      id: event.id, title: event.title, dateFrom: event.dateFrom, dateTo: event.dateTo, startTime: event.startTime,
+      endTime: event.endTime, frequency: event.frequency, weekdays: event.weekdays, locationName: event.locationName, notes: event.notes,
+    }).from(event).where(and(eq(event.clubId, clubId), clubWideAppointment, ne(event.targetAudience, "parents")));
+    res.json(appointments);
     return;
   }
   const section = normalizeSection(req.query.section);
@@ -83,17 +98,17 @@ router.get("/calendar-extra-events", requireAuth, async (req, res): Promise<void
     return;
   }
 
+  await ensureCalendarExtraEventColumns();
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(calendarExtraEventsTable), clubWide: sql<boolean>`(${clubWideAppointment})` })
     .from(calendarExtraEventsTable)
-    .where(and(eq(calendarExtraEventsTable.clubId, req.session.clubId!), eq(calendarExtraEventsTable.section, section)));
+    .where(and(eq(calendarExtraEventsTable.clubId, clubId), or(
+      eq(calendarExtraEventsTable.section, section),
+      and(clubWideAppointment, ne(calendarExtraEventsTable.targetAudience, "parents")),
+    )));
 
   if (["coach", "fitness_coach", "athletic_director"].includes(role)) {
-    const assignments = await db
-      .select({ teamId: teamStaffAssignmentsTable.teamId })
-      .from(teamStaffAssignmentsTable)
-      .where(and(eq(teamStaffAssignmentsTable.clubId, req.session.clubId!), eq(teamStaffAssignmentsTable.userId, req.session.userId!)));
-    const assignedTeamIds = new Set(assignments.map((a) => a.teamId));
+    const assignedTeamIds = new Set(await getAssignedTeamIds(userId, clubId));
     const filtered = rows.filter((evt) => {
       if (evt.targetAudience === "parents") return false;
       const row = evt as typeof evt & { memberIds?: unknown };

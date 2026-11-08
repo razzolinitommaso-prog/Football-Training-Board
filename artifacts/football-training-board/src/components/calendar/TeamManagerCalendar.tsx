@@ -1,4 +1,8 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
+import { withApi } from "@/lib/api-base";
+import { appointmentOccursOn, type CalendarAppointment } from "@/lib/calendar-appointments";
 import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
 import { it } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -8,6 +12,15 @@ import { managerTrainingEvents, type ManagerCalendarEvent, type ManagerTrainingC
 const dateKey = (date: Date) => format(date, "yyyy-MM-dd");
 
 export function TeamManagerCalendar({ events, training = [], trainingCalendar }: { events: ManagerCalendarEvent[]; training?: ManagerTrainingSession[]; trainingCalendar?: ManagerTrainingCalendar | null }) {
+  const { club, user } = useAuth();
+  const appointments = useQuery<CalendarAppointment[]>({
+    queryKey: ["/api/calendar-extra-events", club?.id, user?.id, "team-manager"],
+    queryFn: async () => {
+      const response = await fetch(withApi("/api/calendar-extra-events"), { credentials: "include" });
+      if (!response.ok) throw new Error("Appuntamenti societari non disponibili.");
+      return response.json();
+    },
+  });
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selected, setSelected] = useState(() => dateKey(new Date()));
   const days = eachDayOfInterval({ start: startOfWeek(month, { weekStartsOn: 1 }), end: endOfWeek(endOfMonth(month), { weekStartsOn: 1 }) });
@@ -17,6 +30,20 @@ export function TeamManagerCalendar({ events, training = [], trainingCalendar }:
     const key = dateKey(new Date(event.date));
     byDay.set(key, [...(byDay.get(key) ?? []), event]);
   }
+  for (const day of days) {
+    const key = dateKey(day);
+    const dayEvents = (appointments.data ?? []).filter(event => appointmentOccursOn(event, day));
+    if (!dayEvents.length) continue;
+    byDay.set(key, [...(byDay.get(key) ?? []), ...dayEvents.map(event => ({
+      id: "appointment-" + event.id,
+      kind: "Appuntamento",
+      title: event.title,
+      date: key + "T" + (event.startTime || "00:00"),
+      endTime: event.endTime,
+      location: event.locationName ?? null,
+      detail: event.notes ?? undefined,
+    }))]);
+  }
   const moveMonth = (amount: number) => {
     const next = addMonths(month, amount);
     setMonth(next);
@@ -25,7 +52,8 @@ export function TeamManagerCalendar({ events, training = [], trainingCalendar }:
   const today = dateKey(new Date());
   const selectedEvents = byDay.get(selected) ?? [];
   return <section className="space-y-4">
-    <div><h2 className="text-lg font-semibold">Calendario squadra</h2><p className="text-xs text-muted-foreground">Programmazione allenamenti, variazioni e partite della squadra. Tocca un giorno per i dettagli.</p></div>
+    <div><h2 className="text-lg font-semibold">Calendario squadra</h2><p className="text-xs text-muted-foreground">Allenamenti, partite e appuntamenti societari. Tocca un giorno per i dettagli.</p></div>
+    {appointments.isError && <p role="status" className="text-sm text-muted-foreground">Appuntamenti societari non disponibili.</p>}
     <div className="rounded-2xl border bg-card p-3 sm:p-4">
       <div className="mb-4 flex items-center justify-between gap-2">
         <Button type="button" variant="outline" size="icon" aria-label="Mese precedente" onClick={() => moveMonth(-1)}><ChevronLeft className="h-4 w-4"/></Button>
@@ -42,18 +70,20 @@ export function TeamManagerCalendar({ events, training = [], trainingCalendar }:
           const dayEvents = byDay.get(key) ?? [];
           const training = dayEvents.some(event => event.kind === "Allenamento");
           const match = dayEvents.some(event => event.kind === "Partita");
+          const appointment = dayEvents.some(event => event.kind === "Appuntamento");
           return <button type="button" key={key} aria-pressed={key === selected} aria-current={key === today ? "date" : undefined}
-            aria-label={`${format(day, "EEEE d MMMM yyyy", { locale: it })}${training ? ", allenamento" : ""}${match ? ", partita" : ""}`}
+            aria-label={`${format(day, "EEEE d MMMM yyyy", { locale: it })}${training ? ", allenamento" : ""}${match ? ", partita" : ""}${appointment ? ", appuntamento" : ""}`}
             onClick={() => { setSelected(key); if (!isSameMonth(day, month)) setMonth(startOfMonth(day)); }}
             className={`min-h-14 rounded-xl border p-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${key === selected ? "border-primary bg-primary/10" : "border-transparent bg-muted/30 hover:border-primary/40"} ${isSameMonth(day, month) ? "opacity-100" : "opacity-40"}`}>
             <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${key === today ? "bg-primary text-primary-foreground" : ""}`}>{day.getDate()}</span>
-            <span className="mt-1 flex gap-1 px-1">{training && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"/>}{match && <span className="h-1.5 w-1.5 rounded-full bg-amber-500"/>}</span>
+            <span className="mt-1 flex gap-1 px-1">{training && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"/>}{match && <span className="h-1.5 w-1.5 rounded-full bg-amber-500"/>}{appointment && <span className="h-1.5 w-1.5 rounded-full bg-sky-500"/>}</span>
           </button>;
         })}
       </div>
       <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500"/>Allenamento</span>
         <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500"/>Partita</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-sky-500"/>Appuntamento</span>
       </div>
     </div>
     <div aria-live="polite" className="space-y-3">

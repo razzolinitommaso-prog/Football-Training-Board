@@ -4,7 +4,7 @@ import type { Request, Response, NextFunction } from "express";
 export function restrictTeamManagerApi(req: Request, res: Response, next: NextFunction) {
   if (req.session.role !== "team_manager") return next();
   const path = req.path.replace(/\/+$/, "") || "/";
-  const allowed = req.method === "GET" && ["/auth/me", "/clubs/me", "/clubs/public/search", "/dirigenti/overview", "/attendance-register"].includes(path)
+  const allowed = req.method === "GET" && ["/auth/me", "/clubs/me", "/clubs/public/search", "/dirigenti/overview", "/attendance-register", "/calendar-extra-events"].includes(path)
     || req.method === "POST" && ["/auth/login", "/auth/logout"].includes(path);
   if (!allowed) { res.status(403).json({ error: "Operazione non disponibile nell'area dirigenti" }); return; }
   next();

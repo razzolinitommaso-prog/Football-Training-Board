@@ -55,6 +55,7 @@ type ExtraFrequency = "everyday" | "selected_days";
 type ExtraTargetAudience = "all" | "staff" | "parents" | "teams";
 interface ExtraEvent {
   id: number;
+  clubWide?: boolean;
   section: Section;
   category: ExtraCategory;
   title: string;
@@ -129,7 +130,7 @@ const EXTRA_CATEGORY_OPTIONS = Object.keys(EXTRA_CATEGORY_LABELS) as ExtraCatego
 
 interface CalendarEvent {
   type: "training" | "match" | "extra";
-  teamId: number;
+  teamId?: number;
   teamName: string;
   label: string;
   time?: string;
@@ -215,7 +216,7 @@ function memberSectionLabel(value: ClubMemberLite["clubSection"]) {
 }
 
 export default function SectionCalendar({ section }: { section: Section }) {
-  const { role, sections } = useAuth();
+  const { role, sections, user, club } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const nr = normalizeSessionRole(role);
@@ -280,7 +281,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
     enabled: canManageExtraEvents,
   });
   const { data: extraEvents = [] } = useQuery<ExtraEvent[]>({
-    queryKey: ["/api/calendar-extra-events", section],
+    queryKey: ["/api/calendar-extra-events", club?.id, user?.id, section],
     queryFn: () => apiFetch(`/api/calendar-extra-events?section=${section}`),
   });
 
@@ -329,7 +330,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
     const seasonEnd = schoolYear.end;
     // Scuola calcio: attività allenamento fino a fine seconda settimana di giugno.
     const addEvent = (date: Date, evt: CalendarEvent) => {
-      if (isBefore(date, seasonStart) || isAfter(date, seasonEnd)) return;
+      if (evt.teamId != null && (isBefore(date, seasonStart) || isAfter(date, seasonEnd))) return;
       const key = format(date, "yyyy-MM-dd");
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(evt);
@@ -387,20 +388,24 @@ export default function SectionCalendar({ section }: { section: Section }) {
     });
 
     extraEvents.forEach((evt) => {
-      if (evt.section !== section) return;
+      if (!evt.clubWide && evt.section !== section) return;
       if (!selectedExtraCategories.has(evt.category)) return;
       const from = new Date(`${evt.dateFrom}T00:00:00`);
       const to = new Date(`${evt.dateTo}T00:00:00`);
       if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || isAfter(from, to)) return;
-      const days = eachDayOfInterval({ start: from, end: to });
+      const days = calendarDays.filter(day => !isBefore(day, from) && !isAfter(day, to));
       const teamsForEvent =
         evt.targetMode === "all"
           ? allTeams.filter((t) => selectedTeamIds.has(t.id))
           : allTeams.filter((t) => evt.teamIds.includes(t.id) && selectedTeamIds.has(t.id));
       days.forEach((day) => {
         if (evt.frequency === "selected_days" && !evt.weekdays.includes(getDay(day))) return;
+        const at = combineLocalDayWithHHmm(day, evt.startTime || "00:00");
+        if (evt.clubWide) {
+          addEvent(day, { type: "extra", teamName: "Appuntamento societario", label: evt.title, time: evt.startTime + "–" + evt.endTime, at });
+          return;
+        }
         teamsForEvent.forEach((team) => {
-          const at = combineLocalDayWithHHmm(day, evt.startTime || "00:00");
           addEvent(day, {
             type: "extra",
             teamId: team.id,
@@ -536,7 +541,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
       if (!res.ok) throw new Error(await res.text());
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["/api/calendar-extra-events", section] });
+      await qc.invalidateQueries({ queryKey: ["/api/calendar-extra-events"] });
       setExtraDialogOpen(false);
       setExtraCategory("evento_generico");
       setExtraTargetAudience("all");
@@ -978,7 +983,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Invia calendari</Label>
+              <Label>Visibilità nel calendario</Label>
               <Select value={extraTargetMode} onValueChange={(v) => setExtraTargetMode(v as "all" | "selected")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -986,6 +991,7 @@ export default function SectionCalendar({ section }: { section: Section }) {
                   <SelectItem value="selected">Solo calendari selezionati</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">Gli eventi generici, le riunioni e gli eventi societari per tutti i calendari, senza destinatari individuali o annate selezionate, sono visibili in tutti i settori ai destinatari indicati.</p>
             </div>
           </div>
 
