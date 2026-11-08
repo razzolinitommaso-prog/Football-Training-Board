@@ -18,7 +18,7 @@ La selezione è salvata separatamente per società, utente e ruolo; il DT mantie
 
 Contatori e pannelli usano i dati del contesto selezionato; richieste in caricamento o fallite non diventano zeri certi. I dati mancanti di preparazione sono indicati come da verificare. Le sedute annullate non entrano nel riepilogo della preparazione. I giocatori senza annata restano consultabili quando il settore è identificabile e autorizzato, senza attribuirli a un'annata selezionata.
 
-Calendario mensile, comunicazioni, dialoghi, modifiche e schede sono riutilizzati. Fasi/eventi e funzioni aggiuntive sono richiudibili; le azioni rapide sono nelle funzioni aggiuntive. Statistiche generali e conteggi dei membri non necessari alle card del ruolo vengono richiesti aprendo le funzioni aggiuntive. I temi chiaro/scuro restano quelli esistenti. Nessuna modifica a convocazioni, minutaggi, regole delle presenze o salvataggi delle sedute.
+Calendario mensile, comunicazioni, dialoghi, modifiche e schede sono riutilizzati. Le card di fasi ed eventi sono sempre visibili nella griglia Panoramica, dopo le card riepilogative e prima dei pannelli di dettaglio. La griglia e lo stile sono condivisi tra Scuola Calcio, Settore Giovanile e Prima Squadra. Le funzioni aggiuntive restano richiudibili e contengono le azioni rapide. Statistiche generali e conteggi dei membri non necessari alle card del ruolo vengono richiesti aprendo le funzioni aggiuntive. I temi chiaro/scuro restano quelli esistenti. Nessuna modifica a convocazioni, minutaggi, regole delle presenze o salvataggi delle sedute.
 
 ## Compatibilità e autorizzazioni
 

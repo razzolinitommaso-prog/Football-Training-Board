@@ -9,10 +9,12 @@ import {
   FileText,
   ShieldCheck,
   ArrowUpRight,
+  type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { supervisionState } from "@/components/training/TrainingSupervision";
 
 export type OverviewSession = {
@@ -90,6 +92,46 @@ function Panel({
     </Card>
   );
 }
+const cardTones = {
+  default: { border: "", icon: "bg-primary/10 text-primary" },
+  amber: { border: "border-amber-200 dark:border-amber-800/60", icon: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300" },
+  pink: { border: "border-pink-200 dark:border-pink-800/60", icon: "bg-pink-100 text-pink-700 dark:bg-pink-950/50 dark:text-pink-300" },
+  violet: { border: "border-violet-200 dark:border-violet-800/60", icon: "bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300" },
+  sky: { border: "border-sky-200 dark:border-sky-800/60", icon: "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300" },
+};
+
+type OverviewCardProps = {
+  title: string;
+  value: number | string;
+  description: string;
+  icon: LucideIcon;
+  tone?: keyof typeof cardTones;
+} & ({ href: string; onClick?: never } | { href?: never; onClick: () => void });
+
+export function OverviewCard({ title, value, description, icon: Icon, tone = "default", href, onClick }: OverviewCardProps) {
+  const colors = cardTones[tone];
+  const actionClass = "block h-full min-w-0 rounded-lg text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary";
+  const content = (
+    <Card className={cn("h-full transition-colors hover:border-primary/40", colors.border)}>
+      <CardContent className="flex items-start gap-2 p-3 sm:gap-3 sm:p-4">
+        <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl sm:h-9 sm:w-9", colors.icon)}>
+          <Icon className="h-4 w-4" aria-hidden="true" />
+        </div>
+        <div className="min-w-0">
+          <p className="break-words text-xs font-medium">{title}</p>
+          <p className="mt-1 text-xl font-medium leading-none tabular-nums sm:text-2xl">{value}</p>
+          <p className="mt-1 break-words text-[11px] leading-4 text-muted-foreground sm:text-xs">{description}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+  return href !== undefined ? (
+    <Link href={href} className={actionClass}>{content}</Link>
+  ) : (
+    <button type="button" onClick={onClick} className={actionClass}>{content}</button>
+  );
+}
+
 export function UnifiedOverview({
   role,
   teamCount,
@@ -102,6 +144,7 @@ export function UnifiedOverview({
   memberCount,
   scopeLabel,
   dataState,
+  children,
 }: {
   dataState: { players: string; matches: string; members: string };
   role: string;
@@ -114,6 +157,7 @@ export function UnifiedOverview({
   tournamentCount: number;
   memberCount: number;
   scopeLabel: string;
+  children?: ReactNode;
 }) {
   const technical = [
     "admin",
@@ -278,26 +322,8 @@ export function UnifiedOverview({
                 },
               ]
             : stats
-          ).map(({ title, value, description, icon: Icon, href }) => (
-            <Link key={title} href={href}>
-              <Card className="h-full shadow-none transition hover:border-primary/40">
-                <CardContent className="flex gap-2 p-3 sm:gap-3 sm:p-4">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary sm:h-9 sm:w-9">
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold">{title}</p>
-                    <p className="mt-1 text-2xl font-semibold tabular-nums">
-                      {value}
-                    </p>
-                    <p className="mt-1 text-[11px] leading-4 text-muted-foreground sm:text-xs">
-                      {description}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+          ).map(card => <OverviewCard key={card.title} {...card} />)}
+          {children}
         </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">

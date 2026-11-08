@@ -1,5 +1,5 @@
 import { useTechnicalScope, technicalSections } from "@/components/technical-scope";
-import { UnifiedOverview, type OverviewSession } from "@/components/dashboard/UnifiedOverview";
+import { OverviewCard, UnifiedOverview, type OverviewSession } from "@/components/dashboard/UnifiedOverview";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { trainingSlotOnDate, sessionTeamIds } from "@workspace/api-zod";
 import { championshipMatchPath } from "@/lib/championship-match-links";
@@ -2690,13 +2690,28 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         </DialogContent>
       </Dialog>
 
-      <UnifiedOverview dataState={{players:playersError?"error":playersPending?"loading":"ready",matches:matchesError?"error":matchesPending?"loading":"ready",members:membersError?"error":membersPending?"loading":"ready"}} role={nr} teamCount={dashboardTeams.length} players={allPlayers} sessions={trainingSessionsForDash} sessionsLoading={sessionsLoading} sessionsError={sessionsError} matchCount={dashboardMatches.length} tournamentCount={dashboardMatchSummary.tornei+dashboardMatchSummary.amichevoli} memberCount={dashboardMembers.length} scopeLabel={workScope.teamId?workScope.teams.find(team=>team.id===workScope.teamId)?.name??"Annata":workScope.section?technicalSections[workScope.section]:"Tutti i settori autorizzati"} />
-      <details className="rounded-xl border bg-card p-4">
-        <DisclosureSummary className="text-sm font-semibold">Fasi ed eventi</DisclosureSummary><div className="mt-4">
-        <div className={dashboardSingleSection === "settore_giovanile" ? "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"}>
+      <UnifiedOverview
+        dataState={{
+          players: playersError ? "error" : playersPending ? "loading" : "ready",
+          matches: matchesError ? "error" : matchesPending ? "loading" : "ready",
+          members: membersError ? "error" : membersPending ? "loading" : "ready",
+        }}
+        role={nr}
+        teamCount={dashboardTeams.length}
+        players={allPlayers}
+        sessions={trainingSessionsForDash}
+        sessionsLoading={sessionsLoading}
+        sessionsError={sessionsError}
+        matchCount={dashboardMatches.length}
+        tournamentCount={dashboardMatchSummary.tornei + dashboardMatchSummary.amichevoli}
+        memberCount={dashboardMembers.length}
+        scopeLabel={workScope.teamId
+          ? workScope.teams.find(team => team.id === workScope.teamId)?.name ?? "Annata"
+          : workScope.section ? technicalSections[workScope.section] : "Tutti i settori autorizzati"}
+      >
         {dashboardShowsSchoolSeasonPhases && (
           <>
-            <DashboardMatchSummaryCard
+            <OverviewCard
               title="Fase autunnale"
               value={dashboardMatchSummary.autunnale}
               description="partite (ago-gen)"
@@ -2704,7 +2719,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
               tone="amber"
               onClick={() => openDashboardPhaseCalendar("autunnale", "Fase autunnale")}
             />
-            <DashboardMatchSummaryCard
+            <OverviewCard
               title="Fase primaverile"
               value={dashboardMatchSummary.primaverile}
               description="partite (feb-lug)"
@@ -2716,7 +2731,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         )}
         {dashboardShowsChampionshipPhases && (
           <>
-            <DashboardMatchSummaryCard
+            <OverviewCard
               title={nr === "secretary" ? "Calendario campionato" : dashboardSingleSection === "settore_giovanile" ? "Campionato e classifica" : "Campionato"}
               value={dashboardChampionshipMatchCount}
               description="gare andata/ritorno"
@@ -2724,7 +2739,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
               tone="amber"
               onClick={() => setLocation(`/${dashboardCompetitionSectionPath}/${nr === "secretary" ? "programmazione-gare" : "campionati"}`)}
             />
-            {dashboardSingleSection !== "settore_giovanile" && <DashboardMatchSummaryCard
+            {dashboardSingleSection !== "settore_giovanile" && <OverviewCard
               title="Classifica girone"
               value={dashboardTeams.length}
               description="risultati e graduatoria"
@@ -2734,7 +2749,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
             />}
           </>
         )}
-        <DashboardMatchSummaryCard
+        <OverviewCard
           title="Tornei"
           value={dashboardMatchSummary.tornei}
           description="tornei registrati"
@@ -2742,7 +2757,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           tone="violet"
           onClick={() => openDashboardPhaseCalendar("tornei", "Tornei")}
         />
-        <DashboardMatchSummaryCard
+        <OverviewCard
           title="Amichevoli"
           value={dashboardMatchSummary.amichevoli}
           description="partite non ufficiali"
@@ -2750,8 +2765,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           tone="sky"
           onClick={() => openDashboardPhaseCalendar("amichevoli", "Amichevoli")}
         />
-        </div>
-      </div></details>
+      </UnifiedOverview>
 
       <Dialog open={phaseTeamPicker !== null} onOpenChange={(open) => !open && setPhaseTeamPicker(null)}>
         <DialogContent className="max-w-md">
@@ -4196,47 +4210,5 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         </div>
       )}
     </div>
-  );
-}
-
-function DashboardMatchSummaryCard({
-  title,
-  value,
-  description,
-  icon: Icon,
-  tone,
-  onClick,
-}: {
-  title: string;
-  value: number | string;
-  description: string;
-  icon: any;
-  tone: "amber" | "pink" | "violet" | "sky";
-  onClick: () => void;
-}) {
-  const styles: Record<typeof tone, { border: string; iconWrap: string; icon: string }> = {
-    amber: { border: "border-amber-200", iconWrap: "bg-amber-100", icon: "text-amber-600" },
-    pink: { border: "border-pink-200", iconWrap: "bg-pink-100", icon: "text-pink-600" },
-    violet: { border: "border-violet-300 ring-1 ring-violet-200", iconWrap: "bg-violet-100", icon: "text-violet-600" },
-    sky: { border: "border-sky-200", iconWrap: "bg-sky-100", icon: "text-sky-600" },
-  };
-  const style = styles[tone];
-  return (
-    <button type="button" onClick={onClick} className="block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-lg">
-      <Card className={cn("border bg-card shadow-sm transition hover:border-primary/40 hover:shadow-md", style.border)}>
-        <CardContent className="p-4">
-          <div className="flex items-start gap-3">
-            <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", style.iconWrap)}>
-              <Icon className={cn("h-5 w-5", style.icon)} />
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold leading-5">{title}</div>
-              <div className="mt-2 text-2xl font-display font-bold leading-none">{value}</div>
-              <div className="mt-1 text-xs text-muted-foreground">{description}</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </button>
   );
 }
