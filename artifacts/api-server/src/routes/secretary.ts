@@ -122,7 +122,7 @@ function makeWarehouseCode(section: string, name: string, category?: string | nu
 
 function makeWarehouseItemType(section: string, itemType: unknown, name: string, category?: string | null) {
   const explicit = itemType ? String(itemType).trim() : "";
-  if (["annual_fee", "insurance_fee", "shuttle_fee", "kit", "inventory"].includes(explicit)) return explicit;
+  if (["registration_fee", "annual_fee", "insurance_fee", "shuttle_fee", "kit", "inventory"].includes(explicit)) return explicit;
   const label = `${category ?? ""} ${name}`.toLowerCase();
   if (label.includes("assicur")) return "insurance_fee";
   if (label.includes("pulmino")) return "shuttle_fee";
@@ -412,6 +412,99 @@ router.delete("/player-documents/:id", requireAuth, async (req, res): Promise<vo
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   await db.delete(playerDocumentsTable).where(and(eq(playerDocumentsTable.id, id), eq(playerDocumentsTable.clubId, req.session.clubId!)));
   res.sendStatus(204);
+});
+
+const feeTypes = ["registration_fee", "insurance_fee", "annual_fee"] as const;
+type FeeType = typeof feeTypes[number];
+type FeeInput = { id?: number; code: string; name: string; itemType: FeeType; price: number; isActive?: boolean };
+const feeFields = {
+  id: warehouseItemsTable.id, code: warehouseItemsTable.code, name: warehouseItemsTable.name,
+  itemType: warehouseItemsTable.itemType, price: warehouseItemsTable.price, isActive: warehouseItemsTable.isActive,
+};
+const feeScope = (clubId: number) => and(eq(warehouseItemsTable.clubId, clubId), inArray(warehouseItemsTable.itemType, feeTypes));
+const feeKey = (value: string) => value.trim().replace(/\s+/g, " ").toLocaleLowerCase("it");
+class FeeListError extends Error {}
+
+function parseFeeInput(value: unknown): FeeInput {
+  if (!value || typeof value !== "object") throw new FeeListError("Riga non valida.");
+  const { id, code, name, itemType, price, isActive } = value as Record<string, unknown>;
+  if (id !== undefined && (typeof id !== "number" || !Number.isInteger(id) || id < 1)) throw new FeeListError("Identificativo non valido.");
+  if (typeof name !== "string" || !name.trim() || name.trim().length > 150) throw new FeeListError("Indica un nome tra 1 e 150 caratteri.");
+  if (code !== undefined && (typeof code !== "string" || code.trim().length > 80)) throw new FeeListError("Il codice può avere fino a 80 caratteri.");
+  if (itemType !== "registration_fee" && itemType !== "insurance_fee" && itemType !== "annual_fee") {
+    throw new FeeListError("Indica Iscrizione, Assicurazione o Quota annuale come tipo di quota.");
+  }
+  if (typeof price !== "number" || !Number.isFinite(price) || price <= 0 || price > 20000 || Math.abs(price * 100 - Math.round(price * 100)) > 1e-6) {
+    throw new FeeListError("Indica un importo tra 0,01 e 20.000 euro, con al massimo due decimali.");
+  }
+  if (isActive !== undefined && typeof isActive !== "boolean") throw new FeeListError("Lo stato deve essere attivo o inattivo.");
+  return { id, name: name.trim(), code: typeof code === "string" ? code.trim() : "", itemType, price, isActive };
+}
+
+router.get("/fee-list", requireAuth, async (req, res): Promise<void> => {
+  const { clubId, role } = req.session;
+  if (!clubId || !canViewWarehouse(role)) { res.sendStatus(403); return; }
+  const items = await db.select(feeFields).from(warehouseItemsTable).where(feeScope(clubId))
+    .orderBy(asc(warehouseItemsTable.itemType), asc(warehouseItemsTable.name), asc(warehouseItemsTable.id));
+  res.json({
+    items: items.map(item => ({ ...item, price: item.price == null ? null : Number(item.price.toFixed(2)) })),
+    canEdit: canEditWarehouse(role),
+  });
+});
+
+router.post("/fee-list", requireAuth, async (req, res): Promise<void> => {
+  const { clubId, role } = req.session;
+  if (!clubId || !canEditWarehouse(role)) { res.sendStatus(403); return; }
+  const createOnly = req.body?.createOnly === true;
+  const rawRows: unknown = req.body?.rows;
+  if (!Array.isArray(rawRows) || !rawRows.length || rawRows.length > 500) {
+    res.status(400).json({ error: "Il listino deve contenere da 1 a 500 righe." }); return;
+  }
+  try {
+    const rows = rawRows.map((row, index) => {
+      try { return parseFeeInput(row); }
+      catch (error) { if (error instanceof FeeListError) throw new FeeListError("Voce " + (index + 1) + ": " + error.message); throw error; }
+    });
+    if (createOnly && (rows.length !== 1 || rows[0].id !== undefined)) throw new FeeListError("Inserisci una nuova quota alla volta.");
+    const result = await db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('fee-list'), ${clubId})`);
+      const existing = await tx.select(feeFields).from(warehouseItemsTable).where(feeScope(clubId)).for("update");
+      const processed = new Set<number>();
+      let created = 0;
+      let updated = 0;
+      for (const row of rows) {
+        const matches = existing.filter(item => row.id !== undefined ? item.id === row.id : item.itemType === row.itemType &&
+          (row.code ? feeKey(item.code) === feeKey(row.code) : feeKey(item.name) === feeKey(row.name)));
+        const match = matches[0];
+        if (row.id !== undefined && !match) throw new FeeListError("La voce selezionata non è disponibile.");
+        if (matches.length > 1) throw new FeeListError("Più voci corrispondono a «" + row.name + "». Modifica le voci singolarmente e assegna codici distinti.");
+        if (createOnly && match) throw new FeeListError("Questa quota esiste già. Aprila dal listino per modificarla.");
+        const generatedCode = "QUOTA-" + feeKey(row.name).replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 72);
+        const code = row.code || match?.code || generatedCode;
+        const codeConflict = existing.some(item => item.id !== match?.id && item.itemType === row.itemType && feeKey(item.code) === feeKey(code));
+        if (codeConflict) throw new FeeListError("Il codice «" + code + "» è già usato per questo tipo di quota.");
+        const changes = { code, name: row.name, itemType: row.itemType, price: row.price,
+          isActive: row.isActive === undefined ? match?.isActive ?? 1 : Number(row.isActive) };
+        if (match) {
+          if (processed.has(match.id)) throw new FeeListError("La voce «" + row.name + "» è ripetuta nel file.");
+          await tx.update(warehouseItemsTable).set(changes).where(and(feeScope(clubId), eq(warehouseItemsTable.id, match.id)));
+          Object.assign(match, changes);
+          processed.add(match.id);
+          updated++;
+        } else {
+          const [item] = await tx.insert(warehouseItemsTable).values({ ...changes, clubId, section: "fees" }).returning(feeFields);
+          existing.push(item);
+          processed.add(item.id);
+          created++;
+        }
+      }
+      return { created, updated };
+    });
+    res.json(result);
+  } catch (error) {
+    if (error instanceof FeeListError) { res.status(400).json({ error: error.message }); return; }
+    throw error;
+  }
 });
 
 router.get("/warehouse-items", requireAuth, async (req, res): Promise<void> => {

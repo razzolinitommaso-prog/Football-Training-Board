@@ -1,6 +1,7 @@
 import { Link, useLocation, useSearch } from "wouter";
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { feeListRoles } from "@/lib/fee-list";
 import { useGetMyClub } from "@workspace/api-client-react";
 import {
   LayoutDashboard,
@@ -152,6 +153,7 @@ export function AppSidebar() {
     { label: "Pulmino",            url: "/secretary/shuttle",       icon: Bus,           roles: ["admin", "presidente", "director", "secretary", "sporting_director"], group: "secretary" },
     { titleKey: "payments",        url: "/secretary/payments",      icon: Banknote,      roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { titleKey: "documents",       url: "/secretary/documents",     icon: FileText,      roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
+    { label: "Listino quote", url: "/secretary/fee-list", icon: Banknote, roles: feeListRoles, group: "secretary" },
     { label: "Magazzino",          url: "/secretary/warehouse",     icon: Package,       roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { label: "App Genitori",          url: "/secretary/parent-app",    icon: Heart,      roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { label: "Transizione Stagionale", url: "/season-transition",      icon: RefreshCw,  roles: ["admin", "presidente", "secretary", "sporting_director", "director", "technical_director"], group: "secretary" },

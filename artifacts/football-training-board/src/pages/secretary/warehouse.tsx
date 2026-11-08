@@ -170,6 +170,7 @@ function sectionLabel(section: WarehouseSection) {
 }
 
 function itemTypeLabel(type: string) {
+  if (type === "registration_fee") return "Iscrizione";
   if (type === "annual_fee") return "Quota annuale";
   if (type === "insurance_fee") return "Assicurazione";
   if (type === "shuttle_fee") return "Pulmino";
@@ -197,6 +198,7 @@ function automaticItemType(section: WarehouseSection, value: string) {
 
 function normalizeItemType(value: string, section: WarehouseSection, fallback: string) {
   const label = value.trim().toLowerCase();
+  if (["registration_fee", "iscrizione"].includes(label)) return "registration_fee";
   if (["annual_fee", "quota annuale", "quota iscrizione", "quota"].includes(label)) return "annual_fee";
   if (["insurance_fee", "assicurazione", "quota assicurazione"].includes(label)) return "insurance_fee";
   if (["shuttle_fee", "pulmino", "quota pulmino"].includes(label)) return "shuttle_fee";
@@ -732,6 +734,7 @@ export default function WarehousePage() {
                   <SelectTrigger><SelectValue placeholder="Seleziona tipo" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="inventory">Solo magazzino</SelectItem>
+                    <SelectItem value="registration_fee">Iscrizione</SelectItem>
                     <SelectItem value="annual_fee">Quota annuale</SelectItem>
                     <SelectItem value="insurance_fee">Assicurazione</SelectItem>
                     <SelectItem value="shuttle_fee">Pulmino</SelectItem>

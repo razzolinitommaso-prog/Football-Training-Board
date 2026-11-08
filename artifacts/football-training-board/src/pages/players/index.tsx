@@ -24,7 +24,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
+import { MAX_PLAYER_PAYMENT_AMOUNT } from "@/lib/fee-list";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
@@ -345,8 +346,6 @@ type InstallmentDraft = {
   amount: string;
   dueDate: string;
 };
-
-const MAX_PLAYER_PAYMENT_AMOUNT = 20000;
 
 function parseEuroInput(value: string | number | null | undefined): number {
   if (value == null) return Number.NaN;
@@ -1540,12 +1539,12 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       return res.json();
     },
   });
-  const { data: warehouseListItems = [] } = useQuery<WarehouseListItem[]>({
-    queryKey: ["/api/warehouse-items", "price-list"],
+  const { data: warehouseListItems = [], isPending: priceListPending, isError: priceListError } = useQuery<WarehouseListItem[]>({
+    queryKey: ["/api/warehouse-items", "price-list", club?.id, user?.id, nr],
     enabled: canViewFinancials || canViewKit,
     queryFn: async () => {
       const res = await fetch(withApi("/api/warehouse-items?section=all"), { credentials: "include" });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error("Impossibile caricare il listino.");
       return res.json();
     },
   });
@@ -1587,6 +1586,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const [documentNotes, setDocumentNotes] = useState("");
   const [isUploadingDocument, setIsUploadingDocument] = useState(false);
   const [registrationFeeTotal, setRegistrationFeeTotal] = useState("");
+  const [registrationFeeListItemId, setRegistrationFeeListItemId] = useState("");
   const [insuranceFeeTotal, setInsuranceFeeTotal] = useState("");
   const [annualFeeTotal, setAnnualFeeTotal] = useState("");
   const [annualFeeListItemId, setAnnualFeeListItemId] = useState("");
@@ -1664,6 +1664,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const editingKitPayment = editingKitPayments[0];
   const editingShuttlePayments = editingPlayerPayments.filter((payment) => payment.paymentType === "shuttle_monthly");
   const editingShuttlePayment = editingShuttlePayments[0];
+  const plannedRegistrationFee = parseEuroInput(registrationFeeTotal);
   const plannedAnnualFee = parseEuroInput(annualFeeTotal);
   const plannedInsuranceFee = parseEuroInput(insuranceFeeTotal);
   const plannedShuttleFee = parseEuroInput(shuttleMonthlyCost);
@@ -1695,6 +1696,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     })
     .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it"));
   const plannedQuotesTotal =
+    (isSafePlayerPaymentAmount(plannedRegistrationFee) ? plannedRegistrationFee : 0) +
     (isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0) +
     (isSafePlayerPaymentAmount(plannedInsuranceFee) ? plannedInsuranceFee : 0) +
     (isSafePlayerPaymentAmount(plannedShuttleFee) ? plannedShuttleFee * plannedShuttleMonths : 0);
@@ -1712,12 +1714,13 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     .filter((doc) => doc.type === "medicalCertificate")
     .sort((a, b) => String(b.expiryDate ?? "").localeCompare(String(a.expiryDate ?? "")))[0] ?? null;
   const activeListItems = warehouseListItems.filter((item) => item.isActive !== 0 && item.price != null);
+  const registrationFeeListItems = activeListItems.filter((item) => item.itemType === "registration_fee");
   const annualFeeListItems = activeListItems.filter((item) => item.itemType === "annual_fee");
   const insuranceFeeListItems = activeListItems.filter((item) => item.itemType === "insurance_fee");
   const shuttleFeeListItems = activeListItems.filter((item) => item.itemType === "shuttle_fee");
   const kitListItems = activeListItems.filter((item) =>
     item.section === "apparel" &&
-    !["annual_fee", "insurance_fee", "shuttle_fee"].includes(item.itemType)
+    !["registration_fee", "annual_fee", "insurance_fee", "shuttle_fee"].includes(item.itemType)
   );
   const kitListItemsForRow = (row: KitRow) => {
     const rowNeedle = normalizeKitLookup(row.label);
@@ -2399,6 +2402,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         });
       }
       setRegistrationFeeTotal("");
+      setRegistrationFeeListItemId("");
       setInsuranceFeeTotal("");
       setAnnualFeeTotal("");
       setShuttleMonthlyCost("");
@@ -2427,7 +2431,9 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
   const applyListItemPrice = (itemId: string, setter: (value: string) => void) => {
     const item = activeListItems.find((entry) => String(entry.id) === itemId);
-    setter(item?.price != null ? String(item.price) : "");
+    const price = item?.price;
+    const isFee = item?.itemType === "registration_fee" || item?.itemType === "annual_fee" || item?.itemType === "insurance_fee";
+    setter(price == null ? "" : isFee ? price.toFixed(2) : String(price));
   };
 
   function getWarehouseNetAvailable(itemId?: string) {
@@ -2669,6 +2675,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const openPlayerDialog = (player: Player, mode: "view" | "edit" = "view") => {
     setPlayerDialogMode(mode);
     setEditingPlayer(player);
+    setRegistrationFeeTotal("");
+    setRegistrationFeeListItemId("");
     const { notesRaw, meta } = splitPlayerMeta(player.notes ?? "");
     const parsedNotes = splitPlayerNotes(notesRaw);
     setNoteDraftText("");
@@ -4744,7 +4752,29 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   )}
                   {canEditFinancials && (
                     <div className="space-y-3 rounded-md border bg-background p-3">
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <p className="text-muted-foreground">{priceListError ? "Impossibile caricare il listino." : priceListPending ? "Caricamento listino…" : "Le tariffe attive si possono selezionare qui."}</p>
+                        <Link href="/secretary/fee-list" className="font-medium text-primary underline-offset-4 hover:underline">Apri Listino quote</Link>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="space-y-2">
+                          <Label>Quota iscrizione</Label>
+                          <Select value={registrationFeeListItemId || "_manual"} onValueChange={(value) => {
+                            setRegistrationFeeListItemId(value === "_manual" ? "" : value);
+                            if (value !== "_manual") applyListItemPrice(value, setRegistrationFeeTotal);
+                          }}>
+                            <SelectTrigger aria-label="Listino quota iscrizione"><SelectValue placeholder="Scegli dal listino" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_manual">Manuale</SelectItem>
+                              {!priceListPending && !priceListError && !registrationFeeListItems.length && <SelectItem value="_empty" disabled>Nessuna tariffa attiva</SelectItem>}
+                              {registrationFeeListItems.map(item => <SelectItem key={item.id} value={String(item.id)}>{item.name} - Euro {formatEuro(item.price)}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <Input aria-label="Importo quota iscrizione" type="number" step="0.01" value={registrationFeeTotal} onChange={event => {
+                            setRegistrationFeeListItemId("");
+                            setRegistrationFeeTotal(event.target.value);
+                          }} />
+                        </div>
                         <div className="space-y-2">
                           <Label>Quota annuale</Label>
                           <Select value={annualFeeListItemId || "_manual"} onValueChange={(value) => {
@@ -4754,6 +4784,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                             <SelectTrigger><SelectValue placeholder="Scegli dal listino" /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="_manual">Manuale</SelectItem>
+                              {!priceListPending && !priceListError && !annualFeeListItems.length && <SelectItem value="_empty" disabled>Nessuna tariffa attiva</SelectItem>}
                               {annualFeeListItems.map((item) => (
                                 <SelectItem key={item.id} value={String(item.id)}>{item.name} - Euro {formatEuro(item.price)}</SelectItem>
                               ))}
@@ -4770,6 +4801,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                             <SelectTrigger><SelectValue placeholder="Scegli dal listino" /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="_manual">Manuale</SelectItem>
+                              {!priceListPending && !priceListError && !insuranceFeeListItems.length && <SelectItem value="_empty" disabled>Nessuna tariffa attiva</SelectItem>}
                               {insuranceFeeListItems.map((item) => (
                                 <SelectItem key={item.id} value={String(item.id)}>{item.name} - Euro {formatEuro(item.price)}</SelectItem>
                               ))}
