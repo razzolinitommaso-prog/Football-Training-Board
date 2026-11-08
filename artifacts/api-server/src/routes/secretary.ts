@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import {
   db,
   registrationsTable,
@@ -18,6 +18,11 @@ import {
 import { eq, and, desc, gte, lte, asc, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
+
+import {
+  advanceKitRequest, cleanKitSlots, ensureWarehouseKitSchema, KitRequestError,
+  listKitRequests, lockKitPlayer, requestKitRow, validateKitLinks,
+} from "../lib/warehouse-kit";
 
 const router: IRouter = Router();
 
@@ -523,6 +528,7 @@ router.get("/warehouse-items", requireAuth, async (req, res): Promise<void> => {
     res.status(403).json({ error: "Non autorizzato" });
     return;
   }
+  await ensureWarehouseKitSchema();
   const section = String(req.query.section ?? "");
   const clubId = req.session.clubId!;
   const where = section && section !== "all"
@@ -537,6 +543,7 @@ router.post("/warehouse-items", requireAuth, async (req, res): Promise<void> => 
     res.status(403).json({ error: "Solo la segreteria puo modificare il magazzino" });
     return;
   }
+  await ensureWarehouseKitSchema();
   const { section, code, name, itemType, price, isActive, category, size, quantityAvailable, quantityReserved, reorderThreshold, supplier, notes } = req.body;
   const cleanSection = section === "field" ? "field" : "apparel";
   const cleanCategory = category ? String(category).trim() : null;
@@ -544,9 +551,15 @@ router.post("/warehouse-items", requireAuth, async (req, res): Promise<void> => 
   const cleanName = String(name ?? cleanCategory ?? "").trim();
   if (!cleanName) { res.status(400).json({ error: "Nome articolo richiesto" }); return; }
   const cleanCode = String(code ?? "").trim() || makeWarehouseCode(cleanSection, cleanName, cleanCategory, cleanSize);
+  let kitSlots: string[] | null = null;
+  if (cleanSection === "apparel" && req.body.kitSlots !== undefined) {
+    try { kitSlots = cleanKitSlots(req.body.kitSlots); }
+    catch (error) { if (sendKitError(res, error)) return; throw error; }
+  }
   const [record] = await db.insert(warehouseItemsTable).values({
     clubId: req.session.clubId!,
     section: cleanSection,
+    kitSlots,
     code: cleanCode,
     name: cleanName,
     itemType: makeWarehouseItemType(cleanSection, itemType, cleanName, cleanCategory),
@@ -570,7 +583,12 @@ router.patch("/warehouse-items/:id", requireAuth, async (req, res): Promise<void
   }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  await ensureWarehouseKitSchema();
   const updates: Record<string, unknown> = {};
+  if (req.body.kitSlots !== undefined) {
+    try { updates.kitSlots = cleanKitSlots(req.body.kitSlots); }
+    catch (error) { if (sendKitError(res, error)) return; throw error; }
+  }
   for (const key of ["section", "itemType", "category", "size", "supplier", "notes"] as const) {
     if (req.body[key] !== undefined) updates[key] = req.body[key] ? String(req.body[key]).trim() : null;
   }
@@ -611,6 +629,7 @@ router.patch("/warehouse-items/:id/reserve", requireAuth, async (req, res): Prom
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const delta = Number(req.body.delta ?? 0);
   if (!Number.isFinite(delta) || delta === 0) { res.status(400).json({ error: "delta required" }); return; }
+  await ensureWarehouseKitSchema();
   const [existing] = await db.select().from(warehouseItemsTable)
     .where(and(eq(warehouseItemsTable.id, id), eq(warehouseItemsTable.clubId, req.session.clubId!)))
     .limit(1);
@@ -630,7 +649,14 @@ router.delete("/warehouse-items/:id", requireAuth, async (req, res): Promise<voi
   }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  await db.delete(warehouseItemsTable).where(and(eq(warehouseItemsTable.id, id), eq(warehouseItemsTable.clubId, req.session.clubId!)));
+  try {
+    await db.delete(warehouseItemsTable).where(and(eq(warehouseItemsTable.id, id), eq(warehouseItemsTable.clubId, req.session.clubId!)));
+  } catch (error) {
+    const cause = (error as { code?: string; cause?: { code?: string } }).cause ?? error;
+    if ((cause as { code?: string }).code !== "23503") throw error;
+    res.status(409).json({ error: "Articolo presente nello storico kit. Puoi disattivarlo nel listino." });
+    return;
+  }
   res.sendStatus(204);
 });
 
@@ -648,25 +674,94 @@ router.get("/equipment", requireAuth, async (req, res): Promise<void> => {
   res.json(await withPlayerName(records));
 });
 
-router.post("/equipment", requireAuth, async (req, res): Promise<void> => {
-  const { playerId, kitAssigned, trainingKit, matchKit, notes } = req.body;
-  if (!playerId) { res.status(400).json({ error: "playerId required" }); return; }
-  const existing = await db.select().from(equipmentAssignmentsTable)
-    .where(and(eq(equipmentAssignmentsTable.playerId, Number(playerId)), eq(equipmentAssignmentsTable.clubId, req.session.clubId!)));
-  if (existing.length > 0) {
-    const [updated] = await db.update(equipmentAssignmentsTable)
-      .set({ kitAssigned: kitAssigned ?? null, trainingKit: trainingKit ?? null, matchKit: matchKit ?? null, notes: notes ?? null })
-      .where(eq(equipmentAssignmentsTable.id, existing[0].id)).returning();
-    res.json(updated);
-    return;
+function sendKitError(res: Response, error: unknown) {
+  if (!(error instanceof KitRequestError)) return false;
+  res.status(error.status).json({ error: error.message });
+  return true;
+}
+
+function validKitId(value: number) {
+  return Number.isInteger(value) && value > 0 && value <= 2147483647;
+}
+
+router.patch("/warehouse-kit-catalog", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditWarehouse(req.session.role)) { res.status(403).json({ error: "Non autorizzato" }); return; }
+  const ids: unknown = req.body.ids;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 2000 || ids.some((id) => !validKitId(id))) {
+    res.status(400).json({ error: "Varianti non valide" }); return;
   }
-  const [record] = await db.insert(equipmentAssignmentsTable).values({
-    clubId: req.session.clubId!, playerId: Number(playerId), kitAssigned: kitAssigned ?? null,
-    trainingKit: trainingKit ?? null, matchKit: matchKit ?? null, notes: notes ?? null,
-  }).returning();
-  res.status(201).json(record);
+  try {
+    const kitSlots = cleanKitSlots(req.body.kitSlots);
+    await ensureWarehouseKitSchema();
+    const changed = await db.update(warehouseItemsTable).set({ kitSlots })
+      .where(and(eq(warehouseItemsTable.clubId, req.session.clubId!), eq(warehouseItemsTable.section, "apparel"),
+        inArray(warehouseItemsTable.id, ids))).returning({ id: warehouseItemsTable.id });
+    res.json({ updated: changed.length });
+  } catch (error) { if (!sendKitError(res, error)) throw error; }
 });
 
+router.get("/warehouse-kit-requests", requireAuth, async (req, res): Promise<void> => {
+  if (!canViewWarehouse(req.session.role)) { res.status(403).json({ error: "Non autorizzato" }); return; }
+  const clubId = req.session.clubId!;
+  const playerId = req.query.playerId === undefined ? undefined : Number(req.query.playerId);
+  if (playerId !== undefined && !validKitId(playerId)) { res.status(400).json({ error: "Giocatore non valido" }); return; }
+  res.json(await listKitRequests(clubId, playerId, await getScopedPlayerIds(req, clubId)));
+});
+
+router.post("/warehouse-kit-requests", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditWarehouse(req.session.role)) { res.status(403).json({ error: "Non autorizzato" }); return; }
+  const clubId = req.session.clubId!;
+  const playerId = Number(req.body.playerId);
+  const scope = await getScopedPlayerIds(req, clubId);
+  if (!validKitId(playerId) || (scope && !scope.includes(playerId))) {
+    res.status(404).json({ error: "Giocatore non trovato" }); return;
+  }
+  try {
+    await requestKitRow(clubId, playerId, String(req.body.rowKey ?? ""), req.body.itemIds, req.body.quantity);
+    res.sendStatus(204);
+  } catch (error) { if (!sendKitError(res, error)) throw error; }
+});
+
+router.patch("/warehouse-kit-requests/:id", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditWarehouse(req.session.role)) { res.status(403).json({ error: "Non autorizzato" }); return; }
+  const id = Number(req.params.id);
+  if (!validKitId(id)) { res.status(400).json({ error: "Richiesta non valida" }); return; }
+  try {
+    const clubId = req.session.clubId!;
+    await advanceKitRequest(clubId, id, String(req.body.status ?? ""), await getScopedPlayerIds(req, clubId));
+    res.sendStatus(204);
+  } catch (error) { if (!sendKitError(res, error)) throw error; }
+});
+
+router.post("/equipment", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditWarehouse(req.session.role)) { res.status(403).json({ error: "Non autorizzato" }); return; }
+  const { kitAssigned, trainingKit, matchKit, notes } = req.body;
+  const playerId = Number(req.body.playerId);
+  const clubId = req.session.clubId!;
+  const scope = await getScopedPlayerIds(req, clubId);
+  if (!validKitId(playerId) || (scope && !scope.includes(playerId))) {
+    res.status(404).json({ error: "Giocatore non trovato" }); return;
+  }
+  try {
+    await ensureWarehouseKitSchema();
+    const result = await db.transaction(async (tx) => {
+      await lockKitPlayer(tx, clubId, playerId);
+      const [existing] = await tx.select().from(equipmentAssignmentsTable)
+        .where(and(eq(equipmentAssignmentsTable.playerId, playerId), eq(equipmentAssignmentsTable.clubId, clubId)))
+        .orderBy(asc(equipmentAssignmentsTable.id)).limit(1);
+      await validateKitLinks(tx, clubId, playerId, existing?.trainingKit, trainingKit);
+      const changes = { kitAssigned: kitAssigned ?? null, trainingKit: trainingKit ?? null, matchKit: matchKit ?? null, notes: notes ?? null };
+      if (existing) {
+        const [record] = await tx.update(equipmentAssignmentsTable).set(changes)
+          .where(eq(equipmentAssignmentsTable.id, existing.id)).returning();
+        return { record, status: 200 };
+      }
+      const [record] = await tx.insert(equipmentAssignmentsTable).values({ ...changes, clubId, playerId }).returning();
+      return { record, status: 201 };
+    });
+    res.status(result.status).json(result.record);
+  } catch (error) { if (!sendKitError(res, error)) throw error; }
+});
 
 const secretaryOrAdmin = ["admin", "presidente", "secretary", "sporting_director", "director", "technical_director"];
 

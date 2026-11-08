@@ -1,3 +1,5 @@
+import { PlayerKitEditor } from "./player-kit-editor";
+import { PLAYER_KIT_ROWS, kitRowItemIds, KIT_REQUEST_STATUS, savedKitSelections, type KitRequestLine, type KitRow } from "@/lib/player-kit-catalog";
 import "./player-directory.css";
 import { useTechnicalScope } from "@/components/technical-scope";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
@@ -290,17 +292,6 @@ type WarehouseListItem = {
   quantityReserved?: number | null;
 };
 
-type KitRow = {
-  key: string;
-  label: string;
-  area: "training" | "match" | "representation";
-  price: string;
-  quantity: string;
-  ordered: boolean;
-  arrived: boolean;
-  listItemId?: string;
-};
-
 type ExtraTimeRow = {
   key: string;
   group: "individual" | "group";
@@ -393,15 +384,6 @@ function formatEuro(value: string | number | null | undefined): string {
   return amount.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function normalizeKitLookup(value: string | null | undefined): string {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
 function kitRowQuantity(row: Pick<KitRow, "quantity">): number {
   const value = Math.max(1, Math.floor(Number(row.quantity) || 1));
   return Number.isFinite(value) ? value : 1;
@@ -411,48 +393,24 @@ function kitRowTotal(row: Pick<KitRow, "price" | "quantity">): number {
   return (parseEuroInput(row.price) || 0) * kitRowQuantity(row);
 }
 
-const KIT_ITEMS: Array<Pick<KitRow, "key" | "label" | "area">> = [
-  { key: "training_socks", label: "Calzettone allenamento", area: "training" },
-  { key: "training_shorts", label: "Pantaloncino allenamento", area: "training" },
-  { key: "training_shirt", label: "Maglietta allenamento", area: "training" },
-  { key: "k_way", label: "K-Way", area: "training" },
-  { key: "winter_tracksuit", label: "Tuta invernale allenamento", area: "training" },
-  { key: "winter_pants", label: "Pantalone invernale", area: "training" },
-  { key: "winter_pinocchietto", label: "Pinocchietto invernale", area: "training" },
-  { key: "winter_sweatshirt", label: "Felpa invernale allenamento", area: "training" },
-  { key: "match_shorts", label: "Pantaloncino gara", area: "match" },
-  { key: "match_socks", label: "Calzettone gara", area: "match" },
-  { key: "match_shirt", label: "Maglietta gara", area: "match" },
-  { key: "rep_tracksuit", label: "Tuta completa rappresentanza", area: "representation" },
-  { key: "rep_pants_sweatshirt", label: "Pantalone + felpa rappresentanza", area: "representation" },
-  { key: "rep_polo", label: "Polo di rappresentanza", area: "representation" },
-  { key: "rep_jacket", label: "Giubbotto", area: "representation" },
-];
-
 function defaultKitRows(): KitRow[] {
-  return KIT_ITEMS.map((item) => ({ ...item, price: "", quantity: "1", ordered: false, arrived: false }));
+  return PLAYER_KIT_ROWS.map((item) => ({ ...item, price: "", quantity: "1", ordered: false, arrived: false }));
 }
 
 function parseKitRows(raw: string | null | undefined): KitRow[] {
-  if (!raw) return defaultKitRows();
-  try {
-    const parsed = JSON.parse(raw) as Partial<KitRow>[] | { kitRows?: Partial<KitRow>[] };
-    const source = Array.isArray(parsed) ? parsed : parsed.kitRows;
-    if (!Array.isArray(source)) return defaultKitRows();
-    return defaultKitRows().map((base) => {
-      const saved = source.find((row) => row.key === base.key);
-      return {
-        ...base,
-        price: saved?.price != null ? String(saved.price) : "",
-        quantity: saved?.quantity != null ? String(saved.quantity) : "1",
-        ordered: saved?.ordered === true,
-        arrived: saved?.arrived === true,
-        listItemId: saved?.listItemId ? String(saved.listItemId) : "",
-      };
-    });
-  } catch {
-    return defaultKitRows();
-  }
+  const source = savedKitSelections(raw);
+  return defaultKitRows().map((base) => {
+    const saved = source.find((row) => row.key === base.key);
+    return {
+      ...base,
+      price: saved?.price != null ? String(saved.price) : "",
+      quantity: saved?.quantity != null ? String(saved.quantity) : "1",
+      ordered: saved?.ordered === true,
+      arrived: saved?.arrived === true,
+      listItemId: saved?.listItemId ? String(saved.listItemId) : "",
+      componentItemIds: Array.isArray(saved?.componentItemIds) ? saved.componentItemIds.slice(0, 2).map((id) => id ? String(id) : "") : undefined,
+    };
+  });
 }
 
 function parseExtraTimeRows(raw: string | null | undefined): ExtraTimeRow[] {
@@ -492,6 +450,7 @@ function serializeKitRows(rows: KitRow[], extraRows?: ExtraTimeRow[]): string {
     ordered: row.ordered,
     arrived: row.arrived,
     listItemId: row.listItemId || "",
+    componentItemIds: row.componentItemIds,
   }));
   if (!extraRows) return JSON.stringify(kitRows);
   return JSON.stringify({
@@ -1632,7 +1591,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     },
   });
   const { data: playerEquipment = [] } = useQuery<PlayerEquipment[]>({
-    queryKey: ["/api/equipment"],
+    queryKey: ["/api/equipment", club?.id, user?.id, nr],
     enabled: canViewKit,
     queryFn: async () => {
       const res = await fetch(withApi("/api/equipment"), { credentials: "include" });
@@ -1822,15 +1781,6 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     item.section === "apparel" &&
     !["registration_fee", "annual_fee", "insurance_fee", "shuttle_fee"].includes(item.itemType)
   );
-  const kitListItemsForRow = (row: KitRow) => {
-    const rowNeedle = normalizeKitLookup(row.label);
-    const rowWords = rowNeedle.split(" ").filter((word) => word.length > 2);
-    const matches = kitListItems.filter((item) => {
-      const haystack = normalizeKitLookup(`${item.name} ${item.category ?? ""}`);
-      return rowWords.every((word) => haystack.includes(word));
-    });
-    return matches;
-  };
   const currentMedicalExpiry = editingMedicalCertificate?.expiryDate ?? editingPlayer?.medicalCertificateExpiry ?? null;
   const currentMedicalDaysLeft = currentMedicalExpiry
     ? Math.ceil((new Date(`${currentMedicalExpiry}T00:00:00`).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
@@ -1849,11 +1799,28 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     return { tone: "green" as const, label: "Completo" };
   })();
   const paymentSectionStatus = quotePaymentStatus(editingPlayerPayments, paymentToday);
+  const { data: playerKitRequests = [], isError: kitRequestsError, isPending: kitRequestsPending } = useQuery<KitRequestLine[]>({
+    queryKey: ["/api/warehouse-kit-requests", club?.id, user?.id, editingPlayer?.id],
+    enabled: Boolean(editingPlayer && (canViewFinancials || nr === "sporting_director")),
+    queryFn: async () => {
+      const response = await fetch(withApi(`/api/warehouse-kit-requests?playerId=${editingPlayer?.id}`), { credentials: "include" });
+      if (!response.ok) throw new Error("Richieste kit non disponibili");
+      return response.json();
+    },
+  });
+  const currentKitRequests = playerKitRequests.filter((line) => !line.archived);
   const kitSectionStatus = (() => {
-    const activeRows = displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || row.listItemId);
+    const activeRows = displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || kitRowItemIds(row).length);
     if (activeRows.length === 0) return { tone: "red" as const, label: "Non registrato" };
-    if (activeRows.some((row) => (getWarehouseNetAvailable(row.listItemId) ?? 0) <= 0)) return { tone: "yellow" as const, label: "Da ordinare" };
-    return { tone: "green" as const, label: "Completo" };
+    if (currentKitRequests.some((line) => line.status === "pending")) return { tone: "yellow" as const, label: "Da ordinare" };
+    if (activeRows.some((row) => kitRowItemIds(row).length < (row.key === "rep_pants_sweatshirt" ? 2 : 1))) {
+      return { tone: "yellow" as const, label: "Da collegare" };
+    }
+    if (activeRows.every((row) => currentKitRequests.some((line) => line.rowKey === row.key) &&
+        currentKitRequests.filter((line) => line.rowKey === row.key).every((line) => line.status === "delivered"))) {
+      return { tone: "green" as const, label: "Consegnato" };
+    }
+    return { tone: "neutral" as const, label: "Registrato" };
   })();
 
   type SectionStatus = { tone: "red" | "yellow" | "green" | "neutral"; label: string };
@@ -2271,7 +2238,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     toast({ title: "Quota eliminata" });
   };
 
-  const saveKitAssignmentOnly = async (reserveWarehouse = false) => {
+  const saveKitAssignmentOnly = async () => {
     if (!editingPlayer) return;
     const res = await fetch(withApi("/api/equipment"), {
       method: "POST",
@@ -2286,28 +2253,29 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       }),
     });
     if (!res.ok) throw new Error(await res.text());
-    if (reserveWarehouse) await syncWarehouseKitReservations();
   };
 
-  const syncWarehouseKitReservations = async () => {
-    const previousRows = parseKitRows(editingPlayerEquipment?.trainingKit);
-    const countByItem = (rows: KitRow[]) => rows.reduce<Record<string, number>>((acc, row) => {
-      if (row.listItemId) acc[row.listItemId] = (acc[row.listItemId] ?? 0) + kitRowQuantity(row);
-      return acc;
-    }, {});
-    const previous = countByItem(previousRows);
-    const current = countByItem(kitRows);
-    const ids = new Set([...Object.keys(previous), ...Object.keys(current)]);
-    for (const id of ids) {
-      const delta = (current[id] ?? 0) - (previous[id] ?? 0);
-      if (delta === 0) continue;
-      const res = await fetch(withApi(`/api/warehouse-items/${id}/reserve`), {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ delta }),
-      });
-      if (!res.ok) throw new Error(await res.text());
+  const saveKitLinks = async (rowKey?: string) => {
+    if (!editingPlayer || !canEditFinancials) return;
+    setIsSavingKit(true);
+    try {
+      await saveKitAssignmentOnly();
+      const row = kitRows.find((item) => item.key === rowKey);
+      if (row) {
+        const response = await fetch(withApi("/api/warehouse-kit-requests"), {
+          method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ playerId: editingPlayer.id, rowKey, itemIds: kitRowItemIds(row), quantity: kitRowQuantity(row) }),
+        });
+        if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? "Richiesta non registrata");
+      }
+      toast({ title: rowKey ? "Richiesta registrata in Magazzino" : "Collegamenti kit salvati" });
+    } catch (error) {
+      toast({ title: "Controlla il kit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-items"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-kit-requests"] });
+      setIsSavingKit(false);
     }
   };
 
@@ -2334,7 +2302,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     if (editingPlayerPayments.length > 0 && !confirm("Creare il piano totale sostituira i pagamenti gia registrati per questo giocatore. Continuare?")) return;
     setIsSavingInstallments(true);
     try {
-      await saveKitAssignmentOnly(upfrontAmount > 0);
+      await saveKitAssignmentOnly();
       for (const payment of editingPlayerPayments) {
         const deleteRes = await fetch(withApi(`/api/player-payments/${payment.id}`), { method: "DELETE", credentials: "include" });
         if (!deleteRes.ok) throw new Error(await deleteRes.text());
@@ -2541,30 +2509,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     setter(price == null ? "" : isFee ? price.toFixed(2) : String(price));
   };
 
-  function getWarehouseNetAvailable(itemId?: string) {
-    const item = activeListItems.find((entry) => String(entry.id) === itemId);
-    if (!item) return null;
-    return Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0);
-  }
-
   const savePlayerKit = async () => {
     if (!editingPlayer || !canEditFinancials) return;
     setIsSavingKit(true);
     try {
-      const res = await fetch(withApi("/api/equipment"), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          playerId: editingPlayer.id,
-          kitAssigned: editingPlayer.jerseyNumber ? String(editingPlayer.jerseyNumber) : null,
-          trainingKit: serializeKitRows(kitRows, extraTimeRows),
-          matchKit: serializeKitRows(kitRows.filter((row) => row.area === "match")),
-          notes: kitNotes || null,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      if (kitPaymentStatus === "paid") await syncWarehouseKitReservations();
+      await saveKitAssignmentOnly();
       const total = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
       if (total > 0) {
         for (const payment of editingKitPayments) {
@@ -2622,6 +2571,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         if (!shuttleRes.ok) throw new Error(await shuttleRes.text());
       }
       queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-kit-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players"] });
       toast({ title: "Kit giocatore salvato" });
@@ -3068,8 +3018,18 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     if (!Number.isFinite(openPlayerId) || openPlayerId <= 0) return;
     const target = list.find((p) => p.id === openPlayerId);
     if (!target) return;
-    openPlayerDialog(target, "view");
+    const editKit = params.get("focus") === "kit" && nr === "secretary";
+    openPlayerDialog(target, editKit ? "edit" : "view");
     setOpenedFromQuery(true);
+    if (editKit) {
+      window.setTimeout(() => {
+        const panel = document.querySelector("[data-player-kit-editor]");
+        if (panel instanceof HTMLDetailsElement) {
+          panel.open = true;
+          panel.scrollIntoView({ block: "start" });
+        }
+      }, 120);
+    }
     if (params.get("focus") === "notes") {
       window.setTimeout(() => {
         const el = document.querySelector('textarea[placeholder="Scrivi una comunicazione sul giocatore..."]');
@@ -3081,7 +3041,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     const qs = params.toString();
     const nextUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
     window.history.replaceState({}, "", nextUrl);
-  }, [openedFromQuery, editingPlayer, players]);
+  }, [openedFromQuery, editingPlayer, players, nr]);
 
   const handleEditSubmit = (data: EditForm) => {
     if (!editingPlayer) return;
@@ -4081,22 +4041,22 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   <CollapsibleSectionSummary title="Kit" status={kitSectionStatus} />
                   <div className="mt-3 space-y-2 text-sm">
                     <div className="space-y-2">
-                      {displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || row.listItemId).length === 0 ? (
+                      {displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || kitRowItemIds(row).length).length === 0 ? (
                         <p className="text-muted-foreground">Nessun kit registrato.</p>
-                      ) : displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || row.listItemId).map((row) => (
+                      ) : displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || kitRowItemIds(row).length).map((row) => (
                         <div key={row.key} className="flex flex-col gap-1 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <p className="font-medium">{row.label}</p>
                             <p className="text-xs text-muted-foreground">
                               {row.area === "training" ? "Allenamento" : row.area === "match" ? "Gara" : "Rappresentanza"}
-                              {activeListItems.find((entry) => String(entry.id) === row.listItemId)?.size ? ` - ${activeListItems.find((entry) => String(entry.id) === row.listItemId)?.size}` : ""}
+                              {kitRowItemIds(row).map((id) => activeListItems.find((entry) => String(entry.id) === id)?.size).filter(Boolean).map((size) => " · " + size).join("")}
                               {" "} - {kitRowQuantity(row)} pz
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2 text-xs">
-                            <Badge variant={(getWarehouseNetAvailable(row.listItemId) ?? 0) > 0 ? "default" : "destructive"}>
-                              {(getWarehouseNetAvailable(row.listItemId) ?? 0) > 0 ? "Disponibile" : "Non disponibile"}
-                            </Badge>
+                            {currentKitRequests.filter((line) => line.rowKey === row.key).map((line) => (
+                              <Badge key={line.id} variant="outline">{KIT_REQUEST_STATUS[line.status]} · {line.quantity} pz</Badge>
+                            ))}
                           </div>
                         </div>
                       ))}
@@ -5109,85 +5069,23 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               )}
 
               {canEditFinancials && (
-                <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
+                <details data-player-kit-editor className="group rounded-lg border border-border/60 bg-muted/10 p-3">
                   <CollapsibleSectionSummary title="Kit" icon={<Package className="h-4 w-4" />} status={kitSectionStatus} />
-                  <div className="mt-3 space-y-3 rounded-md border bg-background p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-muted-foreground" />
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kit</p>
-                      </div>
-                      <Badge variant="outline">Totale Euro {formatEuro(kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0))}</Badge>
+                  <div className="mt-3 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm">Totale <strong className="font-medium">€ {formatEuro(plannedKitTotal)}</strong></p>
+                      <Button type="button" size="sm" variant="outline" disabled={isSavingKit}
+                        onClick={() => void saveKitLinks()}>Salva collegamenti</Button>
                     </div>
-                    <div className="space-y-2">
-                      {(["training", "match", "representation"] as const).map((area) => (
-                        <div key={area} className="rounded-md border bg-muted/10 p-3">
-                          <p className="mb-2 text-sm font-semibold">
-                            {area === "training" ? "Kit allenamento" : area === "match" ? "Kit gara" : "Kit rappresentanza"}
-                          </p>
-                          <div className="space-y-2">
-                            {kitRows.filter((row) => row.area === area).map((row) => (
-                              <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 md:grid-cols-2 xl:grid-cols-4 xl:items-center">
-                                <span className="text-sm font-medium md:col-span-2 xl:col-span-1">{row.label}</span>
-                                <Select value={row.listItemId || "_manual"} onValueChange={(value) => {
-                                  const item = activeListItems.find((entry) => String(entry.id) === value);
-                                  updateKitRow(row.key, {
-                                    listItemId: value === "_manual" ? "" : value,
-                                    price: value === "_manual" ? row.price : item?.price != null ? String(item.price) : "",
-                                    ordered: value !== "_manual",
-                                  });
-                                }}>
-                                  <SelectTrigger><SelectValue placeholder="Listino articolo" /></SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="_manual">Manuale</SelectItem>
-                                    {kitListItemsForRow(row).map((item) => (
-                                      <SelectItem key={item.id} value={String(item.id)}>
-                                        {[item.name, item.category && item.category !== item.name ? item.category : "", item.size].filter(Boolean).join(" - ")}
-                                        {" "} - Disp. {Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0)} - Euro {formatEuro(item.price)}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                                  {activeListItems.find((entry) => String(entry.id) === row.listItemId)?.size || "Taglia"}
-                                </div>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="Prezzo unit."
-                                  value={row.price}
-                                  onChange={(e) => updateKitRow(row.key, { price: e.target.value, listItemId: "" })}
-                                />
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  step={1}
-                                  placeholder="Pezzi"
-                                  value={row.quantity}
-                                  onChange={(e) => updateKitRow(row.key, { quantity: e.target.value })}
-                                />
-                                <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm font-semibold">
-                                  Euro {formatEuro(kitRowTotal(row))}
-                                </div>
-                                <Badge variant={(getWarehouseNetAvailable(row.listItemId) ?? 1) > 0 ? "secondary" : "destructive"}>
-                                  {row.listItemId
-                                    ? (getWarehouseNetAvailable(row.listItemId) ?? 0) > 0
-                                      ? `Disponibile ${getWarehouseNetAvailable(row.listItemId)}`
-                                      : "Da ordinare"
-                                    : "N/D"}
-                                </Badge>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="space-y-2">
+                    <PlayerKitEditor rows={kitRows} items={kitListItems} requests={currentKitRequests} busy={isSavingKit || kitRequestsPending}
+                      requestsUnavailable={kitRequestsError} updateRow={updateKitRow}
+                      requestRow={(key) => { if (!kitRequestsPending) void saveKitLinks(key); }} formatEuro={formatEuro} rowTotal={kitRowTotal} parsePrice={parseEuroInput} />
+                    <div className="space-y-2 border-t pt-3">
                       <Label>Note kit</Label>
                       <Textarea value={kitNotes} onChange={(e) => setKitNotes(e.target.value)} />
                     </div>
-                    <div className="grid grid-cols-1 gap-3 rounded-md border bg-background p-3 sm:grid-cols-3">
-                      <div className="flex items-center gap-3 rounded-md border px-3 py-2">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="flex items-center gap-3">
                         <Checkbox
                           id="kitPaymentPaidInline"
                           checked={kitPaymentStatus === "paid"}
@@ -5230,7 +5128,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     </div>
                     <Button type="button" variant="outline" className="w-full gap-2 sm:w-auto" disabled={isSavingKit} onClick={() => void savePlayerKit()}>
                       <Package className="h-4 w-4" />
-                      {isSavingKit ? "Salvataggio..." : "Salva kit"}
+                      {isSavingKit ? "Salvataggio..." : "Salva kit e pagamenti"}
                     </Button>
                   </div>
                 </details>

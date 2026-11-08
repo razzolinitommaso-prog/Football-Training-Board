@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Package, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { withApi } from "@/lib/api-base";
+import { KIT_REQUEST_STATUS } from "@/lib/player-kit-catalog";
 
 async function apiFetch(path: string) {
   const res = await fetch(withApi(`/api${path}`), { credentials: "include" });
@@ -50,7 +51,7 @@ export default function ParentKit() {
       ) : (
         <div className="space-y-3">
           {rows.map((row, index) => {
-            const ready = row.arrived === true;
+            const ready = row.status === "arrived" || row.status === "delivered" || row.arrived === true;
             return (
               <div key={`${row.key}-${index}`} className="flex items-center justify-between gap-3 rounded-2xl border bg-card p-4">
                 <div className="min-w-0">
@@ -60,7 +61,7 @@ export default function ParentKit() {
                 </div>
                 <Badge variant={ready ? "default" : "secondary"} className="gap-1">
                   {ready ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
-                  {ready ? "Pronto" : "In preparazione"}
+                  {KIT_REQUEST_STATUS[row.status] ?? (ready ? "Arrivato" : "In preparazione")}
                 </Badge>
               </div>
             );

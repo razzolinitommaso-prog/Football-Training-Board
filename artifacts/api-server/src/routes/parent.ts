@@ -1,3 +1,4 @@
+import { parentKitRows } from "../lib/warehouse-kit";
 import {buildMatchRotationSummary,parentPublicMatch,defaultRotationCapacity} from "@workspace/api-zod";
 import { trainingSlotOnDate } from "@workspace/api-zod";
 import { sessionTeamScope, sessionTeamIds } from "../lib/session-team-scope";
@@ -941,11 +942,12 @@ router.get("/parent/kit", requireParentSession, async (req, res): Promise<void> 
     teamName = team?.name ?? null;
   }
 
-  res.json(rows.map((row) => ({
-    ...row,
+  const kit = await parentKitRows(clubId, parentPlayerId, rows[0]?.trainingKit);
+  res.json(rows.length === 0 ? [] : [{
     playerName: player ? `${player.firstName} ${player.lastName}` : `#${parentPlayerId}`,
     teamName,
-  })));
+    trainingKit: JSON.stringify(kit),
+  }]);
 });
 
 router.get("/parent/player-card", requireParentSession, async (req, res): Promise<void> => {

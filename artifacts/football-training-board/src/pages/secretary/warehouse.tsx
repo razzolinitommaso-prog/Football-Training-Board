@@ -1,3 +1,7 @@
+import { Link } from "wouter";
+import { KIT_REQUEST_STATUS, PLAYER_KIT_ROWS, PLAYER_KIT_SLOTS, REPRESENTATION_SET, kitRowItemIds, savedKitSelections, suggestKitSlots, type KitRequestLine } from "@/lib/player-kit-catalog";
+import { useAuth } from "@/hooks/use-auth";
+import { normalizeSessionRole } from "@/lib/session-role";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,6 +39,7 @@ type WarehouseItem = {
   reorderThreshold: number;
   supplier?: string | null;
   notes?: string | null;
+  kitSlots?: string[] | null;
 };
 
 const LOW_STOCK_WARNING_THRESHOLD = 10;
@@ -160,7 +165,7 @@ async function apiFetch(path: string, options?: RequestInit) {
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Operazione di magazzino non riuscita");
   if (res.status === 204) return null;
   return res.json();
 }
@@ -323,6 +328,10 @@ const WAREHOUSE_TEMPLATE_ROWS = [
 ];
 
 export default function WarehousePage() {
+  const { user, club, role } = useAuth();
+  const canManageKit = normalizeSessionRole(role) === "secretary";
+  const [kitMapping, setKitMapping] = useState<{ title: string; ids: number[]; slots: string[] } | null>(null);
+  const [kitRequestView, setKitRequestView] = useState<"open" | "delivered" | "unlinked">("open");
   const [section, setSection] = useState<WarehouseSection>("apparel");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WarehouseItem | null>(null);
@@ -333,9 +342,65 @@ export default function WarehousePage() {
   const sizeOptions = section === "apparel" ? APPAREL_SIZE_OPTIONS : FIELD_SIZE_OPTIONS;
 
   const { data: items = [], isLoading } = useQuery<WarehouseItem[]>({
-    queryKey: ["/api/warehouse-items", section],
+    queryKey: ["/api/warehouse-items", club?.id, user?.id, section],
     queryFn: () => apiFetch(`/api/warehouse-items?section=${section}`),
   });
+
+  const kitRequests = useQuery<KitRequestLine[]>({
+    queryKey: ["/api/warehouse-kit-requests", club?.id, user?.id],
+    enabled: section === "apparel",
+    queryFn: () => apiFetch("/api/warehouse-kit-requests"),
+  });
+  const openKitRequests = (kitRequests.data ?? []).filter((line) => line.status !== "delivered");
+  const unlinkedKits = useQuery<{ playerId: number; playerName?: string; trainingKit?: string }[]>({
+    queryKey: ["/api/equipment", club?.id, user?.id, "warehouse-review"],
+    enabled: section === "apparel" && canManageKit && kitRequestView === "unlinked",
+    queryFn: () => apiFetch("/api/equipment"),
+  });
+  const activeKitItemIds = new Set(items.filter((item) => item.isActive !== 0 && item.price != null).map((item) => String(item.id)));
+  const unlinkedPlayers = (unlinkedKits.data ?? []).flatMap((record) => {
+    const labels = savedKitSelections(record.trainingKit).flatMap((row) => {
+      const ids = kitRowItemIds(row).map(String);
+      const hasContent = Boolean(row.price || row.ordered || row.arrived || ids.length);
+      const targetCount = row.key === REPRESENTATION_SET ? 2 : 1;
+      return hasContent && ids.filter((id) => activeKitItemIds.has(id)).length < targetCount
+        ? [PLAYER_KIT_ROWS.find((slot) => slot.key === row.key)?.label ?? row.label] : [];
+    });
+    return labels.length ? [{ ...record, labels }] : [];
+  });
+  const visibleKitRequests = kitRequestView === "delivered"
+    ? (kitRequests.data ?? []).filter((line) => line.status === "delivered")
+    : openKitRequests;
+  const changeKitRequest = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) => apiFetch(`/api/warehouse-kit-requests/${id}`, {
+      method: "PATCH", body: JSON.stringify({ status }),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/warehouse-kit-requests"] });
+      qc.invalidateQueries({ queryKey: ["/api/warehouse-items"] });
+      toast({ title: "Richiesta kit aggiornata" });
+    },
+    onError: (error) => toast({ title: "Richiesta non aggiornata", description: error.message, variant: "destructive" }),
+  });
+  const saveKitMapping = useMutation({
+    mutationFn: (mapping: NonNullable<typeof kitMapping>) => apiFetch("/api/warehouse-kit-catalog", {
+      method: "PATCH", body: JSON.stringify({ ids: mapping.ids, kitSlots: mapping.slots }),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/warehouse-items"] });
+      setKitMapping(null);
+      toast({ title: "Collegamenti al kit salvati" });
+    },
+    onError: (error) => toast({ title: "Collegamenti non salvati", description: error.message, variant: "destructive" }),
+  });
+
+  function openKitMapping(title: string, variants: WarehouseItem[]) {
+    const first = variants[0];
+    const firstSlots = first.kitSlots ?? suggestKitSlots(first);
+    const sharedSlots = firstSlots.filter((slot) => variants.every((item) =>
+      (item.kitSlots ?? suggestKitSlots(item)).includes(slot)));
+    setKitMapping({ title, ids: variants.map((item) => item.id), slots: sharedSlots });
+  }
 
   const reorderItems = useMemo(() => items.filter(isUnderStockWarning), [items]);
   const availablePiecesCount = useMemo(() => items.reduce((sum, item) => sum + Math.max(0, netAvailable(item)), 0), [items]);
@@ -579,6 +644,78 @@ export default function WarehousePage() {
         </Card>
       )}
 
+
+      {section === "apparel" && (
+        <details className="group rounded-lg border bg-card">
+          <DisclosureSummary className="px-4 py-3">
+            <span className="font-medium">Richieste kit giocatori · {openKitRequests.length} aperte</span>
+          </DisclosureSummary>
+          <div className="space-y-2 border-t px-4 pb-4 pt-3">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant={kitRequestView === "open" ? "secondary" : "ghost"}
+                onClick={() => setKitRequestView("open")}>Aperte</Button>
+              <Button type="button" size="sm" variant={kitRequestView === "delivered" ? "secondary" : "ghost"}
+                onClick={() => setKitRequestView("delivered")}>Consegnate</Button>
+              {canManageKit && <Button type="button" size="sm" variant={kitRequestView === "unlinked" ? "secondary" : "ghost"}
+                onClick={() => setKitRequestView("unlinked")}>Da collegare</Button>}
+            </div>
+            {kitRequestView === "unlinked" ? (
+              <div className="divide-y">
+                {(unlinkedKits.isPending || isLoading) && <p className="text-sm text-muted-foreground">Caricamento kit…</p>}
+                {unlinkedKits.isError && <p className="text-sm text-destructive">Impossibile caricare i kit.</p>}
+                {unlinkedKits.isSuccess && !isLoading && unlinkedPlayers.length === 0 &&
+                  <p className="text-sm text-muted-foreground">Nessun kit da collegare.</p>}
+                {!isLoading && unlinkedPlayers.map((record) => (
+                  <div key={record.playerId} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                    <div>
+                      <p>{record.playerName ?? "Giocatore"}</p>
+                      <p className="text-xs text-muted-foreground">{record.labels.join(" · ")}</p>
+                    </div>
+                    <Button asChild type="button" size="sm" variant="outline">
+                      <Link href={`/players?openPlayerId=${record.playerId}&focus=kit`}>Apri kit</Link>
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : <>
+            {kitRequests.isPending && <p className="text-sm text-muted-foreground">Caricamento richieste…</p>}
+            {kitRequests.isError && <p className="text-sm text-destructive">Impossibile caricare le richieste del kit.</p>}
+            {kitRequests.isSuccess && visibleKitRequests.length === 0 && <p className="text-sm text-muted-foreground">Nessuna richiesta in questa vista.</p>}
+            <div className="divide-y">
+              {visibleKitRequests.map((line) => {
+                const next = line.status === "pending" ? "ordered" : line.status === "ordered" ? "arrived" : "delivered";
+                const canCancel = line.status === "pending" || line.status === "reserved";
+                return (
+                  <div key={line.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p>{line.playerName} · {line.itemName} · {line.quantity} pz</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[PLAYER_KIT_ROWS.find((row) => row.key === line.rowKey)?.label, line.size, line.variantNotes, line.code].filter(Boolean).join(" · ")}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{KIT_REQUEST_STATUS[line.status]}</Badge>
+                      {canManageKit && line.status !== "delivered" && (
+                        <Button type="button" size="sm" variant="outline" disabled={changeKitRequest.isPending}
+                          onClick={() => changeKitRequest.mutate({ id: line.id, status: next })}>Segna {KIT_REQUEST_STATUS[next].toLowerCase()}</Button>
+                      )}
+                      {canManageKit && canCancel && (
+                        <Button type="button" size="sm" variant="ghost" disabled={changeKitRequest.isPending}
+                          onClick={() => {
+                            if (window.confirm("Annullare questa richiesta e liberare gli eventuali pezzi riservati?")) {
+                              changeKitRequest.mutate({ id: line.id, status: "canceled" });
+                            }
+                          }}>Annulla richiesta</Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            </>}
+          </div>
+        </details>
+      )}
       {isLoading ? (
         <div className="rounded-lg border p-8 text-center text-muted-foreground">Caricamento magazzino...</div>
       ) : items.length === 0 ? (
@@ -604,6 +741,10 @@ export default function WarehousePage() {
                 </div>
               </DisclosureSummary>
               <div className="space-y-3 border-t px-4 pb-4 pt-3 text-sm">
+                {section === "apparel" && canManageKit && (
+                  <Button type="button" size="sm" variant="outline"
+                    onClick={() => openKitMapping(group.name, group.items)}>Collega tutte le varianti al kit</Button>
+                )}
                 <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-md border p-2">
                     <p className="text-xs text-muted-foreground">Disponibili</p>
@@ -632,6 +773,9 @@ export default function WarehousePage() {
                         <div className={`text-xs sm:text-sm ${underThreshold ? "font-semibold text-amber-700" : ""}`}><span className="text-muted-foreground">Netto</span> {net}</div>
                         <div className="flex justify-end gap-1">
                           {underThreshold && <Badge variant="outline" className="hidden border-amber-300 text-amber-700 sm:inline-flex">Sotto 10</Badge>}
+                          {section === "apparel" && canManageKit && (
+                            <Button type="button" size="sm" variant="ghost" onClick={() => openKitMapping(item.name, [item])}>Kit</Button>
+                          )}
                           <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(item)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -700,6 +844,28 @@ export default function WarehousePage() {
         </div>
         </>
       )}
+
+      <Dialog open={Boolean(kitMapping)} onOpenChange={(open) => { if (!open) setKitMapping(null); }}>
+        <DialogContent className="flex max-h-[85dvh] max-w-md flex-col">
+          <DialogHeader><DialogTitle>Collega al kit · {kitMapping?.title}</DialogTitle></DialogHeader>
+          {kitMapping && (
+            <>
+              <p className="text-sm text-muted-foreground">{kitMapping.ids.length} varianti. Seleziona le voci che devono proporle nel kit giocatore.</p>
+              <div className="min-h-0 space-y-2 overflow-y-auto py-1">
+                {PLAYER_KIT_SLOTS.map((slot) => (
+                  <label key={slot.key} className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={kitMapping.slots.includes(slot.key)} onCheckedChange={(checked) =>
+                      setKitMapping((current) => current ? { ...current, slots: checked === true
+                        ? [...current.slots, slot.key] : current.slots.filter((key) => key !== slot.key) } : null)} />
+                    {slot.label}
+                  </label>
+                ))}
+              </div>
+              <Button type="button" disabled={saveKitMapping.isPending} onClick={() => saveKitMapping.mutate(kitMapping)}>Salva collegamenti</Button>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) { setEditing(null); setForm(emptyForm); } }}>
         <DialogContent className="sm:max-w-[680px]">

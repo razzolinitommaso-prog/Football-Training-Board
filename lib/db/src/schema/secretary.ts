@@ -1,4 +1,5 @@
-import { pgTable, text, serial, timestamp, integer, real, date } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { jsonb, pgTable, text, serial, timestamp, integer, real, date, index, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { clubsTable } from "./clubs";
@@ -85,6 +86,7 @@ export const warehouseItemsTable = pgTable("warehouse_items", {
   price: real("price"),
   isActive: integer("is_active").notNull().default(1),
   category: text("category"),
+  kitSlots: jsonb("kit_slots").$type<string[]>(),
   size: text("size"),
   quantityAvailable: integer("quantity_available").notNull().default(0),
   quantityReserved: integer("quantity_reserved").notNull().default(0),
@@ -94,6 +96,22 @@ export const warehouseItemsTable = pgTable("warehouse_items", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
+
+export const warehouseKitRequestsTable = pgTable("warehouse_kit_requests", {
+  id: serial("id").primaryKey(),
+  clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
+  playerId: integer("player_id").notNull().references(() => playersTable.id, { onDelete: "cascade" }),
+  itemId: integer("item_id").notNull().references(() => warehouseItemsTable.id),
+  rowKey: text("row_key").notNull(),
+  quantity: integer("quantity").notNull(),
+  status: text("status").notNull(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("warehouse_kit_requests_club_player_idx").on(table.clubId, table.playerId, table.rowKey),
+  check("warehouse_kit_requests_quantity_check", sql`${table.quantity} > 0`),
+  check("warehouse_kit_requests_status_check", sql`${table.status} IN ('pending', 'reserved', 'ordered', 'arrived', 'delivered')`),
+]);
 
 export const insertRegistrationSchema = createInsertSchema(registrationsTable).omit({ id: true, createdAt: true });
 export type InsertRegistration = z.infer<typeof insertRegistrationSchema>;
