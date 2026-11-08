@@ -2991,10 +2991,14 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                     const muted = !isSameMonth(day, dashboardCalendarMonth);
                     const today = startOfDay(day).getTime() === startOfDay(new Date()).getTime();
                     const selected = key === dashboardSelectedDayKey;
+                    const hasMatch = events.some(event => event.kind === "match");
+                    const hasOtherEvents = events.some(event => event.kind !== "match");
                     return (
                       <button
                         key={`mobile-day-${key}`}
                         type="button"
+                        aria-pressed={selected}
+                        aria-label={format(day, "d MMMM yyyy", { locale: itLocale }) + (hasMatch ? ", partita in calendario" : "") + (hasOtherEvents ? ", altri impegni" : "")}
                         className={cn(
                           "relative flex h-12 flex-col items-center justify-center rounded-lg text-xs transition",
                           muted && "text-muted-foreground/50",
@@ -3004,9 +3008,10 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                         onClick={() => setDashboardSelectedDayKey(key)}
                       >
                         <span className="font-semibold">{format(day, "d")}</span>
-                        {events.length > 0 && (
-                          <span className={cn("mt-1 h-1.5 w-1.5 rounded-full", selected ? "bg-white" : "bg-emerald-500")} />
-                        )}
+                        {events.length > 0 && <span aria-hidden="true" className="mt-1 flex h-1.5 gap-1">
+                          {hasMatch && <span className={cn("h-1.5 w-1.5 rounded-full", selected ? "bg-orange-200" : "bg-orange-600 dark:bg-orange-400")} />}
+                          {hasOtherEvents && <span className={cn("h-1.5 w-1.5 rounded-full", selected ? "bg-white" : "bg-emerald-500")} />}
+                        </span>}
                       </button>
                     );
                   })}
