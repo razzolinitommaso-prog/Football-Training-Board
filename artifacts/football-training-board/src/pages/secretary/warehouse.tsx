@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { KIT_REQUEST_STATUS, PLAYER_KIT_ROWS, PLAYER_KIT_SLOTS, REPRESENTATION_SET, kitRowItemIds, savedKitSelections, suggestKitSlots, type KitRequestLine } from "@/lib/player-kit-catalog";
+import { KIT_REQUEST_STATUS, PLAYER_KIT_ROWS, PLAYER_KIT_SLOTS, kitRowNeedsLink, savedKitSelections, suggestKitSlots, type KitRequestLine } from "@/lib/player-kit-catalog";
 import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
@@ -360,10 +360,7 @@ export default function WarehousePage() {
   const activeKitItemIds = new Set(items.filter((item) => item.isActive !== 0 && item.price != null).map((item) => String(item.id)));
   const unlinkedPlayers = (unlinkedKits.data ?? []).flatMap((record) => {
     const labels = savedKitSelections(record.trainingKit).flatMap((row) => {
-      const ids = kitRowItemIds(row).map(String);
-      const hasContent = Boolean(row.price || row.ordered || row.arrived || ids.length);
-      const targetCount = row.key === REPRESENTATION_SET ? 2 : 1;
-      return hasContent && ids.filter((id) => activeKitItemIds.has(id)).length < targetCount
+      return kitRowNeedsLink(row, activeKitItemIds)
         ? [PLAYER_KIT_ROWS.find((slot) => slot.key === row.key)?.label ?? row.label] : [];
     });
     return labels.length ? [{ ...record, labels }] : [];

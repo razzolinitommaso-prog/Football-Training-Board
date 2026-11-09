@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  describeKitVariant, KIT_REQUEST_STATUS, kitRowItemIds, REPRESENTATION_COMPONENTS, REPRESENTATION_SET,
+  describeKitVariant, KIT_REQUEST_STATUS, kitRowHasContent, kitRowItemIds, kitRowNeedsLink, REPRESENTATION_COMPONENTS, REPRESENTATION_SET,
   suggestKitSlots, type KitCatalogItem, type KitRequestLine, type KitRow,
 } from "@/lib/player-kit-catalog";
 
@@ -35,8 +35,8 @@ export function PlayerKitEditor({ rows, items, requests, busy, requestsUnavailab
   const [area, setArea] = useState("training");
   const [onlyUnlinked, setOnlyUnlinked] = useState(false);
   const byId = new Map(items.map((item) => [String(item.id), item]));
-  const missing = (row: KitRow) => Boolean(row.price || row.ordered || row.arrived || kitRowItemIds(row).length) &&
-    kitRowItemIds(row).filter((id) => byId.has(id)).length < (row.key === REPRESENTATION_SET ? 2 : 1);
+  const activeIds = new Set(byId.keys());
+  const missing = (row: KitRow) => kitRowNeedsLink(row, activeIds);
   const rowsToShow = onlyUnlinked ? rows.filter(missing) : rows.filter((row) => row.area === area);
   const unlinked = rows.filter(missing).length;
   const net = (item: PlayerKitVariant) => Math.max(0, Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0));
@@ -66,13 +66,24 @@ export function PlayerKitEditor({ rows, items, requests, busy, requestsUnavailab
           const linkedItems = ids.flatMap((id) => { const item = byId.get(id); return item ? [item] : []; });
           const availability = linked && linkedItems.length ? Math.min(...linkedItems.map(net)) : null;
           const quantity = Math.max(1, Math.floor(Number(row.quantity) || 1));
-          const managedPrice = !row.price || (ids.length > 0 && ids.every((id) => byId.has(id)) && parsePrice(row.price) === priceOf(ids));
+          const isLoan = row.assignment === "loan";
+          const empty = !kitRowHasContent(row) && row.assignment !== "manual";
+          const catalogPrice = priceOf(ids);
+          const restoreCatalogPrice = linked && !isLoan && parsePrice(row.price) !== catalogPrice;
+          const clear = () => updateRow(row.key, {
+            listItemId: "", componentItemIds: undefined, assignment: undefined,
+            quantity: "1", price: "", ordered: false, arrived: false,
+          });
 
           return (
             <div key={row.key} className="min-w-0 space-y-2 py-3">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <span className="text-sm font-medium">{row.label}</span>
-                <span className="text-sm tabular-nums">€ {formatEuro(rowTotal(row))}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {componentSlots.length > 1 && !empty && <Button type="button" variant="ghost" size="sm" className="h-7"
+                    disabled={busy || open} onClick={clear}>Nessun indumento</Button>}
+                  <span className="text-sm tabular-nums">€ {formatEuro(rowTotal(row))}</span>
+                </div>
               </div>
               <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_7rem] sm:items-end">
                 <div className="min-w-0 space-y-1.5">
@@ -81,23 +92,27 @@ export function PlayerKitEditor({ rows, items, requests, busy, requestsUnavailab
                     const options = items.filter((item) => String(item.id) === selected ||
                       (item.kitSlots ?? suggestKitSlots(item)).includes(slot.key));
                     return (
-                      <Select key={slot.key} value={selected || "_manual"} disabled={busy || open}
+                      <Select key={slot.key} value={selected || (empty ? "_none" : "_manual")} disabled={busy || open}
                         onValueChange={(value) => {
+                          if (value === "_none") { clear(); return; }
                           const next = componentSlots.map((_, i) => i === index ? (value === "_manual" ? "" : value) : selection[i] || "");
-                          const price = managedPrice && next.some(Boolean) ? String(priceOf(next)) : row.price;
+                          const price = isLoan ? "0" : next.some(Boolean) ? String(priceOf(next)) : row.price;
+                          const assignment = isLoan ? "loan" : next.some(Boolean) ? undefined : "manual";
                           updateRow(row.key, componentSlots.length > 1
-                            ? { componentItemIds: next, listItemId: "", price }
-                            : { listItemId: next[0], price });
+                            ? { componentItemIds: next, listItemId: "", price, assignment, ordered: false, arrived: false }
+                            : { listItemId: next[0], price, assignment, ordered: false, arrived: false });
                         }}>
                         <SelectTrigger className="w-full min-w-0 [&>span]:truncate" aria-label={`Variante · ${slot.label}`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="max-w-[calc(100vw-2rem)]">
+                          {(componentSlots.length === 1 || empty) && <SelectItem value="_none">Nessun indumento</SelectItem>}
                           <SelectItem value="_manual">{componentSlots.length > 1 ? `${slot.label} · da collegare` : "Manuale"}</SelectItem>
+                          {options.length === 0 && <SelectItem value="_unavailable" disabled>Nessuna variante a listino</SelectItem>}
                           {selected && !byId.has(selected) && <SelectItem value={selected} disabled>Variante non attiva · #{selected}</SelectItem>}
                           {options.map((item) => (
                             <SelectItem key={item.id} value={String(item.id)} textValue={describeKitVariant(item)}>
-                              <span className="whitespace-normal">{describeKitVariant(item)} · Disp. {net(item)}</span>
+                              <span className="whitespace-normal">{describeKitVariant(item)} · € {formatEuro(Number(item.price))} · Disp. {net(item)}</span>
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -109,15 +124,30 @@ export function PlayerKitEditor({ rows, items, requests, busy, requestsUnavailab
                   <label className="space-y-1 text-xs text-muted-foreground">
                     <span>Pezzi</span>
                     <Input aria-label={`Pezzi · ${row.label}`} type="number" min={1} step={1} value={row.quantity}
-                      disabled={busy || open} onChange={(event) => updateRow(row.key, { quantity: event.target.value })} />
+                      disabled={busy || open || empty} onChange={(event) => updateRow(row.key, { quantity: event.target.value })} />
                   </label>
                   <label className="space-y-1 text-xs text-muted-foreground">
                     <span>Prezzo unit. €</span>
                     <Input aria-label={`Prezzo unitario · ${row.label}`} type="number" min={0} step="0.01" value={row.price}
-                      disabled={busy} onChange={(event) => updateRow(row.key, { price: event.target.value })} />
+                      disabled={busy || empty || isLoan} onChange={(event) => updateRow(row.key, { price: event.target.value })} />
                   </label>
                 </div>
               </div>
+              {!empty && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <label className="inline-flex items-center gap-1.5 text-xs">
+                    <input type="checkbox" checked={isLoan} disabled={busy}
+                      onChange={(event) => updateRow(row.key, event.target.checked
+                        ? { assignment: "loan", price: "0" }
+                        : { assignment: ids.length ? undefined : "manual", price: ids.length ? String(catalogPrice) : "" })} />
+                    Comodato d’uso
+                  </label>
+                  {restoreCatalogPrice && <Button type="button" variant="ghost" size="sm" className="h-7"
+                    disabled={busy} onClick={() => updateRow(row.key, { price: String(catalogPrice) })}>
+                    Usa prezzo di listino · € {formatEuro(catalogPrice)}
+                  </Button>}
+                </div>
+              )}
               {(lines.length > 0 || availability !== null || missing(row)) && (
                 <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-muted-foreground">
                   <span>

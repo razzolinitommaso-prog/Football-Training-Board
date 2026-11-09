@@ -53,3 +53,56 @@ export function quotePaymentStatus(payments: PaymentEntry[], today: string) {
   }
   return { tone: "green" as const, label: "In regola" };
 }
+
+export const economicPaymentTypes = {
+  registration: ["registration_fee"],
+  annual: ["annual_fee", "annual_fee_installment"],
+  insurance: ["insurance_fee"],
+  shuttle: ["shuttle_monthly"],
+  kit: ["kit_payment"],
+} as const;
+
+export type EconomicCharges = Record<keyof typeof economicPaymentTypes, number>;
+type EconomicPayment = PaymentEntry & { amount: number; annualFeeTotal?: number | null };
+
+const cents = (value: number) => Number.isFinite(value) ? Math.max(0, Math.round(value * 100)) : 0;
+
+export function playerEconomicBalance(
+  charges: EconomicCharges,
+  extraTime: number,
+  payments: EconomicPayment[],
+  useSavedPlan: boolean,
+  upfront: number,
+  settle: boolean,
+) {
+  const types: string[] = ["player_total_installment"];
+  let quotes = 0;
+  let gross = cents(extraTime);
+  let recorded = 0;
+  for (const [key, accepted] of Object.entries(economicPaymentTypes)) {
+    const group = payments.filter((payment) => accepted.some((type) => type === payment.paymentType));
+    const entered = cents(charges[key as keyof EconomicCharges]);
+    const paid = group.reduce((sum, payment) => sum + (payment.status === "paid" ? cents(payment.amount) : 0), 0);
+    const booked = group.reduce((sum, payment) => sum + cents(payment.amount), 0);
+    const target = entered || (key === "kit" || key === "shuttle" ? 0 : booked);
+    gross += target;
+    if (key !== "kit") quotes += target;
+    recorded += Math.min(target, paid);
+    if (target > 0) types.push(...accepted);
+  }
+  const unified = payments.filter((payment) =>
+    payment.paymentType === "player_total_deposit" || payment.paymentType === "player_total_installment");
+  const directTotal = gross;
+  if (useSavedPlan) {
+    gross = Math.max(gross, ...unified.map((payment) => cents(payment.annualFeeTotal ?? 0)));
+  }
+  recorded = Math.min(gross, recorded + unified.reduce((sum, payment) =>
+    sum + (payment.status === "paid" ? cents(payment.amount) : 0), 0));
+  const outstanding = gross - recorded;
+  const newPayment = settle ? outstanding : cents(upfront);
+  return {
+    quotes: quotes / 100, savedPlanBalance: (gross - directTotal) / 100, total: gross / 100, alreadyPaid: recorded / 100, outstanding: outstanding / 100,
+    upfront: newPayment / 100, residual: Math.max(0, outstanding - newPayment) / 100,
+    replaceTypes: types,
+  };
+}

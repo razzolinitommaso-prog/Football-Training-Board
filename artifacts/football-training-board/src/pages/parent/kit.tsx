@@ -57,7 +57,7 @@ export default function ParentKit() {
                 <div className="min-w-0">
                   <p className="font-semibold">{row.label ?? "Articolo kit"}</p>
                   <p className="text-xs text-muted-foreground">{row.teamName ?? row.playerName}</p>
-                  <p className="text-xs text-muted-foreground">{row.quantity ? `${row.quantity} pz` : "1 pz"}</p>
+                  <p className="text-xs text-muted-foreground">{row.quantity ? `${row.quantity} pz` : "1 pz"}{row.loan && " · Comodato d’uso"}</p>
                 </div>
                 <Badge variant={ready ? "default" : "secondary"} className="gap-1">
                   {ready ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}

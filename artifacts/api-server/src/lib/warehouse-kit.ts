@@ -62,6 +62,7 @@ type KitSelection = {
   componentItemIds?: string[];
   quantity?: string;
   price?: string;
+  assignment?: "manual" | "loan";
   ordered?: boolean;
   arrived?: boolean;
 };
@@ -233,7 +234,7 @@ export async function advanceKitRequest(clubId: number, id: number, next: string
 }
 
 export async function parentKitRows(clubId: number, playerId: number, raw: unknown) {
-  const configured = readKit(raw).filter((row) => itemIds(row).length || row.price || row.ordered || row.arrived);
+  const configured = readKit(raw).filter((row) => row.assignment === "loan" || itemIds(row).length || row.arrived || Number(String(row.price ?? "").trim().replace(",", ".")) > 0);
   if (configured.length === 0) return [];
   const requests = (await listKitRequests(clubId, playerId)).filter((line) => !line.archived);
   return configured.map((row) => {
@@ -244,6 +245,6 @@ export async function parentKitRows(clubId: number, playerId: number, raw: unkno
       : lines.some((line) => line.status === "arrived") ? "arrived"
       : lines.length > 0 ? "delivered"
       : row.arrived ? "arrived" : "preparing";
-    return { key: row.key, label: row.label ?? "Articolo kit", quantity: quantityOf(row), status, arrived: status === "arrived" || status === "delivered" };
+    return { key: row.key, label: row.label ?? "Articolo kit", quantity: quantityOf(row), status, loan: row.assignment === "loan", arrived: status === "arrived" || status === "delivered" };
   });
 }

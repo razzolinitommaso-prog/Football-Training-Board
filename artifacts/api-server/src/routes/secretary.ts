@@ -320,6 +320,92 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
   res.status(201).json(record);
 });
 
+const paymentPlanTypes = new Set([
+  "registration_fee", "annual_fee", "annual_fee_installment", "insurance_fee", "shuttle_monthly",
+  "kit_payment", "player_total_installment",
+]);
+
+function paymentPlanCents(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 20000
+    ? Math.round(value * 100) : Number.NaN;
+}
+
+function isPaymentPlanDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
+router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditFinancials(req.session.role)) {
+    res.status(403).json({ error: "Solo la segreteria può modificare quote e rate." });
+    return;
+  }
+  const playerId = Number(req.body.playerId);
+  const clubId = req.session.clubId!;
+  const scopedPlayers = await getScopedPlayerIds(req, clubId);
+  if (!Number.isSafeInteger(playerId) || playerId <= 0 || playerId > 2147483647 || (scopedPlayers && !scopedPlayers.includes(playerId))) {
+    res.status(404).json({ error: "Giocatore non trovato." });
+    return;
+  }
+  const total = paymentPlanCents(req.body.total);
+  const alreadyPaid = paymentPlanCents(req.body.alreadyPaid);
+  const upfront = paymentPlanCents(req.body.upfront);
+  const { replaceTypes, installments, expectedPayments } = req.body;
+  if (!(total > 0 && alreadyPaid >= 0 && upfront >= 0 && alreadyPaid + upfront <= total) ||
+      !Array.isArray(replaceTypes) || !replaceTypes.includes("player_total_installment") ||
+      replaceTypes.some((type) => !paymentPlanTypes.has(type)) ||
+      !Array.isArray(installments) || installments.length > 120 ||
+      installments.some((draft) => !draft || !(paymentPlanCents(draft.amount) > 0) || !isPaymentPlanDate(draft.dueDate)) ||
+      installments.reduce((sum, draft) => sum + paymentPlanCents(draft.amount), 0) !== total - alreadyPaid - upfront ||
+      !Array.isArray(expectedPayments) || expectedPayments.some((row) => !row || !Number.isSafeInteger(row.id))) {
+    res.status(400).json({ error: "Importi o scadenze del piano non validi." });
+    return;
+  }
+
+  const result = await db.transaction(async (tx) => {
+    const [player] = await tx.select({ id: playersTable.id }).from(playersTable)
+      .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId))).for("update");
+    if (!player) return "missing";
+    const scope = and(eq(playerPaymentsTable.playerId, playerId), eq(playerPaymentsTable.clubId, clubId));
+    const current = await tx.select().from(playerPaymentsTable).where(scope).for("update");
+    const expected = new Map<number, { status: string; amount: number }>(expectedPayments.map((row) => [row.id, row]));
+    if (expectedPayments.length !== current.length || expected.size !== current.length || current.some((row) =>
+      expected.get(row.id)?.status !== row.status ||
+      Math.round(Number(expected.get(row.id)?.amount) * 100) !== Math.round(row.amount * 100))) return "changed";
+
+    const eligiblePaid = current.reduce((sum, row) =>
+      row.status === "paid" && (replaceTypes.includes(row.paymentType) || row.paymentType === "player_total_deposit")
+        ? sum + Math.round(row.amount * 100) : sum, 0);
+    if (eligiblePaid < alreadyPaid) return "changed";
+
+    const pendingIds = current.filter((row) => row.status !== "paid" && replaceTypes.includes(row.paymentType)).map((row) => row.id);
+    if (pendingIds.length) await tx.delete(playerPaymentsTable).where(and(scope, inArray(playerPaymentsTable.id, pendingIds)));
+    const paymentMethod = typeof req.body.paymentMethod === "string" ? req.body.paymentMethod : null;
+    const shared = { clubId, playerId, annualFeeTotal: total / 100, paymentMethod, availabilityBlocking: 1 };
+    const rows: (typeof playerPaymentsTable.$inferInsert)[] = installments.map((draft, index) => ({
+      ...shared,
+      amount: paymentPlanCents(draft.amount) / 100,
+      dueDate: draft.dueDate,
+      status: "pending",
+      description: `Piano totale - rata ${index + 1}/${installments.length}`,
+      paymentType: "player_total_installment",
+      installmentNumber: index + 1,
+      totalInstallments: installments.length,
+    }));
+    if (upfront > 0) {
+      const date = todayDateOnly();
+      rows.push({ ...shared, amount: upfront / 100, dueDate: date, paymentDate: date, status: "paid",
+        description: "Piano totale - acconto", paymentType: "player_total_deposit" });
+    }
+    if (rows.length) await tx.insert(playerPaymentsTable).values(rows);
+    return "saved";
+  });
+  if (result === "missing") { res.status(404).json({ error: "Giocatore non trovato." }); return; }
+  if (result === "changed") { res.status(409).json({ error: "I pagamenti sono cambiati. Rivedi il totale e riprova." }); return; }
+  await enforcePaymentAvailability(clubId, playerId);
+  res.sendStatus(204);
+});
+
 router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void> => {
   if (!canEditFinancials(req.session.role)) {
     res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });

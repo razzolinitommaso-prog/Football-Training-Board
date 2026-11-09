@@ -1,5 +1,5 @@
 import { PlayerKitEditor } from "./player-kit-editor";
-import { PLAYER_KIT_ROWS, kitRowItemIds, KIT_REQUEST_STATUS, savedKitSelections, type KitRequestLine, type KitRow } from "@/lib/player-kit-catalog";
+import { PLAYER_KIT_ROWS, kitRowHasContent, kitRowItemIds, kitRowNeedsLink, KIT_REQUEST_STATUS, savedKitSelections, type KitRequestLine, type KitRow } from "@/lib/player-kit-catalog";
 import "./player-directory.css";
 import { useTechnicalScope } from "@/components/technical-scope";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
@@ -28,7 +28,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { Link, useLocation } from "wouter";
 import { MAX_PLAYER_PAYMENT_AMOUNT } from "@/lib/fee-list";
-import { paymentStatus, quotePaymentStatus } from "@/lib/payment-summary";
+import { paymentStatus, playerEconomicBalance, quotePaymentStatus } from "@/lib/payment-summary";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
@@ -389,8 +389,8 @@ function kitRowQuantity(row: Pick<KitRow, "quantity">): number {
   return Number.isFinite(value) ? value : 1;
 }
 
-function kitRowTotal(row: Pick<KitRow, "price" | "quantity">): number {
-  return (parseEuroInput(row.price) || 0) * kitRowQuantity(row);
+function kitRowTotal(row: Pick<KitRow, "price" | "quantity" | "assignment">): number {
+  return row.assignment === "loan" ? 0 : (parseEuroInput(row.price) || 0) * kitRowQuantity(row);
 }
 
 function defaultKitRows(): KitRow[] {
@@ -403,7 +403,8 @@ function parseKitRows(raw: string | null | undefined): KitRow[] {
     const saved = source.find((row) => row.key === base.key);
     return {
       ...base,
-      price: saved?.price != null ? String(saved.price) : "",
+      assignment: saved?.assignment === "manual" || saved?.assignment === "loan" ? saved.assignment : undefined,
+      price: saved?.assignment === "loan" ? "0" : saved?.price != null ? String(saved.price) : "",
       quantity: saved?.quantity != null ? String(saved.quantity) : "1",
       ordered: saved?.ordered === true,
       arrived: saved?.arrived === true,
@@ -445,7 +446,8 @@ function serializeKitRows(rows: KitRow[], extraRows?: ExtraTimeRow[]): string {
     key: row.key,
     label: row.label,
     area: row.area,
-    price: row.price,
+    price: row.assignment === "loan" ? "0" : row.price,
+    assignment: row.assignment,
     quantity: row.quantity || "1",
     ordered: row.ordered,
     arrived: row.arrived,
@@ -608,7 +610,7 @@ function buildInstallmentDrafts(totalValue: string, countValue: string, firstDue
     due.setMonth(baseDate.getMonth() + index);
     return {
       amount: (installmentCents / 100).toFixed(2),
-      dueDate: Number.isNaN(due.getTime()) ? "" : due.toISOString().slice(0, 10),
+      dueDate: Number.isNaN(due.getTime()) ? "" : due.toLocaleDateString("sv-SE"),
     };
   });
 }
@@ -1756,17 +1758,17 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       return ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(member.role) && memberSections.includes("extra_time");
     })
     .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it"));
-  const plannedQuotesTotal =
-    (isSafePlayerPaymentAmount(plannedRegistrationFee) ? plannedRegistrationFee : 0) +
-    (isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0) +
-    (isSafePlayerPaymentAmount(plannedInsuranceFee) ? plannedInsuranceFee : 0) +
-    (isSafePlayerPaymentAmount(plannedShuttleFee) ? plannedShuttleFee * plannedShuttleMonths : 0);
-  const plannedEconomicTotal =
-    plannedQuotesTotal +
-    plannedKitTotal +
-    plannedExtraTimeTotal;
-  const plannedUpfrontAmount = economicPlanPaid ? plannedEconomicTotal : Math.max(0, parseEuroInput(upfrontPaymentTotal) || 0);
-  const plannedResidualTotal = Math.max(0, plannedEconomicTotal - plannedUpfrontAmount);
+  const economicBalance = playerEconomicBalance({
+    registration: isSafePlayerPaymentAmount(plannedRegistrationFee) ? plannedRegistrationFee : 0,
+    annual: isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0,
+    insurance: isSafePlayerPaymentAmount(plannedInsuranceFee) ? plannedInsuranceFee : 0,
+    shuttle: isSafePlayerPaymentAmount(plannedShuttleFee) ? plannedShuttleFee * plannedShuttleMonths : 0,
+    kit: plannedKitTotal,
+  }, plannedExtraTimeTotal, editingPlayerPayments,
+  !registrationFeeTotal && !annualFeeTotal && !insuranceFeeTotal,
+  parseEuroInput(upfrontPaymentTotal), economicPlanPaid);
+  const { quotes: plannedQuotesTotal, savedPlanBalance, total: plannedEconomicTotal, alreadyPaid: plannedAlreadyPaid, upfront: plannedUpfrontAmount,
+    outstanding: plannedOutstanding, residual: plannedResidualTotal } = economicBalance;
   const paymentToday = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
   const overduePlayerPayments = editingPlayerPayments.filter(payment => paymentStatus(payment, paymentToday) === "overdue");
   const editingMedicalCertificate = editingPlayerDocuments
@@ -1810,10 +1812,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   });
   const currentKitRequests = playerKitRequests.filter((line) => !line.archived);
   const kitSectionStatus = (() => {
-    const activeRows = displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || kitRowItemIds(row).length);
+    const activeRows = displayedKitRows.filter(kitRowHasContent);
     if (activeRows.length === 0) return { tone: "red" as const, label: "Non registrato" };
     if (currentKitRequests.some((line) => line.status === "pending")) return { tone: "yellow" as const, label: "Da ordinare" };
-    if (activeRows.some((row) => kitRowItemIds(row).length < (row.key === "rep_pants_sweatshirt" ? 2 : 1))) {
+    const activeIds = priceListPending || priceListError ? undefined : new Set(kitListItems.map((item) => String(item.id)));
+    if (activeRows.some((row) => kitRowNeedsLink(row, activeIds))) {
       return { tone: "yellow" as const, label: "Da collegare" };
     }
     if (activeRows.every((row) => currentKitRequests.some((line) => line.rowKey === row.key) &&
@@ -2252,7 +2255,12 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         notes: kitNotes || null,
       }),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Salvataggio kit non riuscito");
+    const saved: PlayerEquipment = await res.json();
+    queryClient.setQueryData<PlayerEquipment[]>(["/api/equipment", club?.id, user?.id, nr], (current = []) => {
+      if (!current.some((item) => item.playerId === saved.playerId)) return [...current, saved];
+      return current.map((item) => item.playerId === saved.playerId ? { ...item, ...saved } : item);
+    });
   };
 
   const saveKitLinks = async (rowKey?: string) => {
@@ -2281,87 +2289,43 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
   const createUnifiedEconomicPlan = async () => {
     if (!editingPlayer || !canEditFinancials) return;
-    const total = plannedEconomicTotal;
-    const upfront = parseEuroInput(upfrontPaymentTotal);
-    const upfrontAmount = economicPlanPaid ? total : isSafePlayerPaymentAmount(upfront) ? upfront : 0;
-    if (!isSafePlayerPaymentAmount(total)) {
-      toast({ title: "Totale non valido", description: `Totale massimo Euro ${formatEuro(MAX_PLAYER_PAYMENT_AMOUNT)}.`, variant: "destructive" });
+    if (!isSafePlayerPaymentAmount(plannedEconomicTotal)) {
+      toast({ title: "Totale non valido", description: "Il totale deve essere compreso tra 0,01 e 20.000 euro.", variant: "destructive" });
       return;
     }
-    if (upfrontAmount > total) {
-      toast({ title: "Acconto troppo alto", description: "Il versato subito non puo superare il totale.", variant: "destructive" });
+    if (plannedUpfrontAmount > plannedOutstanding) {
+      toast({ title: "Acconto troppo alto", description: "Il nuovo acconto non può superare il saldo ancora da pagare.", variant: "destructive" });
       return;
     }
-    const remaining = Math.max(0, total - upfrontAmount);
-    const count = remaining > 0 ? Math.max(1, Math.floor(Number(installmentCount) || 1)) : 0;
-    const baseDate = firstInstallmentDueDate ? new Date(`${firstInstallmentDueDate}T00:00:00`) : new Date();
-    if (remaining > 0 && Number.isNaN(baseDate.getTime())) {
-      toast({ title: "Prima scadenza non valida", variant: "destructive" });
+    const installments = annualInstallments.map((draft) => ({
+      amount: parseEuroInput(draft.amount), dueDate: draft.dueDate,
+    }));
+    if (installments.some((draft) => !isSafePlayerPaymentAmount(draft.amount) || !draft.dueDate) ||
+        Math.round(installments.reduce((total, draft) => total + draft.amount, 0) * 100) !== Math.round(plannedResidualTotal * 100)) {
+      toast({ title: "Piano rate non valido", description: "Controlla importi e scadenze delle rate.", variant: "destructive" });
       return;
     }
-    if (editingPlayerPayments.length > 0 && !confirm("Creare il piano totale sostituira i pagamenti gia registrati per questo giocatore. Continuare?")) return;
     setIsSavingInstallments(true);
     try {
       await saveKitAssignmentOnly();
-      for (const payment of editingPlayerPayments) {
-        const deleteRes = await fetch(withApi(`/api/player-payments/${payment.id}`), { method: "DELETE", credentials: "include" });
-        if (!deleteRes.ok) throw new Error(await deleteRes.text());
-      }
-      const createPayment = async (body: Record<string, unknown>) => {
-        const res = await fetch(withApi("/api/player-payments"), {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) throw new Error(await res.text());
-      };
-      if (upfrontAmount > 0) {
-        await createPayment({
-          playerId: editingPlayer.id,
-          amount: upfrontAmount,
-          dueDate: new Date().toISOString().slice(0, 10),
-          status: "paid",
-          paymentDate: new Date().toISOString().slice(0, 10),
-          description: "Piano totale - acconto",
-          paymentType: "player_total_deposit",
-          paymentMethod: kitPaymentMethod || null,
-          annualFeeTotal: total,
-          availabilityBlocking: 1,
-        });
-      }
-      if (remaining > 0) {
-        const cents = Math.round(remaining * 100);
-        const baseCents = Math.floor(cents / count);
-        let assignedCents = 0;
-        for (let index = 0; index < count; index++) {
-          const due = new Date(baseDate);
-          due.setMonth(baseDate.getMonth() + index);
-          const installmentCents = index === count - 1 ? cents - assignedCents : baseCents;
-          assignedCents += installmentCents;
-          await createPayment({
-            playerId: editingPlayer.id,
-            amount: installmentCents / 100,
-            dueDate: due.toISOString().slice(0, 10),
-            status: "pending",
-            description: `Piano totale - rata ${index + 1}/${count}`,
-            paymentType: "player_total_installment",
-            paymentMethod: kitPaymentMethod || null,
-            installmentNumber: index + 1,
-            totalInstallments: count,
-            annualFeeTotal: total,
-            availabilityBlocking: 1,
-          });
-        }
-      }
+      const response = await fetch(withApi("/api/player-payment-plan"), {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playerId: editingPlayer.id, total: plannedEconomicTotal, alreadyPaid: plannedAlreadyPaid, upfront: plannedUpfrontAmount,
+          paymentMethod: kitPaymentMethod || null, replaceTypes: economicBalance.replaceTypes, installments,
+          expectedPayments: editingPlayerPayments.map(({ id, status, amount }) => ({ id, status, amount })),
+        }),
+      });
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? "Piano totale non salvato");
       queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players"] });
       setUpfrontPaymentTotal("");
       setEconomicPlanPaid(false);
       toast({ title: "Piano totale creato" });
-    } catch {
-      toast({ title: "Errore creazione piano totale", variant: "destructive" });
+    } catch (error) {
+      queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
+      toast({ title: "Errore creazione piano totale", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
       setIsSavingInstallments(false);
     }
@@ -2749,6 +2713,12 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     setEditingPlayer(player);
     setRegistrationFeeTotal("");
     setRegistrationFeeListItemId("");
+    setAnnualFeeTotal("");
+    setAnnualFeeListItemId("");
+    setInsuranceFeeTotal("");
+    setInsuranceFeeListItemId("");
+    setUpfrontPaymentTotal("");
+    setEconomicPlanPaid(false);
     const { notesRaw, meta } = splitPlayerMeta(player.notes ?? "");
     const parsedNotes = splitPlayerNotes(notesRaw);
     setNoteDraftText("");
@@ -4041,9 +4011,9 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   <CollapsibleSectionSummary title="Kit" status={kitSectionStatus} />
                   <div className="mt-3 space-y-2 text-sm">
                     <div className="space-y-2">
-                      {displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || kitRowItemIds(row).length).length === 0 ? (
+                      {displayedKitRows.filter(kitRowHasContent).length === 0 ? (
                         <p className="text-muted-foreground">Nessun kit registrato.</p>
-                      ) : displayedKitRows.filter((row) => row.price || row.ordered || row.arrived || kitRowItemIds(row).length).map((row) => (
+                      ) : displayedKitRows.filter(kitRowHasContent).map((row) => (
                         <div key={row.key} className="flex flex-col gap-1 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <p className="font-medium">{row.label}</p>
@@ -4051,6 +4021,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                               {row.area === "training" ? "Allenamento" : row.area === "match" ? "Gara" : "Rappresentanza"}
                               {kitRowItemIds(row).map((id) => activeListItems.find((entry) => String(entry.id) === id)?.size).filter(Boolean).map((size) => " · " + size).join("")}
                               {" "} - {kitRowQuantity(row)} pz
+                              {row.assignment === "loan" && " · Comodato d’uso"}
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2 text-xs">
@@ -4969,7 +4940,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                           <p className="text-lg font-bold">Euro {formatEuro(plannedQuotesTotal)}</p>
                         </div>
                         <div className="space-y-2">
-                          <Label>Versato subito</Label>
+                          <Label>Nuovo acconto</Label>
                           <Input type="number" step="0.01" value={upfrontPaymentTotal} onChange={(e) => setUpfrontPaymentTotal(e.target.value)} />
                         </div>
                         <div className="rounded-md border bg-muted/30 px-3 py-2">
@@ -5282,19 +5253,24 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       <div className="rounded-md border border-emerald-200 bg-emerald-100 px-3 py-2">
                         <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Totale finale</p>
                         <p className="text-xl font-bold text-emerald-950">Euro {formatEuro(plannedEconomicTotal)}</p>
+                        {savedPlanBalance > 0 && <p className="text-xs text-muted-foreground">Include € {formatEuro(savedPlanBalance)} del piano già registrato</p>}
                       </div>
                     </div>
                     {canEditFinancials && (
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Versato subito</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Già incassato</p>
+                          <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedAlreadyPaid)}</p>
+                        </div>
+                        <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Nuovo acconto</p>
                           <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedUpfrontAmount)}</p>
                         </div>
                         <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo totale da rateizzare</p>
                           <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedResidualTotal)}</p>
                         </div>
-                        <div className="flex min-w-0 items-end xl:col-span-2">
+                        <div className="flex min-w-0 items-end">
                           <Button type="button" variant="outline" className="w-full gap-2" disabled={isSavingInstallments} onClick={() => void createUnifiedEconomicPlan()}>
                             <Banknote className="h-4 w-4" />
                             {isSavingInstallments ? "Salvataggio..." : "Crea piano totale"}
@@ -5303,7 +5279,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       </div>
                     )}
                     <div className="text-xs text-emerald-800">
-                      Il piano totale sostituisce i pagamenti gia registrati e crea acconto piu rate successive sul residuo.
+                      Il piano aggiorna le rate da pagare delle voci incluse e conserva gli incassi registrati.
                     </div>
                   </div>
                 </details>

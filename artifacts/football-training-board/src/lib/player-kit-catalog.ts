@@ -93,6 +93,7 @@ export type KitRow = {
   label: string;
   area: "training" | "match" | "representation";
   price: string;
+  assignment?: "manual" | "loan";
   quantity: string;
   ordered: boolean;
   arrived: boolean;
@@ -130,4 +131,15 @@ export function savedKitSelections(raw?: string | null): Partial<KitRow>[] {
   } catch {
     return [];
   }
+}
+
+export function kitRowHasContent(row: Partial<KitRow>): boolean {
+  return Boolean(row.assignment === "loan" || kitRowItemIds(row).length || row.arrived ||
+    Number(String(row.price ?? "").trim().replace(",", ".")) > 0);
+}
+
+export function kitRowNeedsLink(row: Partial<KitRow>, activeIds?: ReadonlySet<string>): boolean {
+  const ids = kitRowItemIds(row).map(String);
+  const count = activeIds ? ids.filter((id) => activeIds.has(id)).length : ids.length;
+  return kitRowHasContent(row) && count < (row.key === REPRESENTATION_SET ? 2 : 1);
 }
