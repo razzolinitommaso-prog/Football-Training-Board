@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Banknote, Plus, Trash2 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { trainingLocalDate } from "@workspace/api-zod";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -192,12 +192,17 @@ export default function PaymentsPage() {
         <p className="text-xs text-muted-foreground">Per mese di pagamento effettivo, secondo i filtri attivi.</p>
         {monthlyReceipts.length ? <div className="mt-3 h-44 min-w-0" aria-label="Incassi mensili">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={monthlyReceipts}>
-              <CartesianGrid vertical={false} stroke="var(--border)" />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-              <YAxis width={48} tick={{ fontSize: 10 }} />
+            <BarChart data={monthlyReceipts} margin={{ top: 20, right: 8 }}>
+              <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+              <YAxis width={48} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
               <Tooltip formatter={value => money.format(Number(value))} />
-              <Bar name="Incassato" dataKey="total" fill="var(--primary)" radius={[4, 4, 0, 0]} />
+              <Bar name="Incassato" dataKey="total" fill="hsl(var(--chart-1))" maxBarSize={44} radius={[4, 4, 0, 0]}>
+                {monthlyReceipts.length === 1 && (
+                  <LabelList dataKey="total" position="top" fill="hsl(var(--foreground))" fontSize={12}
+                    formatter={(value: number) => money.format(value)} />
+                )}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div> : <p className="mt-3 text-sm text-muted-foreground">Nessun incasso con data nel periodo.</p>}
