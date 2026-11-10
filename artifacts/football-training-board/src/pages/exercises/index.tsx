@@ -990,12 +990,12 @@ export default function ExercisesPage() {
 
       {/* ── Exercise Dialog ──────────────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) closeExDialog(); }}>
-        <DialogContent className="max-w-2xl max-h-[92vh] flex flex-col p-0">
+        <DialogContent className="w-[calc(100%-1rem)] max-w-4xl max-h-[92vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle>{editingEx ? "Modifica Stazione" : t.createExercise}</DialogTitle>
           </DialogHeader>
           <ScrollArea className="flex-1 overflow-auto">
-            <form id="ex-form" onSubmit={handleSaveEx} className="px-6 pb-4">
+            <form id="ex-form" onSubmit={handleSaveEx} className="px-4 pb-4 sm:px-6">
               <Tabs defaultValue="info" className="w-full pt-4">
                 <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="info">Info</TabsTrigger>
@@ -1039,15 +1039,9 @@ export default function ExercisesPage() {
                   </div>
 
                   {/* Principio + categoria */}
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-1.5"><Dumbbell className="w-3.5 h-3.5" /> Principio</Label>
-                      <PrinciplePicker value={form.principio ?? ""} onChange={value => setForm(prev => ({ ...prev, principio: value || null }))} section={selectedTeam?.clubSection} />
-                    </div>
-                    <div className="space-y-2">
-                      <TrainingCategoryPicker value={form.category??null} onChange={category=>setForm(prev=>({...prev,category:category||null}))} section={selectedTeam?.clubSection??activeSection}/>
-                    </div>
-                  </div>
+                  <PrinciplePicker value={form.principio ?? ""} onChange={value => setForm(prev => ({ ...prev, principio: value || null }))} section={selectedTeam?.clubSection}
+                    categories={<TrainingCategoryPicker value={form.category??null} onChange={category=>setForm(prev=>({...prev,category:category||null}))} section={selectedTeam?.clubSection??activeSection}/>}
+                  />
 
                   {/* Fase + squadra */}
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

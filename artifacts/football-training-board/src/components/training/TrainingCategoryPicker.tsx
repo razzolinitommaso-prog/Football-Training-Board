@@ -25,11 +25,11 @@ export function TrainingCategoryPicker({ value, onChange, section }: { value: st
     <div className="space-y-2 border-t pt-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">Categorie</p>
-        <Button type="button" size="sm" variant="ghost" className="hidden md:inline-flex" aria-expanded={expanded}
+        <Button type="button" size="sm" variant="ghost" className="hidden @min-[620px]:inline-flex" aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}>{expanded ? "Chiudi" : `${categorySelection.length} selezionate · Apri`}</Button>
       </div>
-      {categorySelection.length > 0 && <p className="hidden text-xs text-muted-foreground md:block">{categorySelection.map(label).join(" · ")}</p>}
-      <fieldset aria-label="Categorie" className={`grid gap-2 xl:grid-cols-2 ${expanded ? "" : "md:hidden"}`}>
+      {categorySelection.length > 0 && <p className="hidden text-xs text-muted-foreground @min-[620px]:block">{categorySelection.map(label).join(" · ")}</p>}
+      <fieldset aria-label="Categorie" className={`grid gap-2 ${expanded ? "" : "@min-[620px]:hidden"}`}>
         {categories.map(key => <label key={key} className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={selected.includes(key)} onChange={() => toggle(key)} />{label(key)}
         </label>)}

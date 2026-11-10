@@ -58,7 +58,7 @@ import { ExerciseVideoRecorder } from "@/pages/exercises/ExerciseVideoRecorder";
 import {
   Plus, Calendar, Clock, MapPin, Trash2, Eye, MessageSquare, Send,
   Megaphone, Star, ClipboardList, Loader2, BookOpen, UserCheck,
-  ChevronDown, ChevronUp, X, Pencil, CalendarDays, Layers, Dumbbell, Shield, Users, Package2,
+  ChevronDown, ChevronUp, X, Pencil, CalendarDays, Layers, Shield, Users, Package2,
   PenLine, Mic, Video, Paperclip,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -2451,14 +2451,14 @@ function SessionDetailsDialog({
       />}
 
       {!readOnly && <Dialog open={exerciseFormOpen} onOpenChange={(v) => { if (!v) { setExerciseFormOpen(false); setEditingLink(null); setDuplicateSourceExerciseId(null); } }}>
-        <DialogContent className="max-w-2xl max-h-[92vh] flex flex-col p-0">
+        <DialogContent className="w-[calc(100%-1rem)] max-w-4xl max-h-[92vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-0">
             <DialogTitle>
               {editingLink ? "Modifica stazione collegata" : "Nuova stazione per seduta"}
             </DialogTitle>
           </DialogHeader>
           <ScrollArea className="flex-1 overflow-auto">
-            <form id="ex-form-session" onSubmit={handleSaveExercise} className="px-6 pb-4">
+            <form id="ex-form-session" onSubmit={handleSaveExercise} className="px-4 pb-4 sm:px-6">
               <Tabs defaultValue="info" className="w-full pt-4">
                 <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="info">Info</TabsTrigger>
@@ -2517,15 +2517,14 @@ function SessionDetailsDialog({
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-1.5"><Dumbbell className="w-3.5 h-3.5" /> Principio</Label>
-                      <PrinciplePicker value={exerciseForm.principio} onChange={value => setExerciseForm(prev => ({ ...prev, principio: value }))} section={teams.find(team => team.id === Number(exerciseForm.teamId))?.clubSection} />
-                    </div>
-                    <div className="space-y-2">
-                      <TrainingCategoryPicker value={exerciseForm.category} onChange={category=>setExerciseForm(prev=>({...prev,category}))} section={teams.find(team=>team.id===Number(exerciseForm.teamId))?.clubSection}/>
-                    </div>
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+                    <p className="text-xs font-medium text-muted-foreground">Obiettivo della seduta</p>
+                    <p className="break-words text-sm font-semibold">{principioLabel(session.objectives) || "Da indicare"}</p>
                   </div>
+
+                  <PrinciplePicker value={exerciseForm.principio} onChange={value => setExerciseForm(prev => ({ ...prev, principio: value }))} section={teams.find(team => team.id === Number(exerciseForm.teamId))?.clubSection}
+                    categories={<TrainingCategoryPicker value={exerciseForm.category} onChange={category=>setExerciseForm(prev=>({...prev,category}))} section={teams.find(team=>team.id===Number(exerciseForm.teamId))?.clubSection}/>}
+                  />
 
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="space-y-2">
