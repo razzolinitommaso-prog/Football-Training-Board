@@ -1,3 +1,4 @@
+import { withApi } from "@/lib/api-base";
 import { useState } from "react";
 import { useListClubMembers, useInviteClubMember, useRemoveClubMember, useUpdateClubMemberRole, useListTeams } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -47,8 +48,7 @@ const inviteSchema = z.object({
   firstName: z.string().min(2, "Inserisci un nome di almeno 2 caratteri"),
   lastName: z.string().min(2, "Inserisci un cognome di almeno 2 caratteri"),
   email: z.string().email("Inserisci un indirizzo email valido"),
-  password: z.string().min(6, "La password deve contenere almeno 6 caratteri"),
-  confirmPassword: z.string().min(1, "Conferma la password"),
+  activationChannel: z.enum(["email", "sms"]),
   role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   staffRole: z.string().optional(),
@@ -60,9 +60,9 @@ const inviteSchema = z.object({
   degreeScienzeMoto: z.boolean().optional(),
   degreeScienzeMotoType: z.string().optional(),
   teamIds: z.array(z.number()).optional(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Le password non coincidono",
-  path: ["confirmPassword"],
+}).refine(data => data.activationChannel !== "sms" || /^(?:\+|00)[1-9]\d{7,14}$/.test(data.phone?.replace(/[\s().-]/g, "") ?? ""), {
+  message: "Per l’SMS inserisci il numero con prefisso internazionale (es. +39).",
+  path: ["phone"],
 });
 
 const editSchema = z.object({
@@ -177,10 +177,12 @@ export default function MembersList() {
 
   const inviteMutation = useInviteClubMember({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (member) => {
         queryClient.invalidateQueries({ queryKey: ["/api/clubs/me/members"] });
         setIsInviteOpen(false);
-        toast({ title: t.inviteMember });
+        const sent = (member as typeof member & { activationStatus?: string }).activationStatus === "sent";
+        toast({ title: sent ? "Invito inviato" : "Membro salvato · invio da riprovare",
+          description: sent ? undefined : "Controlla il recapito e usa Reinvia invito dalla scheda del membro." });
         inviteForm.reset();
       },
       onError: (err) => {
@@ -188,6 +190,22 @@ export default function MembersList() {
       }
     }
   });
+
+  const [resendingMember, setResendingMember] = useState<number | null>(null);
+  async function resendMemberActivation(id: number, channel?: "email") {
+    setResendingMember(id);
+    try {
+      const response = await fetch(withApi(`/api/clubs/me/members/${id}/resend-activation`), { method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.activationStatus !== "sent") throw new Error(result?.error ?? "Invio non riuscito. Controlla recapito e configurazione.");
+      toast({ title: "Invito inviato" });
+    } catch (error) { toast({ title: error instanceof Error ? error.message : "Invio non riuscito", variant: "destructive" }); }
+    finally {
+      setResendingMember(null);
+      void queryClient.invalidateQueries({ queryKey: ["/api/clubs/me/members"] });
+    }
+  }
 
   const updateMutation = useUpdateClubMemberRole({
     mutation: {
@@ -215,7 +233,7 @@ export default function MembersList() {
 
   const inviteForm = useForm<z.infer<typeof inviteSchema>>({
     resolver: zodResolver(inviteSchema),
-    defaultValues: { password: "", confirmPassword: "", role: "coach", clubSection: ["scuola_calcio"], staffRole: "", registered: false, teamIds: [] }
+    defaultValues: { activationChannel: "email", role: "coach", clubSection: ["scuola_calcio"], staffRole: "", registered: false, teamIds: [] }
   });
 
   const editForm = useForm<z.infer<typeof editSchema>>({
@@ -508,8 +526,7 @@ export default function MembersList() {
               }
               const sections = (data.clubSection ?? []) as ClubSection[];
               const staffRole = serializeStaffRoleBySection(parseStaffRoleBySection(data.staffRole, sections));
-              const { confirmPassword, ...memberData } = data;
-              inviteMutation.mutate({ data: { ...memberData, staffRole } as any });
+              inviteMutation.mutate({ data: { ...data, password: "", staffRole } });
             }, (errors) => {
               toast({ title: "Controlla i dati del nuovo membro", description: Object.values(errors).find(error => error?.message)?.message ?? "Completa i campi obbligatori indicati nel modulo.", variant: "destructive" });
             })} className="space-y-4 pt-2 sm:pt-4">
@@ -531,15 +548,11 @@ export default function MembersList() {
                 {inviteForm.formState.errors.email && <p id="invite-email-error" role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.email.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label>{t.initialPassword}</Label>
-                <Input type="password" autoComplete="new-password" aria-invalid={!!inviteForm.formState.errors.password} aria-describedby="invite-password-hint invite-password-error" {...inviteForm.register("password")} />
-                <p id="invite-password-hint" className="text-xs text-muted-foreground">Almeno 6 caratteri. {t.canChangePassword}</p>
-                {inviteForm.formState.errors.password && <p id="invite-password-error" role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.password.message}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="invite-confirm-password">Conferma password</Label>
-                <Input id="invite-confirm-password" type="password" autoComplete="new-password" aria-invalid={!!inviteForm.formState.errors.confirmPassword} aria-describedby="invite-confirm-password-error" {...inviteForm.register("confirmPassword")} />
-                {inviteForm.formState.errors.confirmPassword && <p id="invite-confirm-password-error" role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.confirmPassword.message}</p>}
+                <Label htmlFor="invite-channel">Invia l’attivazione tramite</Label>
+                <select id="invite-channel" className="h-9 w-full rounded-md border bg-background px-3 text-sm" {...inviteForm.register("activationChannel")}>
+                  <option value="email">Email</option><option value="sms">SMS</option>
+                </select>
+                <p className="text-xs text-muted-foreground">Il membro riceve un link personale valido 48 ore e sceglie la password al primo accesso.</p>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -594,6 +607,7 @@ export default function MembersList() {
                 <div className="space-y-2">
                   <Label>{t.phone}</Label>
                   <Input type="tel" {...inviteForm.register("phone")} />
+                  {inviteForm.formState.errors.phone && <p role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.phone.message}</p>}
                 </div>
               </div>
               {showCoachInviteFields && (
@@ -1118,6 +1132,7 @@ export default function MembersList() {
           </div>
         ) : filteredMembers?.map(member => {
           const canManageThisMember = canManageMember(member);
+          const { activationStatus: activation, activationChannel } = member as typeof member & { activationStatus?: string; activationChannel?: string };
           const memberSecs: ClubSection[] = Array.isArray(member.clubSection) && member.clubSection.length > 0
             ? (member.clubSection as ClubSection[])
             : ["scuola_calcio" as ClubSection];
@@ -1179,6 +1194,13 @@ export default function MembersList() {
                   ))}
                 </div>
               )}
+              {activation && <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">{activation === "active" ? "Accesso attivato" : activation === "failed" ? "Invio da riprovare" : "Invito da accettare"}</span>
+                {activation !== "active" && canManageThisMember && <Button variant="outline" size="sm" disabled={resendingMember !== null}
+                  onClick={() => void resendMemberActivation(member.id)}>Reinvia invito</Button>}
+                {activation === "failed" && activationChannel === "sms" && canManageThisMember && <Button variant="ghost" size="sm"
+                  disabled={resendingMember !== null} onClick={() => void resendMemberActivation(member.id, "email")}>Reinvia via email</Button>}
+              </div>}
               {member.phone && (
                 <p className="text-xs text-muted-foreground mt-1">{member.phone}</p>
               )}

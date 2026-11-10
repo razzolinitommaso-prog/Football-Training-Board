@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useLocation } from "wouter";
-import { Shield, ArrowLeft, ChevronRight, Users, Loader2, School, GraduationCap, Star, Settings } from "lucide-react";
+import { Shield, ArrowLeft, ChevronRight, Users, Loader2, Heart, School, GraduationCap, Star, Settings } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { withApi } from "@/lib/api-base";
 
@@ -11,6 +11,8 @@ interface ClubInfo {
   city?: string | null;
 }
 
+const normalizeClubName = (name: string) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLowerCase();
+
 export default function WorkspacePage() {
   const params = useParams<{ clubSlug: string }>();
   const [, setLocation] = useLocation();
@@ -20,29 +22,37 @@ export default function WorkspacePage() {
 
   const [club, setClub] = useState<ClubInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [directClubId, setDirectClubId] = useState<number | null>(null);
 
   useEffect(() => {
     if (clubSlug) {
       localStorage.setItem("ftb-workspace-slug", clubSlug);
     }
     if (!clubNameFromUrl) return;
-    fetch(withApi(`/api/clubs/public/search?name=${encodeURIComponent(clubNameFromUrl)}`), { credentials: "include" })
+    const controller = new AbortController();
+    setLoading(true);
+    setDirectClubId(null);
+    fetch(withApi(`/api/clubs/public/search?name=${encodeURIComponent(clubNameFromUrl)}`), { credentials: "include", signal: controller.signal })
       .then((r) => r.json())
       .then((data: ClubInfo[]) => {
-        if (data && data.length > 0) {
-          setClub(data[0]);
-          localStorage.setItem("ftb-workspace-club-id", String(data[0].id));
+        if (Array.isArray(data) && data.length > 0) {
+          const exact = data.filter(item => normalizeClubName(item.name) === normalizeClubName(clubNameFromUrl));
+          const selected = exact.length === 1 ? exact[0] : data[0];
+          if (exact.length === 1) setDirectClubId(selected.id);
+          setClub(selected);
+          localStorage.setItem("ftb-workspace-club-id", String(selected.id));
         } else setClub({ id: 0, name: clubNameFromUrl });
       })
-      .catch(() => setClub({ id: 0, name: clubNameFromUrl }))
-      .finally(() => setLoading(false));
+      .catch(() => { if (!controller.signal.aborted) setClub({ id: 0, name: clubNameFromUrl }); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, [clubNameFromUrl, clubSlug]);
 
   const SECTIONS = [
     {
       key: "scuola-calcio",
       label: "Scuola Calcio",
-      description: language === "it" ? "Allenatori, segreteria, staff tecnico e genitori" : "Coaches, secretary, technical staff and parents",
+      description: language === "it" ? "Allenatori, segreteria e staff tecnico" : "Coaches, secretary and technical staff",
       icon: School,
       iconBg: "bg-sky-500/10",
       iconColor: "text-sky-400",
@@ -151,11 +161,22 @@ export default function WorkspacePage() {
           </h1>
           {club?.city && <p className="text-gray-500 text-base mb-2">{club.city}</p>}
           <p className="text-gray-400 text-lg mt-2">
-            {language === "it" ? "Seleziona la sezione per continuare" : "Select a section to continue"}
+            {language === "it" ? "Scegli come accedere" : "Choose how to sign in"}
           </p>
         </div>
 
-        {/* 4 main section cards */}
+        <div className="mb-6 grid gap-3 sm:grid-cols-2">
+          {[
+            { path: "/accesso-genitori", icon: Heart, title: language === "it" ? "Accedi come genitore" : "Parent sign-in" },
+            { path: "/accesso-membri", icon: Users, title: language === "it" ? "Accedi come membro" : "Staff sign-in" },
+          ].map(({ path, icon: Icon, title }) => (
+            <Link key={path} href={directClubId ? `${path}?clubId=${directClubId}` : path}
+              className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 font-medium hover:bg-emerald-500/20">
+              <Icon className="h-5 w-5 text-emerald-400" />{title}<ChevronRight className="ml-auto h-4 w-4" />
+            </Link>
+          ))}
+        </div>
+        {/* Existing sector-specific entry points */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {SECTIONS.map((section) => (
             <Link key={section.key} href={section.href}>

@@ -21,7 +21,7 @@ export function ensureParentDelegateSecurityColumns() {
 export async function requireCurrentParentAccess(req: Request, res: Response, next: NextFunction) {
   const { role, clubId, parentDelegateId, parentPlayerId, parentAccessVersion } = req.session;
   const canStartOrEndSession = req.method === "POST" &&
-    ["/auth/parent-login", "/auth/login", "/auth/register", "/auth/logout"].includes(req.path);
+    ["/auth/parent-login", "/auth/parent-sign-in", "/auth/activation", "/auth/activation/status", "/auth/login", "/auth/register", "/auth/logout"].includes(req.path);
   if (role !== "parent" || !parentDelegateId || canStartOrEndSession) {
     next();
     return;

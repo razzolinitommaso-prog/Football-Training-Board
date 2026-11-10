@@ -1,3 +1,4 @@
+import { activationContact, activationScope, activations, deliverActivation, ensureAccountActivations, issueActivation } from "../lib/account-activation";
 import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { sessionTeamScope } from "../lib/session-team-scope";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
@@ -169,16 +170,21 @@ function sanitizeParentDelegates(raw: unknown): ParentDelegateInput[] {
     .filter((delegate) => Boolean(delegate.firstName || delegate.lastName || delegate.phone || delegate.email));
 }
 
-async function listParentDelegates(clubId: number, playerId: number) {
+type DelegateWithActivation = typeof playerParentDelegatesTable.$inferSelect & { activationStatus?: string | null };
+
+async function listParentDelegates(clubId: number, playerId: number): Promise<DelegateWithActivation[]> {
   await ensureParentDelegateSecurityColumns();
-  return db
-    .select()
+  await ensureAccountActivations();
+  const rows = await db.select({ delegate: playerParentDelegatesTable, status: activations.status, usedAt: activations.usedAt })
     .from(playerParentDelegatesTable)
+    .leftJoin(activations, and(eq(activations.kind, "parent"), eq(activations.clubId, clubId),
+      eq(activations.subjectId, playerParentDelegatesTable.id)))
     .where(and(eq(playerParentDelegatesTable.clubId, clubId), eq(playerParentDelegatesTable.playerId, playerId)))
     .orderBy(asc(playerParentDelegatesTable.id));
+  return rows.map(({ delegate, status, usedAt }) => ({ ...delegate, activationStatus: usedAt ? "active" : status }));
 }
 
-function parentDelegateView(delegate: typeof playerParentDelegatesTable.$inferSelect, includeAccessCode = true) {
+function parentDelegateView(delegate: DelegateWithActivation, includeAccessCode = true) {
   return {
     id: delegate.id,
     firstName: delegate.firstName,
@@ -186,7 +192,8 @@ function parentDelegateView(delegate: typeof playerParentDelegatesTable.$inferSe
     relation: delegate.relation,
     phone: delegate.phone,
     email: delegate.email,
-    ...(includeAccessCode ? { accessCode: delegate.accessCode } : {}),
+    ...(includeAccessCode && !delegate.activationStatus ? { accessCode: delegate.accessCode } : {}),
+    activationStatus: delegate.activationStatus ?? null,
     isActive: delegate.isActive,
     deliveryChannel: delegate.deliveryChannel,
     deliveryStatus: delegate.deliveryStatus,
@@ -195,7 +202,9 @@ function parentDelegateView(delegate: typeof playerParentDelegatesTable.$inferSe
 
 async function replaceParentDelegates(clubId: number, playerId: number, incoming: ParentDelegateInput[]) {
   await ensureParentDelegateSecurityColumns();
-  return db.transaction(async tx => {
+  await ensureAccountActivations();
+  const invites: NonNullable<Awaited<ReturnType<typeof issueActivation>>>[] = [];
+  const saved = await db.transaction(async tx => {
     const [player] = await tx.select({ id: playersTable.id }).from(playersTable)
       .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, playerId))).for("update");
     if (!player) return [];
@@ -226,14 +235,22 @@ async function replaceParentDelegates(clubId: number, playerId: number, incoming
         const [saved] = await tx.insert(playerParentDelegatesTable)
           .values({ ...fields, clubId, playerId, accessCode: generateParentDelegateCode() }).returning();
         delegates.push(saved);
+        const contact = activationContact(saved.email, saved.phone);
+        if (saved.isActive && contact) {
+          const invite = await issueActivation(tx, { kind: "parent", clubId, subjectId: saved.id }, contact);
+          if (invite) invites.push(invite);
+        }
       }
     }
     const removed = existing.filter(delegate => !savedIds.has(delegate.id)).map(delegate => delegate.id);
     if (removed.length) {
+      await tx.delete(activations).where(and(eq(activations.kind, "parent"), eq(activations.clubId, clubId), inArray(activations.subjectId, removed)));
       await tx.delete(playerParentDelegatesTable).where(and(scope, inArray(playerParentDelegatesTable.id, removed)));
     }
     return delegates;
   });
+  if (invites.length) await Promise.all(invites.map(deliverActivation));
+  return saved.length ? listParentDelegates(clubId, playerId) : [];
 }
 
 type PlayerMeta = {
@@ -1457,6 +1474,30 @@ router.put("/players/:id/parent-delegates", requireAuth, async (req, res): Promi
   res.json(delegates.map(delegate => parentDelegateView(delegate)));
 });
 
+router.post("/players/:id/parent-delegates/:delegateId/resend-activation", requireAuth, async (req, res): Promise<void> => {
+  const { clubId, role } = req.session;
+  if (!clubId || !PLAYER_MANAGE_ROLES.includes(normalizeSessionRole(role))) { res.sendStatus(403); return; }
+  const playerId = Number(req.params.id);
+  const subjectId = Number(req.params.delegateId);
+  if (![playerId, subjectId].every(id => Number.isSafeInteger(id) && id > 0)) { res.sendStatus(400); return; }
+  await ensureAccountActivations();
+  await ensureParentDelegateSecurityColumns();
+  const scope = { kind: "parent", clubId, subjectId } as const;
+  const [delegate] = await db.select().from(playerParentDelegatesTable).where(and(
+    eq(playerParentDelegatesTable.id, subjectId), eq(playerParentDelegatesTable.playerId, playerId),
+    eq(playerParentDelegatesTable.clubId, clubId), eq(playerParentDelegatesTable.isActive, true),
+  ));
+  if (!delegate) { res.sendStatus(404); return; }
+  const contact = activationContact(delegate.email, delegate.phone, req.body?.channel === "sms");
+  if (!contact || (req.body?.channel === "sms" && contact.channel !== "sms")) {
+    res.status(400).json({ error: "Salva un recapito valido. Per SMS serve il prefisso internazionale." }); return;
+  }
+  const [previous] = await db.select({ existingAccount: activations.existingAccount }).from(activations).where(activationScope(scope));
+  const invite = await db.transaction(tx => issueActivation(tx, scope, contact, previous?.existingAccount ?? true));
+  if (!invite) { res.status(409).json({ error: "Invito già attivato oppure inviato da meno di un minuto." }); return; }
+  res.json({ activationStatus: await deliverActivation(invite) });
+});
+
 router.post("/players/:id/parent-delegates/:delegateId/reset-access", requireAuth, async (req, res): Promise<void> => {
   const { clubId, role } = req.session;
   if (!clubId || !PARENT_ACCESS_RESET_ROLES.includes(normalizeSessionRole(role))) {
@@ -1479,7 +1520,12 @@ router.post("/players/:id/parent-delegates/:delegateId/reset-access", requireAut
     eq(playerParentDelegatesTable.isActive, true),
   );
   const accessCode = generateParentDelegateCode(12);
-  const [updated] = await db.update(playerParentDelegatesTable)
+  await ensureAccountActivations();
+  const [updated] = await db.transaction(async tx => {
+    await tx.select({ id: activations.subjectId }).from(activations).where(
+      activationScope({ kind: "parent", clubId, subjectId: delegateId }),
+    ).for("update");
+    const rows = await tx.update(playerParentDelegatesTable)
     .set({
       accessCode,
       accessVersion: randomUUID(),
@@ -1493,6 +1539,9 @@ router.post("/players/:id/parent-delegates/:delegateId/reset-access", requireAut
       WHERE existing.club_id = ${clubId} AND existing.access_code = ${accessCode}
     )`))
     .returning();
+    if (rows.length) await tx.delete(activations).where(activationScope({ kind: "parent", clubId, subjectId: delegateId }));
+    return rows;
+  });
 
   if (!updated) {
     const [delegate] = await db.select({ id: playerParentDelegatesTable.id }).from(playerParentDelegatesTable).where(scope);

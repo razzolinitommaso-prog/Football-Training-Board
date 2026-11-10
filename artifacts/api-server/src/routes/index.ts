@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import authRouter from "./auth";
+import accountProfileRouter from "./account-profile";
 import clubsRouter from "./clubs";
 import teamsRouter from "./teams";
 import trainingRostersRouter from "./training-rosters";
@@ -36,6 +37,7 @@ router.use(teamManagerRouter);
 
 router.use(healthRouter);
 router.use(authRouter);
+router.use(accountProfileRouter);
 router.use(clubsRouter);
 router.use(teamsRouter);
 router.use(trainingRostersRouter);

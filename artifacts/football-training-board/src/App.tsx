@@ -12,7 +12,9 @@ import LandingPage from "@/pages/landing/index";
 import LoginClubPage from "@/pages/login-club/index";
 import WorkspacePage from "@/pages/workspace/index";
 import WorkspaceSectionAreasPage from "@/pages/workspace/section-areas";
-import { CoachLoginPage, SecretaryLoginPage, SportingDirectorLoginPage, TechnicalLoginPage, DirectorLoginPage, AdminLoginPage, ParentLoginPage, FitnessLoginPage, TeamManagerLoginPage } from "@/pages/area-login/index";
+import { CoachLoginPage, SecretaryLoginPage, SportingDirectorLoginPage, TechnicalLoginPage, DirectorLoginPage, AdminLoginPage, ParentLoginPage, MemberLoginPage, FitnessLoginPage, TeamManagerLoginPage } from "@/pages/area-login/index";
+import { ActivateAccess, DirectParentLogin } from "@/pages/area-login/direct-access";
+import AccountProfile from "@/pages/account-profile";
 import ParentDashboard from "@/pages/parent/index";
 import ParentChildren from "@/pages/parent/children";
 import ParentTeamInfo from "@/pages/parent/team";
@@ -87,7 +89,7 @@ function DashboardRedirect() {
 function ProtectedAppRoutes() {
   const {role,isLoading}=useAuth();
   const [location]=useLocation();
-  if (!isLoading && role === "team_manager" && !["/dirigenti","/dirigenti/calendario","/dirigenti/convocazioni","/dirigenti/squadra","/dirigenti/presenze"].includes(location)) return <Redirect to="/dirigenti" />;
+  if (!isLoading && role === "team_manager" && !["/profilo","/dirigenti","/dirigenti/calendario","/dirigenti/convocazioni","/dirigenti/squadra","/dirigenti/presenze"].includes(location)) return <Redirect to="/dirigenti" />;
   return (
     <AppLayout>
       <Switch>
@@ -218,6 +220,7 @@ function ProtectedAppRoutes() {
         <Route path="/club/platform-notifications">
           <ProtectedRoute allowedRoles={["admin", "secretary", "sporting_director", "director", "technical_director", "coach", "fitness_coach", "athletic_director"]}><PlatformNotificationsPage /></ProtectedRoute>
         </Route>
+        <Route path="/profilo"><ProtectedRoute><AccountProfile /></ProtectedRoute></Route>
         <Route path="/parent-dashboard">
           <ProtectedRoute allowedRoles={["parent"]}><ParentDashboard /></ProtectedRoute>
         </Route>
@@ -443,6 +446,9 @@ function Router() {
       <Route path="/fitness/login" component={FitnessLoginPage} />
       <Route path="/dirigenti/login" component={TeamManagerLoginPage} />
       <Route path="/parent/login" component={ParentLoginPage} />
+      <Route path="/accesso-genitori" component={DirectParentLogin} />
+      <Route path="/accesso-membri" component={MemberLoginPage} />
+      <Route path="/attiva-accesso" component={ActivateAccess} />
       <Route path="/platform-login" component={PlatformLoginPage} />
       <Route path="/platform-admin" component={PlatformAdminPage} />
       <Route path="/*" component={ProtectedAppRoutes} />

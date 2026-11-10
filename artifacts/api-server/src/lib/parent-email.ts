@@ -16,13 +16,13 @@ type ParentEmailNotification = {
   message: string;
 };
 
-function smtpConfig() {
+export function smtpConfig(defaultFromName = "ASD FORTIS JUVENTUS NOTIFICHE") {
   const host = String(process.env.SMTP_HOST ?? "").trim();
   const port = Number(process.env.SMTP_PORT ?? 587);
   const user = String(process.env.SMTP_USER ?? "").trim();
   const pass = String(process.env.SMTP_PASS ?? "").trim();
   const fromEmail = String(process.env.SMTP_FROM_EMAIL ?? user).trim();
-  const fromName = String(process.env.SMTP_FROM_NAME ?? "ASD FORTIS JUVENTUS NOTIFICHE").trim();
+  const fromName = String(process.env.SMTP_FROM_NAME ?? defaultFromName).trim();
   if (!host || !user || !pass || !fromEmail) return null;
   return {
     host,
@@ -33,8 +33,8 @@ function smtpConfig() {
   };
 }
 
-function appUrl() {
-  return String(process.env.PUBLIC_APP_URL ?? process.env.APP_ORIGIN ?? "https://football-training-board.onrender.com").trim().replace(/\/+$/, "");
+export function appUrl() {
+  return String(process.env.PUBLIC_APP_URL ?? process.env.APP_ORIGIN ?? "https://football-training-board-static.onrender.com").trim().replace(/\/+$/, "");
 }
 
 function normalizeEmail(value: unknown) {
@@ -99,7 +99,7 @@ export async function sendParentNotificationEmail(notification: ParentEmailNotif
       .where(eq(clubsTable.id, notification.clubId));
     const childLabel = childNames.length === 1 ? childNames[0] : childNames.length > 1 ? childNames.join(", ") : "figlio/a";
     const subject = `ASD FORTIS JUVENTUS NOTIFICHE - ${childLabel}`;
-    const loginUrl = `${appUrl()}/area-login/genitori`;
+    const loginUrl = `${appUrl()}/accesso-genitori?clubId=${notification.clubId}`;
     const text = [
       notification.title,
       "",

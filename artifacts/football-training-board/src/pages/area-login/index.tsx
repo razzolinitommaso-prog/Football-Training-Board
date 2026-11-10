@@ -30,6 +30,12 @@ interface AreaConfig {
 }
 
 const AREA_CONFIGS: Record<string, AreaConfig> = {
+  member: {
+    role: "member", label: "Accedi come membro", description: "Entra con il tuo account per aprire le aree assegnate dalla società.",
+    Icon: Users, accent: "text-emerald-400", accentBg: "bg-emerald-500/10",
+    accentBorder: "border-emerald-500/20", accentGlow: "focus:ring-emerald-500/20 focus:border-emerald-500/50",
+    gradientFrom: "from-emerald-950/40",
+  },
   coach: {
     role: "coach",
     label: "Coach Area",
@@ -132,7 +138,7 @@ const SECTION_LABELS: Record<string, string> = {
 };
 
 export function AreaLoginPage({ areaKey }: AreaLoginProps) {
-  const { user, isLoading } = useAuth();
+  const { user, role, isLoading } = useAuth();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [showPassword, setShowPassword] = useState(false);
@@ -148,7 +154,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
   const loginClubIdFromStorage = Number(localStorage.getItem("ftb-workspace-club-id") ?? 0);
   const loginClubId = Number.isInteger(loginClubIdFromQuery) && loginClubIdFromQuery > 0
     ? loginClubIdFromQuery
-    : Number.isInteger(loginClubIdFromStorage) && loginClubIdFromStorage > 0
+    : areaKey !== "member" && Number.isInteger(loginClubIdFromStorage) && loginClubIdFromStorage > 0
       ? loginClubIdFromStorage
       : undefined;
   const sectionLabel = loginSection ? (SECTION_LABELS[loginSection] ?? loginSection) : undefined;
@@ -167,7 +173,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
   }
 
   if (user) {
-    return <Redirect to="/dashboard" />;
+    return <Redirect to={role === "parent" ? "/parent-dashboard" : role === "team_manager" ? "/dirigenti" : "/dashboard"} />;
   }
 
   async function onSubmit(data: LoginForm) {
@@ -236,7 +242,7 @@ export function AreaLoginPage({ areaKey }: AreaLoginProps) {
       }
 
       queryClient.setQueryData(getGetCurrentUserQueryKey(), verified);
-      setLocation("/dashboard");
+      setLocation(roleFromResponse === "team_manager" ? "/dirigenti" : "/dashboard");
     } catch {
       setSubmitError("Errore di connessione. Riprova.");
       setSubmitting(false);
@@ -453,6 +459,7 @@ export function ParentLoginPage() {
             </div>
             <h1 className="text-3xl font-bold mb-2">Accesso Genitori</h1>
             <p className="text-gray-400 text-sm leading-relaxed">Inserisci i codici forniti dalla tua società sportiva</p>
+            <Link href="/accesso-genitori" className="mt-3 inline-block text-sm text-pink-300 underline">Accedi con recapito e password</Link>
           </div>
 
           <div className="rounded-2xl border border-pink-500/20 bg-white/3 p-8">
@@ -529,4 +536,5 @@ export function ParentLoginPage() {
   );
 }
 
+export function MemberLoginPage() { return <AreaLoginPage areaKey="member" />; }
 export function TeamManagerLoginPage() { return <AreaLoginPage areaKey="manager" />; }

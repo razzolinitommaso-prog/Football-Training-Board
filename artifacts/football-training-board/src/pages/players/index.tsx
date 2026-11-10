@@ -222,6 +222,7 @@ type ParentDelegate = {
   phone?: string | null;
   email?: string | null;
   accessCode?: string | null;
+  activationStatus?: string | null;
   deliveryChannel?: string | null;
   deliveryStatus?: string | null;
   isActive?: boolean | null;
@@ -2822,6 +2823,23 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     setParentDelegateRows((rows) => rows.map((row, i) => i === index ? { ...row, ...patch } : row));
   }
 
+  const [sendingDelegateId, setSendingDelegateId] = useState<number | null>(null);
+  async function sendParentActivation(playerId: number, delegateId: number, channel?: "sms") {
+    setSendingDelegateId(delegateId);
+    try {
+      const response = await fetch(withApi(`/api/players/${playerId}/parent-delegates/${delegateId}/resend-activation`), {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? "Impossibile inviare l’invito.");
+      setParentDelegateRows(rows => rows.map(row => row.id === delegateId ? { ...row, accessCode: null, activationStatus: body.activationStatus } : row));
+      toast({ title: body.activationStatus === "sent" ? "Invito inviato" : "Invio da riprovare",
+        description: body.activationStatus === "sent" ? undefined : "Controlla recapito e configurazione." });
+    } catch (error) { toast({ title: error instanceof Error ? error.message : "Invio non riuscito", variant: "destructive" }); }
+    finally { setSendingDelegateId(null); }
+  }
+
   function parentDelegateMessage(delegate: ParentDelegate) {
     const clubCode = String(parentAccessCredentials?.accessCode ?? (club as { accessCode?: string | null } | null)?.accessCode ?? "");
     const parentCode = String(parentAccessCredentials?.parentCode ?? (club as { parentCode?: string | null } | null)?.parentCode ?? "");
@@ -2868,7 +2886,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       const updated = await response.json() as ParentDelegate & { error?: string };
       if (!response.ok) throw new Error(updated.error || "Impossibile resettare l’accesso.");
       const updateAccessCode = (delegate: ParentDelegate) => delegate.id === delegateId
-        ? { ...delegate, accessCode: updated.accessCode, deliveryStatus: updated.deliveryStatus }
+        ? { ...delegate, accessCode: updated.accessCode, activationStatus: updated.activationStatus, deliveryStatus: updated.deliveryStatus }
         : delegate;
       setParentDelegateRows(rows => rows.map(updateAccessCode));
       setEditingPlayer(current => current?.id === playerId
@@ -4361,7 +4379,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 <CollapsibleSectionSummary title="Utenti collegati App Genitori" status={delegatesStatus} />
                 <div className="mt-3 space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    Inserisci fino a 3 delegati. Al salvataggio viene generato il codice iniziale/reset collegato a questo giocatore.
+                    Inserisci fino a 3 delegati. I nuovi delegati con un recapito valido ricevono un invito. Per gli accessi con codice resta disponibile il reset.
                   </p>
                   <div className="space-y-3">
                     {parentDelegateRows.map((delegate, index) => (
@@ -4372,15 +4390,21 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                             Delegato {index + 1}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
+                            {delegate.activationStatus && <Badge variant="outline">{delegate.activationStatus === "active" ? "Accesso attivato" : delegate.activationStatus === "failed" ? "Invio da riprovare" : "Invito da accettare"}</Badge>}
+                            {canEditFullPlayer && editingPlayer && delegate.id && delegate.isActive !== false && delegate.activationStatus !== "active" && (delegate.email || delegate.phone) && <>
+                              <Button type="button" size="sm" variant="outline" disabled={sendingDelegateId !== null}
+                                onClick={() => void sendParentActivation(editingPlayer.id, delegate.id!)}>{delegate.activationStatus ? "Reinvia invito" : "Invia invito"}</Button>
+                              {delegate.phone && <Button type="button" size="sm" variant="ghost" disabled={sendingDelegateId !== null}
+                                onClick={() => void sendParentActivation(editingPlayer.id, delegate.id!, "sms")}>Invia via SMS</Button>}
+                            </>}
                             {delegate.accessCode && (
                               <Badge variant="outline" className="font-mono">{delegate.accessCode}</Badge>
                             )}
-                            <Button
+                            {delegate.accessCode && <Button
                               type="button"
                               size="sm"
                               variant="ghost"
                               className="gap-2"
-                              disabled={!delegate.accessCode}
                               onClick={() => {
                                 void navigator.clipboard.writeText(parentDelegateMessage(delegate));
                                 toast({ title: "Messaggio accesso copiato" });
@@ -4388,7 +4412,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                             >
                               <Copy className="h-4 w-4" />
                               Copia accesso iniziale
-                            </Button>
+                            </Button>}
                             {canResetParentAccess && delegate.id && delegate.isActive !== false && (
                               <Button
                                 type="button"

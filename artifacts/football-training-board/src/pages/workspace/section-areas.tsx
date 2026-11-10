@@ -151,18 +151,6 @@ export default function WorkspaceSectionAreasPage() {
       iconColor: "text-blue-400",
       glow: "hover:shadow-blue-500/10",
     },
-    {
-      key: "parent",
-      label: language === "it" ? "Area Genitori" : "Parent Area",
-      description: language === "it" ? "Attività, partite, documenti e pagamenti dei tuoi figli" : "Activities, matches, documents and payments for your children",
-      href: "/parent/login",
-      icon: Heart,
-      gradient: "from-pink-600/20 to-pink-600/5",
-      border: "border-pink-500/20 hover:border-pink-400/40",
-      iconBg: "bg-pink-500/10",
-      iconColor: "text-pink-400",
-      glow: "hover:shadow-pink-500/10",
-    },
     { key: "manager", label: language === "it" ? "Area Dirigenti" : "Team Managers", description: language === "it" ? "Calendario, convocazioni e squadra assegnata" : "Assigned team, calendar and call-ups", href: "/dirigenti/login", icon: Users, gradient: "from-teal-600/20 to-teal-600/5", border: "border-teal-500/20 hover:border-teal-400/40", iconBg: "bg-teal-500/10", iconColor: "text-teal-400", glow: "hover:shadow-teal-500/10" },
   ];
 

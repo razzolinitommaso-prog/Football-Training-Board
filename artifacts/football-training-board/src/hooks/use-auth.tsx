@@ -17,6 +17,7 @@ interface AuthContextType {
   user: AuthResponse["user"] | null;
   club: AuthResponse["club"] | null;
   role: string | null;
+  profileKey: string | null;
   section: string | null;
   sections: string[];
   isLoading: boolean;
@@ -54,6 +55,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     },
   });
+
+  const profileSubjectId = (authData as { profileSubjectId?: number } | undefined)?.profileSubjectId;
+  const profileKey = authData?.role === "parent"
+    ? `family:${authData.club?.id}:${profileSubjectId ?? authData.user?.email ?? ""}`
+    : authData?.user?.id ? `member:${authData.user.id}` : null;
 
   const loginMutation = useLoginUser({
     mutation: {
@@ -200,6 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: authData?.user || null,
         club: authData?.club || null,
         role: authData?.role || null,
+        profileKey,
         section: (authData as any)?.section || null,
         sections: Array.isArray((authData as any)?.sections) ? (authData as any).sections : [],
         isLoading,

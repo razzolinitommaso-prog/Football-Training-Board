@@ -24,3 +24,5 @@ export * from "./tactical-boards";
 export * from "./sessions";
 export * from "./training-roster-groups";
 export * from "./shared-tournaments";
+
+export * from "./account-activations";

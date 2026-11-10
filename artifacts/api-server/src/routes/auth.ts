@@ -1,7 +1,8 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response, type RequestHandler } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable, clubsTable, clubMembershipsTable, seasonsTable, subscriptionsTable, playerParentDelegatesTable } from "@workspace/db";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { activateAccount, activationContact, activations, ensureAccountActivations, findActivation, pendingStaffClubIds, validAccountPassword } from "../lib/account-activation";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import {
   RegisterUserBody,
   LoginUserBody,
@@ -19,6 +20,9 @@ import { normalizeSeasonName } from "../lib/season-defaults";
 
 const router: IRouter = Router();
 
+function regenerateSession(req: Request) {
+  return new Promise<void>((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
+}
 function saveSession(req: any): Promise<void> {
   return new Promise((resolve, reject) => {
     req.session.save((err: unknown) => {
@@ -229,6 +233,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     }
 
     if (user.isSuperAdmin) {
+      await regenerateSession(req);
       req.session.userId = user.id;
       req.session.isSuperAdmin = true;
       await saveSession(req);
@@ -252,7 +257,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
         ? clubId
         : undefined;
 
-    const memberships = await db
+    let memberships = await db
       .select()
       .from(clubMembershipsTable)
       .where(
@@ -262,6 +267,14 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       )
       .orderBy(desc(clubMembershipsTable.id));
 
+    const pendingClubs = await pendingStaffClubIds(user.id, memberships.map(item => item.clubId));
+    if (pendingClubs.length) {
+      memberships = memberships.filter(item => !pendingClubs.includes(item.clubId));
+      if (!memberships.length) {
+        res.status(403).json({ error: "Attiva l’accesso tramite l’invito ricevuto dalla società." });
+        return;
+      }
+    }
     if (!memberships.length) {
       res.status(401).json({ error: "Utente o password non validi per questa società." });
       return;
@@ -341,6 +354,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       return;
     }
 
+    await regenerateSession(req);
     req.session.userId = user.id;
     req.session.clubId = membership.clubId;
     req.session.role = normalizeSessionRole(membership.role);
@@ -389,6 +403,73 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     res.status(500).json({ error: "Unexpected error" });
     return;
   }
+});
+
+function limitActivationAttempts(max: number): RequestHandler {
+  let minute = 0;
+  const counts = new Map<string, number>();
+  return (req, res, next) => {
+    const now = Math.floor(Date.now() / 60_000);
+    if (now !== minute) { minute = now; counts.clear(); }
+    const ip = req.ip ?? "";
+    const count = (counts.get(ip) ?? 0) + 1;
+    if (count > max) { res.set("Retry-After", "60").sendStatus(429); return; }
+    counts.set(ip, count);
+    next();
+  };
+}
+
+router.post("/auth/activation/status", limitActivationAttempts(40), async (req, res): Promise<void> => {
+  const match = findActivation(req.body?.token);
+  if (!match) { res.sendStatus(404); return; }
+  res.set("Cache-Control", "no-store");
+  await ensureAccountActivations();
+  const [invite] = await db.select({ kind: activations.kind, clubId: activations.clubId, usedAt: activations.usedAt,
+    expiresAt: activations.expiresAt, status: activations.status, existingAccount: activations.existingAccount }).from(activations).where(match);
+  if (!invite || invite.usedAt || invite.status === "revoked" || invite.expiresAt <= new Date()) { res.sendStatus(404); return; }
+  res.json({ kind: invite.kind, clubId: invite.clubId, choosePassword: invite.kind === "parent" || !invite.existingAccount });
+});
+
+router.post("/auth/activation", limitActivationAttempts(15), async (req, res): Promise<void> => {
+  res.set("Cache-Control", "no-store");
+  await ensureParentDelegateSecurityColumns();
+  const password = req.body?.password;
+  if (password !== req.body?.confirmPassword) { res.status(400).json({ error: "Le password non coincidono." }); return; }
+  const result = await activateAccount(req.body?.token, password);
+  if (!result) { res.status(404).json({ error: "Invito scaduto o già usato. Chiedine uno nuovo alla società." }); return; }
+  if (result === "password") { res.status(400).json({ error: "La password deve avere almeno 8 caratteri e al massimo 72 byte." }); return; }
+  if (result === "duplicate") { res.status(409).json({ error: "Questo recapito usa già la stessa password per un altro accesso in questa società. Scegline una diversa." }); return; }
+  res.json(result);
+});
+
+router.post("/auth/parent-sign-in", limitActivationAttempts(12), async (req, res): Promise<void> => {
+  const { contact, password, clubId } = req.body ?? {};
+  const recipient = typeof contact === "string" && contact.length <= 254 ? activationContact(contact, contact) : null;
+  if (!recipient || !validAccountPassword(password) || (clubId !== undefined && (!Number.isSafeInteger(clubId) || clubId <= 0))) {
+    res.status(401).json({ error: "Recapito o password non validi." });
+    return;
+  }
+  await ensureAccountActivations();
+  await ensureParentDelegateSecurityColumns();
+  const accounts = await db.select({ delegate: playerParentDelegatesTable, hash: activations.loginHash })
+    .from(activations)
+    .innerJoin(playerParentDelegatesTable, and(eq(activations.subjectId, playerParentDelegatesTable.id), eq(activations.clubId, playerParentDelegatesTable.clubId)))
+    .where(and(eq(activations.kind, "parent"), eq(activations.destination, recipient.destination), isNotNull(activations.loginHash),
+      eq(playerParentDelegatesTable.isActive, true), clubId ? eq(activations.clubId, clubId) : undefined));
+  const matches = [];
+  for (const { delegate, hash } of accounts) {
+    if (hash && await bcrypt.compare(password, hash)) matches.push(delegate);
+  }
+  if (matches.length !== 1) {
+    res.status(matches.length ? 409 : 401).json({ error: matches.length
+      ? "Apri il link di accesso della tua società e riprova."
+      : "Recapito o password non validi." });
+    return;
+  }
+  const delegate = matches[0];
+  const [club] = await db.select().from(clubsTable).where(eq(clubsTable.id, delegate.clubId));
+  if (!club) { res.sendStatus(401); return; }
+  await startParentSession(req, res, club, delegate, false, false);
 });
 
 router.post("/auth/parent-login", async (req, res): Promise<void> => {
@@ -460,6 +541,20 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
     return;
   }
 
+  await ensureAccountActivations();
+  const [invite] = await db.select({ existingAccount: activations.existingAccount, usedAt: activations.usedAt }).from(activations).where(and(
+    eq(activations.kind, "parent"), eq(activations.clubId, club.id), eq(activations.subjectId, parentDelegate.id),
+  ));
+  if (invite?.usedAt) { res.status(403).json({ error: "Accedi con il recapito e la password scelti durante l’attivazione." }); return; }
+  if (invite && !invite.existingAccount) { res.status(403).json({ error: "Attiva l’accesso tramite l’invito ricevuto dalla società." }); return; }
+  await startParentSession(req, res, club, parentDelegate, requiresPersonalAccessCode, emergencyResetLogin);
+});
+
+async function startParentSession(
+  req: Request, res: Response, club: typeof clubsTable.$inferSelect,
+  parentDelegate: typeof playerParentDelegatesTable.$inferSelect, requiresPersonalAccessCode: boolean, emergencyResetLogin: boolean,
+) {
+  await regenerateSession(req);
   req.session.userId = 0;
   req.session.clubId = club.id;
   req.session.role = "parent";
@@ -488,7 +583,7 @@ router.post("/auth/parent-login", async (req, res): Promise<void> => {
     } : null,
     authToken: createAuthToken(authPayload),
   });
-});
+}
 
 router.post("/auth/logout", (req, res): void => {
   req.session.destroy((err) => {
@@ -515,13 +610,17 @@ router.get("/auth/me", async (req, res): Promise<void> => {
   if (req.session.role === "parent") {
     const [club] = await db.select().from(clubsTable).where(eq(clubsTable.id, req.session.clubId!));
     if (!club) { res.status(401).json({ error: "Not authenticated" }); return; }
+    const [delegate] = await db.select({ email: playerParentDelegatesTable.email,
+      firstName: playerParentDelegatesTable.firstName, lastName: playerParentDelegatesTable.lastName,
+    }).from(playerParentDelegatesTable).where(and(eq(playerParentDelegatesTable.id, req.session.parentDelegateId ?? 0),
+      eq(playerParentDelegatesTable.clubId, club.id), eq(playerParentDelegatesTable.isActive, true)));
     const parentClubView = club as typeof club & {
       backgroundLogoEnabled?: number | null;
       backgroundLogoMode?: string | null;
       backgroundLogoOpacity?: number | null;
     };
     res.json({
-      user: { id: 0, email: "genitori@club.ftb", firstName: "Area", lastName: "Genitori", createdAt: club.createdAt },
+      user: { id: 0, email: delegate?.email ?? "", firstName: delegate?.firstName ?? "Area", lastName: delegate?.lastName ?? "Genitori", createdAt: club.createdAt },
       club: {
         id: club.id,
         name: club.name,
@@ -538,6 +637,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
         createdAt: club.createdAt,
       },
       role: "parent",
+      profileSubjectId: req.session.parentDelegateId ?? null,
     });
     return;
   }

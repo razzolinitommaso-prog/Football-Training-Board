@@ -16,10 +16,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ArrowLeft, LogOut, Bell, BellRing, CheckCheck, ExternalLink } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { withApi } from "@/lib/api-base";
 import { cn } from "@/lib/utils";
-import { AppearanceMenu, useBrandBackground } from "./appearance-menu";
+import { AccountTextSize, AppearanceMenu, useBrandBackground } from "./appearance-menu";
 import { TechnicalScopeBar, useTechnicalScope, isScopeAwarePath } from "@/components/technical-scope";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -432,11 +432,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   <span className="text-sm font-medium leading-none">{user?.firstName} {user?.lastName}</span>
                   <span className="text-xs text-muted-foreground capitalize">{user?.email}</span>
                 </div>
+                <AccountTextSize />
+                <Link href="/profilo" aria-label="Il mio profilo" title="Il mio profilo" className="rounded-full focus-visible:ring-2 focus-visible:ring-primary">
                 <Avatar className="h-8 w-8 sm:h-9 sm:w-9 border shrink-0">
                   <AvatarFallback className="bg-primary/10 text-primary font-medium text-sm">
                     {user?.firstName?.[0]}{user?.lastName?.[0]}
                   </AvatarFallback>
                 </Avatar>
+                </Link>
                 <Button
                   size="icon"
                   variant="ghost"

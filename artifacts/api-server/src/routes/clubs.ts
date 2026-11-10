@@ -13,6 +13,8 @@ import {
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
+import { activationContact, activationScope, activations, deliverActivation, ensureAccountActivations, issueActivation } from "../lib/account-activation";
 
 const router: IRouter = Router();
 
@@ -238,7 +240,13 @@ router.get("/clubs/me/members", requireAuth, async (req, res): Promise<void> => 
     .innerJoin(teamsTable, eq(teamStaffAssignmentsTable.teamId, teamsTable.id))
     .where(eq(teamStaffAssignmentsTable.clubId, req.session.clubId!));
 
+  await ensureAccountActivations();
+  const invites = await db.select({ subjectId: activations.subjectId, status: activations.status, channel: activations.channel, usedAt: activations.usedAt })
+    .from(activations).where(and(eq(activations.kind, "staff"), eq(activations.clubId, req.session.clubId!)));
+  const invitesByUser = new Map(invites.map(invite => [invite.subjectId, invite]));
   const membersWithAssignments = members.map(m => ({
+    activationStatus: invitesByUser.get(m.id)?.usedAt ? "active" : invitesByUser.get(m.id)?.status ?? null,
+    activationChannel: invitesByUser.get(m.id)?.channel ?? null,
     ...m,
     teamAssignments: assignments.filter(a => a.userId === m.id).map(a => ({ id: a.id, teamId: a.teamId, teamName: a.teamName })),
   }));
@@ -247,13 +255,22 @@ router.get("/clubs/me/members", requireAuth, async (req, res): Promise<void> => 
 });
 
 router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> => {
-  const parsed = InviteClubMemberBody.safeParse(req.body);
+  const channel = req.body?.activationChannel;
+  const useInvite = channel === "email" || channel === "sms";
+  const parsed = InviteClubMemberBody.safeParse(useInvite ? { ...req.body, password: "" } : req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
 
-  const { email, firstName, lastName, password, role, clubSection, staffRole, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
+  const { firstName, lastName, password, role, clubSection, staffRole, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
+  const email = parsed.data.email.trim().toLowerCase();
+  const clubId = req.session.clubId!;
+  const contact = activationContact(email, phone, channel === "sms");
+  if (useInvite && (!activationContact(email) || contact?.channel !== channel)) {
+    res.status(400).json({ error: "Controlla il recapito scelto per l’invito. Per SMS serve il prefisso internazionale." });
+    return;
+  }
   if (!(await validManagerTeams(role,teamIds,clubSection,req.session.clubId!))) { res.status(400).json({ error: "Squadre non valide per società e sezioni selezionate" }); return; }
 
   if (!canAssignMemberRole(req.session.role, role)) {
@@ -261,56 +278,55 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
     return;
   }
 
-  const existingUser = await db.select().from(usersTable).where(eq(usersTable.email, email));
-  
-  let userId: number;
-  
-  if (existingUser.length > 0) {
-    userId = existingUser[0].id;
-    const existingMembership = await db.select().from(clubMembershipsTable).where(
-      and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, req.session.clubId!))
-    );
-    if (existingMembership.length > 0) {
-      res.status(400).json({ error: "User is already a member of this club" });
-      return;
+  if (useInvite) await ensureAccountActivations();
+  const result = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`member-email:${email}`}))`);
+    const matches = await tx.select({ id: usersTable.id, email: usersTable.email }).from(usersTable)
+      .where(eq(sql`lower(${usersTable.email})`, email));
+    const existingUser = matches.find(candidate => candidate.email === email)
+      ?? (matches.length === 1 ? matches[0] : undefined);
+    if (!existingUser && matches.length) return null;
+    let userId = existingUser?.id;
+    let existingAccount = Boolean(existingUser);
+    if (userId) {
+      const [membership] = await tx.select({ id: clubMembershipsTable.id }).from(clubMembershipsTable).where(
+        and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, clubId)),
+      );
+      if (membership) return null;
+      if (useInvite) {
+        const [pending] = await tx.select({ subjectId: activations.subjectId }).from(activations).where(and(
+          eq(activations.kind, "staff"), eq(activations.subjectId, userId),
+          eq(activations.existingAccount, false), sql`${activations.usedAt} IS NULL`,
+        ));
+        if (pending) existingAccount = false;
+      }
+    } else {
+      const passwordHash = await bcrypt.hash(useInvite ? randomBytes(32).toString("base64url") : password, 12);
+      const [newUser] = await tx.insert(usersTable).values({ email, firstName, lastName, passwordHash }).returning();
+      userId = newUser.id;
     }
-  } else {
-    const passwordHash = await bcrypt.hash(password, 12);
-    const [newUser] = await db
-      .insert(usersTable)
-      .values({ email, firstName, lastName, passwordHash })
-      .returning();
-    userId = newUser.id;
-  }
-
-  const sectionsArray = Array.isArray(clubSection) && clubSection.length > 0
-    ? clubSection
-    : ["scuola_calcio"];
-
-  await db.insert(clubMembershipsTable).values({
-    userId,
-    clubId: req.session.clubId!,
-    role,
-    clubSection: sectionsArray,
-    staffRole: staffRole ?? null,
-    registered: registered ?? false,
-    registrationNumber: registrationNumber ?? null,
-    phone: phone ?? null,
-    licenseType: licenseType ?? null,
-    specialization: specialization ?? null,
-    degreeScienzeMoto: degreeScienzeMoto ?? false,
-    degreeScienzeMotoType: degreeScienzeMotoType ?? null,
+    await tx.insert(clubMembershipsTable).values({
+      userId, clubId, role, clubSection: clubSection?.length ? clubSection : ["scuola_calcio"],
+      staffRole: staffRole ?? null, registered: registered ?? false, registrationNumber: registrationNumber ?? null,
+      phone: phone ?? null, licenseType: licenseType ?? null, specialization: specialization ?? null,
+      degreeScienzeMoto: degreeScienzeMoto ?? false, degreeScienzeMotoType: degreeScienzeMotoType ?? null,
+    });
+    const assignedTeamIds = [...new Set(teamIds?.filter(id => Number.isFinite(id) && id > 0))];
+    if (assignedTeamIds.length) {
+      await tx.insert(teamStaffAssignmentsTable).values(assignedTeamIds.map(teamId => ({ teamId, userId, clubId, role })));
+    }
+    const invite = useInvite && contact
+      ? await issueActivation(tx, { kind: "staff", clubId, subjectId: userId }, contact, existingAccount, true)
+      : null;
+    if (useInvite && !invite) throw new Error("Staff activation could not be created");
+    return { userId, invite };
   });
-
-  const assignedTeamIds = Array.isArray(teamIds)
-    ? Array.from(new Set(teamIds.filter((teamId) => Number.isFinite(teamId) && teamId > 0)))
-    : [];
-
-  if (assignedTeamIds.length > 0) {
-    await db.insert(teamStaffAssignmentsTable).values(
-      assignedTeamIds.map((teamId: number) => ({ teamId, userId, clubId: req.session.clubId!, role }))
-    );
+  if (!result) {
+    res.status(409).json({ error: "Esiste già un membro con questa email o il recapito non è univoco." });
+    return;
   }
+  const { userId, invite } = result;
+  const activationStatus = invite ? await deliverActivation(invite) : null;
 
   const [member] = await db
     .select({
@@ -325,7 +341,27 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
     .innerJoin(usersTable, eq(clubMembershipsTable.userId, usersTable.id))
     .where(and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, req.session.clubId!)));
 
-  res.status(201).json(member);
+  res.status(201).json({ ...member, activationStatus });
+});
+
+router.post("/clubs/me/members/:userId/resend-activation", requireAuth, async (req, res): Promise<void> => {
+  const clubId = req.session.clubId!;
+  const subjectId = Number(req.params.userId);
+  if (!clubId || !Number.isSafeInteger(subjectId) || subjectId <= 0) { res.sendStatus(400); return; }
+  await ensureAccountActivations();
+  const scope = { kind: "staff", clubId, subjectId } as const;
+  const [member] = await db.select({ email: usersTable.email, phone: clubMembershipsTable.phone, role: clubMembershipsTable.role })
+    .from(clubMembershipsTable).innerJoin(usersTable, eq(clubMembershipsTable.userId, usersTable.id))
+    .where(and(eq(clubMembershipsTable.clubId, clubId), eq(usersTable.id, subjectId)));
+  if (!member || !canAssignMemberRole(req.session.role, member.role)) { res.sendStatus(403); return; }
+  const [previous] = await db.select().from(activations).where(activationScope(scope));
+  if (!previous || previous.usedAt) { res.status(409).json({ error: "Non c’è un invito in attesa." }); return; }
+  const channel = req.body?.channel === "email" || req.body?.channel === "sms" ? req.body.channel : previous.channel;
+  const contact = activationContact(member.email, member.phone, channel === "sms");
+  if (!contact || contact.channel !== channel) { res.status(400).json({ error: "Inserisci un recapito valido per il canale scelto." }); return; }
+  const invite = await db.transaction(tx => issueActivation(tx, scope, contact, previous.existingAccount));
+  if (!invite) { res.status(409).json({ error: "Invito già attivato oppure inviato da meno di un minuto." }); return; }
+  res.json({ activationStatus: await deliverActivation(invite) });
 });
 
 router.patch("/clubs/me/members/:userId", requireAuth, async (req, res): Promise<void> => {
@@ -432,9 +468,13 @@ router.delete("/clubs/me/members/:userId", requireAuth, async (req, res): Promis
     return;
   }
 
-  await db
-    .delete(clubMembershipsTable)
-    .where(and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, req.session.clubId!)));
+  await ensureAccountActivations();
+  await db.transaction(async tx => {
+    await tx.update(activations).set({ status: "revoked", expiresAt: new Date() })
+      .where(activationScope({ kind: "staff", clubId: req.session.clubId!, subjectId: userId }));
+    await tx.delete(clubMembershipsTable)
+      .where(and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, req.session.clubId!)));
+  });
 
   res.sendStatus(204);
 });
