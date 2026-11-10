@@ -46,6 +46,7 @@ interface Player {
   availabilityOverrideUntil?: string | null;
 }
 interface AttendanceRecord { id: number; playerId: number; playerName?: string; status: string; notes?: string | null; }
+const isStaffAttendance = (record: AttendanceRecord) => !((record.notes ?? "").startsWith("Genitore:") && ["requested", "absent"].includes(record.status));
 interface AttendanceSummary {
   present: number;
   absent: number;
@@ -265,31 +266,42 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
   }, [directSessionMode, sessionId, sessions]);
 
   const markAttendance = useMutation({
-    mutationFn: (data: { trainingSessionId: number; playerId: number; status: string; notes?: string | null }) =>
-      apiFetch("/api/attendance", { method: "POST", body: JSON.stringify(data) }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/attendance", sessionId] });
+    mutationFn: (data: { trainingSessionId: number; playerId: number; status: string; notes?: string | null; clearId?: number }) =>
+      data.clearId
+        ? apiFetch(`/api/attendance/${data.clearId}?status=${encodeURIComponent(data.status)}`, { method: "DELETE" })
+        : apiFetch("/api/attendance", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: (saved: AttendanceRecord | null, data) => {
+      const key = ["/api/attendance", data.trainingSessionId];
+      qc.setQueryData<AttendanceRecord[]>(key, current => {
+        const remaining = (current ?? []).filter(record => record.playerId !== data.playerId);
+        return saved ? [...remaining, saved] : remaining;
+      });
+      qc.invalidateQueries({ queryKey: key });
       qc.invalidateQueries({ queryKey: ["/api/attendance-summary"] });
       qc.invalidateQueries({ queryKey: ["attendance-register"] });
       qc.invalidateQueries({queryKey:["training-session-participants"]});
       qc.invalidateQueries({queryKey:["/api/training-sessions",sessionId,"planning"]});
       qc.invalidateQueries({queryKey:["/api/training-sessions",sessionId,"exercises"]});
     },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
+    onError: (_error, data) => {
+      void qc.invalidateQueries({ queryKey: ["/api/attendance", data.trainingSessionId] });
+      toast({ title: "Impossibile aggiornare l’appello", variant: "destructive" });
+    },
   });
 
   function getPlayerStatus(playerId: number) {
-    return attendance.find(a => a.playerId === playerId)?.status ?? null;
+    return getPlayerAttendance(playerId)?.status ?? null;
   }
 
   function getPlayerAttendance(playerId: number) {
-    return attendance.find(a => a.playerId === playerId) ?? null;
+    return attendance.find(a => a.playerId === playerId && isStaffAttendance(a)) ?? null;
   }
 
   function handleStatusChange(playerId: number, status: string) {
     if (!sessionId || readOnly) return;
     const existing = getPlayerAttendance(playerId);
-    markAttendance.mutate({ trainingSessionId: sessionId, playerId, status, notes: existing?.notes ?? null });
+    markAttendance.mutate({ trainingSessionId: sessionId, playerId, status, notes: existing?.notes ?? null,
+      clearId: existing?.status === status ? existing.id : undefined });
   }
 
   function openSessionAttendance(session: TrainingSession) {
@@ -432,7 +444,7 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
 
   const filteredPlayerIds = useMemo(() => new Set(filteredPlayers.map((p) => p.id)), [filteredPlayers]);
   const visibleAttendance = useMemo(
-    () => attendance.filter((a) => filteredPlayerIds.has(a.playerId)),
+    () => attendance.filter((a) => filteredPlayerIds.has(a.playerId) && isStaffAttendance(a)),
     [attendance, filteredPlayerIds],
   );
 
@@ -450,6 +462,7 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
         {returnTo && <Button asChild variant="outline" size="sm"><Link href={returnTo}>Torna alla seduta</Link></Button>}
         <h1 className="text-2xl font-bold flex items-center gap-2"><CalendarCheck className="w-6 h-6 text-primary" />{t.trainingAttendance}</h1>
         <p className="text-sm text-muted-foreground mt-1">{t.attendanceDesc}</p>
+        {!readOnly && <p className="mt-2 text-xs text-muted-foreground">«Richiesto» annota che il giocatore è richiesto da un’altra squadra. Tocca di nuovo il tasto selezionato per annullare la registrazione.</p>}
       </div>
 
       {directSessionMode && selectedSession ? (
@@ -713,7 +726,8 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
                                       ? "bg-amber-500 hover:bg-amber-600 border-amber-500"
                                       : ""
                               }`}
-                              disabled={blocked && s !== "absent"}
+                              disabled={(blocked && s !== "absent" && status !== s) || (markAttendance.isPending && markAttendance.variables?.playerId === player.id)}
+                              title={s === "requested" ? "Richiesto da altra squadra: annotazione dell’appello. Nessuna richiesta viene inviata." : undefined}
                               onClick={() => handleStatusChange(player.id, s)}>
                               {s === "requested" ? "Richiesto" : (t[s as keyof typeof t] as string)}
                             </Button>
@@ -721,7 +735,7 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
                           </div>
                         </div>
                         <Select value={conduct ?? ""} onValueChange={(value) => handleConductChange(player.id, value as TrainingConduct)}>
-                          <SelectTrigger disabled={!status} aria-label={`Condotta di ${player.lastName} ${player.firstName}`} className="h-9 w-full min-w-0 px-2 text-xs">
+                          <SelectTrigger disabled={!status || (markAttendance.isPending && markAttendance.variables?.playerId === player.id)} aria-label={`Condotta di ${player.lastName} ${player.firstName}`} className="h-9 w-full min-w-0 px-2 text-xs">
                             <SelectValue placeholder="Condotta" />
                           </SelectTrigger>
                           <SelectContent>

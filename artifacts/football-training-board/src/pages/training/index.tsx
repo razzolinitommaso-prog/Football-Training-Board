@@ -18,7 +18,8 @@ import { TrainingCategoryPicker } from "@/components/training/TrainingCategoryPi
 import { trainingCategoryLabel } from "@workspace/api-zod";
 import { SessionObjectivePicker } from "@/components/training/SessionObjectivePicker";
 import { PrinciplePicker } from "@/components/training/PrinciplePicker";
-import { trainingPrincipleLabel } from "@workspace/api-zod";
+import { TRAINING_METHOD_GUIDES, trainingPrincipleLabel } from "@workspace/api-zod";
+import { TrainingMethodGuides } from "@/components/training/TrainingMethodGuides";
 import { inferTrainingSlot, trainingSlotOptions } from "@/lib/training-session-slot";
 import { TrainingTrialPlayers } from "@/components/training/TrainingTrialPlayers";
 import { TrainingRosterPicker } from "@/components/training/TrainingRosterPicker";
@@ -168,6 +169,7 @@ type InitialSessionDraft = {
   start?: string | null;
   durationMinutes?: number;
   trainingSession?: string;
+  methodGuideId?: string;
 };
 
 interface PlayerOption {
@@ -1102,6 +1104,7 @@ function CreateSessionDialog({
   const [recipientMode, setRecipientMode] = useState<"selected" | "all">("selected");
   const [recipients, setRecipients] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
+  const methodGuide = isTD && TRAINING_METHOD_GUIDES.find(guide => guide.id === initialDraft?.methodGuideId);
 
   function reset() {
     manualSlot.current = false; initialDraftApplied.current=null;
@@ -1114,6 +1117,7 @@ function CreateSessionDialog({
     if (!initialDraft || initialDraftApplied.current===initialDraft) return;
     if (initialDraft.teamId&&!teams.some(team=>team.id===initialDraft.teamId)) return;
     initialDraftApplied.current=initialDraft;
+    if (methodGuide) setSessionPrincipio(methodGuide.objective);
     if (initialDraft.trainingSession) { setSessionTrainingSession(initialDraft.trainingSession); manualSlot.current = true; }
     if (initialDraft.date) setScheduledDate(toDisplayDateValue(`${initialDraft.date}T00:00:00`));
     if (initialDraft.start) setScheduledTime(formatTimeInput(initialDraft.start));
@@ -1122,7 +1126,7 @@ function CreateSessionDialog({
     if (initialDraft.teamId && teams.some((team) => team.id === initialDraft.teamId)) {
       setTeamId(initialDraft.teamId);
     }
-  }, [initialDraft, open, teams]);
+  }, [initialDraft, methodGuide, open, teams]);
 
   useEffect(() => {
     if (open && isTD && !initialDraft && teams.length === 1 && teamId === null) {
@@ -1152,6 +1156,10 @@ function CreateSessionDialog({
       toast({ title: "Scegli l’obiettivo prevalente della seduta", variant: "destructive" });
       return;
     }
+    if (methodGuide && !teams.some(team => team.id === teamId && team.clubSection === methodGuide.section)) {
+      toast({ title: "Seleziona un’annata del settore del modello", variant: "destructive" });
+      return;
+    }
     const eligibleRecipients = members.filter((m) => {
       if (!["coach", "fitness_coach", "athletic_director"].includes(m.role)) return false;
       if (!teamId) return true;
@@ -1166,7 +1174,7 @@ function CreateSessionDialog({
     try {
       const principioLabel = trainingPrincipleLabel(sessionPrincipio);
       const sessionLabel = trainingSessionOptionLabel(sessionTrainingSession, t);
-      const generatedTitle = `${principioLabel} - ${sessionLabel}`;
+      const generatedTitle = `${methodGuide ? methodGuide.label + " · " : ""}${principioLabel} - ${sessionLabel}`;
       const createdSession = await apiFetch("/api/training-sessions", {
         method: "POST",
         body: JSON.stringify({
@@ -1177,6 +1185,7 @@ function CreateSessionDialog({
           teamId, status: "scheduled",
           sessionKind,
           sentToUserIds: sessionKind === "tipo" ? resolvedRecipients : null,
+          methodGuideId: methodGuide ? methodGuide.id : undefined,
         }),
       });
       let recoverySaveFailed=false;
@@ -1206,6 +1215,7 @@ function CreateSessionDialog({
         </DialogHeader>
         <form ref={createFormRef} onSubmit={handleSubmit} noValidate className="space-y-4 pt-2">
           {isTD && <p className="rounded-lg border bg-muted/30 p-3 text-sm">Questa è una proposta: il mister potrà consultarla e scegliere se adottarla nella propria seduta.</p>}
+          {methodGuide && <p className="rounded-lg border bg-primary/5 p-3 text-sm">Modello {methodGuide.label} · {methodGuide.stations.length} stazioni. I minuti saranno adattati alla durata scelta.</p>}
 
           <div className="grid grid-cols-1 gap-3">
           <div className="space-y-2">
@@ -1256,7 +1266,7 @@ function CreateSessionDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Squadra</Label>
-              <SessionTeamPicker teams={teams} teamId={teamId} sharedIds={sharedTeamIds} onChange={(id,ids)=>{manualSlot.current=false;setTeamId(id);setSharedTeamIds(ids);}}/>
+              <SessionTeamPicker teams={methodGuide ? teams.filter(team => team.clubSection === methodGuide.section) : teams} teamId={teamId} sharedIds={sharedTeamIds} onChange={(id,ids)=>{manualSlot.current=false;setTeamId(id);setSharedTeamIds(ids);}}/>
             </div>
             <div className="space-y-2">
               <Label>Luogo</Label>
@@ -2513,7 +2523,6 @@ function SessionDetailsDialog({
                       <PrinciplePicker value={exerciseForm.principio} onChange={value => setExerciseForm(prev => ({ ...prev, principio: value }))} section={teams.find(team => team.id === Number(exerciseForm.teamId))?.clubSection} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Categoria</Label>
                       <TrainingCategoryPicker value={exerciseForm.category} onChange={category=>setExerciseForm(prev=>({...prev,category}))} section={teams.find(team=>team.id===Number(exerciseForm.teamId))?.clubSection}/>
                     </div>
                   </div>
@@ -3411,7 +3420,13 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
           </TabsContent>
 
           {/* Tab: Sessioni Tipo */}
-          <TabsContent value="tipo" className="mt-6">
+          <TabsContent value="tipo" className="mt-6 space-y-4">
+            <TrainingMethodGuides section={section} onPrepare={guideId => {
+              const guide = TRAINING_METHOD_GUIDES.find(item => item.id === guideId);
+              const candidates = teams.filter(team => team.clubSection === guide?.section);
+              setCalendarDraft({ methodGuideId: guideId, teamId: candidates.length === 1 ? candidates[0].id : undefined });
+              setCreateOpen(true);
+            }} />
             <div className="mb-4 flex items-start gap-3 text-sm text-muted-foreground bg-amber-50/60 border border-amber-200 rounded-lg px-4 py-3">
               <Star className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
               <span>
@@ -3481,7 +3496,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
         {/* Dialogs */}
         {reviewSession && <SessionReviewDialog key={reviewSession.id} session={reviewSession} review={supervisionQuery.data?.facts[reviewSession.id]?.review??null} onClose={()=>setReviewSession(null)}/>}
         <CreateSessionDialog
-          open={createOpen} onClose={() => setCreateOpen(false)}
+          open={createOpen} onClose={() => { setCreateOpen(false); setCalendarDraft(null); }}
           onCreated={invalidateSessions}
           onCreatedSession={(created,phase)=>{setCreatedPhase(phase);setDetailsSession(created);}} members={members} isTD teams={teams}
           initialDraft={calendarDraft ?? initialSessionDraft ?? undefined}
@@ -3754,6 +3769,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
         </div>
       )}
 
+      {["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && <TrainingMethodGuides section={section ?? activeSection} />}
       {tipoReceived.length > 0 && <section className="space-y-3">
         <h2 className="text-lg font-semibold">Proposte del direttore tecnico</h2>
         <p className="text-sm text-muted-foreground">Consulta le linee guida e scegli se adottarle, interamente o per singole stazioni.</p>

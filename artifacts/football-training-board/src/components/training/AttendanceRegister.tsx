@@ -37,13 +37,13 @@ type Register = {
 const labels: Record<string, string> = {
   present: "Presente",
   absent: "Assente",
-  requested: "Giustificato",
+  requested: "Richiesto da altra squadra",
   injured: "Infortunato",
 };
 const statusBadges: Record<string, { letter: string; tone: string }> = {
   present: { letter: "P", tone: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" },
   absent: { letter: "A", tone: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200" },
-  requested: { letter: "G", tone: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200" },
+  requested: { letter: "R", tone: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200" },
   injured: { letter: "I", tone: "bg-muted text-foreground" },
 };
 const romeDate = new Intl.DateTimeFormat("en-CA", {
@@ -121,7 +121,7 @@ const sorts = [
 type Sort = (typeof sorts)[number][0];
 const summaryHeaders = [
   "Giocatore", "Annata", "Presenze", "Appelli registrati", "% presenze", "Assenze",
-  "Giustificati", "Infortuni", "Non registrate", "Convocazioni", "Minuti previsti", "Minuti effettivi",
+  "Richiesti da altra squadra", "Infortuni", "Non registrate", "Convocazioni", "Minuti previsti", "Minuti effettivi",
 ];
 
 function StatCell({ label, children }: { label: string; children: ReactNode }) {

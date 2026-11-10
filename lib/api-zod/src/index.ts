@@ -29,3 +29,5 @@ export { prepareReusedBoard } from "./reuse-training-station";
 
 export * from "./championship-match-links";
 export * from "./parent-access-code";
+
+export * from "./training-method-guides";

@@ -1045,7 +1045,6 @@ export default function ExercisesPage() {
                       <PrinciplePicker value={form.principio ?? ""} onChange={value => setForm(prev => ({ ...prev, principio: value || null }))} section={selectedTeam?.clubSection} />
                     </div>
                     <div className="space-y-2">
-                      <Label>{t.category}</Label>
                       <TrainingCategoryPicker value={form.category??null} onChange={category=>setForm(prev=>({...prev,category:category||null}))} section={selectedTeam?.clubSection??activeSection}/>
                     </div>
                   </div>

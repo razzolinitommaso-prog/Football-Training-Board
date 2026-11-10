@@ -23,3 +23,15 @@ Tema Chiaro/Scuro/Sistema nel menu Aspetto della testata, salvato sul dispositiv
 Test HTTP/Express/Drizzle su PostgreSQL PGlite isolato: destinatari, assegnazioni, copia indipendente e pulita, mantenimento preparazione esistente, richieste obsolete/duplicate, protezione stazioni operative e della proposta, creazione DT forzata a tipo. Regressioni parent/manager, storico giocatore e disponibilità seduta nello stesso harness.
 
 Verifica UI della build reale con API locali fittizie: navigazione, cambio settore e persistenza, categorie Scuola Calcio, Chiaro/Scuro e persistenza al reload, vista mobile 430px senza overflow orizzontale. Nessuna sessione reale o dato di produzione usato per i test.
+
+## Modelli metodologici e obiettivi
+
+Nella scheda Linee guida proposte il DT trova cinque modelli di riferimento per fascia. La transizione Esordienti–Giovanissimi è descritta nella guida degli Esordienti. Ogni modello include indicazioni per il mister, un comportamento da osservare e cinque blocchi nelle tre fasi già usate in FTB. Il modello Prima Squadra è una traccia del club da adattare al suo contesto.
+
+Il DT può avviare una proposta da un modello, scegliere l’annata e i destinatari e confermare. Le stazioni nascono insieme alla proposta e i loro minuti vengono adattati alla durata impostata. Lo staff consulta le proposte ricevute e può adottare stazioni nella propria seduta con il flusso esistente.
+
+La seduta ha un solo obiettivo prevalente. Condizionale si aggiunge per Settore Giovanile e Prima Squadra. In ogni stazione si può scegliere il catalogo oppure usare un principio, sottoprincipio o dettaglio libero. Salva come mia voce lo rende riutilizzabile dal proprio account nella stessa società e nello stesso settore. Con la palla e Senza palla si possono selezionare insieme.
+
+## Annullamento dell’appello
+
+Richiesto indica che il giocatore è richiesto da un’altra squadra. È uno stato dell’appello e non invia una richiesta o una notifica. Un secondo clic sullo stato attivo cancella la registrazione staff e la condotta associata. Le risposte dei genitori sono separate. L’annullamento agisce sul registro corrente. Eventuali comunicazioni già inviate e rimozioni di assegnazioni alle stazioni richiedono una gestione separata.

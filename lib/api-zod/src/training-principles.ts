@@ -1927,6 +1927,8 @@ const byValue = new Map(TRAINING_PRINCIPLES.map(item => [item.value, item]));
 export function trainingPrinciple(value: string | null | undefined) { return value ? byValue.get(value) : undefined; }
 export function trainingPrincipleLabel(value: string | null | undefined): string {
   if (!value) return "";
+  const custom = customTrainingPrinciple(value);
+  if (custom) return custom.label;
   const goal = sessionObjectiveLabel(value);
   if (goal) return goal;
   const item = trainingPrinciple(value);
@@ -1944,8 +1946,23 @@ export const SESSION_OBJECTIVES = [
   ["cognitive", "Cognitivo e decisionale"], ["perceptual", "Percettivo"],
   ["motor", "Motorio e coordinativo"], ["technical", "Tecnico"],
   ["collaborative", "Collaborativo e relazionale"], ["attack", "Attacco"],
-  ["defence", "Difesa"], ["transitions", "Transizioni"],
+  ["defence", "Difesa"], ["transitions", "Transizioni"], ["conditioning", "Condizionale"],
 ] as const;
 export function sessionObjectiveLabel(value: string | null | undefined): string {
   return SESSION_OBJECTIVES.find(([id]) => value === `goal1:${id}`)?.[1] ?? "";
+}
+
+const CUSTOM_PRINCIPLE_PREFIX = "ftb-custom:";
+
+export function customTrainingPrinciple(value: string | null | undefined): { parent: string; label: string } | undefined {
+  if (!value?.startsWith(CUSTOM_PRINCIPLE_PREFIX)) return undefined;
+  try {
+    const [parent, label] = JSON.parse(value.slice(CUSTOM_PRINCIPLE_PREFIX.length));
+    if (typeof parent === "string" && typeof label === "string" && label.trim() && label.length <= 160) return { parent, label };
+  } catch { /* Keep displaying the stored value if its format is unknown. */ }
+  return undefined;
+}
+
+export function encodeCustomTrainingPrinciple(parent: string, label: string): string {
+  return CUSTOM_PRINCIPLE_PREFIX + JSON.stringify([parent, label.trim().replace(/\s+/g, " ")]);
 }

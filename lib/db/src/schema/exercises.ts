@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { clubsTable } from "./clubs";
@@ -67,3 +67,12 @@ export const trainingGuidelinesTable = pgTable("training_guidelines", {
 });
 
 export type TrainingGuideline = typeof trainingGuidelinesTable.$inferSelect;
+
+export const trainingPrincipleChoicesTable = pgTable("training_principle_choices", {
+  clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  section: text("section").notNull(),
+  parent: text("parent").notNull(),
+  label: text("label").notNull(),
+  normalizedLabel: text("normalized_label").notNull(),
+}, table => [primaryKey({ columns: [table.clubId, table.userId, table.section, table.parent, table.normalizedLabel] })]);

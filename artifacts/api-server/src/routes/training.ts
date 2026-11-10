@@ -1,4 +1,4 @@
-import {stationSources} from "@workspace/api-zod";
+import { stationSources, TRAINING_METHOD_GUIDES } from "@workspace/api-zod";
 import { programParticipants, PROGRAM_MARKER } from "../lib/joint-training-program";
 import { trainingLocalDate, trainingProgramLeader } from "@workspace/api-zod";
 import { assignedTrainingProgram } from "../lib/training-program-access";
@@ -339,6 +339,27 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
     if(trainingProgramLeader(team?.trainingSchedule,trainingLocalDate(parsed.data.scheduledAt))){res.status(409).json({error:"La squadra segue un programma congiunto: apri la seduta della squadra di riferimento dal calendario."});return;}
   }
   if(!await validSessionTeams(req,body.teamId??null,parsed.data.notes)){res.status(403).json({error:"Unione di annate non autorizzata o non configurata"});return;}
+  const guide = TRAINING_METHOD_GUIDES.find(item => item.id === body.methodGuideId);
+  if (body.methodGuideId !== undefined) {
+    if (role !== "technical_director") { res.sendStatus(403); return; }
+    const [team] = await db.select({ section: teamsTable.clubSection }).from(teamsTable).where(and(
+      eq(teamsTable.id, body.teamId ?? 0), eq(teamsTable.clubId, req.session.clubId!),
+    ));
+    const recipients = Array.isArray(body.sentToUserIds) ? [...new Set(body.sentToUserIds)] : [];
+    if (!guide || team?.section !== guide.section || !recipients.length || recipients.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+      res.status(400).json({ error: "Modello, annata o destinatari non validi." });
+      return;
+    }
+    const eligible = await db.select({ id: clubMembershipsTable.userId }).from(clubMembershipsTable)
+      .innerJoin(teamStaffAssignmentsTable, and(eq(teamStaffAssignmentsTable.clubId, clubMembershipsTable.clubId),
+        eq(teamStaffAssignmentsTable.userId, clubMembershipsTable.userId), eq(teamStaffAssignmentsTable.teamId, body.teamId!)))
+      .where(and(eq(clubMembershipsTable.clubId, req.session.clubId!), inArray(clubMembershipsTable.userId, recipients),
+        inArray(clubMembershipsTable.role, STAFF_RESTRICTED_ROLES)));
+    if (new Set(eligible.map(member => member.id)).size !== recipients.length) {
+      res.status(403).json({ error: "Scegli i tecnici assegnati all’annata." });
+      return;
+    }
+  }
   const [session] = await db.transaction(async tx=>{
     const values={...parsed.data,clubId:req.session.clubId!,createdByUserId:userId,sessionKind:body.sessionKind??"regular",sentToUserIds:body.sentToUserIds??null};
     if(values.sessionKind==="regular"&&!await consolidateSharedDrafts(tx,req.session.clubId!,null,sessionTeamIds(body.teamId,values.notes),parsed.data.scheduledAt,parsed.data.durationMinutes??90))return [];
@@ -351,7 +372,23 @@ router.post("/training-sessions", requireAuth, async (req, res): Promise<void> =
       const [occupied]=await tx.select({id:trainingSessionsTable.id}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,req.session.clubId!),eq(trainingSessionsTable.teamId,body.teamId),sameTrainingMinute(trainingSessionsTable.scheduledAt,parsed.data.scheduledAt),sql`${trainingSessionsTable.status} NOT IN ('cancelled','canceled')`,eq(trainingSessionsTable.sessionKind,"regular"))).limit(1);
       if(occupied)return [];
     }
-    return tx.insert(trainingSessionsTable).values(values).returning();
+    const [created] = await tx.insert(trainingSessionsTable).values(values).returning();
+    if (guide) {
+      const templateDuration = guide.stations.reduce((sum, station) => sum + station.durationMinutes, 0);
+      const duration = values.durationMinutes ?? templateDuration;
+      let elapsed = 0;
+      const stations = await tx.insert(exercisesTable).values(guide.stations.map(station => {
+        const start = Math.round(elapsed * duration / templateDuration);
+        elapsed += station.durationMinutes;
+        return {
+          clubId: values.clubId, teamId: created.teamId, createdByUserId: userId, title: station.title,
+          description: station.description, trainingPhase: station.phase,
+          durationMinutes: Math.round(elapsed * duration / templateDuration) - start,
+        };
+      })).returning({ id: exercisesTable.id });
+      await tx.insert(trainingSessionExercisesTable).values(stations.map(({ id }, order) => ({ trainingSessionId: created.id, exerciseId: id, order })));
+    }
+    return [created];
   });
 
   if(!session){res.status(409).json({error:"Esiste già una seduta per questa squadra, data e orario. Aprila per modificarla."});return;}

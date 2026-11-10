@@ -6,7 +6,7 @@ import { rosterMembers } from "../lib/training-roster-policy";
 import { assignedTrainingProgram } from "../lib/training-program-access";
 import { sessionTeamScope } from "../lib/session-team-scope";
 import { buildMatchRotationSummary, defaultRotationCapacity, parentPlayedMinutes, sessionTeamIds, trainingLocalDate } from "@workspace/api-zod";
-import { saveAttendanceAndNotify } from "../lib/attendance-notifications";
+import { clearRecordedAttendance, saveAttendanceAndNotify, staffAttendance } from "../lib/attendance-notifications";
 import { trainingAvailability } from "../lib/training-availability";
 import { Router, type IRouter } from "express";
 import { db, seasonsTable, clubMembershipsTable, matchesTable, callUpsTable, trainingAttendancesTable, playersTable, teamStaffAssignmentsTable, teamsTable, trainingSessionsTable } from "@workspace/db";
@@ -51,10 +51,11 @@ async function getSessionForAttendance(sessionId: number, clubId: number) {
 }
 
 async function userCanManageAttendanceForSession(userId: number, clubId: number, role: string, sessionId: number): Promise<boolean> {
-  if (ATTENDANCE_MANAGE_ALL_ROLES.includes(role)) return true;
-  if (!ATTENDANCE_TEAM_ROLES.includes(role)) return false;
+  if (!ATTENDANCE_MANAGE_ALL_ROLES.includes(role) && !ATTENDANCE_TEAM_ROLES.includes(role)) return false;
   const session = await getSessionForAttendance(sessionId, clubId);
-  if (!session?.teamId) return false;
+  if (!session || session.sessionKind === "tipo") return false;
+  if (ATTENDANCE_MANAGE_ALL_ROLES.includes(role)) return true;
+  if (!session.teamId) return false;
   if(await assignedTrainingProgram(clubId,userId,session))return true;
 
   const [assignment] = await db
@@ -208,7 +209,7 @@ router.get("/attendance-register", requireAuth, async (req, res) => {
     db.select({ id: trainingSessionsTable.id, teamId: trainingSessionsTable.teamId, scheduledAt: trainingSessionsTable.scheduledAt,
       title: trainingSessionsTable.title, notes: trainingSessionsTable.notes }).from(trainingSessionsTable).where(and(
       eq(trainingSessionsTable.clubId, clubId), or(isNull(trainingSessionsTable.teamId), inArray(trainingSessionsTable.teamId, sectionTeamIds)),
-      sessionTeamScope(team.id),
+      sessionTeamScope(team.id), eq(trainingSessionsTable.sessionKind, "regular"),
       sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date BETWEEN ${start}::date AND ${end}::date`,
       sql`${trainingSessionsTable.status} NOT IN ('cancelled','canceled')`,
       sql`${trainingSessionsTable.notes} IS DISTINCT FROM '[FTB_AUTO_TRAINING] GROUPED'`)),
@@ -223,7 +224,7 @@ router.get("/attendance-register", requireAuth, async (req, res) => {
   const [records, trials] = await Promise.all([
     sessions.length ? db.select({ sessionId: trainingAttendancesTable.trainingSessionId, playerId: trainingAttendancesTable.playerId,
       status: trainingAttendancesTable.status }).from(trainingAttendancesTable).where(and(eq(trainingAttendancesTable.clubId, clubId),
-      inArray(trainingAttendancesTable.trainingSessionId, sessions.map(session => session.id)),
+      inArray(trainingAttendancesTable.trainingSessionId, sessions.map(session => session.id)), staffAttendance,
       parent ? eq(trainingAttendancesTable.playerId, own[0].id) : undefined)) : [],
     parent ? [] : listTrainingTrials(clubId, rosterTeams),
   ]);
@@ -316,7 +317,7 @@ router.get("/attendance", requireAuth, async (req, res): Promise<void> => {
     return;
   }
   const records = await db.select().from(trainingAttendancesTable)
-    .where(and(eq(trainingAttendancesTable.trainingSessionId, sessionId), eq(trainingAttendancesTable.clubId, req.session.clubId!)));
+    .where(and(eq(trainingAttendancesTable.trainingSessionId, sessionId), eq(trainingAttendancesTable.clubId, req.session.clubId!), staffAttendance));
   const enriched = await Promise.all(records.map(async (r) => {
     const [player] = await db.select().from(playersTable).where(and(eq(playersTable.id, r.playerId), eq(playersTable.clubId, req.session.clubId!)));
     return { ...r, playerName: player ? `${player.firstName} ${player.lastName}` : null, notes: r.notes ?? null };
@@ -371,7 +372,7 @@ router.get("/attendance-summary", requireAuth, async (req, res): Promise<void> =
     const records = await db
       .select({ status: trainingAttendancesTable.status })
       .from(trainingAttendancesTable)
-      .where(and(eq(trainingAttendancesTable.trainingSessionId, sessionId), eq(trainingAttendancesTable.clubId, req.session.clubId!)));
+      .where(and(eq(trainingAttendancesTable.trainingSessionId, sessionId), eq(trainingAttendancesTable.clubId, req.session.clubId!), staffAttendance));
     const present = records.filter((record) => record.status === "present").length;
     const absent = records.filter((record) => record.status === "absent").length;
     const requested = records.filter((record) => record.status === "requested").length;
@@ -430,6 +431,28 @@ router.patch("/attendance/:id", requireAuth, async (req, res): Promise<void> => 
   const saved=await saveAttendanceAndNotify({id,clubId:req.session.clubId!,sessionId:existing.trainingSessionId,playerId:existing.playerId,status,notes});
   if(!saved){res.status(404).json({error:"Not found"});return;}
   res.json(saved.record);
+});
+
+router.delete("/attendance/:id", requireAuth, async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  const clubId = req.session.clubId;
+  const status = req.query.status;
+  if (!clubId || !Number.isSafeInteger(id) || id <= 0 ||
+      typeof status !== "string" || !["present", "absent", "requested", "injured"].includes(status)) {
+    res.status(400).json({ error: "Registrazione o stato non valido" });
+    return;
+  }
+  const [record] = await db.select().from(trainingAttendancesTable).where(and(
+    eq(trainingAttendancesTable.id, id), eq(trainingAttendancesTable.clubId, clubId),
+  ));
+  if (!record) { res.sendStatus(204); return; }
+  if (!await userCanManageAttendanceForSession(req.session.userId!, clubId, req.session.role ?? "", record.trainingSessionId)) {
+    res.status(403).json({ error: "Non autorizzato a modificare presenze di questa seduta" });
+    return;
+  }
+  const cleared = await clearRecordedAttendance({ clubId, sessionId: record.trainingSessionId, playerId: record.playerId, id, status });
+  if (!cleared) { res.status(409).json({ error: "La registrazione è cambiata. Riprova dopo aver aggiornato l’appello." }); return; }
+  res.sendStatus(204);
 });
 
 export default router;
