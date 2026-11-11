@@ -1122,7 +1122,7 @@ function compactImportPayload(mapped: Record<string, unknown>, existing?: Player
     payload.available = false;
     payload.status = "inactive";
     if (!payload.unavailabilityReason) {
-      payload.unavailabilityReason = registered || hasValidCertificate ? "other" : "payment";
+      payload.unavailabilityReason = "other";
     }
   }
 

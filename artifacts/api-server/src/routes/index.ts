@@ -31,9 +31,11 @@ import { boardsRouter } from "./boards-routers";
 
 import teamManagerRouter from "./team-manager";
 import { restrictTeamManagerApi } from "../lib/team-manager-access";
+import { refreshClubPaymentAvailability } from "../lib/payment-availability";
 
 const router: IRouter = Router();
 router.use(restrictTeamManagerApi);
+router.use(refreshClubPaymentAvailability);
 router.use(teamManagerRouter);
 
 router.use(healthRouter);

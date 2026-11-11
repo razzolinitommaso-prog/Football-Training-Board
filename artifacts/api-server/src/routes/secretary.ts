@@ -18,6 +18,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, gte, lte, asc, getTableColumns, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
+import { reconcilePaymentAvailability } from "../lib/payment-availability";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { calendarStaffMessage, encodeCalendarCommunication, readCalendarAudience } from "../lib/parent-calendar-communication";
 
@@ -32,12 +33,6 @@ const PAYMENT_VIEW_ROLES = new Set(["admin", "presidente", "director", "secretar
 const PAYMENT_EDIT_ROLES = new Set(["secretary"]);
 const WAREHOUSE_VIEW_ROLES = new Set(["admin", "presidente", "director", "secretary", "sporting_director"]);
 const WAREHOUSE_EDIT_ROLES = new Set(["secretary"]);
-type PlayerAvailabilityOverrideFields = {
-  availabilityOverrideActive?: boolean | null;
-  availabilityOverrideFrom?: string | null;
-  availabilityOverrideUntil?: string | null;
-};
-
 let ensuredClubNotificationTargetColumns = false;
 
 async function ensureClubNotificationTargetColumns() {
@@ -139,46 +134,6 @@ function makeWarehouseItemType(section: string, itemType: unknown, name: string,
 
 function todayDateOnly(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function playerHasActiveAvailabilityOverride(player: typeof playersTable.$inferSelect): boolean {
-  const availabilityOverride = player as typeof player & PlayerAvailabilityOverrideFields;
-  if (availabilityOverride.availabilityOverrideActive !== true) return false;
-  const today = todayDateOnly();
-  const from = String(availabilityOverride.availabilityOverrideFrom ?? "");
-  const until = String(availabilityOverride.availabilityOverrideUntil ?? "");
-  if (!until) return false;
-  if (from && from > today) return false;
-  if (until < today) return false;
-  return true;
-}
-
-async function enforcePaymentAvailability(clubId: number, playerId: number) {
-  const today = todayDateOnly();
-  const overdue = await db
-    .select({ id: playerPaymentsTable.id })
-    .from(playerPaymentsTable)
-    .where(and(
-      eq(playerPaymentsTable.clubId, clubId),
-      eq(playerPaymentsTable.playerId, playerId),
-      sql`${playerPaymentsTable.availabilityBlocking} = 1`,
-      sql`${playerPaymentsTable.status} <> 'paid'`,
-      sql`${playerPaymentsTable.dueDate} is not null`,
-      lte(playerPaymentsTable.dueDate, today),
-    ))
-    .limit(1);
-
-  if (overdue.length > 0) {
-    const [player] = await db.select().from(playersTable)
-      .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)))
-      .limit(1);
-    if (player && playerHasActiveAvailabilityOverride(player)) return;
-    await db.update(playersTable).set({
-      available: false,
-      unavailabilityReason: "payment",
-      expectedReturn: null,
-    }).where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)));
-  }
 }
 
 async function ensureClubNotificationUserState(notificationId: number, userId: number, trashed: boolean) {
@@ -337,7 +292,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     availabilityBlocking: availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1,
     paymentMethod: status === "paid" ? paymentMethod : null,
   }).returning();
-  await enforcePaymentAvailability(clubId, player.id);
+  await reconcilePaymentAvailability(clubId, player.id);
   res.status(201).json(record);
 });
 
@@ -433,7 +388,7 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
   });
   if (result === "missing") { res.status(404).json({ error: "Giocatore non trovato." }); return; }
   if (result === "changed") { res.status(409).json({ error: "I pagamenti sono cambiati. Rivedi il totale e riprova." }); return; }
-  await enforcePaymentAvailability(clubId, playerId);
+  await reconcilePaymentAvailability(clubId, playerId);
   res.sendStatus(204);
 });
 
@@ -465,7 +420,7 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   const [record] = await db.update(playerPaymentsTable).set(updates)
     .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!))).returning();
   if (!record) { res.status(404).json({ error: "Not found" }); return; }
-  await enforcePaymentAvailability(req.session.clubId!, record.playerId);
+  await reconcilePaymentAvailability(req.session.clubId!, record.playerId);
   res.json(record);
 });
 
@@ -476,7 +431,10 @@ router.delete("/player-payments/:id", requireAuth, async (req, res): Promise<voi
   }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  await db.delete(playerPaymentsTable).where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!)));
+  const clubId = req.session.clubId!;
+  const [deleted] = await db.delete(playerPaymentsTable).where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId)))
+    .returning({ playerId: playerPaymentsTable.playerId });
+  if (deleted) await reconcilePaymentAvailability(clubId, deleted.playerId);
   res.sendStatus(204);
 });
 

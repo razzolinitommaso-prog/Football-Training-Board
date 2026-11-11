@@ -38,6 +38,7 @@ import {
   DeletePlayerParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
+import { reconcilePaymentAvailability } from "../lib/payment-availability";
 import { isClubWideListRole, normalizeSessionRole, resolveAllowedClubSections, getAssignedTeamIds, getPlayerMeasurementTeamScope, canAccessPlayerMeasurements } from "../lib/club-scope";
 import { requireClubAndUserIds } from "../lib/session-context";
 import { assertCanCreateWithinPlan } from "../lib/plan-limits";
@@ -1541,7 +1542,11 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
-  const enriched = await enrichPlayer(player, req.session.role);
+  const availabilityChanged = await reconcilePaymentAvailability(player.clubId, player.id);
+  const [currentPlayer] = availabilityChanged
+    ? await db.select().from(playersTable).where(playerScope).limit(1)
+    : [player];
+  const enriched = await enrichPlayer(currentPlayer ?? player, req.session.role);
   res.json(UpdatePlayerResponse.parse(enriched));
 });
 
