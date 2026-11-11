@@ -1222,15 +1222,14 @@ function EquipmentGlyph({
   if (type === "text") {
     return (
       <div
-        className="flex min-w-8 max-w-[420px] whitespace-pre-wrap break-words rounded-lg border-2 bg-black/30 px-2 py-1 text-lg font-black leading-tight shadow-lg"
+        className="flex w-max min-w-5 max-w-[420px] whitespace-pre-wrap rounded-md border border-white/45 bg-black/20 px-1.5 py-0.5 text-sm leading-tight [overflow-wrap:anywhere]"
         style={{
-          borderColor: primary ?? "#f8fafc",
           color: primary ?? "#f8fafc",
           fontFamily: format,
           fontSize: fontSize ? `${fontSize}px` : undefined,
           fontWeight: fontWeight ?? undefined,
           width: textWidth ? `${textWidth}px` : undefined,
-          minHeight: textHeight ? `${textHeight}px` : "34px",
+          minHeight: textHeight ? `${textHeight}px` : undefined,
           textAlign: textAlign ?? "center",
           alignItems: textVerticalAlign === "top" ? "flex-start" : textVerticalAlign === "bottom" ? "flex-end" : "center",
           justifyContent: textAlign === "left" ? "flex-start" : textAlign === "right" ? "flex-end" : "center",
@@ -1448,7 +1447,7 @@ const QuickPage = () => {
   const [equipmentColor, setEquipmentColor] = useState("default");
   const [arrowToolPreset, setArrowToolPreset] = useState<ArrowToolPreset>(DEFAULT_ARROW_PRESET);
   const [drawToolPreset, setDrawToolPreset] = useState({ color: "#FACC15", lineWidth: 2 });
-  const [textToolPreset, setTextToolPreset] = useState({ color: "#F8FAFC", fontFamily: "Arial", fontSize: 16, bold: true });
+  const [textToolPreset, setTextToolPreset] = useState({ color: "#F8FAFC", fontFamily: "Arial", fontSize: 14, bold: false });
   const [zoneToolPreset, setZoneToolPreset] = useState<{ color: string; shape: (typeof ZONE_SHAPE_OPTIONS)[number]["id"] }>({ color: "#FACC15", shape: "square" });
   const [measureToolPreset, setMeasureToolPreset] = useState({ color: "#F8FAFC", textSize: 2.35 });
   const movementToolShellRef = useRef<HTMLDivElement>(null);
@@ -3235,14 +3234,16 @@ const QuickPage = () => {
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const startX = event.clientX;
     const startY = event.clientY;
-    const startWidth = Number(selectedElement.textWidth ?? 260);
-    const startHeight = Number(selectedElement.textHeight ?? 34);
+    const textBox = event.currentTarget.parentElement?.firstElementChild;
+    if (!(textBox instanceof HTMLElement)) return;
+    const startWidth = textBox.offsetWidth;
+    const startHeight = textBox.offsetHeight;
     const targetIndex = selectedElementIndex;
 
     const clampSize = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
     const handleMove = (ev: PointerEvent) => {
-      const nextWidth = axis === "y" ? startWidth : clampSize(startWidth + (ev.clientX - startX) * 2, 120, 520);
-      const nextHeight = axis === "x" ? startHeight : clampSize(startHeight + (ev.clientY - startY) * 2, 34, 180);
+      const nextWidth = axis === "y" ? startWidth : clampSize(startWidth + (ev.clientX - startX) * 2, 20, 420);
+      const nextHeight = axis === "x" ? startHeight : clampSize(startHeight + (ev.clientY - startY) * 2, 16, 180);
       setElements((prev) => prev.map((item, idx) => (
         idx === targetIndex && item.type === "text"
           ? { ...item, ...(axis !== "y" ? { textWidth: Math.round(nextWidth) } : {}), ...(axis !== "x" ? { textHeight: Math.round(nextHeight) } : {}) }
@@ -4565,8 +4566,8 @@ const QuickPage = () => {
                           fontSize={el.type === "text" ? Number(el.fontSize ?? 16) : undefined}
                         fontWeight={el.type === "text" ? String(el.fontWeight ?? "700") : undefined}
                         label={el.type === "text" ? String(el.label ?? "") : undefined}
-                        textWidth={el.type === "text" ? Number(el.textWidth ?? 220) : undefined}
-                        textHeight={el.type === "text" ? Number(el.textHeight ?? 34) : undefined}
+                        textWidth={el.type === "text" && typeof el.textWidth === "number" ? el.textWidth : undefined}
+                        textHeight={el.type === "text" && typeof el.textHeight === "number" ? el.textHeight : undefined}
                         textAlign={el.type === "text" && (el.textAlign === "left" || el.textAlign === "right" || el.textAlign === "center") ? el.textAlign : undefined}
                         textVerticalAlign={el.type === "text" && (el.textVerticalAlign === "top" || el.textVerticalAlign === "middle" || el.textVerticalAlign === "bottom") ? el.textVerticalAlign : undefined}
                       />
