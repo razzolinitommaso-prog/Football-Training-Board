@@ -5,7 +5,7 @@ import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import { playerMatchAttendance } from "../lib/player-match-attendance";
 import { Router, type IRouter } from "express";
 import { randomInt, randomUUID } from "node:crypto";
-import { ensureParentDelegateSecurityColumns } from "../lib/parent-delegate-access";
+import { ensureParentDelegateSecurityColumns, ensureParentFamilyLinks } from "../lib/parent-delegate-access";
 import {
   db,
   seasonsTable,
@@ -944,6 +944,100 @@ function profileDate() {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
 }
 
+const PARENT_FAMILY_ROLES = ["secretary", "admin"];
+type FamilyReader = Pick<typeof db, "select" | "execute">;
+
+async function activeFamilyAccounts(reader: FamilyReader, clubId: number, lookup: { id: number } | { contact: string }) {
+  const delegate = playerParentDelegatesTable;
+  const criteria = "id" in lookup ? eq(delegate.id, lookup.id) : or(
+    eq(activations.destination, lookup.contact),
+    sql`lower(trim(${delegate.email})) = ${lookup.contact}`,
+    sql`regexp_replace(regexp_replace(${delegate.phone}, '[[:space:]().-]', '', 'g'), '^00', '+') = ${lookup.contact}`,
+  );
+  return reader.select({
+    id: delegate.id, firstName: delegate.firstName, lastName: delegate.lastName,
+    email: delegate.email, phone: delegate.phone, destination: activations.destination, playerId: delegate.playerId,
+    childFirstName: playersTable.firstName, childLastName: playersTable.lastName,
+  }).from(delegate)
+    .innerJoin(playersTable, and(eq(playersTable.id, delegate.playerId), eq(playersTable.clubId, delegate.clubId)))
+    .leftJoin(activations, and(eq(activations.kind, "parent"), eq(activations.clubId, delegate.clubId), eq(activations.subjectId, delegate.id)))
+    .where(and(eq(delegate.clubId, clubId), eq(delegate.isActive, true), criteria,
+      sql`(${activations.loginHash} IS NOT NULL OR (${delegate.personalAccessCodeHash} IS NOT NULL AND ${delegate.resetRequestedAt} IS NULL))`))
+    .limit(20);
+}
+
+async function ensureFamilyAccountStorage() {
+  await Promise.all([ensureAccountActivations(), ensureParentDelegateSecurityColumns(), ensureParentFamilyLinks()]);
+}
+
+function linkFamilyChild(reader: FamilyReader, delegateId: number, playerId: number) {
+  return reader.execute(sql`
+    INSERT INTO parent_delegate_children (delegate_id, player_id) VALUES (${delegateId}, ${playerId})
+    ON CONFLICT (delegate_id, player_id) DO NOTHING
+  `);
+}
+
+router.post("/parent-family-accounts/search", requireAuth, async (req, res): Promise<void> => {
+  const { clubId, role } = req.session;
+  if (!clubId || !PARENT_FAMILY_ROLES.includes(normalizeSessionRole(role))) { res.sendStatus(403); return; }
+  const raw = req.body?.contact;
+  const contact = typeof raw === "string" && raw.length <= 254 ? activationContact(raw, raw) : null;
+  if (!contact) { res.status(400).json({ error: "Inserisci l’email o il numero internazionale dell’account." }); return; }
+  await ensureFamilyAccountStorage();
+  const accounts = await activeFamilyAccounts(db, clubId, { contact: contact.destination });
+  res.json(accounts.map(({ id, firstName, lastName, playerId, childFirstName, childLastName }) =>
+    ({ id, firstName, lastName, playerId, childFirstName, childLastName })));
+});
+
+router.get("/players/:id/parent-family-links", requireAuth, async (req, res): Promise<void> => {
+  const { clubId, role } = req.session;
+  if (!clubId || !PARENT_FAMILY_ROLES.includes(normalizeSessionRole(role))) { res.sendStatus(403); return; }
+  const playerId = Number(req.params.id);
+  if (!Number.isSafeInteger(playerId) || playerId <= 0) { res.sendStatus(400); return; }
+  await ensureParentFamilyLinks();
+  const result = await db.execute(sql`
+    SELECT d.id, d.first_name AS "firstName", d.last_name AS "lastName"
+    FROM parent_delegate_children l
+    JOIN player_parent_delegates d ON d.id = l.delegate_id AND d.club_id = ${clubId}
+    JOIN players p ON p.id = l.player_id AND p.club_id = d.club_id
+    WHERE l.player_id = ${playerId}
+    ORDER BY d.last_name, d.first_name, d.id
+  `);
+  res.json(result.rows);
+});
+
+router.put("/players/:id/parent-family-links/:delegateId", requireAuth, async (req, res): Promise<void> => {
+  const { clubId, role } = req.session;
+  if (!clubId || !PARENT_FAMILY_ROLES.includes(normalizeSessionRole(role))) { res.sendStatus(403); return; }
+  const playerId = Number(req.params.id), delegateId = Number(req.params.delegateId);
+  if (![playerId, delegateId].every(id => Number.isSafeInteger(id) && id > 0)) { res.sendStatus(400); return; }
+  await ensureFamilyAccountStorage();
+  const [player] = await db.select({ id: playersTable.id }).from(playersTable)
+    .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)));
+  const [account] = await activeFamilyAccounts(db, clubId, { id: delegateId });
+  if (!player || !account || account.playerId === playerId) {
+    res.status(404).json({ error: "Account o atleta non disponibile per il collegamento." });
+    return;
+  }
+  await linkFamilyChild(db, delegateId, playerId);
+  res.sendStatus(204);
+});
+
+router.delete("/players/:id/parent-family-links/:delegateId", requireAuth, async (req, res): Promise<void> => {
+  const { clubId, role } = req.session;
+  if (!clubId || !PARENT_FAMILY_ROLES.includes(normalizeSessionRole(role))) { res.sendStatus(403); return; }
+  const playerId = Number(req.params.id), delegateId = Number(req.params.delegateId);
+  if (![playerId, delegateId].every(id => Number.isSafeInteger(id) && id > 0)) { res.sendStatus(400); return; }
+  await ensureParentFamilyLinks();
+  await db.execute(sql`
+    DELETE FROM parent_delegate_children l
+    USING players p, player_parent_delegates d
+    WHERE l.player_id = p.id AND l.delegate_id = d.id AND p.id = ${playerId} AND d.id = ${delegateId}
+      AND p.club_id = ${clubId} AND d.club_id = ${clubId}
+  `);
+  res.sendStatus(204);
+});
+
 router.post("/players", requireAuth, async (req, res): Promise<void> => {
   const role = normalizeSessionRole(req.session.role);
   if (!PLAYER_MANAGE_ROLES.includes(role)) {
@@ -962,6 +1056,11 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
   }
 
   const { parentDelegates: incomingParentDelegates, ...playerData } = parsed.data as typeof parsed.data & { parentDelegates?: ParentDelegateInput[] };
+  const familyId = req.body?.parentFamilyDelegateId;
+  if (familyId !== undefined && (!PARENT_FAMILY_ROLES.includes(role) || !Number.isSafeInteger(familyId) || familyId <= 0)) {
+    res.status(400).json({ error: "Collegamento account Genitore non valido." });
+    return;
+  }
   if (hasInvalidEntryMeasurement(playerData)) {
     res.status(400).json({ error: "Altezza e peso iniziali devono essere numeri interi positivi." });
     return;
@@ -974,6 +1073,10 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
       .select({ clubSection: teamsTable.clubSection })
       .from(teamsTable)
       .where(and(eq(teamsTable.id, playerData.teamId), eq(teamsTable.clubId, req.session.clubId!)));
+    if (familyId !== undefined && !team) {
+      res.status(400).json({ error: "La squadra selezionata non appartiene alla società." });
+      return;
+    }
     if (team?.clubSection) clubSection = team.clubSection;
   }
   const values = {
@@ -984,13 +1087,27 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
   normalizeNullablePlayerDates(values);
   enforcePlayerAvailabilityRules(values);
 
-  const [player] = await db
-    .insert(playersTable)
-    .values({ ...values, profileHistory: { entry: playerProfileEntry(values, profileDate()), changes: [] } })
-    .returning();
+  if (familyId !== undefined) await ensureFamilyAccountStorage();
+  const created = await db.transaction(async tx => {
+    const [account] = familyId === undefined ? [] : await activeFamilyAccounts(tx, values.clubId, { id: familyId });
+    if (familyId !== undefined && !account) return null;
+    const [player] = await tx.insert(playersTable)
+      .values({ ...values, profileHistory: { entry: playerProfileEntry(values, profileDate()), changes: [] } })
+      .returning();
+    if (account) await linkFamilyChild(tx, account.id, player.id);
+    return { player, account };
+  });
+  if (!created) { res.status(409).json({ error: "L’account Genitore selezionato non è più disponibile." }); return; }
+  const { player, account } = created;
 
   if (incomingParentDelegates) {
-    await replaceParentDelegates(req.session.clubId!, player.id, incomingParentDelegates);
+    const accountContacts = new Set(account ? [
+      account.destination, activationContact(account.email)?.destination, activationContact(null, account.phone)?.destination,
+    ].filter(Boolean) : []);
+    const delegates = incomingParentDelegates.filter(delegate =>
+      !accountContacts.has(activationContact(delegate.email)?.destination) &&
+      !accountContacts.has(activationContact(null, delegate.phone)?.destination));
+    await replaceParentDelegates(req.session.clubId!, player.id, delegates);
   }
 
   const enriched = await enrichPlayer(player, req.session.role);

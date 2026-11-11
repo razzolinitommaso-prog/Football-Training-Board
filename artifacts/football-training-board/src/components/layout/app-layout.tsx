@@ -3,6 +3,7 @@ import { useGetMyClub } from "@workspace/api-client-react";
 import { AppSidebar } from "./app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
+import { ParentChildSwitcher } from "@/components/parent-child-switcher";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -493,6 +494,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 isTacticalBoardRoute ? "relative z-10 w-full min-w-0" : "mobile-contain-x relative z-10 mx-auto w-full min-w-0 max-w-7xl"
               }
             >
+              {role === "parent" && <ParentChildSwitcher />}
               {isScopeAwarePath(location) && <TechnicalScopeBar />}
               {workScope.enabled && isScopeAwarePath(location) && (workScope.loading || workScope.error || !workScope.sections.length)
                 ? <p role={workScope.error ? "alert" : "status"} className="rounded-xl border bg-card p-5 text-sm">{workScope.error ? "Impossibile aprire questo ambito. Verifica i permessi o ricarica la pagina." : workScope.loading ? "Caricamento annate autorizzate…" : "Nessuna annata assegnata. Contatta la segreteria per verificare le assegnazioni."}</p>

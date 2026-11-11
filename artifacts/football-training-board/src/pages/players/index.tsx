@@ -1,4 +1,5 @@
 import { PlayerKitEditor } from "./player-kit-editor";
+import { ParentFamilyLinks } from "@/components/parent-family-links";
 import { PLAYER_KIT_ROWS, kitRowHasContent, kitRowItemIds, kitRowNeedsLink, KIT_REQUEST_STATUS, savedKitSelections, type KitRequestLine, type KitRow } from "@/lib/player-kit-catalog";
 import "./player-directory.css";
 import { useTechnicalScope } from "@/components/technical-scope";
@@ -1618,6 +1619,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const [heightMin, setHeightMin] = useState("");
   const [heightMax, setHeightMax] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [createParentFamilyId, setCreateParentFamilyId] = useState<number>();
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const playerActivity = usePlayerActivitySummary(editingPlayer?.id);
   const [playerDialogMode, setPlayerDialogMode] = useState<"view" | "edit">("view");
@@ -1922,11 +1924,17 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["/api/players"] });
         setIsCreateOpen(false);
+        setCreateParentFamilyId(undefined);
         setFormSeasonFilter("all");
         setFormAnnataFilter("all");
         resetCreateMedicalCertificateFields();
         toast({ title: t.addPlayer });
         form.reset();
+      },
+      onError: (error) => {
+        if (createParentFamilyId !== undefined) {
+          toast({ title: "Impossibile salvare il giocatore", description: error.message, variant: "destructive" });
+        }
       }
     }
   });
@@ -3379,7 +3387,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               </Button>
             </>
           )}
-          <Dialog open={isCreateOpen} onOpenChange={(o) => { setIsCreateOpen(o); if (!o) { setFormSeasonFilter("all"); setFormAnnataFilter("all"); resetCreateMedicalCertificateFields(); form.reset(); } }}>
+          <Dialog open={isCreateOpen} onOpenChange={(o) => { setIsCreateOpen(o); if (!o) { setCreateParentFamilyId(undefined); setFormSeasonFilter("all"); setFormAnnataFilter("all"); resetCreateMedicalCertificateFields(); form.reset(); } }}>
           {canManagePlayers && (
           <DialogTrigger asChild>
             <Button className="shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all">
@@ -3423,6 +3431,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 payload.unavailabilityReason = "other";
                 payload.expectedReturn = null;
               }
+              if (createParentFamilyId !== undefined) payload.parentFamilyDelegateId = createParentFamilyId;
               createMutation.mutate({ data: payload as any });
             })} className="flex min-h-0 flex-1 flex-col">
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-6 py-4">
@@ -3568,6 +3577,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 </div>
               </div>
 
+              {(nr === "secretary" || nr === "admin") && <ParentFamilyLinks onSelect={setCreateParentFamilyId} />}
               {/* Stagione + annata + squadra */}
               <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Assegnazione squadra</p>
@@ -4381,6 +4391,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   <p className="text-xs text-muted-foreground">
                     Inserisci fino a 3 delegati. I nuovi delegati con un recapito valido ricevono un invito. Per gli accessi con codice resta disponibile il reset.
                   </p>
+                  {editingPlayer && canEditFullPlayer && (nr === "secretary" || nr === "admin") && <ParentFamilyLinks key={editingPlayer.id} playerId={editingPlayer.id} />}
                   <div className="space-y-3">
                     {parentDelegateRows.map((delegate, index) => (
                       <div key={delegate.id ?? index} className="rounded-md border bg-background p-3">

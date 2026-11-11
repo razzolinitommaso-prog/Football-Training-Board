@@ -25,9 +25,10 @@ export function ensureAccountActivations() {
       login_hash TEXT,
       PRIMARY KEY (kind, club_id, subject_id)
     );
+  `).then(() => db.execute(sql`
     CREATE INDEX IF NOT EXISTS account_activations_login ON account_activations (kind, destination, club_id)
       WHERE login_hash IS NOT NULL;
-  `).catch(error => {
+  `)).catch(error => {
     schema = undefined;
     throw error;
   });

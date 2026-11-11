@@ -168,6 +168,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         parentPlayerId: Number(request.headers["x-child"] ?? 101),
         section: "scuola_calcio",
         save: callback => callback(),
+        regenerate: callback => callback(),
       };
       next();
     });
@@ -183,6 +184,70 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+    if (process.argv.includes("--parent-family")) {
+      await pg.exec("ALTER TABLE players ALTER COLUMN created_at SET DEFAULT now()");
+      await pg.exec("UPDATE clubs SET access_code='FAMILY-CLUB', parent_code='FAMILY1' WHERE id=1");
+      await pg.exec("INSERT INTO player_parent_delegates(id,club_id,player_id,first_name,last_name,relation,email,access_code,is_active) VALUES (33001,1,101,'Test','Genitore','Madre','parent@example.org','DELEGATE1',true)");
+      const send = async (url, method, body, headers = {}) => {
+        const response = await fetch(base + url, {
+          method,
+          headers: { "Content-Type": "application/json", ...headers },
+          body: JSON.stringify(body),
+        });
+        return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
+      };
+      const login = code => send("/auth/parent-login", "POST", { clubCode: "FAMILY-CLUB", parentCode: "FAMILY1", delegateCode: code });
+      const bearer = result => ({ Authorization: "Bearer " + result.data.authToken });
+      const first = await login("DELEGATE1");
+      assert.equal(first.status, 200, JSON.stringify(first.data));
+      const codeChange = await send("/parent/access-code", "POST", { currentCode: "DELEGATE1", newCode: "FAMILY1234" }, bearer(first));
+      assert.equal(codeChange.status, 200, JSON.stringify(codeChange.data));
+      const account = await login("FAMILY1234");
+      assert.equal(account.status, 200, JSON.stringify(account.data));
+      const parent = bearer(account);
+      const secretary = { "x-role": "secretary" };
+      const search = await send("/parent-family-accounts/search", "POST", { contact: "PARENT@example.org" }, secretary);
+      assert.equal(search.status, 200, JSON.stringify(search.data));
+      assert.deepEqual(search.data.map(row => row.id), [33001]);
+      assert.equal(search.data[0].email, undefined);
+      const linkPath = "/players/102/parent-family-links/33001";
+      assert.equal((await send(linkPath, "PUT", undefined, { "x-role": "coach" })).status, 403);
+      assert.equal((await send("/players/201/parent-family-links/33001", "PUT", undefined, secretary)).status, 404);
+      assert.equal((await send("/auth/parent-children/select", "POST", { playerId: 102 }, parent)).status, 403);
+      const link = await send(linkPath, "PUT", undefined, secretary);
+      assert.equal(link.status, 204, JSON.stringify(link.data));
+      assert.equal((await send(linkPath, "PUT", undefined, secretary)).status, 204);
+      const children = await call("/auth/parent-children", parent);
+      assert.equal(children.status, 200, JSON.stringify(children.data));
+      assert.deepEqual(children.data.children.map(child => child.id), [101, 102]);
+      assert.equal(children.data.selectedId, 101);
+      const selected = await send("/auth/parent-children/select", "POST", { playerId: 102 }, parent);
+      assert.equal(selected.status, 200, JSON.stringify(selected.data));
+      const activity = await call("/parent/activity", bearer(selected));
+      assert.equal(activity.status, 200, JSON.stringify(activity.data));
+      assert.equal(activity.data.matches[0].rotation.rows[0].playerId, 102);
+      assert.equal((await call("/parent/activity", { ...bearer(selected), "X-FTB-Parent-Child": "101" })).status, 409);
+      assert.equal((await send(linkPath, "DELETE", undefined, secretary)).status, 204);
+      assert.equal((await call("/parent/activity", bearer(selected))).status, 401);
+      assert.equal((await call("/parent/activity", parent)).status, 200);
+      const newPlayer = { firstName: "New", lastName: "Sibling", status: "active", teamId: 11 };
+      assert.equal((await send("/players", "POST", { ...newPlayer, parentFamilyDelegateId: 99999 }, secretary)).status, 409);
+      assert.equal((await send("/players", "POST", { ...newPlayer, teamId: 22, parentFamilyDelegateId: 33001 }, secretary)).status, 400);
+      const created = await send("/players", "POST", {
+        ...newPlayer,
+        parentFamilyDelegateId: 33001,
+        parentDelegates: [{ firstName: "Test", lastName: "Genitore", relation: "Madre", email: "PARENT@example.org" }],
+      }, secretary);
+      assert.equal(created.status, 201, JSON.stringify(created.data));
+      const savedChildren = await call("/auth/parent-children", parent);
+      assert.deepEqual(savedChildren.data.children.map(child => child.id), [101, created.data.id]);
+      const duplicates = await pg.query("SELECT id FROM player_parent_delegates WHERE player_id = $1", [created.data.id]);
+      assert.equal(duplicates.rows.length, 0);
+      const siblings = await pg.query("SELECT id FROM players WHERE first_name = 'New' AND last_name = 'Sibling'");
+      assert.equal(siblings.rows.length, 1);
+      console.log("PASS parent family: verified account search, linking, club and role boundaries, child-scoped data, stale tab and revocation.");
+      return;
+    }
     const activity = await call("/parent/activity?playerId=102");
     assert.equal(activity.status, 200, JSON.stringify(activity.data));
     assert.equal(activity.data.matches[0].rotation.rows.length, 1);

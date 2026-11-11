@@ -13,7 +13,7 @@ import {
   validateParentAccessCode,
 } from "@workspace/api-zod";
 import { createAuthToken, requireAuth } from "../lib/auth";
-import { ensureParentDelegateSecurityColumns } from "../lib/parent-delegate-access";
+import { ensureParentDelegateSecurityColumns, parentFamilyChildren } from "../lib/parent-delegate-access";
 import { normalizeSessionRole } from "../lib/club-scope";
 import { limitsForPlan } from "../lib/plan-limits";
 import { normalizeSeasonName } from "../lib/season-defaults";
@@ -584,6 +584,27 @@ async function startParentSession(
     authToken: createAuthToken(authPayload),
   });
 }
+
+router.get("/auth/parent-children", async (req, res): Promise<void> => {
+  const { role, clubId, parentDelegateId, parentPlayerId } = req.session;
+  if (role !== "parent" || !clubId || !parentDelegateId) { res.sendStatus(403); return; }
+  res.json({ children: await parentFamilyChildren(clubId, parentDelegateId), selectedId: parentPlayerId });
+});
+
+router.post("/auth/parent-children/select", async (req, res): Promise<void> => {
+  const { role, clubId, parentDelegateId, parentAccessVersion } = req.session;
+  if (role !== "parent" || !clubId || !parentDelegateId) { res.sendStatus(403); return; }
+  const playerId = req.body?.playerId;
+  const children = await parentFamilyChildren(clubId, parentDelegateId);
+  if (!Number.isSafeInteger(playerId) || !children.some(child => child.id === playerId)) {
+    res.status(403).json({ error: "Atleta non collegato a questo account." });
+    return;
+  }
+  req.session.parentPlayerId = playerId;
+  await saveSession(req);
+  res.json({ authToken: createAuthToken({ userId: 0, clubId, role: "parent", parentDelegateId,
+    parentPlayerId: playerId, parentAccessVersion }) });
+});
 
 router.post("/auth/logout", (req, res): void => {
   req.session.destroy((err) => {
