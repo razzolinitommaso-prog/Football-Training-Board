@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Banknote, Plus, Trash2 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { trainingLocalDate } from "@workspace/api-zod";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -39,6 +39,16 @@ const monthLabel = new Intl.DateTimeFormat("it-IT", { month: "short", year: "num
 const shortMonthLabel = new Intl.DateTimeFormat("it-IT", { month: "short", timeZone: "UTC" });
 const monthKey = (year: string, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 const monthDate = (key: string) => new Date(key + "-01T00:00:00Z");
+const chartSeries = [
+  { key: "cash", label: "Contanti", color: "#059669", stack: "incassato" },
+  { key: "card", label: "Carta / Bancomat", color: "#2563eb", stack: "incassato" },
+  { key: "bank_transfer", label: "Bonifico", color: "#7c3aed", stack: "incassato" },
+  { key: "otherMethod", label: "Altro o senza metodo", color: "#64748b", stack: "incassato" },
+  { key: "pending", label: "Da incassare", color: "#d97706", stack: "da-incassare" },
+  { key: "overdue", label: "Scaduto", color: "#dc2626", stack: "da-incassare" },
+] as const;
+const emptyMonth = { cash: 0, card: 0, bank_transfer: 0, otherMethod: 0, pending: 0, overdue: 0 };
+type MonthlyAmounts = typeof emptyMonth;
 type ChartPeriod = "annual" | "quarterly" | "custom";
 const statusVariant = { paid: "default", pending: "secondary", overdue: "destructive" } as const;
 const playerName = (player: Player) => [player.lastName, player.firstName].filter(Boolean).join(" ");
@@ -136,32 +146,51 @@ export default function PaymentsPage() {
     sums[effectiveStatus] += amount;
     if (effectiveStatus === "paid" && !payment.paymentDate) undatedInSummary += amount;
   }
-  const years = [...new Set([year, today.slice(0, 4), ...byCategoryAndName.flatMap(payment =>
-    payment.paymentDate ? [payment.paymentDate.slice(0, 4)] : [],
-  )])].sort().reverse();
+  const forecastYear = today.slice(0, 4);
+  let annualForecast = 0;
+  const yearsWithMovements = new Set([year, forecastYear]);
+  for (const payment of byCategoryAndName) {
+    const date = payment.status === "paid" ? payment.paymentDate : payment.dueDate;
+    if (!date) continue;
+    const movementYear = date.slice(0, 4);
+    yearsWithMovements.add(movementYear);
+    if (movementYear === forecastYear) annualForecast += Math.round(payment.amount * 100);
+  }
+  const years = [...yearsWithMovements].sort().reverse();
   const startMonth = period === "custom" ? fromMonth : monthKey(year, period === "annual" ? 1 : quarter * 3 - 2);
   const endMonth = period === "custom" ? toMonth : monthKey(year, period === "annual" ? 12 : quarter * 3);
   const validRange = /^\d{4}-\d{2}$/.test(startMonth) && /^\d{4}-\d{2}$/.test(endMonth) && startMonth <= endMonth;
   const sameYear = startMonth.slice(0, 4) === endMonth.slice(0, 4);
-  const receipts = new Map<string, number>();
+  const amountsByMonth = new Map<string, MonthlyAmounts>();
   let undatedReceipts = 0;
+  let undatedDues = 0;
   for (const payment of byStatus) {
-    if (paymentStatus(payment, today) !== "paid") continue;
+    const state = paymentStatus(payment, today);
+    const paid = state === "paid";
+    const date = paid ? payment.paymentDate : payment.dueDate;
     const amount = Math.round(payment.amount * 100);
-    if (!payment.paymentDate) undatedReceipts += amount;
-    else {
-      const monthKey = payment.paymentDate.slice(0, 7);
-      receipts.set(monthKey, (receipts.get(monthKey) ?? 0) + amount);
+    if (!date) {
+      if (paid) undatedReceipts += amount;
+      else undatedDues += amount;
+      continue;
     }
+    const key = date.slice(0, 7);
+    const series = paid ? (isReceiptMethod(payment.paymentMethod) ? payment.paymentMethod : "otherMethod") : state;
+    const values = amountsByMonth.get(key) ?? { ...emptyMonth };
+    values[series] += amount;
+    amountsByMonth.set(key, values);
   }
-  const monthlyReceipts = [];
+  const chartMonths = [];
   let chartTotal = 0;
   if (validRange) {
     for (const date = monthDate(startMonth); date <= monthDate(endMonth); date.setUTCMonth(date.getUTCMonth() + 1)) {
       const key = date.toISOString().slice(0, 7);
-      const cents = receipts.get(key) ?? 0;
-      chartTotal += cents;
-      monthlyReceipts.push({ key, total: cents / 100 });
+      const values = amountsByMonth.get(key) ?? emptyMonth;
+      chartTotal += values.cash + values.card + values.bank_transfer + values.otherMethod;
+      chartMonths.push({
+        key, cash: values.cash / 100, card: values.card / 100, bank_transfer: values.bank_transfer / 100,
+        otherMethod: values.otherMethod / 100, pending: values.pending / 100, overdue: values.overdue / 100,
+      });
     }
   }
 
@@ -254,17 +283,22 @@ export default function PaymentsPage() {
         <Button type="button" variant="outline" size="sm" onClick={() => void list.refetch()}>Riprova</Button>
       </div>
     ) : <>
-      <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2 lg:grid-cols-4">
         {(Object.keys(paymentStatuses) as PaymentStatus[]).map(key => <Card key={key}><CardContent className="p-3">
           <p className="text-xs text-muted-foreground">{paymentStatuses[key]}</p>
           <p className="mt-1 text-lg font-medium tabular-nums">{money.format(sums[key] / 100)}</p>
           {key === "paid" && undatedInSummary > 0 && <p className="mt-1 text-xs text-muted-foreground">Di cui senza data di incasso: {money.format(undatedInSummary / 100)}</p>}
         </CardContent></Card>)}
+        <Card><CardContent className="p-3">
+          <p className="text-xs text-muted-foreground">Previsione annuale · {forecastYear}</p>
+          <p className="mt-1 text-lg font-medium tabular-nums">{money.format(annualForecast / 100)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Incassato + da riscuotere con scadenza nell’anno</p>
+        </CardContent></Card>
       </div>
 
       <section className="rounded-xl border bg-card p-3 sm:p-4">
-        <h2 className="text-sm font-medium">Andamento incassi</h2>
-        <p className="mt-1 text-xs text-muted-foreground">Il grafico usa il periodo scelto qui e la data effettiva di incasso.</p>
+        <h2 className="text-sm font-medium">Incassi e somme da riscuotere</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Gli incassi seguono la data del versamento. Le somme da riscuotere seguono la scadenza.</p>
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <label className="space-y-1 text-xs font-medium">Vista grafico
             <ScrollableSelect aria-label="Vista grafico" className="w-full" value={period} onValueChange={value => setPeriod(value as ChartPeriod)}>
@@ -288,26 +322,34 @@ export default function PaymentsPage() {
             </ScrollableSelect>
           </label>}
         </div>
-        {monthlyReceipts.length ? <>
+        {chartMonths.length ? <>
           <p className="mt-3 text-sm">Incassato nel periodo con data <strong className="tabular-nums">{money.format(chartTotal / 100)}</strong></p>
-          <div className="mt-2 overflow-x-auto" aria-label="Incassi mensili">
-            <div className="h-44" style={{ minWidth: monthlyReceipts.length > 12 || !sameYear ? monthlyReceipts.length * 64 + 48 : undefined }}>
+          <div className="mt-2 overflow-x-auto" aria-label="Incassi e somme da riscuotere per mese">
+            <div className="h-52" style={{ minWidth: chartMonths.length > 12 || !sameYear ? chartMonths.length * 64 + 48 : undefined }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyReceipts} margin={{ top: 12, right: 8 }}>
+                <BarChart data={chartMonths} margin={{ top: 12, right: 8 }} barGap={3}>
                   <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
                   <XAxis dataKey="key" interval={0} tickFormatter={key => {
                     const date = monthDate(key);
                     return sameYear ? shortMonthLabel.format(date).slice(0, 3) : monthLabel.format(date);
                   }} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis width={40} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis width={48} domain={[0, "auto"]} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                  <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} />
                   <Tooltip labelFormatter={key => monthLabel.format(monthDate(String(key)))} formatter={value => money.format(Number(value))} />
-                  <Bar name="Incassato" dataKey="total" fill="hsl(var(--chart-1))" maxBarSize={44} radius={[4, 4, 0, 0]} />
+                  {chartSeries.map(series => <Bar key={series.key} name={series.label} dataKey={series.key} fill={series.color} stackId={series.stack} maxBarSize={32} />)}
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
+          <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Legenda del grafico">
+            {chartSeries.map(series => <li key={series.key} className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: series.color }} aria-hidden="true" />{series.label}
+            </li>)}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">Le uscite, quando saranno disponibili, compariranno sotto la linea dello zero.</p>
         </> : <p role="status" className="mt-3 text-sm text-muted-foreground">Scegli un mese iniziale e uno finale in ordine cronologico.</p>}
         {undatedReceipts > 0 && <p className="mt-2 text-xs text-muted-foreground">Incassi senza data da attribuire a un mese: {money.format(undatedReceipts / 100)}.</p>}
+        {undatedDues > 0 && <p className="mt-2 text-xs text-muted-foreground">Somme da riscuotere senza scadenza: {money.format(undatedDues / 100)}.</p>}
       </section>
 
       <section className="rounded-xl border bg-card">
