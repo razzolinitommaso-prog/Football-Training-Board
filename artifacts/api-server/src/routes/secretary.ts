@@ -18,6 +18,7 @@ import {
 import { eq, and, desc, gte, lte, asc, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
+import { calendarStaffMessage, encodeCalendarCommunication, readCalendarAudience } from "../lib/parent-calendar-communication";
 
 import {
   advanceKitRequest, cleanKitSlots, ensureWarehouseKitSchema, KitRequestError,
@@ -1044,17 +1045,35 @@ router.get("/secretary/parent-comms", requireAuth, async (req, res): Promise<voi
   const records = await db.select().from(platformAnnouncementsTable)
     .where(eq(platformAnnouncementsTable.targetClubId, req.session.clubId!))
     .orderBy(desc(platformAnnouncementsTable.sentAt));
-  res.json(records);
+  res.json(records.map(record => record.type === "calendar" && record.source === "secretary"
+    ? { ...record, message: calendarStaffMessage(record.message) } : record));
 });
 
 router.post("/secretary/parent-comms", requireAuth, async (req, res): Promise<void> => {
   if (!secretaryOrAdmin.includes(req.session.role ?? "")) { res.status(403).json({ error: "Non autorizzato" }); return; }
-  const { title, message, type } = req.body as { title?: string; message?: string; type?: string };
+  const { title, message, type, calendarAudience } = req.body as { title?: string; message?: string; type?: string; calendarAudience?: unknown };
   if (!title || !message) { res.status(400).json({ error: "Titolo e messaggio obbligatori" }); return; }
+  const audience = type === "calendar" ? readCalendarAudience(calendarAudience) : null;
+  if (type === "calendar" && !audience) {
+    res.status(400).json({ error: "Ricarica il calendario prima di inviarlo alle famiglie." });
+    return;
+  }
+  if (audience) {
+    const teamIds = [...new Set(audience.entries.flatMap(entry => entry.teamIds))];
+    if (teamIds.length) {
+      const teams = await db.select({ id: teamsTable.id }).from(teamsTable)
+        .where(and(eq(teamsTable.clubId, req.session.clubId!), inArray(teamsTable.id, teamIds)));
+      if (teams.length !== teamIds.length) {
+        res.status(400).json({ error: "Il calendario contiene squadre non valide." });
+        return;
+      }
+    }
+  }
   const [record] = await db.insert(platformAnnouncementsTable).values({
-    title, message, type: type ?? "info", source: "secretary", targetClubId: req.session.clubId!,
+    title, message: audience ? encodeCalendarCommunication(message, audience) : message,
+    type: type ?? "info", source: "secretary", targetClubId: req.session.clubId!,
   }).returning();
-  res.status(201).json(record);
+  res.status(201).json({ ...record, message });
 });
 
 router.delete("/secretary/parent-comms/:id", requireAuth, async (req, res): Promise<void> => {

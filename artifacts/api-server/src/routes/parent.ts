@@ -2,6 +2,7 @@ import { parentKitRows } from "../lib/warehouse-kit";
 import {buildMatchRotationSummary,parentPublicMatch,defaultRotationCapacity} from "@workspace/api-zod";
 import { trainingLocalDate, trainingSlotOnDate } from "@workspace/api-zod";
 import { activeTrainingGroup } from "../lib/joint-training-program";
+import { calendarParentMessage } from "../lib/parent-calendar-communication";
 import { sessionTeamScope, sessionTeamIds } from "../lib/session-team-scope";
 import { overlaySharedTrainingRows, trainingReplyMatches } from "@workspace/api-zod";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
@@ -1136,13 +1137,20 @@ router.get("/parent/documents", requireParentSession, async (req, res): Promise<
 
 router.get("/parent/communications", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
+  const childId = getParentPlayerId(req);
 
-  const [clubAnnouncements, globalAnnouncements] = await Promise.all([
+  const [clubAnnouncements, globalAnnouncements, children] = await Promise.all([
     db.select().from(platformAnnouncementsTable).where(eq(platformAnnouncementsTable.targetClubId, clubId)).orderBy(desc(platformAnnouncementsTable.sentAt)).limit(20),
     db.select().from(platformAnnouncementsTable).where(eq(platformAnnouncementsTable.targetClubId, null as any)).orderBy(desc(platformAnnouncementsTable.sentAt)).limit(10),
+    childId ? db.select({ teamId: playersTable.teamId }).from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, childId))).limit(1) : [],
   ]);
 
-  const combined = [...clubAnnouncements, ...globalAnnouncements].sort((a, b) => new Date(b.sentAt ?? 0).getTime() - new Date(a.sentAt ?? 0).getTime()).slice(0, 30);
+  const combined = [...clubAnnouncements, ...globalAnnouncements].flatMap(item => {
+    if (item.type !== "calendar" || item.source !== "secretary") return [item];
+    const message = calendarParentMessage(item.message, children[0]?.teamId ?? null);
+    return message === null ? [] : [{ ...item, message }];
+  }).sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime()).slice(0, 30);
 
   res.json(combined);
 });

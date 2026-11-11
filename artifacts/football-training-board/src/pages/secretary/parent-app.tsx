@@ -14,6 +14,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { withApi } from "@/lib/api-base";
+import { sessionTeamIds } from "@workspace/api-zod";
 
 async function apiFetch(path: string, options?: RequestInit) {
   const res = await fetch(withApi(`/api${path}`), {
@@ -146,7 +147,12 @@ export default function SecretaryParentApp() {
     if (tab === "calendar") loadSchedule();
   }, [tab, weekOffset]);
 
-  async function sendComm(payload: { title: string; message: string; type: string }) {
+  async function sendComm(payload: {
+    title: string;
+    message: string;
+    type: string;
+    calendarAudience?: { entries: { teamIds: number[]; text: string }[]; note: string };
+  }) {
     setSending(true);
     try {
       await apiFetch("/secretary/parent-comms", { method: "POST", body: JSON.stringify(payload) });
@@ -173,16 +179,30 @@ export default function SecretaryParentApp() {
   async function handleSendCalendar() {
     const { from, to } = getWeekRange(weekOffset);
     if (!schedule) return;
-    const events = [
-      ...schedule.sessions.map(s => `⚽ ${fmtDate(s.scheduledAt)} — Allenamento${s.teamName ? ` (${s.teamName})` : ""}${s.location ? ` @ ${s.location}` : ""}`),
-      ...schedule.matches.map(m => `🏆 ${fmtDate(m.date)} — Partita vs ${m.opponent}${m.teamName ? ` (${m.teamName})` : ""}${m.venue ? ` @ ${m.venue}` : ""} [${m.homeAway === "home" ? "Casa" : "Trasferta"}]`),
-    ].sort();
+    const entries = [
+      ...schedule.sessions.map(s => ({
+        teamIds: sessionTeamIds(s.teamId, s.notes),
+        date: s.scheduledAt,
+        text: `⚽ ${fmtDate(s.scheduledAt)} — Allenamento${s.teamName ? ` (${s.teamName})` : ""}${s.location ? ` @ ${s.location}` : ""}`,
+      })),
+      ...schedule.matches.map(m => ({
+        teamIds: m.teamId ? [m.teamId] : [],
+        date: m.date,
+        text: `🏆 ${fmtDate(m.date)} — Partita vs ${m.opponent}${m.teamName ? ` (${m.teamName})` : ""}${m.venue ? ` @ ${m.venue}` : ""} [${m.homeAway === "home" ? "Casa" : "Trasferta"}]`,
+      })),
+    ].filter(entry => entry.teamIds.length > 0)
+      .sort((a, b) => Date.parse(a.date) - Date.parse(b.date))
+      .map(({ teamIds, text }) => ({ teamIds, text }));
+    const events = entries.map(entry => entry.text);
     const calTitle = `📅 Calendario settimana ${fmtWeek(from, to)}`;
     const calMsg = events.length > 0
       ? events.join("\n") + (calNote.trim() ? `\n\n📝 ${calNote}` : "")
       : `Nessun evento programmato per la settimana ${fmtWeek(from, to)}.` + (calNote.trim() ? `\n\n📝 ${calNote}` : "");
-    await sendComm({ title: calTitle, message: calMsg, type: "calendar" });
-    setCalNote("");
+    const ok = await sendComm({
+      title: calTitle, message: calMsg, type: "calendar",
+      calendarAudience: { entries, note: calNote.trim() },
+    });
+    if (ok) setCalNote("");
   }
 
   async function handleSendDocument(e: React.FormEvent) {
