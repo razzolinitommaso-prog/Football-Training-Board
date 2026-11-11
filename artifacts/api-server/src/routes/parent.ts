@@ -789,9 +789,16 @@ router.get("/parent/callups", requireParentSession, async (req, res): Promise<vo
 
   const callUps = await db.select().from(callUpsTable)
     .where(eq(callUpsTable.playerId, parentPlayerId))
-    .orderBy(desc(callUpsTable.createdAt));
+    .orderBy(desc(callUpsTable.createdAt), desc(callUpsTable.id));
 
-  const enriched = await Promise.all(callUps.filter((callUp) => isCoachCallupStatus(callUp.status)).map(async (callUp) => {
+  const latestByMatch = new Map<number, (typeof callUps)[number]>();
+  for (const callUp of callUps) {
+    if (isCoachCallupStatus(callUp.status) && !latestByMatch.has(callUp.matchId)) {
+      latestByMatch.set(callUp.matchId, callUp);
+    }
+  }
+
+  const enriched = await Promise.all([...latestByMatch.values()].map(async (callUp) => {
     const [match] = await db.select().from(matchesTable)
       .where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.id, callUp.matchId)));
     if (!match) return null;
@@ -811,7 +818,7 @@ router.get("/parent/callups", requireParentSession, async (req, res): Promise<vo
       .sort((a, b) => a.lastName.localeCompare(b.lastName, "it") || a.firstName.localeCompare(b.firstName, "it"));
     return { id: callUp.id, status: callUp.status, teamName, calledPlayers, match: {
       id: match.id, opponent: match.opponent, date: match.date, homeAway: match.homeAway,
-      competition: match.competition, location: match.location,
+      competition: match.competition, location: match.location, result: match.result,
       notes: parentPublicMatch(match).notes, preMatchNotes: match.preMatchNotes,
       isPostponed: match.isPostponed, rescheduleDate: match.rescheduleDate, rescheduleTbd: match.rescheduleTbd,
       convocationAt: typeof plan?.convocationAt === "string" ? plan.convocationAt : null,

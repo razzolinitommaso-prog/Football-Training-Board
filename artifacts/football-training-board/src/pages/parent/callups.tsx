@@ -2,8 +2,38 @@ import { useEffect, useState } from "react";
 import { CalendarDays, Clock, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { withApi } from "@/lib/api-base";
+import { upcomingFirst } from "@/lib/match-presentation";
+import { trainingLocalDate } from "@workspace/api-zod";
+
+type ParentCallup = {
+  id: number;
+  status: string;
+  teamName: string | null;
+  calledPlayers: { firstName: string; lastName: string; isOwnChild: boolean }[];
+  match: {
+    id: number;
+    opponent: string;
+    date: string;
+    homeAway: string;
+    competition: string | null;
+    location: string | null;
+    result?: string | null;
+    notes: string | null;
+    preMatchNotes: string | null;
+    isPostponed: boolean;
+    rescheduleDate: string | null;
+    rescheduleTbd: boolean;
+    convocationAt: string | null;
+    convocationPlace: string | null;
+  };
+};
+
+function scheduledDate(match: ParentCallup["match"]) {
+  return match.isPostponed ? (match.rescheduleTbd ? null : match.rescheduleDate) : match.date;
+}
 
 async function apiFetch(path: string) {
   const res = await fetch(withApi(`/api${path}`), {
@@ -30,7 +60,9 @@ function CallupDetail({ label, children }: { label: string; children?: string | 
 }
 
 export default function ParentCallups() {
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<ParentCallup[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -44,6 +76,29 @@ export default function ParentCallups() {
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div>;
   if (error) return <p role="alert">Non è stato possibile caricare le convocazioni. Riprova aggiornando la pagina.</p>;
 
+  const hasDateFilter = Boolean(fromDate || toDate);
+  const invalidRange = Boolean(fromDate && toDate && fromDate > toDate);
+  const seenMatchIds = new Set<number>();
+  const datedItems = new Map<number, ParentCallup>();
+  const undatedItems: ParentCallup[] = [];
+  for (const item of items) {
+    if (seenMatchIds.has(item.match.id)) continue;
+    seenMatchIds.add(item.match.id);
+    const date = scheduledDate(item.match);
+    if (!date) {
+      if (!hasDateFilter) undatedItems.push(item);
+      continue;
+    }
+    const day = trainingLocalDate(new Date(date));
+    if (!invalidRange && (!fromDate || day >= fromDate) && (!toDate || day <= toDate)) datedItems.set(item.match.id, item);
+  }
+  const visibleItems = [
+    ...upcomingFirst([...datedItems.values()].map(item => item.match)).map(match => datedItems.get(match.id)!),
+    ...undatedItems,
+  ];
+  const homeCount = visibleItems.filter(item => item.match.homeAway === "home").length;
+  const awayCount = visibleItems.filter(item => item.match.homeAway === "away").length;
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
@@ -51,14 +106,32 @@ export default function ParentCallups() {
         <p className="mt-1 text-sm text-muted-foreground">Convocazioni inserite dal mister. La disponibilità si comunica nel Calendario generale.</p>
       </div>
 
-      {items.length === 0 ? (
+      {items.length > 0 && <section className="space-y-3 rounded-2xl border bg-card p-4" aria-label="Filtra convocazioni per data">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="min-w-0 text-sm font-medium">Dalla data
+            <Input className="mt-1 min-w-0" type="date" value={fromDate} onChange={event => setFromDate(event.target.value)} />
+          </label>
+          <label className="min-w-0 text-sm font-medium">Alla data
+            <Input className="mt-1 min-w-0" type="date" value={toDate} onChange={event => setToDate(event.target.value)} />
+          </label>
+        </div>
+        {hasDateFilter && <Button type="button" variant="outline" size="sm" onClick={() => { setFromDate(""); setToDate(""); }}>Azzera date</Button>}
+        {invalidRange ? <p role="alert" className="text-sm text-destructive">La data finale deve essere uguale o successiva a quella iniziale.</p> : (
+          <dl className="grid grid-cols-2 gap-2 text-sm" aria-label="Riepilogo delle convocazioni visualizzate">
+            <div className="rounded-lg bg-muted/50 p-2"><dt>In casa</dt><dd className="text-lg font-semibold">{homeCount}</dd></div>
+            <div className="rounded-lg bg-muted/50 p-2"><dt>In trasferta</dt><dd className="text-lg font-semibold">{awayCount}</dd></div>
+          </dl>
+        )}
+      </section>}
+
+      {!invalidRange && (visibleItems.length === 0 ? (
         <div className="py-20 text-center text-muted-foreground">
           <Trophy className="mx-auto mb-4 h-14 w-14 opacity-25" />
-          <p className="font-semibold">Nessuna convocazione</p>
+          <p className="font-semibold">{hasDateFilter ? "Nessuna convocazione nel periodo selezionato" : "Nessuna convocazione"}</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <div key={item.id} className="rounded-2xl border bg-card p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -67,7 +140,7 @@ export default function ParentCallups() {
                   {item.match?.date && (
                     <p className="mt-1 flex items-center gap-1 text-xs text-primary">
                       <CalendarDays className="h-3.5 w-3.5" />
-                      {formatDate(item.match.date)}
+                      {scheduledDate(item.match) ? formatDate(scheduledDate(item.match)) : "Nuova data da definire"}
                     </p>
                   )}
                 </div>
@@ -109,7 +182,7 @@ export default function ParentCallups() {
             </div>
           ))}
         </div>
-      )}
+      ))}
     </div>
   );
 }
