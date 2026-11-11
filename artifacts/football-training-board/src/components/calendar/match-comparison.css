@@ -15,7 +15,7 @@
 .match-minute-grid .match-player-column {
   width: 34%;
 }
-.match-mobile-equivalents {
+.match-mobile-only {
   display: none;
 }
 .match-comparison-pitches [role="img"] ~ p,
@@ -31,45 +31,42 @@
   }
 }
 @media (max-width: 767px) {
-  .match-minute-grid {
-    font-size: 11px;
+  .match-comparison-layout:not(.match-comparison-layout--editor) .match-pitch-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
-  .match-minute-grid .match-player-column {
-    width: calc(100% - (var(--match-unit-count) * var(--match-unit-width)) - var(--match-total-width));
+  .match-minute-grid,
+  .match-minute-grid tbody {
+    display: block;
   }
-  .match-minute-grid {
-    --match-unit-width: 33px;
-    --match-total-width: 45px;
-  }
-  .match-minute-grid[data-many-units] {
-    --match-unit-width: 8.5%;
-    --match-total-width: 13%;
-  }
-  .match-minute-grid .match-unit-column {
-    width: var(--match-unit-width);
-  }
-  .match-minute-grid thead th.match-planned-column {
-    width: var(--match-total-width);
+  .match-minute-grid tbody tr {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+    padding: 0.75rem 0;
   }
   .match-minute-grid th,
   .match-minute-grid td {
-    padding-left: 2px;
-    padding-right: 2px;
-    overflow-wrap: normal;
+    min-width: 0;
+    padding: 0;
   }
-  .match-minute-grid .match-player-column {
+  .match-minute-grid tbody th {
+    grid-column: 1 / -1;
+    font-size: 0.9375rem;
     overflow-wrap: anywhere;
   }
   .match-minute-grid button {
-    padding-left: 0;
-    padding-right: 0;
-    min-height: 34px;
+    padding-inline: 0;
+    min-height: 40px;
+    font-size: 0.875rem;
   }
+  .match-minute-grid thead,
+  .match-minute-grid .match-planned-column,
   .match-minute-grid .match-eq-column,
   .match-minute-grid .match-actual-column {
     display: none;
   }
-  .match-mobile-equivalents {
+  .match-mobile-only {
     display: block;
   }
   .match-comparison-layout:not(.match-comparison-layout--editor) .match-comparison-pitches [role="img"] [role="button"],

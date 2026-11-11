@@ -1,4 +1,3 @@
-import "@/components/training/mobile-player-table.css";
 import { useState, type ReactNode } from "react";
 import type {
   MatchRotationSummary,
@@ -50,7 +49,7 @@ function SummaryPitch({
       <div
         className={
           "relative mx-auto aspect-[3/4] w-full overflow-hidden rounded-lg border-4 border-emerald-300 bg-green-700 " +
-          (enlarged ? "max-w-md" : "max-w-48")
+          (enlarged ? "max-w-md" : "max-w-56")
         }
         aria-label={"Schieramento " + unit.label}
       >
@@ -84,7 +83,7 @@ function SummaryPitch({
                   .map((part) => part[0])
                   .slice(0, 2)
                   .join("")}
-              <span className="absolute top-full mt-0.5 max-w-20 truncate rounded bg-green-950/90 px-1 text-[8px] leading-tight">
+                <span className="absolute top-full mt-0.5 max-w-24 truncate rounded bg-green-950/90 px-1 text-[10px] leading-tight">
                 {row.name}
               </span>
             </span>
@@ -266,13 +265,13 @@ export function MatchRotationComparison({
             </p>
             {!!values.length && (
               <div
-                className="mb-3 flex flex-wrap gap-x-4 gap-y-1 rounded-md bg-muted/40 px-3 py-2 text-xs"
+                className={`mb-3 flex-wrap gap-x-4 gap-y-1 rounded-md bg-muted/40 px-3 py-2 text-xs ${values.length === 1 ? "hidden md:flex" : "flex"}`}
                 aria-label="Riepilogo minutaggio previsto"
               >
                 <span>
                   Minuti previsti:{" "}
                   <strong>
-                    {number(minimum)}–{number(maximum)}′
+                    {minimum === maximum ? matchMinutesLabel(minimum, true) : `${matchMinutesLabel(minimum, true)}–${matchMinutesLabel(maximum, true)}`}
                   </strong>
                 </span>
                 {values.length > 1 && (
@@ -292,15 +291,7 @@ export function MatchRotationComparison({
               <span>Frazioni {page * pageSize + 1}–{page * pageSize + units.length} di {summary.units.length}</span>
               <Button type="button" size="sm" variant="outline" disabled={page === lastPage} onClick={() => setUnitPage(page + 1)}>Successive</Button>
             </nav>}
-            <table
-              className="match-minute-grid w-full border-collapse text-xs"
-              data-many-units={units.length > 4 || undefined}
-              style={
-                {
-                  "--match-unit-count": units.length,
-                } as React.CSSProperties
-              }
-            >
+            <table className="match-minute-grid w-full border-collapse text-xs">
               <thead>
                 <tr className="bg-muted/40 text-left">
                   <th rowSpan={2} className="match-player-column p-2">Giocatore</th>
@@ -319,10 +310,11 @@ export function MatchRotationComparison({
               <tbody>
                 {summary.rows.map((row) => (
                   <tr key={row.playerId} className="border-b last:border-0">
-                    <th className="break-words p-1 text-left font-medium sm:p-2">
+                    <th scope="row" className="break-words p-1 text-left font-medium sm:p-2">
                       {row.name}
-                      <span className="match-mobile-equivalents mt-0.5 text-[10px] font-normal text-muted-foreground">
-                        {number(row.plannedPeriods)} tempi eq.
+                      <span className="match-mobile-only mt-1 text-xs font-normal text-muted-foreground">
+                        <strong className="font-semibold text-foreground">{matchMinutesLabel(row.plannedMinutes, true)} previsti</strong>
+                        {" · "}{number(row.plannedPeriods)} tempi eq.
                         {summary.hasReport && (
                           <span>
                             {" "}
@@ -334,8 +326,12 @@ export function MatchRotationComparison({
                         )}
                       </span>
                     </th>
-                    {row.cells.slice(page * pageSize, (page + 1) * pageSize).map((cell) => (
+                    {row.cells.slice(page * pageSize, (page + 1) * pageSize).map((cell, index) => (
                       <td key={cell.key} className="p-0.5 text-center">
+                        <span className="match-mobile-only mb-1 text-xs font-medium" aria-hidden="true">
+                          {units[index]?.label.replace(" tempo", "")}
+                          <span className="block font-normal text-muted-foreground">{units[index] && matchMinutesLabel(units[index].minutes, true)}</span>
+                        </span>
                         <button
                           type="button"
                           disabled={!onStatus}
@@ -381,7 +377,7 @@ export function MatchRotationComparison({
                         </button>
                       </td>
                     ))}
-                    <td className="p-1 text-center font-semibold tabular-nums">
+                    <td className="match-planned-column p-1 text-center font-semibold tabular-nums">
                       {matchMinutesLabel(row.plannedMinutes, true)}
                     </td>
                     <td className="match-eq-column p-1 text-center text-muted-foreground">
@@ -398,12 +394,12 @@ export function MatchRotationComparison({
                 ))}
               </tbody>
             </table>
-            <p className="mt-2 text-[10px] text-muted-foreground">
+            <p className="mt-2 text-xs text-muted-foreground">
               T = titolare · P = panchina · — = non assegnato. Le lettere indicano
               le frazioni di ogni tempo. I minuti effettivi provengono dal resoconto.
             </p>
             {!summary.hasReport && (
-              <p className="mt-1 text-[10px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Minuti effettivi non registrati: i dati mancanti non valgono
                 zero.
               </p>
@@ -421,9 +417,9 @@ export function MatchRotationComparison({
             {units.map((unit) => (
               <article
                 key={unit.key}
-                className={renderPitch ? "min-w-0 space-y-2 rounded-lg border p-2 sm:p-3" : "min-w-0 space-y-2 rounded-lg border p-1.5"}
+                className="min-w-0 space-y-2 rounded-lg border p-2 sm:p-3"
               >
-                <h5 className="text-[11px] font-semibold">
+                <h5 className="text-xs font-semibold">
                   {unit.label.replace(" tempo", "")} · {matchMinutesLabel(unit.minutes, true)}
                 </h5>
                 {renderPitch ? (
@@ -435,7 +431,7 @@ export function MatchRotationComparison({
                       type="button"
                       size="sm"
                       variant="ghost"
-                      className="w-full px-0 text-[10px]"
+                      className="min-h-10 w-full px-0 text-xs"
                       onClick={() => setEnlarged(unit)}
                     >
                       Ingrandisci
