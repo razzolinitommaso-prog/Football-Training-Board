@@ -15,7 +15,15 @@ import { ReceiptMethodSelect } from "@/components/receipt-method-select";
 import { withApi } from "@/lib/api-base";
 import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, paymentStatuses, receiptMethodLabel, receiptMethods, type PaymentEntry, type PaymentStatus } from "@/lib/payment-summary";
 
-type Payment = PaymentEntry & { id: number; playerName?: string; amount: number; paymentDate?: string | null };
+type Payment = PaymentEntry & {
+  id: number;
+  playerName?: string | null;
+  amount: number;
+  paymentDate?: string | null;
+  teamId?: number | null;
+  teamName?: string | null;
+  teamSeason?: string | null;
+};
 type Player = { id: number; firstName: string; lastName: string };
 const paymentTypes = {
   registration_fee: "Quota iscrizione",
@@ -57,6 +65,7 @@ export default function PaymentsPage() {
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
   const [method, setMethod] = useState("");
+  const [team, setTeam] = useState("");
   const [receipt, setReceipt] = useState<{ id: number; date: string; method: string }>();
   const [month, setMonth] = useState("");
   const [period, setPeriod] = useState<ChartPeriod>("annual");
@@ -97,7 +106,16 @@ export default function PaymentsPage() {
     } });
   }
 
-  const byCategoryAndName = (list.data ?? []).filter(payment =>
+  const payments = list.data ?? [];
+  const teams = new Map<number, string>();
+  for (const payment of payments) {
+    if (payment.teamId != null && payment.teamName) {
+      teams.set(payment.teamId, [payment.teamName, payment.teamSeason].filter(Boolean).join(" · "));
+    }
+  }
+  const teamOptions = [...teams.entries()].sort(([, a], [, b]) => a.localeCompare(b, "it", { numeric: true }));
+  const byCategoryAndName = payments.filter(payment =>
+    (!team || (team === "unassigned" ? payment.teamId === null : String(payment.teamId) === team)) &&
     (!category || paymentCategory(payment) === category) &&
     searchKey((payment.playerName ?? "") + " " + (payment.description ?? "")).includes(searchKey(search.trim())),
   );
@@ -196,9 +214,16 @@ export default function PaymentsPage() {
       </Dialog>}
     </div>
 
-    <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-3 md:grid-cols-3 xl:grid-cols-6">
       <label className="min-w-0 space-y-1 text-xs font-medium">Giocatore o descrizione
         <Input placeholder="Cerca…" value={search} onChange={event => setSearch(event.target.value)} />
+      </label>
+      <label className="min-w-0 space-y-1 text-xs font-medium">Annata
+        <ScrollableSelect aria-label="Filtra per annata" className="w-full" value={team} onValueChange={setTeam}>
+          <option value="">Tutte</option>
+          {teamOptions.map(([id, label]) => <option key={id} value={String(id)}>{label}</option>)}
+          {(team === "unassigned" || payments.some(payment => payment.teamId === null)) && <option value="unassigned">Senza annata</option>}
+        </ScrollableSelect>
       </label>
       <label className="min-w-0 space-y-1 text-xs font-medium">Categoria
         <ScrollableSelect aria-label="Categoria" className="w-full" value={category} onValueChange={setCategory}>

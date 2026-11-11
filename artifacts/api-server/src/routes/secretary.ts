@@ -10,12 +10,13 @@ import {
   trainingSessionsTable,
   matchesTable,
   teamsTable,
+  seasonsTable,
   clubNotificationsTable,
   clubNotificationReadsTable,
   clubSecretarySharedFilesTable,
   warehouseItemsTable,
 } from "@workspace/db";
-import { eq, and, desc, gte, lte, asc, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, asc, getTableColumns, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { calendarStaffMessage, encodeCalendarCommunication, readCalendarAudience } from "../lib/parent-calendar-communication";
@@ -285,8 +286,18 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
       ? and(eq(playerPaymentsTable.clubId, clubId), inArray(playerPaymentsTable.playerId, ids))
       : and(eq(playerPaymentsTable.clubId, clubId), sql`false`);
   }
-  const records = await db.select().from(playerPaymentsTable).where(where).orderBy(desc(playerPaymentsTable.createdAt));
-  res.json(await withPlayerName(records));
+  const records = await db.select({
+    ...getTableColumns(playerPaymentsTable),
+    playerName: sql<string | null>`${playersTable.firstName} || ' ' || ${playersTable.lastName}`,
+    teamId: teamsTable.id,
+    teamName: teamsTable.name,
+    teamSeason: seasonsTable.name,
+  }).from(playerPaymentsTable)
+    .leftJoin(playersTable, and(eq(playersTable.id, playerPaymentsTable.playerId), eq(playersTable.clubId, playerPaymentsTable.clubId)))
+    .leftJoin(teamsTable, and(eq(teamsTable.id, playersTable.teamId), eq(teamsTable.clubId, playerPaymentsTable.clubId)))
+    .leftJoin(seasonsTable, and(eq(seasonsTable.id, teamsTable.seasonId), eq(seasonsTable.clubId, playerPaymentsTable.clubId)))
+    .where(where).orderBy(desc(playerPaymentsTable.createdAt));
+  res.json(records);
 });
 
 const receiptMethods = new Set(["cash", "card", "bank_transfer"]);
