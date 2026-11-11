@@ -1,4 +1,5 @@
 import { TRAINING_ROTATION_PHASES, type TrainingRotations } from "./training-rotations";
+import { boardPlayerIds } from "./exercise-board-roster";
 
 export type SessionAttendanceRow={id:number;playerId:number;status:string;notes?:string|null};
 export function sessionAttendanceState(rows:SessionAttendanceRow[]) {
@@ -23,6 +24,21 @@ export function excludeTrainingPlayers(rotations:TrainingRotations,excluded:numb
   const board=station.boardJson?excludeTrainingBoardPlayers(station.boardJson,excluded):undefined;
   return {...station,playerIds:station.playerIds.filter(id=>!blocked.has(id)),...(station.confirmedGroups ? { confirmedGroups: station.confirmedGroups.map(group => group.filter(id => !blocked.has(id))).filter(group => group.length) } : {}),...(station.boardJson?{boardJson:board??undefined,...(board!==station.boardJson?{boardPreview:undefined}:{})}:{})};
  })}))]));
+}
+
+/** Drop stale assignments when the session roster has changed since planning. */
+export function restrictTrainingRotationPlayers(rotations: TrainingRotations, allowedPlayerIds: Iterable<number>): TrainingRotations {
+ const allowed = new Set(allowedPlayerIds);
+ const excluded = new Set<number>();
+ for (const phase of TRAINING_ROTATION_PHASES) {
+  for (const turn of rotations[phase] ?? []) {
+   for (const station of turn.stations) {
+    const ids = [...station.playerIds, ...(station.confirmedGroups ?? []).flat(), ...boardPlayerIds(station.boardJson)];
+    for (const id of ids) if (!allowed.has(id)) excluded.add(id);
+   }
+  }
+ }
+ return excluded.size ? excludeTrainingPlayers(rotations, [...excluded]) : rotations;
 }
 /** Remove attributed markers in the board and its animation frames; keep generic objects. */
 export function excludeTrainingBoardPlayers(raw:string|null|undefined,excluded:number[]):string|null|undefined {

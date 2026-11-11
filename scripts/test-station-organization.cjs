@@ -235,6 +235,17 @@ assert.equal(filtered.iniziale[0].stations[0].boardPreview, undefined);
 const jsonSaved = JSON.parse(JSON.stringify(linked));
 assert.equal(jsonSaved.iniziale[0].stations[0].boardJson, slot.boardJson);
 assert.ok(jsonSaved.centrale[0].groupSource);
+const trialStation = {
+  iniziale: [{
+    id: "trial-turn",
+    stations: [{ linkId: 1, seconds: 900, playerIds: [1, 1085, 1086], confirmedGroups: [[1, 1085], [1086]] }],
+  }],
+};
+const eligibleTrialRotation = attendance.restrictTrainingRotationPlayers(trialStation, [1, 1085]);
+assert.deepEqual(plain(eligibleTrialRotation.iniziale[0].stations[0].playerIds), [1, 1085]);
+assert.deepEqual(plain(eligibleTrialRotation.iniziale[0].stations[0].confirmedGroups), [[1, 1085]]);
+assert.equal(rot.validateTrainingRotations(eligibleTrialRotation, [{ id: 1, phase: "iniziale" }], [1, 1085]), null);
+assert.deepEqual(trialStation.iniziale[0].stations[0].playerIds, [1, 1085, 1086]);
 console.log(
   "PASS: automatic complete cycle, unequal groups, repeat without extra minutes, explicit cross-phase exceptions, starting-order inheritance, extra passage, saved board context and attendance filtering across frames",
 );

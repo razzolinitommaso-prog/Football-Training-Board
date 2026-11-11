@@ -5,12 +5,12 @@ import { assignedTrainingProgram } from "../lib/training-program-access";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
 import { ensureTrainingTrials, listTrainingTrials, trainingTrialsForSession, TRAINING_TRIAL_STATUS, validTrainingTrialDate } from "../lib/training-trials";
 import { readSessionEligibility } from "../lib/training-session-attendance";
-import { excludeTrainingPlayers, validateTrainingRotations, type TrainingRotations } from "@workspace/api-zod";
+import { excludeTrainingPlayers, restrictTrainingRotationPlayers, validateTrainingRotations, type TrainingRotations } from "@workspace/api-zod";
 import { rosterMembers, playerBirthYear } from "../lib/training-roster-policy";
 import { planningActivities, planningExercises, resolvedStationRotations, recalculateRotationPlan, planningVersion, rotationTimings } from "../lib/training-session-planning";
 import { sessionTeamScope, sessionTeamIds, consolidateSharedDrafts } from "../lib/session-team-scope";
 import { ensureTrainingSuppressions, sameTrainingMinute, trainingDeletionSummary } from "../lib/training-session-integrity";
-import { readSessionPlan, ensureSessionPlans, resultRows, recalculatePlan, timingSignature } from "../lib/training-session-planning";
+import { readSessionPlan, ensureSessionPlans, resultRows, timingSignature } from "../lib/training-session-planning";
 import { AUTO_TRAINING_MARKER } from "../lib/automatic-training-drafts";
 import { Router, type IRouter } from "express";
 import { db, trainingSessionsTable, trainingDirectivesTable, teamsTable, teamStaffAssignmentsTable, playersTable, usersTable, clubMembershipsTable, exercisesTable, trainingSessionExercisesTable } from "@workspace/db";
@@ -766,14 +766,16 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
       const eligibility = await readSessionEligibility(session.clubId,current,tx);
       attendanceIds = eligibility.blockedPlayerIds;
       if(req.body.version!==undefined&&req.body.version!==planningVersion(old,attendanceIds,exercises))throw Error("CONFLICT:La pianificazione è cambiata. Riapri la seduta prima di salvare le stazioni.");
-      const rotations=req.body.rotations===undefined?(resolvedStationRotations(old,exercises,attendanceIds)):req.body.rotations;
-      if(rotations!==undefined){
-        const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
-        const allowed = [...rosterMembers(players, sessionTeamIds(current.teamId, current.notes)).map(player => player.id), ...eligibility.guestPlayerIds].filter(id => !attendanceIds.includes(id));
-        const issue=validateTrainingRotations(rotations,exercises.map(ex=>({id:ex.id,phase:ex.phase??null})),allowed);
-        if(issue)throw Error(issue);
-      }
-      const next=req.body.recalculate?(rotations!==undefined?recalculateRotationPlan(current.durationMinutes??0,recoveries as [number,number],exercises,rotations as TrainingRotations):recalculatePlan(current.durationMinutes??0,recoveries as [number,number],exercises)):{...old,recoveries:recoveries as [number,number],...(rotations!==undefined?{rotations,timings:rotationTimings(exercises,rotations as TrainingRotations)}:{})};
+      const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
+      const allowed = [...rosterMembers(players, sessionTeamIds(current.teamId, current.notes)).map(player => player.id), ...eligibility.guestPlayerIds].filter(id => !attendanceIds.includes(id));
+      const rotations: TrainingRotations = req.body.rotations === undefined
+        ? restrictTrainingRotationPlayers(resolvedStationRotations(old, exercises, attendanceIds), allowed)
+        : req.body.rotations;
+      const issue=validateTrainingRotations(rotations,exercises.map(ex=>({id:ex.id,phase:ex.phase??null})),allowed);
+      if(issue)throw Error(issue);
+      const next = req.body.recalculate
+        ? recalculateRotationPlan(current.durationMinutes ?? 0, recoveries as [number, number], exercises, rotations)
+        : { ...old, recoveries: recoveries as [number, number], rotations, timings: rotationTimings(exercises, rotations) };
       next.stationSources=stationSources(planningActivities(exercises));
       await tx.execute(sql`INSERT INTO training_session_plans(session_id,club_id,plan) VALUES(${id},${session.clubId},${JSON.stringify(next)}::jsonb) ON CONFLICT(session_id) DO UPDATE SET plan=EXCLUDED.plan,updated_at=now() WHERE training_session_plans.club_id=${session.clubId}`);
       savedVersion=planningVersion(next,attendanceIds,exercises);

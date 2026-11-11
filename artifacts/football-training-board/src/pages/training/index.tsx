@@ -1831,7 +1831,7 @@ function SessionDetailsDialog({
   const { t } = useLanguage();
   const qc = useQueryClient();
   const participants=useSessionParticipants(session.id,session.sessionKind!=="tipo");
-  const blockedPlayerIds=participants.data?.blockedPlayerIds??[];
+  const blockedPlayerIds = useMemo(() => participants.data?.blockedPlayerIds ?? [], [participants.data?.blockedPlayerIds]);
   const attendanceSignature=JSON.stringify(participants.data??null);
   useEffect(()=>{if(participants.data){void qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"planning"]});void qc.invalidateQueries({queryKey:["/api/training-sessions",session.id,"exercises"]});}},[attendanceSignature,qc,session.id]);
   const [editingMetadata,setEditingMetadata] = useState(true);

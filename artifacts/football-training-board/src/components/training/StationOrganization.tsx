@@ -17,7 +17,7 @@ import {
   inheritPreviousPhasePlayers,
   previousPhaseWithPlayers,
 } from "@workspace/api-zod";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   assignStationPlayers,
@@ -26,6 +26,7 @@ import {
   stationGroups,
   reconcileStationOrganization,
   excludeTrainingPlayers,
+  restrictTrainingRotationPlayers,
   validateTrainingRotations,
   TRAINING_ROTATION_PHASES,
   type TrainingRotations,
@@ -88,7 +89,7 @@ export function StationOrganization({
   }) => ReactNode;
 }) {
   const { club, user } = useAuth();
-  const [draft, setDraft] = useState(() =>
+  const [storedDraft, setDraft] = useState(() =>
       reconcileStationOrganization(saved, activities),
     ),
     [dirty, setDirty] = useState(false),
@@ -142,13 +143,16 @@ export function StationOrganization({
       return [...new Map(rows.flat().map((p) => [p.id, p])).values()];
     },
   });
-  const players = (roster.data ?? [])
+  const players = useMemo(() => (roster.data ?? [])
     .filter(
       (p) =>
         !blockedPlayerIds.includes(p.id) &&
         (sessionId != null || p.available !== false),
     )
-    .map((p) => ({ ...p, available: true }));
+    .map((p) => ({ ...p, available: true })), [roster.data, blockedPlayerIds, sessionId]);
+  const draft = useMemo(() => roster.isSuccess && !attendanceLoading
+    ? restrictTrainingRotationPlayers(storedDraft, players.map(player => player.id))
+    : storedDraft, [roster.isSuccess, attendanceLoading, storedDraft, players]);
   useEffect(() => {
     if (!dirty) {
       setDraft(reconcileStationOrganization(saved, activities));
@@ -163,7 +167,7 @@ export function StationOrganization({
     onPreviewChange(dirty ? draft : null);
   }, [dirty, draft, onPreviewChange]);
   const disabled =
-    readOnly || attendanceLoading || roster.isLoading || !!roster.error || busy;
+    readOnly || attendanceLoading || roster.isFetching || !!roster.error || busy;
   const issue = roster.isSuccess
     ? validateTrainingRotations(
         draft,
