@@ -34,7 +34,8 @@ const paymentTypes = {
   other: "Altro",
 };
 const blank = { playerId: "", amount: "", status: "pending", paymentType: "registration_fee", dueDate: "", paymentDate: "", paymentMethod: "", description: "" };
-const money = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" });
+const money = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", useGrouping: true });
+const axisAmount = new Intl.NumberFormat("it-IT", { useGrouping: true });
 const monthLabel = new Intl.DateTimeFormat("it-IT", { month: "short", year: "numeric", timeZone: "UTC" });
 const shortMonthLabel = new Intl.DateTimeFormat("it-IT", { month: "short", timeZone: "UTC" });
 const monthKey = (year: string, month: number) => `${year}-${String(month).padStart(2, "0")}`;
@@ -49,6 +50,14 @@ const chartSeries = [
 ] as const;
 const emptyMonth = { cash: 0, card: 0, bank_transfer: 0, otherMethod: 0, pending: 0, overdue: 0 };
 type MonthlyAmounts = typeof emptyMonth;
+const receiptSeries = chartSeries.filter(series => series.stack === "incassato");
+const scaleLabel = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0, useGrouping: true });
+
+function receiptScale(maxAmount: number) {
+  if (maxAmount <= 10000) return [1000, 5000, 10000].find(limit => limit >= maxAmount) ?? 1000;
+  const magnitude = 10 ** Math.floor(Math.log10(maxAmount));
+  return ([1, 2, 5, 10].find(step => step * magnitude >= maxAmount) ?? 10) * magnitude;
+}
 type ChartPeriod = "annual" | "quarterly" | "custom";
 const statusVariant = { paid: "default", pending: "secondary", overdue: "destructive" } as const;
 const playerName = (player: Player) => [player.lastName, player.firstName].filter(Boolean).join(" ");
@@ -181,18 +190,20 @@ export default function PaymentsPage() {
     amountsByMonth.set(key, values);
   }
   const chartMonths = [];
-  let chartTotal = 0;
+  const methodTotals = { ...emptyMonth };
   if (validRange) {
     for (const date = monthDate(startMonth); date <= monthDate(endMonth); date.setUTCMonth(date.getUTCMonth() + 1)) {
       const key = date.toISOString().slice(0, 7);
       const values = amountsByMonth.get(key) ?? emptyMonth;
-      chartTotal += values.cash + values.card + values.bank_transfer + values.otherMethod;
+      for (const series of receiptSeries) methodTotals[series.key] += values[series.key];
       chartMonths.push({
         key, cash: values.cash / 100, card: values.card / 100, bank_transfer: values.bank_transfer / 100,
         otherMethod: values.otherMethod / 100, pending: values.pending / 100, overdue: values.overdue / 100,
       });
     }
   }
+  const chartTotal = receiptSeries.reduce((sum, series) => sum + methodTotals[series.key], 0);
+  const methodScale = receiptScale(Math.max(...receiptSeries.map(series => methodTotals[series.key])) / 100);
 
   return <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -333,7 +344,8 @@ export default function PaymentsPage() {
                     const date = monthDate(key);
                     return sameYear ? shortMonthLabel.format(date).slice(0, 3) : monthLabel.format(date);
                   }} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis width={48} domain={[0, "auto"]} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis width={48} domain={[0, "auto"]} tickFormatter={value => axisAmount.format(value)}
+                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
                   <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} />
                   <Tooltip labelFormatter={key => monthLabel.format(monthDate(String(key)))} formatter={value => money.format(Number(value))} />
                   {chartSeries.map(series => <Bar key={series.key} name={series.label} dataKey={series.key} fill={series.color} stackId={series.stack} maxBarSize={32} />)}
@@ -351,6 +363,30 @@ export default function PaymentsPage() {
         {undatedReceipts > 0 && <p className="mt-2 text-xs text-muted-foreground">Incassi senza data da attribuire a un mese: {money.format(undatedReceipts / 100)}.</p>}
         {undatedDues > 0 && <p className="mt-2 text-xs text-muted-foreground">Somme da riscuotere senza scadenza: {money.format(undatedDues / 100)}.</p>}
       </section>
+
+      {chartMonths.length > 0 && <section className="space-y-3 rounded-xl border bg-card p-3 sm:p-4" aria-labelledby="receipt-methods-heading">
+        <div>
+          <h2 id="receipt-methods-heading" className="text-sm font-medium">Incassi per metodo</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Stesso periodo del grafico mensile</p>
+        </div>
+        <ul className="space-y-3">
+          {receiptSeries.map(series => {
+            const amount = methodTotals[series.key] / 100;
+            return <li key={series.key}>
+              <div className="mb-1 flex flex-wrap justify-between gap-x-3 text-sm">
+                <span>{series.label}</span>
+                <span className="font-medium tabular-nums">{money.format(amount)}</span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                <div className="h-full rounded-full" style={{ width: `${amount / methodScale * 100}%`, backgroundColor: series.color }} />
+              </div>
+            </li>;
+          })}
+        </ul>
+        <div className="flex justify-between text-xs tabular-nums text-muted-foreground">
+          <span>{scaleLabel.format(0)}</span><span>{scaleLabel.format(methodScale)}</span>
+        </div>
+      </section>}
 
       <section className="rounded-xl border bg-card">
         <h2 className="border-b px-3 py-2 text-sm font-medium">Movimenti · {filtered.length}</h2>
