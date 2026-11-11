@@ -2,6 +2,7 @@ import {boardMaterialId, matchPeriodParts, matchPeriodPartKey, matchPeriodPartAd
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { ADDITIONAL_EQUIPMENT, AdditionalEquipmentGlyph } from "./additional-equipment";
+import { ATHLETE_GESTURES, ATHLETE_GESTURE_TOOLS, AthleteGestureGlyph } from "./athlete-gestures";
 import { AnimationPanel } from "./animation-panel";
 import { useBoardAnimation } from "./use-board-animation";
 import { cloneElements, readAnimation } from "./board-animation";
@@ -344,7 +345,7 @@ function formatMatchPhaseGroupLabel(phaseLabel: string, items: MatchOption[]) {
 
 const BOARD_TYPES = ["Training", "Exercise", "Match", "Match Plan", "Set Piece", "Quick Idea"] as const;
 const BOARD_TAGS = ["Pressing", "Build-up", "Transition"] as const;
-const EQUIPMENT_TOOLS = ["ball", "cone", "goal", "goalLarge", "goalMini", "goal5", "goal7", "goal9", "goal11", "sagoma", "flag", "ladder", "hurdle", "pole", "vest", "disc", "cinesino", "text", ...ADDITIONAL_EQUIPMENT.map(tool => tool.id)] as const;
+const EQUIPMENT_TOOLS = ["ball", "cone", "goal", "goalLarge", "goalMini", "goal5", "goal7", "goal9", "goal11", "sagoma", "flag", "ladder", "hurdle", "pole", "vest", "disc", "cinesino", "text", ...ADDITIONAL_EQUIPMENT.map(tool => tool.id), ...Object.keys(ATHLETE_GESTURE_TOOLS)] as const;
 const PLAYER_TYPES = ["player", "opponent", "goalkeeper"] as const;
 const DRAWING_TYPES = ["path", "line", "arrow", "bezier", "bezierarrow", "draw", "zone"] as const;
 const FIELD_MEASUREMENTS: Record<TacticalBoardFormat, {
@@ -1105,6 +1106,7 @@ function EquipmentGlyph({
   textVerticalAlign?: "top" | "middle" | "bottom";
 }) {
   const primary = color;
+  if (type && Object.hasOwn(ATHLETE_GESTURE_TOOLS, type)) return <AthleteGestureGlyph pose={ATHLETE_GESTURE_TOOLS[type]} color={color} />;
   if (ADDITIONAL_EQUIPMENT.some(tool => tool.id === type)) return <AdditionalEquipmentGlyph type={type} color={color} />;
   if (type === "ball") {
     const fill = primary ?? "#f8fafc";
@@ -2115,6 +2117,7 @@ const QuickPage = () => {
     disc: "Cinesino",
     text: "Testo",
     ...Object.fromEntries(ADDITIONAL_EQUIPMENT.map(tool => [tool.id, tool.label])),
+    ...Object.fromEntries(Object.entries(ATHLETE_GESTURE_TOOLS).map(([id, pose]) => [id, pose.label])),
   };
   const equipmentTools = [
     { id: "ball", label: "Palla" },
@@ -4553,7 +4556,7 @@ const QuickPage = () => {
                         className={`absolute z-[4] flex cursor-grab touch-none select-none items-center justify-center rounded-2xl p-1 transition active:cursor-grabbing before:absolute before:[inset:calc(-1*var(--board-hit-slop,0px))] before:content-[''] ${isSelected ? "ring-2 ring-[#FACC15] ring-offset-2 ring-offset-[#145f38]" : ""}`}
                         style={commonStyle}
                         onPointerDown={(e) => dragElement(e, i)}
-                        title={String(el.type)}
+                        title={activeToolLabelMap[el.type ?? ""] ?? String(el.type)}
                       >
                         <EquipmentGlyph
                           type={el.type}
@@ -6222,6 +6225,35 @@ const QuickPage = () => {
 
                 {bottomMenu === "equipment" && (
                   <div className="mt-3 space-y-3">
+                    <details className="rounded-2xl border border-white/10 bg-white/5 p-2">
+                      <DisclosureSummary className="cursor-pointer px-1 py-2 text-xs font-semibold">Gesti</DisclosureSummary>
+                      {Object.entries(ATHLETE_GESTURES).map(([category, poses]) => (
+                        <section key={category} className="mt-2 space-y-2">
+                          <h3 className="px-1 text-xs font-medium text-white/75">{category}</h3>
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-2">
+                            {Object.entries(poses).map(([id, pose]) => (
+                              <button
+                                key={id}
+                                type="button"
+                                aria-pressed={activeTool === id}
+                                onClick={() => {
+                                  closeToolPopovers();
+                                  setActiveTool(id);
+                                }}
+                                className={`flex min-h-14 items-center gap-1 rounded-xl border p-1.5 text-left text-[11px] leading-tight transition ${
+                                  activeTool === id ? "border-[#FACC15] bg-[#FACC15]/20" : "border-white/10 hover:bg-white/10"
+                                }`}
+                              >
+                                <span className="shrink-0">
+                                  <AthleteGestureGlyph pose={pose} color={equipmentColor === "default" ? undefined : equipmentColor} />
+                                </span>
+                                <span className="min-w-0 [overflow-wrap:anywhere]">{pose.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </section>
+                      ))}
+                    </details>
                     <div className="grid grid-cols-5 gap-2">
                       {equipmentTools.map((tool) =>
                       tool.id === "goalMenu" ? (
