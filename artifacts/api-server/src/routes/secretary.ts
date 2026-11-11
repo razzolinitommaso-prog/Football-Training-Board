@@ -334,6 +334,7 @@ const paymentPlanTypes = new Set([
   "registration_fee", "annual_fee", "annual_fee_installment", "insurance_fee", "shuttle_monthly",
   "kit_payment", "player_total_installment",
 ]);
+const depositPurposes = new Set(["Generale", "Iscrizione", "Quota annuale", "Assicurazione", "Kit", "Pulmino", "Extra Time"]);
 
 function paymentPlanCents(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 20000
@@ -360,9 +361,14 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
   const total = paymentPlanCents(req.body.total);
   const alreadyPaid = paymentPlanCents(req.body.alreadyPaid);
   const upfront = paymentPlanCents(req.body.upfront);
-  const paymentMethod = req.body.paymentMethod;
-  if (upfront > 0 && !validReceiptMethod(paymentMethod)) {
-    res.status(400).json({ error: "Indica il metodo di incasso dell’acconto." });
+  const deposits: { amount: number; purpose: string; paymentMethod: string }[] = req.body.deposits === undefined
+    ? (upfront > 0 ? [{ amount: upfront / 100, purpose: "Generale", paymentMethod: req.body.paymentMethod }] : [])
+    : req.body.deposits;
+  if (!Array.isArray(deposits) || deposits.length > 120 ||
+      deposits.some(deposit => !deposit || !(paymentPlanCents(deposit.amount) > 0) ||
+        !depositPurposes.has(deposit.purpose) || !validReceiptMethod(deposit.paymentMethod)) ||
+      deposits.reduce((sum, deposit) => sum + paymentPlanCents(deposit.amount), 0) !== upfront) {
+    res.status(400).json({ error: "Controlla importi, voci e metodi di incasso dei versamenti." });
     return;
   }
   const { replaceTypes, installments, expectedPayments } = req.body;
@@ -406,10 +412,11 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
       installmentNumber: index + 1,
       totalInstallments: installments.length,
     }));
-    if (upfront > 0) {
-      const date = todayDateOnly();
-      rows.push({ ...shared, amount: upfront / 100, dueDate: date, paymentDate: date, paymentMethod, status: "paid",
-        description: "Piano totale - acconto", paymentType: "player_total_deposit" });
+    const date = todayDateOnly();
+    for (const deposit of deposits) {
+      rows.push({ ...shared, amount: paymentPlanCents(deposit.amount) / 100, dueDate: date, paymentDate: date,
+        paymentMethod: deposit.paymentMethod, status: "paid", paymentType: "player_total_deposit",
+        description: deposit.purpose === "Generale" ? "Piano totale - acconto" : `Piano totale - acconto - ${deposit.purpose}` });
     }
     if (rows.length) await tx.insert(playerPaymentsTable).values(rows);
     return "saved";

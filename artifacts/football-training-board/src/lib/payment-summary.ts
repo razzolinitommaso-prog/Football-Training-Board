@@ -5,6 +5,7 @@ export type PaymentCategory = keyof typeof paymentCategories;
 export const paymentStatuses = { paid: "Incassato", pending: "Da incassare", overdue: "Scaduto" } as const;
 export type PaymentStatus = keyof typeof paymentStatuses;
 export const receiptMethods = { cash: "Contanti", card: "Carta / Bancomat (POS)", bank_transfer: "Bonifico" } as const;
+export const depositPurposes = ["Generale", "Iscrizione", "Quota annuale", "Assicurazione", "Kit", "Pulmino", "Extra Time"] as const;
 export type ReceiptMethod = keyof typeof receiptMethods;
 
 export function isReceiptMethod(value: unknown): value is ReceiptMethod {
@@ -25,6 +26,12 @@ export type PaymentEntry = {
 
 export function paymentCategory(payment: PaymentEntry): PaymentCategory {
   switch (payment.paymentType) {
+    case "player_total_deposit": {
+      const purpose = payment.description?.split(" - ")[2];
+      if (purpose === "Kit") return "kit";
+      if (purpose === "Pulmino") return "shuttle";
+      return purpose === "Iscrizione" || purpose === "Quota annuale" || purpose === "Assicurazione" ? "quotes" : "other";
+    }
     case "kit_payment": return "kit";
     case "shuttle_monthly": return "shuttle";
     case "registration_fee":
@@ -52,7 +59,7 @@ export function paymentStatus(payment: PaymentEntry, today: string): PaymentStat
 }
 
 export function quotePaymentStatus(payments: PaymentEntry[], today: string) {
-  const quotes = payments.filter(payment => paymentCategory(payment) === "quotes");
+  const quotes = payments.filter(payment => payment.paymentType !== "player_total_deposit" && paymentCategory(payment) === "quotes");
   if (quotes.some(payment => paymentStatus(payment, today) === "overdue")) return { tone: "red" as const, label: "Scadute" };
   if (quotes.some(payment => paymentStatus(payment, today) === "pending")) return { tone: "yellow" as const, label: "Da saldare" };
   if (payments.some(payment => ["player_total_deposit", "player_total_installment"].includes(payment.paymentType ?? ""))) {

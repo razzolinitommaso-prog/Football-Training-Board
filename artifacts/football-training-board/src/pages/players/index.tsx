@@ -29,8 +29,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { Link, useLocation } from "wouter";
 import { MAX_PLAYER_PAYMENT_AMOUNT } from "@/lib/fee-list";
-import { isReceiptMethod, paymentStatus, playerEconomicBalance, quotePaymentStatus, receiptMethodLabel } from "@/lib/payment-summary";
+import { depositPurposes, isReceiptMethod, paymentStatus, playerEconomicBalance, quotePaymentStatus, receiptMethodLabel } from "@/lib/payment-summary";
 import { ReceiptMethodSelect } from "@/components/receipt-method-select";
+import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
@@ -1659,9 +1660,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const [annualFeeListItemId, setAnnualFeeListItemId] = useState("");
   const [insuranceFeeListItemId, setInsuranceFeeListItemId] = useState("");
   const [shuttleFeeListItemId, setShuttleFeeListItemId] = useState("");
-  const [upfrontPaymentTotal, setUpfrontPaymentTotal] = useState("");
+  const [depositDrafts, setDepositDrafts] = useState([{ id: "first", amount: "", purpose: "Generale", method: "" }]);
   const [economicPlanPaid, setEconomicPlanPaid] = useState(false);
-  const [upfrontPaymentMethod, setUpfrontPaymentMethod] = useState("");
   const [installmentCount, setInstallmentCount] = useState("1");
   const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
   const [annualInstallments, setAnnualInstallments] = useState<InstallmentDraft[]>([]);
@@ -1763,6 +1763,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       return ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(member.role) && memberSections.includes("extra_time");
     })
     .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it"));
+  const depositAmounts = depositDrafts.map(draft => draft.amount === "" ? 0 : parseEuroInput(draft.amount));
+  const extraDepositCents = depositAmounts.slice(1).reduce((sum, amount) => sum + Math.round(amount * 100), 0);
   const economicBalance = playerEconomicBalance({
     registration: isSafePlayerPaymentAmount(plannedRegistrationFee) ? plannedRegistrationFee : 0,
     annual: isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0,
@@ -1771,9 +1773,18 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     kit: plannedKitTotal,
   }, plannedExtraTimeTotal, editingPlayerPayments,
   !registrationFeeTotal && !annualFeeTotal && !insuranceFeeTotal,
-  parseEuroInput(upfrontPaymentTotal), economicPlanPaid);
+  (Math.round(depositAmounts[0] * 100) + extraDepositCents) / 100, economicPlanPaid);
   const { quotes: plannedQuotesTotal, savedPlanBalance, total: plannedEconomicTotal, alreadyPaid: plannedAlreadyPaid, upfront: plannedUpfrontAmount,
     outstanding: plannedOutstanding, residual: plannedResidualTotal } = economicBalance;
+  const deposits = depositDrafts.map((draft, index) => ({
+    ...draft,
+    amount: economicPlanPaid && index === 0
+      ? (Math.round(plannedOutstanding * 100) - extraDepositCents) / 100
+      : depositAmounts[index],
+  }));
+  function updateDeposit(id: string, patch: Partial<Omit<(typeof depositDrafts)[number], "id">>) {
+    setDepositDrafts(drafts => drafts.map(draft => draft.id === id ? { ...draft, ...patch } : draft));
+  }
   const paymentToday = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
   const overduePlayerPayments = editingPlayerPayments.filter(payment => paymentStatus(payment, paymentToday) === "overdue");
   const editingMedicalCertificate = editingPlayerDocuments
@@ -2308,8 +2319,9 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       toast({ title: "Acconto troppo alto", description: "Il nuovo acconto non può superare il saldo ancora da pagare.", variant: "destructive" });
       return;
     }
-    if (plannedUpfrontAmount > 0 && !isReceiptMethod(upfrontPaymentMethod)) {
-      toast({ title: "Scegli il metodo di incasso dell’acconto", variant: "destructive" });
+    const receipts = deposits.filter((deposit, index) => index > 0 || deposit.amount !== 0);
+    if (receipts.some(deposit => !isSafePlayerPaymentAmount(deposit.amount) || deposit.amount < 0.01 || !isReceiptMethod(deposit.method))) {
+      toast({ title: "Controlla i versamenti", description: "Indica importo e metodo di incasso per ogni riga aggiunta.", variant: "destructive" });
       return;
     }
     const installments = annualInstallments.map((draft) => ({
@@ -2327,7 +2339,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           playerId: editingPlayer.id, total: plannedEconomicTotal, alreadyPaid: plannedAlreadyPaid, upfront: plannedUpfrontAmount,
-          paymentMethod: plannedUpfrontAmount > 0 ? upfrontPaymentMethod : null, replaceTypes: economicBalance.replaceTypes, installments,
+          deposits: receipts.map(({ amount, purpose, method }) => ({ amount, purpose, paymentMethod: method })),
+          replaceTypes: economicBalance.replaceTypes, installments,
           expectedPayments: editingPlayerPayments.map(({ id, status, amount }) => ({ id, status, amount })),
         }),
       });
@@ -2335,8 +2348,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players"] });
-      setUpfrontPaymentTotal("");
-      setUpfrontPaymentMethod("");
+      setDepositDrafts([{ id: "first", amount: "", purpose: "Generale", method: "" }]);
       setEconomicPlanPaid(false);
       toast({ title: "Piano totale creato" });
     } catch (error) {
@@ -2737,9 +2749,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     setAnnualFeeListItemId("");
     setInsuranceFeeTotal("");
     setInsuranceFeeListItemId("");
-    setUpfrontPaymentTotal("");
+    setDepositDrafts([{ id: "first", amount: "", purpose: "Generale", method: "" }]);
     setEconomicPlanPaid(false);
-    setUpfrontPaymentMethod("");
     const { notesRaw, meta } = splitPlayerMeta(player.notes ?? "");
     const parsedNotes = splitPlayerNotes(notesRaw);
     setNoteDraftText("");
@@ -4972,9 +4983,9 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Totale quote</p>
                           <p className="text-lg font-bold">Euro {formatEuro(plannedQuotesTotal)}</p>
                         </div>
-                        <div className="space-y-2">
-                          <Label>Nuovo acconto</Label>
-                          <Input type="number" step="0.01" value={upfrontPaymentTotal} onChange={(e) => setUpfrontPaymentTotal(e.target.value)} />
+                        <div className="space-y-1 rounded-md border bg-muted/30 px-3 py-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nuovi versamenti</p>
+                          <p className="text-lg font-bold">Euro {formatEuro(plannedUpfrontAmount)}</p>
                         </div>
                         <div className="rounded-md border bg-muted/30 px-3 py-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Residuo totale da rateizzare</p>
@@ -4995,6 +5006,30 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                           <Label>Prima scadenza</Label>
                           <Input type="date" value={firstInstallmentDueDate} onChange={(e) => setFirstInstallmentDueDate(e.target.value)} />
                         </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Acconti e saldo già versati</Label>
+                        {depositDrafts.map((draft, index) => (
+                          <div key={draft.id} className="grid items-end gap-2 rounded-md border px-3 py-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                            <label className="block min-w-0 space-y-1 text-sm">Voce
+                              <ScrollableSelect aria-label={`Voce versamento ${index + 1}`} className="w-full" value={draft.purpose} onValueChange={purpose => updateDeposit(draft.id, { purpose })}>
+                                {depositPurposes.map(purpose => <option key={purpose} value={purpose}>{purpose}</option>)}
+                              </ScrollableSelect>
+                            </label>
+                            <label className="block min-w-0 space-y-1 text-sm">Importo (€)
+                              <Input type="number" min="0" step="0.01" readOnly={economicPlanPaid && index === 0}
+                                value={economicPlanPaid && index === 0 ? Math.max(0, deposits[0].amount || 0) : draft.amount}
+                                onChange={event => updateDeposit(draft.id, { amount: event.target.value })} />
+                            </label>
+                            <ReceiptMethodSelect value={draft.method} onChange={method => updateDeposit(draft.id, { method })} />
+                            {index > 0 && <Button type="button" variant="ghost" size="icon" aria-label={`Rimuovi versamento ${index + 1}`}
+                              onClick={() => setDepositDrafts(drafts => drafts.filter(row => row.id !== draft.id))}><Trash2 className="h-4 w-4" /></Button>}
+                          </div>
+                        ))}
+                        <Button type="button" variant="outline" size="sm" disabled={depositDrafts.length >= 120}
+                          onClick={() => setDepositDrafts(drafts => [...drafts, { id: crypto.randomUUID(), amount: "", purpose: "Generale", method: "" }])}>
+                          <Plus className="h-4 w-4" /> Aggiungi versamento
+                        </Button>
                       </div>
                       {annualInstallments.length > 0 && (
                         <div className="space-y-2">
@@ -5285,7 +5320,9 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                         <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Nuovo acconto</p>
                           <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedUpfrontAmount)}</p>
-                          {plannedUpfrontAmount > 0 && <ReceiptMethodSelect value={upfrontPaymentMethod} onChange={setUpfrontPaymentMethod} />}
+                          {deposits.filter(deposit => deposit.amount > 0).map(deposit => (
+                            <p key={deposit.id} className="text-xs text-muted-foreground">{deposit.purpose} · € {formatEuro(deposit.amount)} · {receiptMethodLabel(deposit.method)}</p>
+                          ))}
                         </div>
                         <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo totale da rateizzare</p>
