@@ -266,6 +266,22 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     assert.deepEqual(jointOverview.data.players.map(player=>player.id).sort(),[911,912]);
     assert.equal(jointOverview.data.players.find(player=>player.id===912).teamName,"Piccoli Amici");
     assert.ok(!jointOverview.data.matches.some(match=>match.id===912));
+    for (const childId of [911, 912]) {
+      const parentRoster = await call("/parent/children", {...managerHeaders, "x-role":"parent", "x-child":String(childId)});
+      assert.equal(parentRoster.status, 200);
+      const [ownTeam] = parentRoster.data;
+      assert.equal(parentRoster.data.length, 1);
+      assert.equal(ownTeam.id, childId);
+      assert.deepEqual(ownTeam.rosterTeams.map(team=>team.id).sort(), [911, 912]);
+      assert.deepEqual(ownTeam.players.map(player=>player.id).sort(), [911, 912]);
+      assert.deepEqual(ownTeam.players.filter(player=>player.isOwnChild).map(player=>player.id), [childId]);
+      assert.ok(!("dateOfBirth" in ownTeam.players.find(player=>player.id!==childId)));
+    }
+    await pg.query("UPDATE teams SET training_schedule=$1::jsonb WHERE id=912", [JSON.stringify([{...joinedSlot,validUntil:"2025-01-02"}])]);
+    const separatedParent = await call("/parent/children", {...managerHeaders, "x-role":"parent", "x-child":"911"});
+    assert.deepEqual(separatedParent.data[0].players.map(player=>player.id), [911]);
+    await pg.query("UPDATE teams SET training_schedule=$1::jsonb WHERE id=912", [JSON.stringify([joinedSlot])]);
+    console.log("PASS parent roster: both joint teams, expired joint schedule, and own-child privacy.");
     const managerRegister = await call(registerUrl, managerHeaders);
     assert.equal(managerRegister.status,200,JSON.stringify(managerRegister.data));
     assert.equal(managerRegister.data.canEdit,false);

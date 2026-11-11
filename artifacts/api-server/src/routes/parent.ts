@@ -1,6 +1,7 @@
 import { parentKitRows } from "../lib/warehouse-kit";
 import {buildMatchRotationSummary,parentPublicMatch,defaultRotationCapacity} from "@workspace/api-zod";
-import { trainingSlotOnDate } from "@workspace/api-zod";
+import { trainingLocalDate, trainingSlotOnDate } from "@workspace/api-zod";
+import { activeTrainingGroup } from "../lib/joint-training-program";
 import { sessionTeamScope, sessionTeamIds } from "../lib/session-team-scope";
 import { overlaySharedTrainingRows, trainingReplyMatches } from "@workspace/api-zod";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
@@ -419,14 +420,21 @@ router.get("/parent/children", requireParentSession, async (req, res): Promise<v
       res.json([{ id: 0, name: "Senza squadra", players: [parentRosterPlayer(player, parentPlayerId)], nextTraining: null, nextMatch: null }]);
       return;
     }
+    const programTeams = await db.select({
+      id: teamsTable.id, name: teamsTable.name, clubSection: teamsTable.clubSection,
+      seasonId: teamsTable.seasonId, trainingSchedule: teamsTable.trainingSchedule,
+      seasonTrainingStartDate: teamsTable.seasonTrainingStartDate, officialTrainingEndDate: teamsTable.officialTrainingEndDate,
+    }).from(teamsTable).where(and(eq(teamsTable.clubId, clubId), eq(teamsTable.clubSection, team.clubSection)));
+    const rosterTeamIds = activeTrainingGroup(programTeams, team, trainingLocalDate(now));
+    const rosterTeams = programTeams.filter(item => rosterTeamIds.includes(item.id)).map(({ id, name }) => ({ id, name }));
     const teamPlayers = await db.select().from(playersTable)
-      .where(and(eq(playersTable.clubId, clubId), eq(playersTable.teamId, team.id)))
+      .where(and(eq(playersTable.clubId, clubId), inArray(playersTable.teamId, rosterTeamIds)))
       .orderBy(asc(playersTable.lastName), asc(playersTable.firstName));
     const nextTraining = generateParentTrainingCalendar(team, now).slice(0, 1);
     const nextMatch = await db.select().from(matchesTable)
       .where(and(eq(matchesTable.clubId, clubId), eq(matchesTable.teamId, team.id), gte(matchesTable.date, now)))
       .orderBy(asc(matchesTable.date)).limit(1);
-    res.json([{ ...team, players: teamPlayers.map((item) => parentRosterPlayer(item, parentPlayerId)), nextTraining: nextTraining[0] ?? null, nextMatch: nextMatch[0] ?? null }]);
+    res.json([{ ...team, rosterTeams, players: teamPlayers.map((item) => parentRosterPlayer(item, parentPlayerId)), nextTraining: nextTraining[0] ?? null, nextMatch: nextMatch[0] ?? null }]);
     return;
   }
 

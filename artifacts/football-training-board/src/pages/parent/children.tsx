@@ -1,149 +1,177 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
-import { Users, ChevronRight, Trophy, CalendarDays, ChevronDown, ChevronUp } from "lucide-react";
+import { Users, ChevronRight, Trophy, CalendarDays, ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { withApi } from "@/lib/api-base";
 
-async function apiFetch(path: string) {
-  const res = await fetch(withApi(`/api${path}`), { credentials: "include" });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+type Player = {
+  id: number;
+  teamId: number | null;
+  firstName: string;
+  lastName: string;
+  position: string | null;
+  jerseyNumber: number | null;
+  available: boolean;
+  isOwnChild: boolean;
+};
+
+type Team = {
+  id: number;
+  name: string;
+  ageGroup?: string | null;
+  category?: string | null;
+  rosterTeams?: { id: number; name: string }[];
+  players: Player[];
+  nextTraining: { scheduledAt: string } | null;
+  nextMatch: { opponent: string; date: string } | null;
+};
+
+function formatAppointment(value: string, time = false) {
+  return new Date(value).toLocaleDateString("it-IT", {
+    timeZone: "Europe/Rome", weekday: "short", day: "numeric", month: "short",
+    ...(time ? { hour: "2-digit", minute: "2-digit" } : {}),
+  });
+}
+
+function PlayerRow({ player }: { player: Player }) {
+  const content = (
+    <>
+      <span className="grid size-9 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+        {player.jerseyNumber ?? player.firstName[0]}
+      </span>
+      <span className="min-w-0">
+        <span className="block break-words font-medium">{player.firstName} {player.lastName}</span>
+        {(player.isOwnChild || player.position) && (
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {[player.isOwnChild && "Tuo figlio", player.position].filter(Boolean).join(" · ")}
+          </span>
+        )}
+      </span>
+      <Badge variant={player.available ? "default" : "secondary"} className="justify-self-end whitespace-nowrap">
+        {player.available ? "Disponibile" : "N/D"}
+      </Badge>
+      {player.isOwnChild && <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />}
+    </>
+  );
+  const rowClass = "grid min-h-14 grid-cols-[2.25rem_minmax(0,1fr)_auto_1rem] items-center gap-2 px-3 py-2 text-sm sm:gap-3 sm:px-4";
+  return (
+    <li>
+      {player.isOwnChild ? (
+        <Link href="/parent/player-card" className={rowClass + " bg-primary/5 hover:bg-primary/10"}>{content}</Link>
+      ) : <div className={rowClass}>{content}</div>}
+    </li>
+  );
 }
 
 export default function ParentChildren() {
-  const [teams, setTeams] = useState<any[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [error, setError] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
-    apiFetch("/parent/children")
-      .then((data) => {
-        setTeams(data);
-        const exp: Record<number, boolean> = {};
-        data.forEach((t: any) => { exp[t.id] = true; });
-        setExpanded(exp);
+    fetch(withApi("/api/parent/children"), { credentials: "include" })
+      .then(async response => {
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        setTeams(await response.json());
       })
-      .catch((error) => {
-        if (import.meta.env.DEV) console.error(error);
-      })
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
-  function toggle(id: number) {
-    setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
-  }
-
   if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+    <div className="flex h-64 items-center justify-center" role="status" aria-label="Caricamento squadre">
+      <div className="size-8 animate-spin rounded-full border-b-2 border-primary" />
     </div>
   );
+  if (error) return <p role="alert">Impossibile caricare le squadre. Riprova aggiornando la pagina.</p>;
 
-  const totalPlayers = teams.reduce((sum, t) => sum + (t.players?.length ?? 0), 0);
-
+  const totalPlayers = teams.reduce((sum, team) => sum + team.players.length, 0);
   return (
-    <div className="space-y-6 max-w-2xl mx-auto">
-      <div>
+    <div className="mx-auto max-w-2xl space-y-4">
+      <header>
         <h1 className="text-2xl font-bold">Squadre & Atleti</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          {teams.length} squadr{teams.length === 1 ? "a" : "e"} · {totalPlayers} atleti
+        <p className="mt-1 text-sm text-muted-foreground">
+          {teams.length} {teams.length === 1 ? "squadra" : "squadre"} · {totalPlayers} {totalPlayers === 1 ? "atleta" : "atleti"}
         </p>
-      </div>
+      </header>
 
       {teams.length === 0 && (
-        <div className="text-center py-20 text-muted-foreground">
-          <Users className="w-14 h-14 mx-auto mb-4 opacity-25" />
+        <div className="py-16 text-center text-muted-foreground">
+          <Users className="mx-auto mb-3 size-12 opacity-25" />
           <p className="font-semibold">Nessuna squadra</p>
-          <p className="text-sm mt-1">Le squadre della società appariranno qui.</p>
         </div>
       )}
 
-      <div className="space-y-4">
-        {teams.map(team => (
-          <div key={team.id} className="bg-card border rounded-2xl overflow-hidden">
-            <div
-              className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/30 transition-colors"
-              onClick={() => toggle(team.id)}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Trophy className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="font-semibold">{team.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {team.ageGroup ? `${team.ageGroup}` : ""}{team.category ? ` · ${team.category}` : ""}
-                    {" · "}{team.players?.length ?? 0} atleti
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Link href={`/parent/team/${team.id}`} onClick={e => e.stopPropagation()}>
-                  <Badge variant="outline" className="text-xs cursor-pointer hover:bg-primary/10">Info squadra</Badge>
+      {teams.map(team => {
+        const otherTeams = team.rosterTeams?.filter(item => item.id !== team.id) ?? [];
+        const joint = otherTeams.length > 0;
+        const groups = [{ id: team.id, name: team.name }, ...otherTeams];
+        const open = !collapsed[team.id];
+        const rosterId = `parent-roster-${team.id}`;
+        const description = [...new Set([team.ageGroup, team.category].filter(Boolean))].join(" · ");
+        return (
+          <article key={team.id} className="overflow-hidden rounded-2xl border bg-card">
+            <div className="p-3 sm:p-4">
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                aria-expanded={open}
+                aria-controls={rosterId}
+                onClick={() => setCollapsed(previous => ({ ...previous, [team.id]: open }))}
+              >
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <Trophy className="size-5" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words font-semibold">{team.name}</span>
+                  <span className="block text-sm text-muted-foreground">
+                    {[description, joint ? "Rosa congiunta" : "", `${team.players.length} ${team.players.length === 1 ? "atleta" : "atleti"}`].filter(Boolean).join(" · ")}
+                  </span>
+                </span>
+                <ChevronDown className={`size-5 shrink-0 text-muted-foreground ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+              </button>
+              {team.id > 0 && (
+                <Link href={`/parent/team/${team.id}`} className="mt-2 inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-sm font-medium text-primary hover:underline">
+                  Info squadra <ChevronRight className="size-4" aria-hidden="true" />
                 </Link>
-                {expanded[team.id] ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-              </div>
+              )}
             </div>
 
-            {expanded[team.id] && (
-              <div className="border-t">
-                {team.nextTraining && (
-                  <div className="px-4 py-3 bg-primary/5 border-b flex items-center gap-2 text-sm">
-                    <CalendarDays className="w-4 h-4 text-primary shrink-0" />
-                    <span className="text-primary font-medium">Prossimo allenamento:</span>
-                    <span className="text-muted-foreground">
-                      {new Date(team.nextTraining.scheduledAt).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </div>
-                )}
-                {team.nextMatch && (
-                  <div className="px-4 py-3 bg-amber-500/5 border-b flex items-center gap-2 text-sm">
-                    <Trophy className="w-4 h-4 text-amber-500 shrink-0" />
-                    <span className="text-amber-500 font-medium">Prossima partita:</span>
-                    <span className="text-muted-foreground">
-                      vs {team.nextMatch.opponent} · {new Date(team.nextMatch.date).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })}
-                    </span>
-                  </div>
-                )}
-
-                {(!team.players || team.players.length === 0) ? (
-                  <div className="p-4 text-center text-sm text-muted-foreground">Nessun atleta in questa squadra.</div>
-                ) : (
-                  <div className="divide-y">
-                    {team.players.map((player: any) => {
-                      const row = (
-                        <div className={`flex items-center gap-3 px-4 py-3 ${player.isOwnChild ? "cursor-pointer hover:bg-muted/30" : ""}`}>
-                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
-                            {player.jerseyNumber ?? player.firstName[0]}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-medium text-sm">{player.firstName} {player.lastName}</p>
-                              {player.isOwnChild && <Badge variant="outline" className="text-[10px]">Tuo figlio</Badge>}
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {player.position ?? "—"}{!player.isOwnChild ? " · dettaglio riservato" : ""}
-                            </p>
-                          </div>
-                          <Badge variant={player.available ? "default" : "secondary"} className="text-xs">
-                            {player.available ? "Disp." : "N/D"}
-                          </Badge>
-                          {player.isOwnChild && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-                        </div>
-                      );
-                      return player.isOwnChild ? (
-                        <Link key={player.id} href="/parent/player-card">{row}</Link>
-                      ) : (
-                        <div key={player.id}>{row}</div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+            <div id={rosterId} hidden={!open}>
+              {(team.nextTraining || team.nextMatch) && (
+                <div className="grid gap-px border-y bg-border sm:grid-cols-2">
+                  {team.nextTraining && (
+                    <div className="flex gap-2 bg-card px-3 py-2.5 sm:px-4">
+                      <CalendarDays className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+                      <div><p className="text-xs font-medium text-muted-foreground">Prossimo allenamento</p><p className="text-sm">{formatAppointment(team.nextTraining.scheduledAt, true)}</p></div>
+                    </div>
+                  )}
+                  {team.nextMatch && (
+                    <div className="flex gap-2 bg-card px-3 py-2.5 sm:px-4">
+                      <Trophy className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden="true" />
+                      <div className="min-w-0"><p className="text-xs font-medium text-muted-foreground">Prossima partita</p><p className="break-words text-sm">{team.nextMatch.opponent} · {formatAppointment(team.nextMatch.date)}</p></div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {team.players.length === 0 && <p className="p-4 text-center text-sm text-muted-foreground">Nessun atleta in questa squadra.</p>}
+              {groups.map((group, index) => {
+                const players = joint ? team.players.filter(player => player.teamId === group.id) : team.players;
+                if (!players.length) return null;
+                return (
+                  <section key={group.id} className={index > 0 ? "border-t" : ""}>
+                    {joint && <h2 className="flex items-center justify-between gap-2 bg-muted/50 px-3 py-2 text-sm font-medium sm:px-4">
+                      {group.name} <span className="text-xs text-muted-foreground">{players.length}</span>
+                    </h2>}
+                    <ul className="divide-y">{players.map(player => <PlayerRow key={player.id} player={player} />)}</ul>
+                  </section>
+                );
+              })}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
