@@ -29,7 +29,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { Link, useLocation } from "wouter";
 import { MAX_PLAYER_PAYMENT_AMOUNT } from "@/lib/fee-list";
-import { paymentStatus, playerEconomicBalance, quotePaymentStatus } from "@/lib/payment-summary";
+import { isReceiptMethod, paymentStatus, playerEconomicBalance, quotePaymentStatus, receiptMethodLabel } from "@/lib/payment-summary";
+import { ReceiptMethodSelect } from "@/components/receipt-method-select";
 import { Separator } from "@/components/ui/separator";
 import { ToastAction } from "@/components/ui/toast";
 import { exportToExcel, mapPlayersForExcel } from "@/lib/excel-export";
@@ -1660,6 +1661,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const [shuttleFeeListItemId, setShuttleFeeListItemId] = useState("");
   const [upfrontPaymentTotal, setUpfrontPaymentTotal] = useState("");
   const [economicPlanPaid, setEconomicPlanPaid] = useState(false);
+  const [upfrontPaymentMethod, setUpfrontPaymentMethod] = useState("");
   const [installmentCount, setInstallmentCount] = useState("1");
   const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
   const [annualInstallments, setAnnualInstallments] = useState<InstallmentDraft[]>([]);
@@ -2306,6 +2308,10 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       toast({ title: "Acconto troppo alto", description: "Il nuovo acconto non può superare il saldo ancora da pagare.", variant: "destructive" });
       return;
     }
+    if (plannedUpfrontAmount > 0 && !isReceiptMethod(upfrontPaymentMethod)) {
+      toast({ title: "Scegli il metodo di incasso dell’acconto", variant: "destructive" });
+      return;
+    }
     const installments = annualInstallments.map((draft) => ({
       amount: parseEuroInput(draft.amount), dueDate: draft.dueDate,
     }));
@@ -2321,7 +2327,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           playerId: editingPlayer.id, total: plannedEconomicTotal, alreadyPaid: plannedAlreadyPaid, upfront: plannedUpfrontAmount,
-          paymentMethod: kitPaymentMethod || null, replaceTypes: economicBalance.replaceTypes, installments,
+          paymentMethod: plannedUpfrontAmount > 0 ? upfrontPaymentMethod : null, replaceTypes: economicBalance.replaceTypes, installments,
           expectedPayments: editingPlayerPayments.map(({ id, status, amount }) => ({ id, status, amount })),
         }),
       });
@@ -2330,6 +2336,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players"] });
       setUpfrontPaymentTotal("");
+      setUpfrontPaymentMethod("");
       setEconomicPlanPaid(false);
       toast({ title: "Piano totale creato" });
     } catch (error) {
@@ -2484,10 +2491,14 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
   const savePlayerKit = async () => {
     if (!editingPlayer || !canEditFinancials) return;
+    const total = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
+    if (total > 0 && kitPaymentStatus === "paid" && !isReceiptMethod(kitPaymentMethod)) {
+      toast({ title: "Scegli il metodo di incasso del kit", variant: "destructive" });
+      return;
+    }
     setIsSavingKit(true);
     try {
       await saveKitAssignmentOnly();
-      const total = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
       if (total > 0) {
         for (const payment of editingKitPayments) {
           const deleteRes = await fetch(withApi(`/api/player-payments/${payment.id}`), { method: "DELETE", credentials: "include" });
@@ -2515,7 +2526,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               paymentDate: kitPaymentStatus === "paid" ? new Date().toISOString().slice(0, 10) : null,
               description: count > 1 ? `Kit giocatore - rata ${index + 1}/${count}` : "Kit giocatore",
               paymentType: "kit_payment",
-              paymentMethod: kitPaymentMethod || null,
+              paymentMethod: kitPaymentStatus === "paid" ? kitPaymentMethod : null,
               installmentNumber: index + 1,
               totalInstallments: count,
               annualFeeTotal: total,
@@ -2530,7 +2541,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           playerId: editingPlayer.id,
           amount: Number(shuttleMonthlyCost),
           dueDate: firstInstallmentDueDate || shuttlePaymentDueDate || null,
-          status: "pending",
+          status: editingShuttlePayment ? undefined : "pending",
           description: "Pulmino - quota mensile",
           paymentType: "shuttle_monthly",
           availabilityBlocking: 1,
@@ -2728,6 +2739,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     setInsuranceFeeListItemId("");
     setUpfrontPaymentTotal("");
     setEconomicPlanPaid(false);
+    setUpfrontPaymentMethod("");
     const { notesRaw, meta } = splitPlayerMeta(player.notes ?? "");
     const parsedNotes = splitPlayerNotes(notesRaw);
     setNoteDraftText("");
@@ -4247,21 +4259,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       />
                       <Label htmlFor="kitPaymentPaid" className="cursor-pointer">Pagato</Label>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Metodo pagamento</Label>
-                      <Select value={kitPaymentMethod || "_none"} onValueChange={(v) => setKitPaymentMethod(v === "_none" ? "" : v)} disabled={!canEditFinancials}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleziona" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">Da definire</SelectItem>
-                          <SelectItem value="cash">Contanti</SelectItem>
-                          <SelectItem value="bank_transfer">Bonifico</SelectItem>
-                          <SelectItem value="card">Carta/POS</SelectItem>
-                          <SelectItem value="other">Altro</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {kitPaymentStatus === "paid" && <ReceiptMethodSelect value={isReceiptMethod(kitPaymentMethod) ? kitPaymentMethod : ""} onChange={setKitPaymentMethod} disabled={!canEditFinancials} />}
                     <div className="space-y-2">
                       <Label>Scadenza pagamento</Label>
                       <Input type="date" value={kitPaymentDueDate} onChange={(e) => setKitPaymentDueDate(e.target.value)} disabled={!canEditFinancials} />
@@ -5045,6 +5043,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                           <p className="text-xs text-muted-foreground">
                             {payment.dueDate ? `Scadenza ${payment.dueDate}` : "Senza scadenza"}
                             {payment.installmentNumber && payment.totalInstallments ? ` - rata ${payment.installmentNumber}/${payment.totalInstallments}` : ""}
+                            {payment.status === "paid" && " · " + receiptMethodLabel(payment.paymentMethod)}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -5099,21 +5098,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                         />
                         <Label htmlFor="kitPaymentPaidInline" className="cursor-pointer">Pagato</Label>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Metodo pagamento</Label>
-                        <Select value={kitPaymentMethod || "_none"} onValueChange={(v) => setKitPaymentMethod(v === "_none" ? "" : v)}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Seleziona" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="_none">Da definire</SelectItem>
-                            <SelectItem value="cash">Contanti</SelectItem>
-                            <SelectItem value="bank_transfer">Bonifico</SelectItem>
-                            <SelectItem value="card">Carta/POS</SelectItem>
-                            <SelectItem value="other">Altro</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      {kitPaymentStatus === "paid" && <ReceiptMethodSelect value={isReceiptMethod(kitPaymentMethod) ? kitPaymentMethod : ""} onChange={setKitPaymentMethod} />}
                       <div className="space-y-2">
                         <Label>Scadenza pagamento</Label>
                         <Input type="date" value={kitPaymentDueDate} onChange={(e) => setKitPaymentDueDate(e.target.value)} />
@@ -5300,6 +5285,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                         <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Nuovo acconto</p>
                           <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedUpfrontAmount)}</p>
+                          {plannedUpfrontAmount > 0 && <ReceiptMethodSelect value={upfrontPaymentMethod} onChange={setUpfrontPaymentMethod} />}
                         </div>
                         <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Residuo totale da rateizzare</p>

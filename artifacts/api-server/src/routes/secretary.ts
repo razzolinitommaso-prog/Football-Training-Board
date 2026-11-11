@@ -289,6 +289,12 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
   res.json(await withPlayerName(records));
 });
 
+const receiptMethods = new Set(["cash", "card", "bank_transfer"]);
+
+function validReceiptMethod(value: unknown): value is string {
+  return typeof value === "string" && receiptMethods.has(value);
+}
+
 router.post("/player-payments", requireAuth, async (req, res): Promise<void> => {
   if (!canEditFinancials(req.session.role)) {
     res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });
@@ -296,13 +302,16 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
   }
   const { playerId, amount, dueDate, status, paymentDate, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod } = req.body;
   if (!playerId || amount == null) { res.status(400).json({ error: "playerId and amount required" }); return; }
+  if (status === "paid" && !validReceiptMethod(paymentMethod)) {
+    res.status(400).json({ error: "Indica il metodo di incasso." });
+    return;
+  }
   const clubId = req.session.clubId!;
   const [player] = await db.select({ id: playersTable.id }).from(playersTable)
     .where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, clubId))).limit(1);
   if (!player) { res.status(404).json({ error: "Giocatore non trovato." }); return; }
   const paidDate = status === "paid" ? paymentDate || new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" }) : null;
-  if (paidDate !== null && (typeof paidDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate) ||
-      !Number.isFinite(Date.parse(paidDate)) || new Date(paidDate).toISOString().slice(0, 10) !== paidDate)) {
+  if (paidDate !== null && !isPaymentPlanDate(paidDate)) {
     res.status(400).json({ error: "Data di incasso non valida." });
     return;
   }
@@ -315,7 +324,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     totalInstallments: totalInstallments ? Number(totalInstallments) : null,
     annualFeeTotal: annualFeeTotal != null ? Number(annualFeeTotal) : null,
     availabilityBlocking: availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1,
-    paymentMethod: paymentMethod ?? null,
+    paymentMethod: status === "paid" ? paymentMethod : null,
   }).returning();
   await enforcePaymentAvailability(clubId, player.id);
   res.status(201).json(record);
@@ -351,6 +360,11 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
   const total = paymentPlanCents(req.body.total);
   const alreadyPaid = paymentPlanCents(req.body.alreadyPaid);
   const upfront = paymentPlanCents(req.body.upfront);
+  const paymentMethod = req.body.paymentMethod;
+  if (upfront > 0 && !validReceiptMethod(paymentMethod)) {
+    res.status(400).json({ error: "Indica il metodo di incasso dell’acconto." });
+    return;
+  }
   const { replaceTypes, installments, expectedPayments } = req.body;
   if (!(total > 0 && alreadyPaid >= 0 && upfront >= 0 && alreadyPaid + upfront <= total) ||
       !Array.isArray(replaceTypes) || !replaceTypes.includes("player_total_installment") ||
@@ -381,8 +395,7 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
 
     const pendingIds = current.filter((row) => row.status !== "paid" && replaceTypes.includes(row.paymentType)).map((row) => row.id);
     if (pendingIds.length) await tx.delete(playerPaymentsTable).where(and(scope, inArray(playerPaymentsTable.id, pendingIds)));
-    const paymentMethod = typeof req.body.paymentMethod === "string" ? req.body.paymentMethod : null;
-    const shared = { clubId, playerId, annualFeeTotal: total / 100, paymentMethod, availabilityBlocking: 1 };
+    const shared = { clubId, playerId, annualFeeTotal: total / 100, availabilityBlocking: 1 };
     const rows: (typeof playerPaymentsTable.$inferInsert)[] = installments.map((draft, index) => ({
       ...shared,
       amount: paymentPlanCents(draft.amount) / 100,
@@ -395,7 +408,7 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
     }));
     if (upfront > 0) {
       const date = todayDateOnly();
-      rows.push({ ...shared, amount: upfront / 100, dueDate: date, paymentDate: date, status: "paid",
+      rows.push({ ...shared, amount: upfront / 100, dueDate: date, paymentDate: date, paymentMethod, status: "paid",
         description: "Piano totale - acconto", paymentType: "player_total_deposit" });
     }
     if (rows.length) await tx.insert(playerPaymentsTable).values(rows);
@@ -415,9 +428,14 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { status, paymentDate, amount, description, dueDate, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod } = req.body;
+  if (status === "paid" && (!validReceiptMethod(paymentMethod) || !isPaymentPlanDate(paymentDate))) {
+    res.status(400).json({ error: "Indica data e metodo di incasso validi." });
+    return;
+  }
   const updates: Record<string, unknown> = {};
   if (status !== undefined) updates.status = status;
-  if (paymentDate !== undefined) updates.paymentDate = paymentDate;
+  if (status !== undefined) updates.paymentDate = status === "paid" ? paymentDate : null;
+  else if (paymentDate !== undefined) updates.paymentDate = paymentDate;
   if (amount !== undefined) updates.amount = Number(amount);
   if (description !== undefined) updates.description = description;
   if (dueDate !== undefined) updates.dueDate = dueDate;
@@ -426,7 +444,7 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   if (totalInstallments !== undefined) updates.totalInstallments = totalInstallments != null ? Number(totalInstallments) : null;
   if (annualFeeTotal !== undefined) updates.annualFeeTotal = annualFeeTotal != null ? Number(annualFeeTotal) : null;
   if (availabilityBlocking !== undefined) updates.availabilityBlocking = availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1;
-  if (paymentMethod !== undefined) updates.paymentMethod = paymentMethod;
+  if (status !== undefined) updates.paymentMethod = status === "paid" ? paymentMethod : null;
   const [record] = await db.update(playerPaymentsTable).set(updates)
     .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!))).returning();
   if (!record) { res.status(404).json({ error: "Not found" }); return; }

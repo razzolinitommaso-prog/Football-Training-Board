@@ -4,12 +4,23 @@ export const paymentCategories = { kit: "Kit", quotes: "Quote", shuttle: "Pulmin
 export type PaymentCategory = keyof typeof paymentCategories;
 export const paymentStatuses = { paid: "Incassato", pending: "Da incassare", overdue: "Scaduto" } as const;
 export type PaymentStatus = keyof typeof paymentStatuses;
+export const receiptMethods = { cash: "Contanti", card: "Carta / Bancomat (POS)", bank_transfer: "Bonifico" } as const;
+export type ReceiptMethod = keyof typeof receiptMethods;
+
+export function isReceiptMethod(value: unknown): value is ReceiptMethod {
+  return typeof value === "string" && Object.hasOwn(receiptMethods, value);
+}
+
+export function receiptMethodLabel(value?: string | null) {
+  return isReceiptMethod(value) ? receiptMethods[value] : value ? "Altro metodo" : "Metodo da indicare";
+}
 
 export type PaymentEntry = {
   paymentType?: string | null;
   description?: string | null;
   status: string;
   dueDate?: string | null;
+  paymentMethod?: string | null;
 };
 
 export function paymentCategory(payment: PaymentEntry): PaymentCategory {

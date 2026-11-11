@@ -273,7 +273,7 @@ async function upsertShuttlePayment(playerId: number, amount: number, existing?:
     playerId,
     amount,
     dueDate: existing?.dueDate ?? null,
-    status: existing?.status ?? "pending",
+    status: existing ? undefined : "pending",
     description: "Quota pulmino",
     paymentType: "shuttle_monthly",
     installmentNumber: 1,
