@@ -372,14 +372,14 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
   const total = paymentPlanCents(req.body.total);
   const alreadyPaid = paymentPlanCents(req.body.alreadyPaid);
   const upfront = paymentPlanCents(req.body.upfront);
-  const deposits: { amount: number; purpose: string; paymentMethod: string }[] = req.body.deposits === undefined
-    ? (upfront > 0 ? [{ amount: upfront / 100, purpose: "Generale", paymentMethod: req.body.paymentMethod }] : [])
+  const deposits: { amount: number; purpose: string; paymentMethod: string; paymentDate: string }[] = req.body.deposits === undefined
+    ? (upfront > 0 ? [{ amount: upfront / 100, purpose: "Generale", paymentMethod: req.body.paymentMethod, paymentDate: todayDateOnly() }] : [])
     : req.body.deposits;
   if (!Array.isArray(deposits) || deposits.length > 120 ||
       deposits.some(deposit => !deposit || !(paymentPlanCents(deposit.amount) > 0) ||
-        !depositPurposes.has(deposit.purpose) || !validReceiptMethod(deposit.paymentMethod)) ||
+        !depositPurposes.has(deposit.purpose) || !validReceiptMethod(deposit.paymentMethod) || !isPaymentPlanDate(deposit.paymentDate)) ||
       deposits.reduce((sum, deposit) => sum + paymentPlanCents(deposit.amount), 0) !== upfront) {
-    res.status(400).json({ error: "Controlla importi, voci e metodi di incasso dei versamenti." });
+    res.status(400).json({ error: "Controlla importi, voci, date e metodi di incasso dei versamenti." });
     return;
   }
   const { replaceTypes, installments, expectedPayments } = req.body;
@@ -423,9 +423,8 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
       installmentNumber: index + 1,
       totalInstallments: installments.length,
     }));
-    const date = todayDateOnly();
     for (const deposit of deposits) {
-      rows.push({ ...shared, amount: paymentPlanCents(deposit.amount) / 100, dueDate: date, paymentDate: date,
+      rows.push({ ...shared, amount: paymentPlanCents(deposit.amount) / 100, dueDate: deposit.paymentDate, paymentDate: deposit.paymentDate,
         paymentMethod: deposit.paymentMethod, status: "paid", paymentType: "player_total_deposit",
         description: deposit.purpose === "Generale" ? "Piano totale - acconto" : `Piano totale - acconto - ${deposit.purpose}` });
     }

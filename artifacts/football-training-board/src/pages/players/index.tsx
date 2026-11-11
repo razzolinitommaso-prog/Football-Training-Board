@@ -1660,7 +1660,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const [annualFeeListItemId, setAnnualFeeListItemId] = useState("");
   const [insuranceFeeListItemId, setInsuranceFeeListItemId] = useState("");
   const [shuttleFeeListItemId, setShuttleFeeListItemId] = useState("");
-  const [depositDrafts, setDepositDrafts] = useState([{ id: "first", amount: "", purpose: "Generale", method: "" }]);
+  const [depositDrafts, setDepositDrafts] = useState([{ id: "first", amount: "", purpose: "Generale", method: "", paymentDate: "" }]);
   const [economicPlanPaid, setEconomicPlanPaid] = useState(false);
   const [installmentCount, setInstallmentCount] = useState("1");
   const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
@@ -2320,8 +2320,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       return;
     }
     const receipts = deposits.filter((deposit, index) => index > 0 || deposit.amount !== 0);
-    if (receipts.some(deposit => !isSafePlayerPaymentAmount(deposit.amount) || deposit.amount < 0.01 || !isReceiptMethod(deposit.method))) {
-      toast({ title: "Controlla i versamenti", description: "Indica importo e metodo di incasso per ogni riga aggiunta.", variant: "destructive" });
+    if (receipts.some(deposit => !isSafePlayerPaymentAmount(deposit.amount) || deposit.amount < 0.01 || !isReceiptMethod(deposit.method) || !deposit.paymentDate)) {
+      toast({ title: "Controlla i versamenti", description: "Indica importo, data e metodo di incasso per ogni versamento.", variant: "destructive" });
       return;
     }
     const installments = annualInstallments.map((draft) => ({
@@ -2339,7 +2339,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           playerId: editingPlayer.id, total: plannedEconomicTotal, alreadyPaid: plannedAlreadyPaid, upfront: plannedUpfrontAmount,
-          deposits: receipts.map(({ amount, purpose, method }) => ({ amount, purpose, paymentMethod: method })),
+          deposits: receipts.map(({ amount, purpose, method, paymentDate }) => ({ amount, purpose, paymentMethod: method, paymentDate })),
           replaceTypes: economicBalance.replaceTypes, installments,
           expectedPayments: editingPlayerPayments.map(({ id, status, amount }) => ({ id, status, amount })),
         }),
@@ -2348,7 +2348,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players"] });
-      setDepositDrafts([{ id: "first", amount: "", purpose: "Generale", method: "" }]);
+      setDepositDrafts([{ id: "first", amount: "", purpose: "Generale", method: "", paymentDate: "" }]);
       setEconomicPlanPaid(false);
       toast({ title: "Piano totale creato" });
     } catch (error) {
@@ -2749,7 +2749,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     setAnnualFeeListItemId("");
     setInsuranceFeeTotal("");
     setInsuranceFeeListItemId("");
-    setDepositDrafts([{ id: "first", amount: "", purpose: "Generale", method: "" }]);
+    setDepositDrafts([{ id: "first", amount: "", purpose: "Generale", method: "", paymentDate: "" }]);
     setEconomicPlanPaid(false);
     const { notesRaw, meta } = splitPlayerMeta(player.notes ?? "");
     const parsedNotes = splitPlayerNotes(notesRaw);
@@ -5010,7 +5010,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       <div className="space-y-2">
                         <Label>Acconti e saldo già versati</Label>
                         {depositDrafts.map((draft, index) => (
-                          <div key={draft.id} className="grid items-end gap-2 rounded-md border px-3 py-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                          <div key={draft.id} className="grid items-end gap-2 rounded-md border px-3 py-2 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
                             <label className="block min-w-0 space-y-1 text-sm">Voce
                               <ScrollableSelect aria-label={`Voce versamento ${index + 1}`} className="w-full" value={draft.purpose} onValueChange={purpose => updateDeposit(draft.id, { purpose })}>
                                 {depositPurposes.map(purpose => <option key={purpose} value={purpose}>{purpose}</option>)}
@@ -5022,12 +5022,15 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                                 onChange={event => updateDeposit(draft.id, { amount: event.target.value })} />
                             </label>
                             <ReceiptMethodSelect value={draft.method} onChange={method => updateDeposit(draft.id, { method })} />
+                            <label className="block min-w-0 space-y-1 text-sm">Data d’incasso
+                              <Input type="date" value={draft.paymentDate} onChange={event => updateDeposit(draft.id, { paymentDate: event.target.value })} />
+                            </label>
                             {index > 0 && <Button type="button" variant="ghost" size="icon" aria-label={`Rimuovi versamento ${index + 1}`}
                               onClick={() => setDepositDrafts(drafts => drafts.filter(row => row.id !== draft.id))}><Trash2 className="h-4 w-4" /></Button>}
                           </div>
                         ))}
                         <Button type="button" variant="outline" size="sm" disabled={depositDrafts.length >= 120}
-                          onClick={() => setDepositDrafts(drafts => [...drafts, { id: crypto.randomUUID(), amount: "", purpose: "Generale", method: "" }])}>
+                          onClick={() => setDepositDrafts(drafts => [...drafts, { id: crypto.randomUUID(), amount: "", purpose: "Generale", method: "", paymentDate: "" }])}>
                           <Plus className="h-4 w-4" /> Aggiungi versamento
                         </Button>
                       </div>
@@ -5321,7 +5324,9 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Nuovo acconto</p>
                           <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedUpfrontAmount)}</p>
                           {deposits.filter(deposit => deposit.amount > 0).map(deposit => (
-                            <p key={deposit.id} className="text-xs text-muted-foreground">{deposit.purpose} · € {formatEuro(deposit.amount)} · {receiptMethodLabel(deposit.method)}</p>
+                            <p key={deposit.id} className="text-xs text-muted-foreground">
+                              {deposit.purpose} · € {formatEuro(deposit.amount)} · {receiptMethodLabel(deposit.method)} · {deposit.paymentDate ? deposit.paymentDate.split("-").reverse().join("/") : "Data da indicare"}
+                            </p>
                           ))}
                         </div>
                         <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
