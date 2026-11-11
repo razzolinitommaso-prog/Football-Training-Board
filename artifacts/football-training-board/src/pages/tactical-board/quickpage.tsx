@@ -4,7 +4,7 @@ import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { ADDITIONAL_EQUIPMENT, AdditionalEquipmentGlyph } from "./additional-equipment";
 import { AnimationPanel } from "./animation-panel";
 import { useBoardAnimation } from "./use-board-animation";
-import { readAnimation } from "./board-animation";
+import { cloneElements, readAnimation } from "./board-animation";
 import { splitMatchLineup, lineupKeeper, setLineupKeeper, matchPeriodByKey } from "@/lib/match-lineup";
 import { designateMatchKeeper, matchRotationPart, updateMatchRotationPart, type RotationPeriod } from "@/lib/match-period-rotation";
 import { capturePitch } from "./capture-pitch";
@@ -18,6 +18,7 @@ import {
   Save,
   Plus,
   Copy,
+  ClipboardPaste,
   Share2,
   Calendar,
   Search,
@@ -1569,6 +1570,10 @@ const QuickPage = () => {
 
   const [selectedElementIndex, setSelectedElementIndex] = useState<number | null>(null);
   const [selectedElementIndexes, setSelectedElementIndexes] = useState<number[]>([]);
+  const [elementClipboard, setElementClipboard] = useState<{
+    elements: TacticalBoardElement[];
+    coordinateSpace: BoardCoordinateSpace;
+  } | null>(null);
 
   
   const [boards, setBoards] = useState<any[]>([]);
@@ -2160,9 +2165,9 @@ const QuickPage = () => {
     selectedElementIndex !== null ? elements[selectedElementIndex] : null;
   const selectedRotation = selectedElement ? Math.round(Number(selectedElement.rotation ?? 0)) : 0;
   const selectedDrawingBounds = drawingElementBounds(selectedElement);
-  const selectedElements = selectedElementIndexes
-    .map((idx) => elements[idx])
-    .filter(Boolean);
+  const selectedElements = selectedElementIndexes.length
+    ? elements.filter((_, index) => selectedElementIndexes.includes(index))
+    : selectedElement ? [selectedElement] : [];
   const usedPlayerIds = new Set(
     elements
       .map((el) => el.playerId)
@@ -3043,6 +3048,58 @@ const QuickPage = () => {
     setMarkerPanel(null);
   };
 
+  const copyBoardElements = () => {
+    if (!selectedElements.length) return;
+    setElementClipboard({
+      elements: cloneElements(selectedElements),
+      coordinateSpace: isMobileViewport ? "mobile-portrait" : "desktop-landscape",
+    });
+  };
+
+  const pasteBoardElements = () => {
+    if (!elementClipboard) return;
+    const coordinateSpace = isMobileViewport ? "mobile-portrait" : "desktop-landscape";
+    const copies = cloneElements(elementClipboard.elements).map((element) =>
+      convertBoardElementCoordinates(element, elementClipboard.coordinateSpace, coordinateSpace)
+    );
+    const points = copies.flatMap((element) => [
+      ...(typeof element.x === "number" && typeof element.y === "number" ? [{ x: element.x, y: element.y }] : []),
+      ...(Array.isArray(element.points) ? element.points as { x: number; y: number }[] : []),
+    ]);
+    // Move the entire selection together to preserve spacing and drawings.
+    const offset = (axis: "x" | "y") =>
+      points.every((point) => point[axis] <= 97) ? 3 :
+      points.every((point) => point[axis] >= 3) ? -3 : 0;
+    const dx = offset("x");
+    const dy = offset("y");
+    const assignedPlayerIds = new Set(usedPlayerIds);
+    for (const element of copies) {
+      const copyId = crypto.randomUUID();
+      element.animationId = copyId;
+      if (typeof element.id === "string" || typeof element.id === "number") element.id = copyId;
+      if (element.playerId) {
+        if (assignedPlayerIds.has(element.playerId)) delete element.playerId;
+        else assignedPlayerIds.add(element.playerId);
+      }
+      if (typeof element.x === "number") element.x += dx;
+      if (typeof element.y === "number") element.y += dy;
+      if (Array.isArray(element.points)) {
+        element.points = element.points.map((point: { x: number; y: number }) => ({
+          ...point, x: point.x + dx, y: point.y + dy,
+        }));
+      }
+    }
+    const firstIndex = elements.length;
+    setElements([...elements, ...copies]);
+    setSelectedElementIndexes(copies.map((_, index) => firstIndex + index));
+    setSelectedElementIndex(firstIndex + copies.length - 1);
+    setActiveTool("select");
+    setMarkerPanel(null);
+    setFieldElementMenuOpen(true);
+    setMoreActionsOpen(false);
+    setSaveState("Unsaved");
+  };
+
   const deleteSelectedElements = () => {
     const indexes = selectedElementIndexes.length ? selectedElementIndexes : selectedElementIndex !== null ? [selectedElementIndex] : [];
     if (!indexes.length) return;
@@ -3566,6 +3623,7 @@ const QuickPage = () => {
           <div className="relative">
             <button type="button" aria-label="Altre azioni" aria-expanded={moreActionsOpen} className="p-2 md:hidden" onClick={() => setMoreActionsOpen(open => !open)}>•••</button>
             <div className={moreActionsOpen ? "absolute right-0 top-full z-50 flex min-w-44 flex-col rounded-xl border border-white/20 bg-[#0F172A] p-2 shadow-xl md:static md:min-w-0 md:flex-row md:border-0 md:p-0" : "hidden md:flex"}>
+          <button type="button" onClick={pasteBoardElements} disabled={!elementClipboard} className="flex items-center gap-2 rounded-xl p-2 text-xs disabled:opacity-35 md:hidden"><ClipboardPaste size={18} />Incolla elementi</button>
           <button type="button" onClick={undoLastElement} disabled={!elements.length} className="flex items-center gap-2 rounded-xl p-2 text-xs disabled:opacity-35 md:hidden"><RotateCcw size={18} />Rimuovi ultimo elemento</button>
           <button
             type="button"
@@ -3829,6 +3887,16 @@ const QuickPage = () => {
                 <span className="min-w-0 truncate">{moduleLabel}</span>
               </div>
               <div className="col-span-2 flex items-center gap-1 sm:col-span-1">
+                <button
+                  type="button"
+                  onClick={pasteBoardElements}
+                  disabled={!elementClipboard}
+                  title="Incolla elementi"
+                  aria-label="Incolla elementi"
+                  className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/75 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  <ClipboardPaste size={16} />
+                </button>
                 <button
                   type="button"
                   onClick={undoLastElement}
@@ -4599,6 +4667,25 @@ const QuickPage = () => {
                             </button>
                           );
                         })}
+                        <button
+                          type="button"
+                          title={selectedElements.length > 1 ? "Copia elementi selezionati" : "Copia elemento"}
+                          aria-label={selectedElements.length > 1 ? "Copia elementi selezionati" : "Copia elemento"}
+                          onClick={copyBoardElements}
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/80 transition hover:bg-white/15"
+                        >
+                          <Copy size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Incolla elementi"
+                          aria-label="Incolla elementi"
+                          onClick={pasteBoardElements}
+                          disabled={!elementClipboard}
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/80 transition hover:bg-white/15 disabled:opacity-35"
+                        >
+                          <ClipboardPaste size={15} />
+                        </button>
                         <button
                           type="button"
                           title="Elimina"
