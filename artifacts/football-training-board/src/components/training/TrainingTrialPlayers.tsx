@@ -11,11 +11,18 @@ type Trial = {
   playerId: number;
   firstName: string;
   lastName: string;
+  birthYear: number | null;
+  medicalCertificate: boolean | null;
+  trialWaiver: boolean | null;
   startsOn: string;
   endsOn: string;
   score: number | null;
   decision: "approved" | "rejected" | null;
 };
+
+function documentStatus(value: boolean | null | undefined) {
+  return value === true ? "Sì" : value === false ? "No" : "Da indicare";
+}
 
 async function request<T>(path: string, method = "GET", body?: object): Promise<T> {
   const response = await fetch(withApi(path), {
@@ -72,6 +79,9 @@ export function TrainingTrialPlayers({ sessionId, scheduledAt, teamName, canEval
   const [open, setOpen] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [birthYear, setBirthYear] = useState("");
+  const [medicalCertificate, setMedicalCertificate] = useState(false);
+  const [trialWaiver, setTrialWaiver] = useState(false);
   const [startsOn, setStartsOn] = useState(sessionDay);
   const [endsOn, setEndsOn] = useState(sessionDay);
   const [message, setMessage] = useState("");
@@ -80,13 +90,18 @@ export function TrainingTrialPlayers({ sessionId, scheduledAt, teamName, canEval
   const trials = useQuery({ queryKey: [endpoint], queryFn: () => request<Trial[]>(endpoint), enabled: open });
   const refresh = () => { void client.invalidateQueries({ queryKey: [endpoint] }); };
   const create = useMutation({
-    mutationFn: () => request(endpoint, "POST", { firstName, lastName, startsOn, endsOn }),
+    mutationFn: () => request(endpoint, "POST", {
+      firstName, lastName, startsOn, endsOn, birthYear: Number(birthYear), medicalCertificate, trialWaiver,
+    }),
     onSuccess: () => {
       setFirstName("");
       setLastName("");
+      setBirthYear("");
+      setMedicalCertificate(false);
+      setTrialWaiver(false);
       setMessage("Ospite aggiunto alle sedute del periodo.");
       refresh();
-      for (const key of ["training-session-participants", "training-rosters", "training-availability", "/api/players", "/api/training-sessions", "training-trial-attendance", "/api/attendance-summary"]) {
+      for (const key of ["training-session-participants", "training-rosters", "station-organization-roster", "training-availability", "/api/players", "/api/training-sessions", "training-trial-attendance", "/api/attendance-summary"]) {
         void client.invalidateQueries({ queryKey: [key] });
       }
     },
@@ -105,6 +120,17 @@ export function TrainingTrialPlayers({ sessionId, scheduledAt, teamName, canEval
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="text-sm">Nome<Input required maxLength={80} value={firstName} onChange={event => setFirstName(event.target.value)} /></label>
             <label className="text-sm">Cognome<Input required maxLength={80} value={lastName} onChange={event => setLastName(event.target.value)} /></label>
+            <label className="text-sm">Anno di nascita<Input required type="number" min={1900} max={Number(sessionDay.slice(0, 4))} step={1} value={birthYear} onChange={event => setBirthYear(event.target.value)} /></label>
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-2 pb-1 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={medicalCertificate} onChange={event => setMedicalCertificate(event.target.checked)} />
+                Certificato medico presente
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={trialWaiver} onChange={event => setTrialWaiver(event.target.checked)} />
+                Foglio di manleva per la prova gratuita presente
+              </label>
+            </div>
             <label className="text-sm">Inizio prova<Input required type="date" max={sessionDay} value={startsOn} onChange={event => setStartsOn(event.target.value)} /></label>
             <label className="text-sm">Fine prova<Input required type="date" min={sessionDay} value={endsOn} onChange={event => setEndsOn(event.target.value)} /></label>
           </div>
@@ -121,6 +147,7 @@ export function TrainingTrialPlayers({ sessionId, scheduledAt, teamName, canEval
           return (
             <article className="rounded-lg border p-3" key={trial.playerId}>
               <p className="font-medium">{trial.firstName} {trial.lastName}</p>
+              <p className="text-xs text-muted-foreground">Anno di nascita {trial.birthYear ?? "da indicare"} · Certificato medico {documentStatus(trial.medicalCertificate)} · Manleva {documentStatus(trial.trialWaiver)}</p>
               <p className="text-xs text-muted-foreground">{trial.startsOn.split("-").reverse().join("/")} – {trial.endsOn.split("-").reverse().join("/")} · {active ? "Nella rosa di questa seduta" : "Fuori periodo per questa seduta"}</p>
               <p className="mt-1 text-sm">{outcome}{trial.score != null && " · " + trial.score + "/10"}</p>
               {canEvaluate && (trainingLocalDate() >= trial.endsOn

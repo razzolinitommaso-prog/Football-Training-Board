@@ -173,11 +173,13 @@ export function StationOrganization({
     : null;
   const title = (id: number) =>
     activities.find((a) => a.id === id)?.title ?? "Stazione";
+  const rosterById = new Map((roster.data ?? []).map(player => [player.id, player]));
   const names = (ids: number[]) =>
     ids
       .map((id) => {
-        const p = players.find((p) => p.id === id);
-        return p ? [p.lastName, p.firstName].join(" ") : "Giocatore " + id;
+        const p = rosterById.get(id);
+        if (p) return [p.lastName, p.firstName].join(" ");
+        return roster.isPending ? "Nome in caricamento" : "Giocatore non in rosa";
       })
       .join(" · ");
   function change(

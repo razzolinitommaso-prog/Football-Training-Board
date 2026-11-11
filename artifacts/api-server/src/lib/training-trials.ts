@@ -10,6 +10,9 @@ export type TrainingTrial = {
   teamId: number;
   firstName: string;
   lastName: string;
+  birthYear: number | null;
+  medicalCertificate: boolean | null;
+  trialWaiver: boolean | null;
   startsOn: string;
   endsOn: string;
   score: number | null;
@@ -18,7 +21,8 @@ export type TrainingTrial = {
 
 let tableReady: Promise<unknown> | undefined;
 export function ensureTrainingTrials() {
-  tableReady ??= db.execute(sql`
+  tableReady ??= db.transaction(async tx => {
+    await tx.execute(sql`
     CREATE TABLE IF NOT EXISTS training_player_trials (
       player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
       club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
@@ -31,7 +35,14 @@ export function ensureTrainingTrials() {
       evaluated_at TIMESTAMPTZ,
       CHECK (starts_on <= ends_on)
     )
-  `).catch(error => {
+    `);
+    await tx.execute(sql`
+      ALTER TABLE training_player_trials
+        ADD COLUMN IF NOT EXISTS birth_year INTEGER,
+        ADD COLUMN IF NOT EXISTS medical_certificate BOOLEAN,
+        ADD COLUMN IF NOT EXISTS trial_waiver BOOLEAN
+    `);
+  }).catch(error => {
     tableReady = undefined;
     throw error;
   });
@@ -44,6 +55,8 @@ export async function listTrainingTrials(clubId: number, teamIds: number[], read
   const result = await reader.execute(sql`
     SELECT t.player_id AS "playerId", t.team_id AS "teamId",
            p.first_name AS "firstName", p.last_name AS "lastName",
+           t.birth_year AS "birthYear", t.medical_certificate AS "medicalCertificate",
+           t.trial_waiver AS "trialWaiver",
            t.starts_on::text AS "startsOn", t.ends_on::text AS "endsOn",
            t.score, t.decision
     FROM training_player_trials t

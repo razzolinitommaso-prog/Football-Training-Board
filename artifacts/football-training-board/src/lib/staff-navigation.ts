@@ -26,12 +26,12 @@ export function staffNavigation(role: string) {
   if (role !== "secretary")
     items.push({ label: "Squadre", url: "/teams", icon: UsersRound });
   items.push({ label: "Giocatori", url: "/players", icon: Users });
-  if (technical)
+  if (technical || role === "secretary")
     items.push({
       label:
         role === "technical_director"
           ? "Sedute del mister"
-          : "Sedute Allenamento",
+          : role === "secretary" ? "Pianificazione sedute" : "Sedute Allenamento",
       url: "/training",
       icon: CalendarDays,
     });

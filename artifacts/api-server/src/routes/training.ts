@@ -627,7 +627,7 @@ router.post("/training-sessions/:id/trial-players", requireAuth, async (req, res
     res.status(403).json({ error: "Ospiti in prova non gestibili per questa seduta." });
     return;
   }
-  const { startsOn, endsOn } = req.body ?? {};
+  const { startsOn, endsOn, birthYear, medicalCertificate, trialWaiver } = req.body ?? {};
   const firstName = typeof req.body?.firstName === "string" ? req.body.firstName.trim() : "";
   const lastName = typeof req.body?.lastName === "string" ? req.body.lastName.trim() : "";
   const sessionDay = trainingLocalDate(session.scheduledAt);
@@ -635,6 +635,12 @@ router.post("/training-sessions/:id/trial-players", requireAuth, async (req, res
       !validTrainingTrialDate(startsOn) || !validTrainingTrialDate(endsOn) ||
       startsOn > sessionDay || endsOn < sessionDay) {
     res.status(400).json({ error: "Inserisci nome, cognome e un periodo che includa la data della seduta." });
+    return;
+  }
+  if ((birthYear !== undefined && (!Number.isInteger(birthYear) || birthYear < 1900 || birthYear > Number(sessionDay.slice(0, 4)))) ||
+      (medicalCertificate !== undefined && typeof medicalCertificate !== "boolean") ||
+      (trialWaiver !== undefined && typeof trialWaiver !== "boolean")) {
+    res.status(400).json({ error: "Controlla l’anno di nascita e le indicazioni su certificato medico e manleva." });
     return;
   }
   const teamId = session.teamId;
@@ -651,8 +657,10 @@ router.post("/training-sessions/:id/trial-players", requireAuth, async (req, res
       status: TRAINING_TRIAL_STATUS, clubSection: team.section, available: true,
     }).returning({ id: playersTable.id });
     await tx.execute(sql`
-      INSERT INTO training_player_trials (player_id, club_id, team_id, starts_on, ends_on)
-      VALUES (${player.id}, ${session.clubId}, ${teamId}, ${startsOn}::date, ${endsOn}::date)
+      INSERT INTO training_player_trials (player_id, club_id, team_id, starts_on, ends_on,
+        birth_year, medical_certificate, trial_waiver)
+      VALUES (${player.id}, ${session.clubId}, ${teamId}, ${startsOn}::date, ${endsOn}::date,
+        ${birthYear ?? null}, ${medicalCertificate ?? null}, ${trialWaiver ?? null})
     `);
     return player.id;
   });

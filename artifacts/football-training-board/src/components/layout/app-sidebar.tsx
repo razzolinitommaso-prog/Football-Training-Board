@@ -65,7 +65,7 @@ type SubItem = { label: string; url: string; icon: any; roles: string[] };
 const SEZIONE_SUB_ITEMS: SubItem[] = [
   { label: "Squadre",              url: "teams",      icon: UsersRound,    roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Giocatori",            url: "players",    icon: Users,         roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
-  { label: "Sedute Allenamento", url: "training",   icon: CalendarDays,  roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
+  { label: "Sedute Allenamento", url: "training",   icon: CalendarDays,  roles: ["admin", "presidente", "director", "secretary", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Convocazioni",          url: "training/convocazioni", icon: UsersRound, roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Stazioni",          url: "exercises",  icon: BookOpen,      roles: ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
   { label: "Partite",              url: "matches",    icon: Trophy,        roles: ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"] },
