@@ -53,7 +53,7 @@ type MonthlyAmounts = typeof emptyMonth;
 const receiptSeries = chartSeries.filter(series => series.stack === "incassato");
 const scaleLabel = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0, useGrouping: true });
 
-function receiptScale(maxAmount: number) {
+function chartScale(maxAmount: number) {
   if (maxAmount <= 10000) return [1000, 5000, 10000].find(limit => limit >= maxAmount) ?? 1000;
   const magnitude = 10 ** Math.floor(Math.log10(maxAmount));
   return ([1, 2, 5, 10].find(step => step * magnitude >= maxAmount) ?? 10) * magnitude;
@@ -190,20 +190,20 @@ export default function PaymentsPage() {
     amountsByMonth.set(key, values);
   }
   const chartMonths = [];
-  const methodTotals = { ...emptyMonth };
+  const periodTotals = { ...emptyMonth };
   if (validRange) {
     for (const date = monthDate(startMonth); date <= monthDate(endMonth); date.setUTCMonth(date.getUTCMonth() + 1)) {
       const key = date.toISOString().slice(0, 7);
       const values = amountsByMonth.get(key) ?? emptyMonth;
-      for (const series of receiptSeries) methodTotals[series.key] += values[series.key];
+      for (const series of chartSeries) periodTotals[series.key] += values[series.key];
       chartMonths.push({
         key, cash: values.cash / 100, card: values.card / 100, bank_transfer: values.bank_transfer / 100,
         otherMethod: values.otherMethod / 100, pending: values.pending / 100, overdue: values.overdue / 100,
       });
     }
   }
-  const chartTotal = receiptSeries.reduce((sum, series) => sum + methodTotals[series.key], 0);
-  const methodScale = receiptScale(Math.max(...receiptSeries.map(series => methodTotals[series.key])) / 100);
+  const chartTotal = receiptSeries.reduce((sum, series) => sum + periodTotals[series.key], 0);
+  const periodScale = chartScale(Math.max(...Object.values(periodTotals)) / 100);
 
   return <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -364,27 +364,27 @@ export default function PaymentsPage() {
         {undatedDues > 0 && <p className="mt-2 text-xs text-muted-foreground">Somme da riscuotere senza scadenza: {money.format(undatedDues / 100)}.</p>}
       </section>
 
-      {chartMonths.length > 0 && <section className="space-y-3 rounded-xl border bg-card p-3 sm:p-4" aria-labelledby="receipt-methods-heading">
+      {chartMonths.length > 0 && <section className="space-y-3 rounded-xl border bg-card p-3 sm:p-4" aria-labelledby="payment-period-heading">
         <div>
-          <h2 id="receipt-methods-heading" className="text-sm font-medium">Incassi per metodo</h2>
+          <h2 id="payment-period-heading" className="text-sm font-medium">Incassi per metodo e somme da riscuotere</h2>
           <p className="mt-1 text-xs text-muted-foreground">Stesso periodo del grafico mensile</p>
         </div>
         <ul className="space-y-3">
-          {receiptSeries.map(series => {
-            const amount = methodTotals[series.key] / 100;
+          {chartSeries.map(series => {
+            const amount = periodTotals[series.key] / 100;
             return <li key={series.key}>
               <div className="mb-1 flex flex-wrap justify-between gap-x-3 text-sm">
                 <span>{series.label}</span>
                 <span className="font-medium tabular-nums">{money.format(amount)}</span>
               </div>
               <div className="h-2.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                <div className="h-full rounded-full" style={{ width: `${amount / methodScale * 100}%`, backgroundColor: series.color }} />
+                <div className="h-full rounded-full" style={{ width: `${amount / periodScale * 100}%`, backgroundColor: series.color }} />
               </div>
             </li>;
           })}
         </ul>
         <div className="flex justify-between text-xs tabular-nums text-muted-foreground">
-          <span>{scaleLabel.format(0)}</span><span>{scaleLabel.format(methodScale)}</span>
+          <span>{scaleLabel.format(0)}</span><span>{scaleLabel.format(periodScale)}</span>
         </div>
       </section>}
 
