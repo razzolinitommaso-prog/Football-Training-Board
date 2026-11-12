@@ -10,14 +10,18 @@ import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { ReceiptMethodSelect } from "@/components/receipt-method-select";
 import { useAuth } from "@/hooks/use-auth";
 import { withApi } from "@/lib/api-base";
+import { listFeesForType, MAX_PLAYER_PAYMENT_AMOUNT, type FeeItem, type FeeType } from "@/lib/fee-list";
 import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, paymentStatuses, receiptMethodLabel, type PaymentEntry } from "@/lib/payment-summary";
 
 export type PlayerLedgerPayment = PaymentEntry & { id: number; amount: number; paymentDate?: string | null };
 type LedgerPayment = PlayerLedgerPayment & { playerId: number };
 type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; clubSection?: string };
 type Team = { id: number; name: string; clubSection: string };
-type Editor = { action: "due" | "settle" | "add"; ids: number[]; date: string; method: string; amount: string; paymentType: string; status: "paid" | "pending"; description: string };
+type Editor = { action: "due" | "settle" | "add"; ids: number[]; date: string; method: string; amount?: string; tariffId?: string; paymentType: string; status: "paid" | "pending"; description: string };
 const paymentTypes = { registration_fee: "Iscrizione · prima rata", annual_fee_installment: "Quota annuale", insurance_fee: "Assicurazione", kit_payment: "Kit", shuttle_monthly: "Pulmino", other: "Altro" };
+const tariffTypes: Partial<Record<string, FeeType>> = {
+  annual_fee_installment: "annual_fee", registration_fee: "registration_fee", insurance_fee: "insurance_fee",
+};
 const sectors = { scuola_calcio: "Scuola Calcio", settore_giovanile: "Settore Giovanile", prima_squadra: "Prima Squadra" };
 const money = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", useGrouping: true });
 const sum = (payments: PlayerLedgerPayment[]) => payments.reduce((total, payment) => total + Math.round(payment.amount * 100), 0) / 100;
@@ -33,12 +37,23 @@ async function request<T>(path: string, method = "GET", body?: unknown): Promise
 export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit = true, onDelete }: {
   playerId: number; payments: PlayerLedgerPayment[]; allowSecretaryEdit?: boolean; onDelete?: (id: number) => void;
 }) {
-  const { role } = useAuth();
+  const { role, club, user } = useAuth();
   const canCollect = role === "secretary" && allowSecretaryEdit;
   const canReschedule = canCollect || role === "presidente";
   const cache = useQueryClient();
   const [editor, setEditor] = useState<Editor>();
   const [error, setError] = useState("");
+  const tariffType = editor?.action === "add" ? tariffTypes[editor.paymentType] : undefined;
+  const feeList = useQuery({
+    queryKey: ["/api/fee-list", club?.id, user?.id, role],
+    queryFn: () => request<{ items: FeeItem[] }>("/api/fee-list"),
+    enabled: canCollect && tariffType !== undefined,
+  });
+  const activeFees = (feeList.data?.items ?? []).filter(item => item.isActive === 1 && item.price != null);
+  const tariffs = tariffType ? listFeesForType(activeFees, tariffType) : [];
+  const tariffId = editor?.tariffId ?? (tariffs.length === 1 ? String(tariffs[0].id) : "");
+  const tariff = tariffs.find(item => String(item.id) === tariffId);
+  const amount = editor?.amount ?? (tariff?.price == null ? "" : String(tariff.price));
   const today = trainingLocalDate();
   const openPayments = payments.filter(payment => payment.status !== "paid" && payment.amount > 0);
   const overdue = openPayments.filter(payment => paymentStatus(payment, today) === "overdue");
@@ -53,10 +68,11 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
   function open(action: Editor["action"], rows: PlayerLedgerPayment[] = []) {
     setError("");
     setEditor({ action, ids: rows.map(payment => payment.id), date: action === "due" ? rows[0]?.dueDate ?? "" : today,
-      method: "", amount: "", paymentType: "annual_fee_installment", status: "paid", description: "" });
+      method: "", paymentType: "annual_fee_installment", status: "paid", description: "" });
   }
   const requiresMethod = editor?.action === "settle" || (editor?.action === "add" && editor.status === "paid");
-  const invalid = !editor?.date || (requiresMethod && !isReceiptMethod(editor.method)) || (editor.action === "add" && !(Number(editor.amount) >= 0.01 && Number(editor.amount) <= 20000));
+  const invalid = !editor?.date || (requiresMethod && !isReceiptMethod(editor.method)) ||
+    (editor.action === "add" && !(Number(amount) >= 0.01 && Number(amount) <= MAX_PLAYER_PAYMENT_AMOUNT));
   return <div className="space-y-3">
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       {[["Totale registrato", sum(payments)], ["Incassato", sum(payments.filter(payment => payment.status === "paid"))],
@@ -68,7 +84,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
       {openPayments.length > 0 && <Button type="button" size="sm" variant="outline" onClick={() => open("settle", openPayments)}>Incassa saldo · {money.format(sum(openPayments))}</Button>}
     </div>}
     <div className="divide-y rounded-lg border bg-card">
-      {payments.length === 0 && <p className="p-3 text-sm text-muted-foreground">Nessun movimento registrato.</p>}
+      {payments.length === 0 && <p className="p-3 text-sm text-muted-foreground">Nessun pagamento registrato.</p>}
       {payments.map(payment => <div key={payment.id} className="flex flex-wrap items-center gap-2 p-3 text-sm">
         <div className="min-w-32 flex-1">
           <p>{payment.description || paymentCategories[paymentCategory(payment)]}</p>
@@ -95,8 +111,8 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
             save.mutate({ path: "/api/player-payments/settle", method: "POST", body: { playerId, ids: editor.ids, paymentDate: editor.date, paymentMethod: editor.method } });
           } else {
             save.mutate({ path: "/api/player-payments", method: "POST", body: {
-              playerId, amount: Number(editor.amount), status: editor.status, paymentType: editor.paymentType,
-              description: editor.description.trim() || paymentTypes[editor.paymentType as keyof typeof paymentTypes],
+              playerId, amount: Number(amount), status: editor.status, paymentType: editor.paymentType,
+              description: editor.description.trim() || tariff?.name || paymentTypes[editor.paymentType as keyof typeof paymentTypes],
               dueDate: editor.status === "pending" ? editor.date : null,
               paymentDate: editor.status === "paid" ? editor.date : null, paymentMethod: editor.status === "paid" ? editor.method : null,
             } });
@@ -104,15 +120,24 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
         }}>
           {editor.action === "settle" && <p className="text-sm">Importo da incassare <strong>{money.format(sum(payments.filter(payment => editor.ids.includes(payment.id))))}</strong></p>}
           {editor.action === "add" && <div className="grid gap-2 sm:grid-cols-2">
-            <label className="block text-sm">Voce<ScrollableSelect aria-label="Voce" className="mt-1 w-full" value={editor.paymentType} onValueChange={paymentType => setEditor({ ...editor, paymentType })}>
+            <label className="block text-sm">Voce<ScrollableSelect aria-label="Voce" className="mt-1 w-full" value={editor.paymentType} onValueChange={paymentType => setEditor({ ...editor, paymentType, tariffId: undefined, amount: undefined })}>
               {Object.entries(paymentTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </ScrollableSelect></label>
-            <label className="block text-sm">Importo (€)<Input type="number" min="0.01" max="20000" step="0.01" value={editor.amount} onChange={event => setEditor({ ...editor, amount: event.target.value })} /></label>
+            {tariffType && <label className="block text-sm">Tariffa di listino
+              <ScrollableSelect aria-label="Tariffa di listino" className="mt-1 w-full" value={tariffId} onValueChange={value => setEditor({ ...editor, tariffId: value, amount: undefined })}>
+                <option value="">{feeList.isError ? "Listino non disponibile · Manuale" : feeList.isPending ? "Caricamento tariffe…" : "Scegli tariffa o inserisci a mano"}</option>
+                {tariffs.map(item => <option key={item.id} value={String(item.id)}>{item.name} · {money.format(item.price ?? 0)}</option>)}
+              </ScrollableSelect>
+            </label>}
+            <label className="block text-sm">Importo (€)<Input type="number" min="0.01" max={MAX_PLAYER_PAYMENT_AMOUNT} step="0.01" value={amount} onChange={event => setEditor({ ...editor, amount: event.target.value })} /></label>
             <label className="block text-sm">Stato<ScrollableSelect aria-label="Stato nuova voce" className="mt-1 w-full" value={editor.status} onValueChange={value => setEditor({ ...editor, status: value === "pending" ? "pending" : "paid", date: value === "pending" ? "" : today })}>
               <option value="paid">Incassato subito</option><option value="pending">Da incassare</option>
             </ScrollableSelect></label>
             <label className="block text-sm">Descrizione<Input value={editor.description} onChange={event => setEditor({ ...editor, description: event.target.value })} /></label>
           </div>}
+          {editor.action === "add" && (tariffType === "annual_fee" || tariffType === "registration_fee") && (
+            <p className="text-xs text-muted-foreground">L’iscrizione è la prima rata della quota annuale. Per ripartire la quota tra acconto e rate, usa il piano quote nella scheda giocatore.</p>
+          )}
           <label className="block text-sm">{editor.action === "due" ? "Nuova scadenza" : requiresMethod ? "Data d’incasso" : "Scadenza"}
             <Input type="date" required value={editor.date} onChange={event => setEditor({ ...editor, date: event.target.value })} />
           </label>
@@ -125,7 +150,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
   </div>;
 }
 
-export function PlayerPaymentWorkspace({ payments }: { payments: LedgerPayment[] }) {
+export function PlayerPaymentWorkspace({ payments, focusSearch = false }: { payments: LedgerPayment[]; focusSearch?: boolean }) {
   const { club, role, user } = useAuth();
   const [sector, setSector] = useState("");
   const [team, setTeam] = useState("");
@@ -169,7 +194,7 @@ export function PlayerPaymentWorkspace({ payments }: { payments: LedgerPayment[]
       <label className="text-sm">Annata<ScrollableSelect aria-label="Annata" className="mt-1 w-full" value={team} onValueChange={value => { setTeam(value); setSelected(undefined); }}>
         <option value="">Tutte</option>{availableTeams.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </ScrollableSelect></label>
-      <label className="text-sm">Cerca giocatore<Input className="mt-1" value={name} onChange={event => { setName(event.target.value); setSelected(undefined); }} /></label>
+      <label className="text-sm">Cerca giocatore<Input autoFocus={focusSearch} className="mt-1" value={name} onChange={event => { setName(event.target.value); setSelected(undefined); }} /></label>
       <label className="text-sm">Situazione<ScrollableSelect aria-label="Situazione" className="mt-1 w-full" value={situation} onValueChange={value => { setSituation(value); setSelected(undefined); }}>
         <option value="">Tutte</option><option value="new">Da registrare</option><option value="missing">Dati mancanti</option>
         <option value="active">In corso</option><option value="overdue">Scaduti</option>

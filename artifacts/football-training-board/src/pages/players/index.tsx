@@ -29,7 +29,7 @@ import { useLanguage } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { Link, useLocation } from "wouter";
-import { MAX_PLAYER_PAYMENT_AMOUNT } from "@/lib/fee-list";
+import { listFeesForType, MAX_PLAYER_PAYMENT_AMOUNT } from "@/lib/fee-list";
 import { depositPurposes, isReceiptMethod, paymentStatus, playerEconomicBalance, quotePaymentStatus, receiptMethodLabel } from "@/lib/payment-summary";
 import { ExtraTime } from "@/components/extra-time";
 import { ReceiptMethodSelect } from "@/components/receipt-method-select";
@@ -1771,9 +1771,9 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     .filter((doc) => doc.type === "medicalCertificate")
     .sort((a, b) => String(b.expiryDate ?? "").localeCompare(String(a.expiryDate ?? "")))[0] ?? null;
   const activeListItems = warehouseListItems.filter((item) => item.isActive !== 0 && item.price != null);
-  const annualTariffs = activeListItems.filter(item => item.itemType === "annual_fee");
-  const annualFeeListItems = annualTariffs.length ? annualTariffs : activeListItems.filter(item => item.itemType === "registration_fee");
-  const insuranceFeeListItems = activeListItems.filter((item) => item.itemType === "insurance_fee");
+  const annualFeeListItems = listFeesForType(activeListItems, "annual_fee");
+  const registrationFeeListItems = listFeesForType(activeListItems, "registration_fee");
+  const insuranceFeeListItems = listFeesForType(activeListItems, "insurance_fee");
   const shuttleFeeListItems = activeListItems.filter((item) => item.itemType === "shuttle_fee");
   const kitListItems = activeListItems.filter((item) =>
     item.section === "apparel" &&
@@ -4927,7 +4927,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                               <SelectItem value="_manual">Manuale</SelectItem>
                               {!priceListPending && !priceListError && !annualFeeListItems.length && <SelectItem value="_empty" disabled>Nessuna tariffa attiva</SelectItem>}
                               {annualFeeListItems.map((item) => (
-                                <SelectItem key={item.id} value={String(item.id)}>{item.name} - Euro {formatEuro(item.price)}</SelectItem>
+                                <SelectItem key={item.id} value={String(item.id)}>{item.name}{item.code ? ` · ${item.code}` : ""} - Euro {formatEuro(item.price)}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -5006,7 +5006,15 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                         <p className="text-xs text-muted-foreground">L’iscrizione è la prima rata della quota annuale.</p>
                         {depositDrafts.map((draft, index) => (
                           <div key={draft.id} className="grid items-end gap-2 rounded-md border px-3 py-2 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
-                            {index < 2 ? <p className="self-center text-sm font-medium">{index === 0 ? "Iscrizione · prima rata" : "Assicurazione"}</p> : <label className="block min-w-0 space-y-1 text-sm">Voce
+                            {index === 0 ? <label className="block min-w-0 space-y-1 text-sm">Iscrizione · prima rata
+                              <ScrollableSelect aria-label="Tariffa iscrizione" className="w-full" defaultValue="" onValueChange={value => {
+                                const item = registrationFeeListItems.find(entry => String(entry.id) === value);
+                                if (item?.price != null) updateDeposit(draft.id, { amount: String(item.price) });
+                              }}>
+                                <option value="">Manuale o da listino</option>
+                                {registrationFeeListItems.map(item => <option key={item.id} value={String(item.id)}>{item.name}{item.code ? ` · ${item.code}` : ""} - Euro {formatEuro(item.price)}</option>)}
+                              </ScrollableSelect>
+                            </label> : index === 1 ? <p className="self-center text-sm font-medium">Assicurazione</p> : <label className="block min-w-0 space-y-1 text-sm">Voce
                               <ScrollableSelect aria-label={`Voce versamento ${index + 1}`} className="w-full" value={draft.purpose} onValueChange={purpose => updateDeposit(draft.id, { purpose })}>
                                 {depositPurposes.map(purpose => <option key={purpose} value={purpose}>{purpose}</option>)}
                               </ScrollableSelect>

@@ -5,6 +5,14 @@ export type FeeType = keyof typeof feeLabels;
 export type FeeInput = { id?: number; itemType: FeeType; name: string; code: string; price: number; isActive?: boolean };
 export type FeeItem = Omit<FeeInput, "id" | "price" | "isActive"> & { id: number; price: number | null; isActive: number };
 
+export function listFeesForType<T extends { itemType?: string | null; name: string }>(items: T[], type: FeeType): T[] {
+  const legacyAnnual = (item: T) => item.itemType === "registration_fee" && /\bannuale\b/i.test(item.name);
+  if (type === "insurance_fee") return items.filter(item => item.itemType === type);
+  if (type === "registration_fee") return items.filter(item => item.itemType === type && !legacyAnnual(item));
+  const annual = items.filter(item => item.itemType === type || legacyAnnual(item));
+  return annual.length ? annual : items.filter(item => item.itemType === "registration_fee");
+}
+
 export function parseFeeAmount(value: unknown): number {
   if (typeof value === "number") {
     if (!Number.isFinite(value) || value <= 0 || value > MAX_PLAYER_PAYMENT_AMOUNT || Math.abs(value * 100 - Math.round(value * 100)) > 1e-6) {

@@ -1,5 +1,5 @@
 import { PlayerPaymentWorkspace } from "@/components/player-payment-register";
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Banknote, Plus, Trash2 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { ReceiptMethodSelect } from "@/components/receipt-method-select";
@@ -30,15 +30,6 @@ type Payment = PaymentEntry & {
 };
 type Player = { id: number; firstName: string; lastName: string; teamId?: number | null };
 type KitTeam = { id: number; name: string; seasonName?: string | null };
-const paymentTypes = {
-  registration_fee: "Quota iscrizione",
-  annual_fee_installment: "Quota annuale",
-  insurance_fee: "Quota assicurazione",
-  kit_payment: "Kit",
-  shuttle_monthly: "Pulmino",
-  other: "Altro",
-};
-const blank = { playerId: "", amount: "", status: "pending", paymentType: "registration_fee", dueDate: "", paymentDate: "", paymentMethod: "", description: "" };
 const money = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", useGrouping: true });
 const axisAmount = new Intl.NumberFormat("it-IT", { useGrouping: true });
 const monthLabel = new Intl.DateTimeFormat("it-IT", { month: "short", year: "numeric", timeZone: "UTC" });
@@ -65,7 +56,6 @@ function chartScale(maxAmount: number) {
 }
 type ChartPeriod = "annual" | "quarterly" | "custom";
 const statusVariant = { paid: "default", pending: "secondary", overdue: "destructive" } as const;
-const playerName = (player: Player) => [player.lastName, player.firstName].filter(Boolean).join(" ");
 const searchKey = (value: string) => value.toLocaleLowerCase("it").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const displayDate = (date: string) => date.split("-").reverse().join("/");
 
@@ -84,8 +74,7 @@ export default function PaymentsPage() {
   const cache = useQueryClient();
   const today = trainingLocalDate();
   const [view, setView] = useState<"players" | "ledger">("players");
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(blank);
+  const [focusPlayerSearch, setFocusPlayerSearch] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
@@ -101,11 +90,6 @@ export default function PaymentsPage() {
   const list = useQuery({
     queryKey: ["/api/player-payments", club?.id, user?.id, role],
     queryFn: () => apiFetch<Payment[]>("/api/player-payments"),
-  });
-  const { data: players = [] } = useQuery({
-    queryKey: ["/api/players", "payment-picker", club?.id, user?.id],
-    queryFn: () => apiFetch<Player[]>("/api/players"),
-    enabled: canEdit && open,
   });
   const showKit = view === "ledger" && category === "kit";
   const kitRoster = useQuery({
@@ -129,28 +113,17 @@ export default function PaymentsPage() {
     queryFn: () => apiFetch<KitRequestLine[]>("/api/warehouse-kit-requests"), enabled: showKit,
   });
   const save = useMutation({
-    mutationFn: (action: { id?: number; method: "POST" | "PATCH" | "DELETE"; body?: object }) => apiFetch(
+    mutationFn: (action: { id: number; method: "PATCH" | "DELETE"; body?: object }) => apiFetch(
       "/api/player-payments" + (action.id ? "/" + action.id : ""),
       { method: action.method, body: action.body ? JSON.stringify(action.body) : undefined },
     ),
     onSuccess: (_, action) => {
       void cache.invalidateQueries({ queryKey: ["/api/player-payments"] });
       void cache.invalidateQueries({ queryKey: ["/api/players"] });
-      if (action.method === "POST") { setOpen(false); setDraft(blank); }
       if (action.method === "PATCH") setReceipt(undefined);
     },
     onError: () => toast({ title: "Pagamento non aggiornato", variant: "destructive" }),
   });
-
-  function createPayment(event: FormEvent) {
-    event.preventDefault();
-    if (!canEdit || !draft.playerId || Number(draft.amount) <= 0 || (draft.status === "paid" && !isReceiptMethod(draft.paymentMethod))) return;
-    save.mutate({ method: "POST", body: {
-      ...draft, playerId: Number(draft.playerId), amount: Number(draft.amount), dueDate: draft.dueDate || null,
-      paymentDate: draft.status === "paid" ? draft.paymentDate || today : null,
-      paymentMethod: draft.status === "paid" ? draft.paymentMethod : null,
-    } });
-  }
 
   const payments = list.data ?? [];
   const teams = new Map<number, string>();
@@ -250,51 +223,15 @@ export default function PaymentsPage() {
         <h1 className="flex items-center gap-2 text-2xl font-semibold"><Banknote className="h-6 w-6 text-primary" />Pagamenti</h1>
         <p className="mt-1 text-sm text-muted-foreground">Consulta incassi, quote e scadenze della società.</p>
       </div>
-      {canEdit && view === "ledger" && <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild><Button><Plus className="h-4 w-4" />Aggiungi pagamento</Button></DialogTrigger>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Aggiungi pagamento</DialogTitle></DialogHeader>
-          <form onSubmit={createPayment} className="space-y-3">
-            <label className="block space-y-1 text-sm">Giocatore
-              <ScrollableSelect aria-label="Giocatore" className="w-full" value={draft.playerId} onValueChange={value => setDraft({ ...draft, playerId: value })}>
-                <option value="" disabled>Scegli giocatore</option>
-                {[...players].sort((a, b) => playerName(a).localeCompare(playerName(b), "it")).map(player =>
-                  <option key={player.id} value={player.id}>{playerName(player)}</option>,
-                )}
-              </ScrollableSelect>
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block space-y-1 text-sm">Importo (€)<Input required type="number" min="0.01" step="0.01" value={draft.amount} onChange={event => setDraft({ ...draft, amount: event.target.value })} /></label>
-              <label className="block space-y-1 text-sm">Scadenza<Input type="date" value={draft.dueDate} onChange={event => setDraft({ ...draft, dueDate: event.target.value })} /></label>
-            </div>
-            <label className="block space-y-1 text-sm">Tipo
-              <ScrollableSelect aria-label="Tipo pagamento" className="w-full" value={draft.paymentType} onValueChange={value => setDraft({ ...draft, paymentType: value })}>
-                {Object.entries(paymentTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-              </ScrollableSelect>
-            </label>
-            <label className="block space-y-1 text-sm">Stato
-              <ScrollableSelect aria-label="Stato pagamento" className="w-full" value={draft.status} onValueChange={value => setDraft({ ...draft, status: value })}>
-                {Object.entries(paymentStatuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-              </ScrollableSelect>
-            </label>
-            {draft.status === "paid" && <div className="grid gap-2 sm:grid-cols-2">
-              <label className="block space-y-1 text-sm">Data di incasso
-                <Input type="date" required value={draft.paymentDate || today} onChange={event => setDraft({ ...draft, paymentDate: event.target.value })} />
-              </label>
-              <ReceiptMethodSelect value={draft.paymentMethod} onChange={paymentMethod => setDraft({ ...draft, paymentMethod })} />
-            </div>}
-            <label className="block space-y-1 text-sm">Descrizione<Input value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annulla</Button>
-              <Button type="submit" disabled={!draft.playerId || !draft.amount || save.isPending || (draft.status === "paid" && !isReceiptMethod(draft.paymentMethod))}>Salva</Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>}
+      {canEdit && view === "ledger" && (
+        <Button type="button" onClick={() => { setFocusPlayerSearch(true); setView("players"); }}>
+          <Plus className="h-4 w-4" />Aggiungi pagamento
+        </Button>
+      )}
     </div>
 
     <div className="flex flex-wrap gap-2">
-      <Button type="button" aria-pressed={view === "players"} variant={view === "players" ? "default" : "outline"} onClick={() => setView("players")}>Incassi giocatori</Button>
+      <Button type="button" aria-pressed={view === "players"} variant={view === "players" ? "default" : "outline"} onClick={() => { setFocusPlayerSearch(false); setView("players"); }}>Incassi giocatori</Button>
       <Button type="button" aria-pressed={view === "ledger"} variant={view === "ledger" ? "default" : "outline"} onClick={() => setView("ledger")}>Registro e grafici</Button>
     </div>
     {view === "ledger" && <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-3 md:grid-cols-3 xl:grid-cols-6">
@@ -336,7 +273,7 @@ export default function PaymentsPage() {
       <div role="alert" className="flex flex-wrap items-center gap-2">Impossibile caricare i pagamenti.
         <Button type="button" variant="outline" size="sm" onClick={() => void list.refetch()}>Riprova</Button>
       </div>
-    ) : view === "players" ? <PlayerPaymentWorkspace payments={payments} /> : <>
+    ) : view === "players" ? <PlayerPaymentWorkspace payments={payments} focusSearch={focusPlayerSearch} /> : <>
       <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2 lg:grid-cols-4">
         {(Object.keys(paymentStatuses) as PaymentStatus[]).map(key => <Card key={key}><CardContent className="p-3">
           <p className="text-xs text-muted-foreground">{paymentStatuses[key]}</p>
