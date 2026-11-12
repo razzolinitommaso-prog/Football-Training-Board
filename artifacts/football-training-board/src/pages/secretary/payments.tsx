@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { ReceiptMethodSelect } from "@/components/receipt-method-select";
 import { withApi } from "@/lib/api-base";
+import { estimateKitPotential, type KitPotentialEquipment, type KitPotentialItem } from "@/lib/kit-potential";
+import type { KitRequestLine } from "@/lib/player-kit-catalog";
 import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, paymentStatuses, receiptMethodLabel, receiptMethods, type PaymentEntry, type PaymentStatus } from "@/lib/payment-summary";
 
 type Payment = PaymentEntry & {
@@ -26,7 +28,8 @@ type Payment = PaymentEntry & {
   teamName?: string | null;
   teamSeason?: string | null;
 };
-type Player = { id: number; firstName: string; lastName: string };
+type Player = { id: number; firstName: string; lastName: string; teamId?: number | null };
+type KitTeam = { id: number; name: string; seasonName?: string | null };
 const paymentTypes = {
   registration_fee: "Quota iscrizione",
   annual_fee_installment: "Quota annuale",
@@ -104,6 +107,27 @@ export default function PaymentsPage() {
     queryFn: () => apiFetch<Player[]>("/api/players"),
     enabled: canEdit && open,
   });
+  const showKit = view === "ledger" && category === "kit";
+  const kitRoster = useQuery({
+    queryKey: ["/api/players", "kit-potential", club?.id, user?.id, role],
+    queryFn: () => apiFetch<Player[]>("/api/players"), enabled: showKit,
+  });
+  const kitTeams = useQuery({
+    queryKey: ["/api/teams", "kit-potential", club?.id, user?.id, role],
+    queryFn: () => apiFetch<KitTeam[]>("/api/teams"), enabled: showKit,
+  });
+  const kitEquipment = useQuery({
+    queryKey: ["/api/equipment", club?.id, user?.id, role],
+    queryFn: () => apiFetch<KitPotentialEquipment[]>("/api/equipment"), enabled: showKit,
+  });
+  const kitCatalog = useQuery({
+    queryKey: ["/api/warehouse-items", "kit-potential", club?.id, user?.id, role],
+    queryFn: () => apiFetch<KitPotentialItem[]>("/api/warehouse-items?section=apparel"), enabled: showKit,
+  });
+  const kitRequests = useQuery({
+    queryKey: ["/api/warehouse-kit-requests", club?.id, user?.id],
+    queryFn: () => apiFetch<KitRequestLine[]>("/api/warehouse-kit-requests"), enabled: showKit,
+  });
   const save = useMutation({
     mutationFn: (action: { id?: number; method: "POST" | "PATCH" | "DELETE"; body?: object }) => apiFetch(
       "/api/player-payments" + (action.id ? "/" + action.id : ""),
@@ -135,6 +159,18 @@ export default function PaymentsPage() {
       teams.set(payment.teamId, [payment.teamName, payment.teamSeason].filter(Boolean).join(" · "));
     }
   }
+  if (showKit) {
+    for (const entry of kitTeams.data ?? []) teams.set(entry.id, [entry.name, entry.seasonName].filter(Boolean).join(" · "));
+  }
+  const kitQueries = [kitRoster, kitTeams, kitEquipment, kitCatalog, kitRequests];
+  const kitLoadError = kitQueries.some(query => query.isError);
+  const kitPotential = showKit && !kitLoadError && kitQueries.every(query => query.isSuccess)
+    ? estimateKitPotential(
+      (kitRoster.data ?? []).filter(player =>
+        (!team || (team === "unassigned" ? player.teamId == null : String(player.teamId) === team)) &&
+        searchKey(`${player.firstName} ${player.lastName} ${player.lastName} ${player.firstName}`).includes(searchKey(search.trim())),
+      ).map(player => player.id), kitEquipment.data ?? [], kitCatalog.data ?? [], kitRequests.data ?? [], payments,
+    ) : undefined;
   const teamOptions = [...teams.entries()].sort(([, a], [, b]) => a.localeCompare(b, "it", { numeric: true }));
   const byCategoryAndName = payments.filter(payment =>
     (!team || (team === "unassigned" ? payment.teamId === null : String(payment.teamId) === team)) &&
@@ -269,7 +305,7 @@ export default function PaymentsPage() {
         <ScrollableSelect aria-label="Filtra per annata" className="w-full" value={team} onValueChange={setTeam}>
           <option value="">Tutte</option>
           {teamOptions.map(([id, label]) => <option key={id} value={String(id)}>{label}</option>)}
-          {(team === "unassigned" || payments.some(payment => payment.teamId === null)) && <option value="unassigned">Senza annata</option>}
+          {(team === "unassigned" || payments.some(payment => payment.teamId === null) || (showKit && kitRoster.data?.some(player => player.teamId == null))) && <option value="unassigned">Senza annata</option>}
         </ScrollableSelect>
       </label>
       <label className="min-w-0 space-y-1 text-xs font-medium">Categoria
@@ -313,6 +349,32 @@ export default function PaymentsPage() {
           <p className="mt-1 text-xs text-muted-foreground">Incassato + da riscuotere con scadenza nell’anno</p>
         </CardContent></Card>
       </div>
+
+      {showKit && <Card><CardContent className="space-y-3 p-3 sm:p-4">
+        <h2 className="text-sm font-medium">Potenziale kit</h2>
+        {kitLoadError ? <div role="alert" className="flex flex-wrap items-center gap-2 text-sm">
+          Stima non disponibile.
+          <Button type="button" variant="outline" size="sm" onClick={() => { for (const query of kitQueries) if (query.isError) void query.refetch(); }}>Riprova</Button>
+        </div> : kitPotential ? <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="col-span-2 rounded-lg bg-primary/5 px-3 py-2 sm:col-span-1">
+              <p className="text-xs text-muted-foreground">Incasso potenziale stimato</p>
+              <p className="text-lg font-semibold tabular-nums">{money.format(kitPotential.cents / 100)}</p>
+            </div>
+            <div className="rounded-lg bg-muted/60 px-3 py-2">
+              <p className="text-xs text-muted-foreground">Giocatori senza kit</p>
+              <p className="text-lg font-medium tabular-nums">{kitPotential.withoutKit}</p>
+            </div>
+            <div className="rounded-lg bg-muted/60 px-3 py-2">
+              <p className="text-xs text-muted-foreground">Giocatori con kit da completare</p>
+              <p className="text-lg font-medium tabular-nums">{kitPotential.partialKit}</p>
+            </div>
+          </div>
+          {kitPotential.unpricedItems > 0 && <p className="text-xs text-muted-foreground">Voci senza prezzo utilizzabile, escluse dalla stima: {kitPotential.unpricedItems}.</p>}
+          {kitPotential.toVerify > 0 && <p className="text-xs text-muted-foreground">Giocatori con kit o pagamenti da verificare: {kitPotential.toVerify}.</p>}
+          <p className="text-xs text-muted-foreground">Una unità per voce mancante al prezzo di listino più basso. La stima segue annata e nome del giocatore e resta separata dagli incassi e dalla previsione annuale.</p>
+        </> : <p role="status" className="text-sm text-muted-foreground">Calcolo del potenziale kit…</p>}
+      </CardContent></Card>}
 
       <section className="rounded-xl border bg-card p-3 sm:p-4">
         <h2 className="text-sm font-medium">Incassi e somme da riscuotere</h2>
