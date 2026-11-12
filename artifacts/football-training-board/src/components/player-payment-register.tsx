@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown } from "lucide-react";
 import { Link } from "wouter";
 import { trainingLocalDate } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
@@ -142,20 +143,26 @@ export function PlayerPaymentWorkspace({ payments }: { payments: LedgerPayment[]
   const availableTeams = (teams.data ?? []).filter(item => !sector || item.clubSection === sector);
   const byTeam = new Map((teams.data ?? []).map(item => [item.id, item]));
   const today = trainingLocalDate();
-  const matches = (players.data ?? []).filter(player => {
+  const matches = (players.data ?? []).flatMap(player => {
     const rows = byPlayer.get(player.id) ?? [];
-    const playerSector = player.clubSection || byTeam.get(player.teamId ?? 0)?.clubSection;
-    if ((sector && playerSector !== sector) || (team && String(player.teamId) !== team)) return false;
-    if (!`${player.firstName} ${player.lastName} ${player.lastName} ${player.firstName}`.toLocaleLowerCase("it").includes(name.trim().toLocaleLowerCase("it"))) return false;
-    if (situation === "new") return !rows.length;
-    if (situation === "missing") return rows.some(row => row.status === "paid" ? !row.paymentDate || !row.paymentMethod : !row.dueDate);
-    if (situation === "active") return rows.some(row => paymentStatus(row, today) === "pending" && !!row.dueDate);
-    if (situation === "overdue") return rows.some(row => paymentStatus(row, today) === "overdue");
-    return true;
-  }).sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it"));
-  const player = (players.data ?? []).find(item => item.id === selected);
+    const playerTeam = byTeam.get(player.teamId ?? 0);
+    const playerSector = player.clubSection || playerTeam?.clubSection;
+    if ((sector && playerSector !== sector) || (team && String(player.teamId) !== team)) return [];
+    if (!`${player.firstName} ${player.lastName} ${player.lastName} ${player.firstName}`.toLocaleLowerCase("it").includes(name.trim().toLocaleLowerCase("it"))) return [];
+    const overdue = rows.filter(row => row.amount > 0 && paymentStatus(row, today) === "overdue");
+    if (situation === "new" && rows.length) return [];
+    if (situation === "missing" && !rows.some(row => row.status === "paid" ? !row.paymentDate || !row.paymentMethod : !row.dueDate)) return [];
+    if (situation === "active" && !rows.some(row => paymentStatus(row, today) === "pending" && !!row.dueDate)) return [];
+    if (situation === "overdue" && !overdue.length) return [];
+    const oldest = overdue.reduce<string | undefined>((date, row) => row.dueDate && (!date || row.dueDate < date) ? row.dueDate : date, undefined);
+    return [{ player, teamName: playerTeam?.name ?? "Senza annata", overdue, oldest }];
+  }).sort((a, b) => {
+    const byDate = situation === "overdue" ? (a.oldest ?? "9999").localeCompare(b.oldest ?? "9999") : 0;
+    return byDate || `${a.player.lastName} ${a.player.firstName}`.localeCompare(`${b.player.lastName} ${b.player.firstName}`, "it");
+  });
+  const overdueOnly = situation === "overdue";
   return <section className="space-y-3 rounded-xl border bg-card p-4">
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 [&>label]:min-w-0">
       <label className="text-sm">Settore<ScrollableSelect aria-label="Settore" className="mt-1 w-full" value={sector} onValueChange={value => { setSector(value); setTeam(""); setSelected(undefined); }}>
         <option value="">Tutti</option>{Object.entries(sectors).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
       </ScrollableSelect></label>
@@ -169,17 +176,35 @@ export function PlayerPaymentWorkspace({ payments }: { payments: LedgerPayment[]
       </ScrollableSelect></label>
     </div>
     {players.isError || teams.isError ? <p role="alert">Impossibile caricare giocatori e annate. <Button size="sm" variant="outline" onClick={() => { void players.refetch(); void teams.refetch(); }}>Riprova</Button></p> :
-      players.isPending || teams.isPending ? <p role="status">Caricamento giocatori…</p> : <ScrollableSelect aria-label="Seleziona giocatore" className="w-full sm:w-80" value={selected ? String(selected) : ""} onValueChange={value => setSelected(value ? Number(value) : undefined)}>
-        <option value="">{matches.length ? "Seleziona giocatore" : "Nessun giocatore corrispondente"}</option>
-        {matches.map(item => <option key={item.id} value={item.id}>{item.lastName} {item.firstName} · {byTeam.get(item.teamId ?? 0)?.name ?? "Senza annata"}</option>)}
-        {player && !matches.some(item => item.id === player.id) && <option value={player.id}>{player.lastName} {player.firstName}</option>}
-      </ScrollableSelect>}
-    {player && <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold">{player.firstName} {player.lastName}</h2>
-        <Link href={`/players?openPlayerId=${player.id}&focus=quotes`} className="text-sm text-primary underline">Apri scheda giocatore</Link>
-      </div>
-      <PlayerPaymentRegister key={player.id} playerId={player.id} payments={byPlayer.get(player.id) ?? []} />
-    </>}
+      players.isPending || teams.isPending ? <p role="status">Caricamento giocatori…</p> : <>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/55 px-3 py-2.5" role="status">
+          <h2 className="text-sm font-semibold">{matches.length} {overdueOnly ? (matches.length === 1 ? "giocatore con insoluti" : "giocatori con insoluti") : (matches.length === 1 ? "giocatore" : "giocatori")}</h2>
+          {overdueOnly && <span className="text-sm text-muted-foreground">Totale scaduto <strong className="ml-1 tabular-nums text-destructive">{money.format(sum(matches.flatMap(item => item.overdue)))}</strong></span>}
+        </div>
+        {matches.length === 0 ? <p className="px-1 text-sm text-muted-foreground">{overdueOnly ? "Nessun insoluto per i filtri selezionati." : "Nessun giocatore corrispondente."}</p> :
+          <ul className="divide-y overflow-hidden rounded-lg border">
+            {matches.map(({ player, teamName, overdue, oldest }) => {
+              const expanded = selected === player.id;
+              return <li key={player.id}>
+                <button type="button" aria-expanded={expanded} onClick={() => setSelected(expanded ? undefined : player.id)}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/50 focus-visible:outline focus-visible:-outline-offset-2 focus-visible:outline-primary sm:gap-4">
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-words text-sm font-medium">{player.firstName} {player.lastName}</span>
+                    <span className="block text-xs text-muted-foreground">{teamName}</span>
+                  </span>
+                  {overdue.length > 0 && <span className="shrink-0 text-right">
+                    <strong className="block text-sm tabular-nums text-destructive">{money.format(sum(overdue))}</strong>
+                    <span className="block text-xs text-muted-foreground">{oldest ? `Dal ${displayDate(oldest)}` : "Data da indicare"}</span>
+                  </span>}
+                  <ChevronDown aria-hidden="true" className={`size-4 shrink-0 text-muted-foreground ${expanded ? "rotate-180" : ""}`} />
+                </button>
+                {expanded && <div className="space-y-3 border-t bg-muted/25 p-3">
+                  <Link href={`/players?openPlayerId=${player.id}&focus=quotes`} className="text-sm text-primary underline">Apri scheda giocatore</Link>
+                  <PlayerPaymentRegister playerId={player.id} payments={byPlayer.get(player.id) ?? []} />
+                </div>}
+              </li>;
+            })}
+          </ul>}
+      </>}
   </section>;
 }
