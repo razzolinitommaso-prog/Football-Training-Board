@@ -228,6 +228,24 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       const ledger = await call("/player-payments", { "x-role": "presidente" });
       assert.equal(ledger.data.find(row => row.id === second.id).paymentMethod, "cash");
       assert.equal(ledger.data.find(row => row.id === first.id).dueDate, newDate.dueDate);
+      await pg.exec("INSERT INTO players(id,club_id,team_id,first_name,last_name) VALUES(103,1,11,'New','Player')");
+      const plan = {
+        playerId: 103, total: 310, alreadyPaid: 0, upfront: 25,
+        deposits: [{ amount: 25, purpose: "Assicurazione", paymentMethod: "cash", paymentDate: "2026-11-12" }],
+        replaceTypes: ["player_total_installment"],
+        installments: [
+          { amount: 145, purpose: "Iscrizione", dueDate: "2098-01-01" },
+          { amount: 140, dueDate: "2098-02-01" },
+        ],
+        expectedPayments: [],
+      };
+      assert.equal((await send("/player-payment-plan", "POST", plan)).status, 204);
+      const planned = (await call("/player-payments", { "x-role": "secretary" })).data.filter(row => row.playerId === 103);
+      const enrollment = planned.find(row => row.description.endsWith(" - Iscrizione"));
+      assert.equal(enrollment.amount, 145);
+      assert.equal(enrollment.dueDate, "2098-01-01");
+      assert.equal(enrollment.status, "pending");
+      assert.equal(planned.filter(row => row.status !== "paid").reduce((sum, row) => sum + row.amount, 0), 285);
       console.log("PASS payment desk: scope, restricted rescheduling, settlement, ledger and availability.");
       return;
     }

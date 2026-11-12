@@ -27,6 +27,8 @@ export type PaymentEntry = {
 export function paymentCategory(payment: PaymentEntry): PaymentCategory {
   switch (payment.paymentType) {
     case "extra_time_fee": return "extra_time";
+    case "player_total_installment":
+      return / - (Iscrizione|Assicurazione)$/.test(payment.description ?? "") ? "quotes" : "other";
     case "player_total_deposit": {
       const purpose = payment.description?.split(" - ")[2];
       if (purpose === "Kit") return "kit";

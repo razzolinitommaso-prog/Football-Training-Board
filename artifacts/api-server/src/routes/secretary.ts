@@ -497,7 +497,8 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
       !Array.isArray(replaceTypes) || !replaceTypes.includes("player_total_installment") ||
       replaceTypes.some((type) => !paymentPlanTypes.has(type)) ||
       !Array.isArray(installments) || installments.length > 120 ||
-      installments.some((draft) => !draft || !(paymentPlanCents(draft.amount) > 0) || !isPaymentPlanDate(draft.dueDate)) ||
+      installments.some((draft) => !draft || !(paymentPlanCents(draft.amount) > 0) || !isPaymentPlanDate(draft.dueDate) ||
+        (draft.purpose !== undefined && draft.purpose !== "Iscrizione" && draft.purpose !== "Assicurazione")) ||
       installments.reduce((sum, draft) => sum + paymentPlanCents(draft.amount), 0) !== total - alreadyPaid - upfront ||
       !Array.isArray(expectedPayments) || expectedPayments.some((row) => !row || !Number.isSafeInteger(row.id))) {
     res.status(400).json({ error: "Importi o scadenze del piano non validi." });
@@ -531,7 +532,8 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
       amount: paymentPlanCents(draft.amount) / 100,
       dueDate: draft.dueDate,
       status: "pending",
-      description: `Piano totale - rata ${index + 1}/${installments.length}`,
+      description: draft.purpose ? `Piano totale - rata ${index + 1}/${installments.length} - ${draft.purpose}`
+        : `Piano totale - rata ${index + 1}/${installments.length}`,
       paymentType: "player_total_installment",
       installmentNumber: index + 1,
       totalInstallments: installments.length,
