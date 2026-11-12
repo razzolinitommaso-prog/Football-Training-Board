@@ -51,6 +51,7 @@ import AttendancePage from "@/pages/attendance/index";
 import ExercisesPage from "@/pages/exercises/index";
 import RegistrationsPage from "@/pages/secretary/registrations";
 import PaymentsPage from "@/pages/secretary/payments";
+import { ExtraTime } from "@/components/extra-time";
 import ShuttlePage from "@/pages/secretary/shuttle";
 import DocumentsPage from "@/pages/secretary/documents";
 import EquipmentPage from "@/pages/secretary/equipment";
@@ -180,6 +181,9 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/secretary/payments">
           <ProtectedRoute allowedRoles={paymentViewRoles}><PaymentsPage /></ProtectedRoute>
+        </Route>
+        <Route path="/secretary/extra-time">
+          <ProtectedRoute allowedRoles={paymentViewRoles}><div className="mx-auto max-w-6xl p-4 sm:p-6"><ExtraTime /></div></ProtectedRoute>
         </Route>
         <Route path="/secretary/shuttle">
           <ProtectedRoute allowedRoles={shuttleRoles}><ShuttlePage /></ProtectedRoute>

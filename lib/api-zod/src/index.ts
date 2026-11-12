@@ -31,3 +31,4 @@ export * from "./championship-match-links";
 export * from "./parent-access-code";
 
 export * from "./training-method-guides";
+export * from "./extra-time-catalog";

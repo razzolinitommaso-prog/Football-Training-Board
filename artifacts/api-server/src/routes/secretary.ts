@@ -18,6 +18,8 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, gte, lte, asc, getTableColumns, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
+import { extraTimeCatalog, extraTimeShareCents } from "@workspace/api-zod";
+import { ensureExtraTimeStorage } from "../lib/extra-time-storage";
 import { reconcilePaymentAvailability } from "../lib/payment-availability";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { calendarStaffMessage, encodeCalendarCommunication, readCalendarAudience } from "../lib/parent-calendar-communication";
@@ -311,6 +313,159 @@ function isPaymentPlanDate(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
     Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 }
+
+type ExtraTimeMovement = { amount: number; status: "paid" | "pending"; date: string; method?: string };
+type ExtraTimeParticipant = { playerId: number; movements: ExtraTimeMovement[] };
+type PaymentTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+function validExtraTimeMovement(movement: ExtraTimeMovement) {
+  return movement && paymentPlanCents(movement.amount) > 0 && isPaymentPlanDate(movement.date) &&
+    ["paid", "pending"].includes(movement.status) && (movement.status !== "paid" || validReceiptMethod(movement.method));
+}
+
+async function insertExtraTimeMovements(tx: PaymentTransaction, clubId: number, playerId: number, participantId: number, name: string, movements: ExtraTimeMovement[]) {
+  if (!movements.length) return;
+  const payments = await tx.insert(playerPaymentsTable).values(movements.map(movement => ({
+    clubId, playerId, amount: paymentPlanCents(movement.amount) / 100,
+    paymentType: "extra_time_fee", status: movement.status, description: `Extra Time · ${name}`,
+    dueDate: movement.status === "pending" ? movement.date : null,
+    paymentDate: movement.status === "paid" ? movement.date : null,
+    paymentMethod: movement.status === "paid" ? movement.method : null,
+  }))).returning({ id: playerPaymentsTable.id });
+  await tx.execute(sql`
+    INSERT INTO extra_time_receipts (participant_id, payment_id)
+    VALUES ${sql.join(payments.map(payment => sql`(${participantId}, ${payment.id})`), sql`, `)}
+  `);
+}
+
+router.get("/extra-time", requireAuth, async (req, res): Promise<void> => {
+  if (!canViewFinancials(req.session.role)) { res.sendStatus(403); return; }
+  const clubId = req.session.clubId!;
+  const scope = await getScopedPlayerIds(req, clubId);
+  const playerId = req.query.playerId === undefined ? undefined : Number(req.query.playerId);
+  if (playerId !== undefined && (!Number.isSafeInteger(playerId) || playerId <= 0)) { res.sendStatus(400); return; }
+  if (scope?.length === 0) { res.json([]); return; }
+  const scoped = scope ? sql`AND p.id IN (${sql.join(scope.map(id => sql`${id}`), sql`, `)})` : sql``;
+  const player = playerId === undefined ? sql`` : sql`AND p.id = ${playerId}`;
+  await ensureExtraTimeStorage();
+  const result = await db.execute(sql`
+    SELECT e.id, e.formula, e.agreement, e.created_at AS "createdAt", a.id AS "participantId",
+      p.id AS "playerId", concat_ws(' ', p.first_name, p.last_name) AS "playerName", t.name AS "teamName",
+      a.share_cents AS "shareCents",
+      coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'id', m.id, 'amount', m.amount, 'status', m.status, 'paymentDate', m.payment_date,
+        'dueDate', m.due_date, 'paymentMethod', m.payment_method
+      ) ORDER BY coalesce(m.payment_date, m.due_date), m.id)
+      FROM extra_time_receipts r JOIN player_payments m ON m.id = r.payment_id AND m.club_id = e.club_id AND m.player_id = p.id
+      WHERE r.participant_id = a.id), '[]'::jsonb) AS movements
+    FROM extra_time_packages e JOIN extra_time_participants a ON a.package_id = e.id
+    JOIN players p ON p.id = a.player_id AND p.club_id = e.club_id
+    LEFT JOIN teams t ON t.id = p.team_id AND t.club_id = e.club_id
+    WHERE e.club_id = ${clubId} ${scoped} ${player}
+    ORDER BY e.created_at DESC, e.id DESC, a.id
+  `);
+  res.json(result.rows);
+});
+
+router.post("/extra-time", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditFinancials(req.session.role)) { res.sendStatus(403); return; }
+  const clubId = req.session.clubId!;
+  const formula = extraTimeCatalog.find(item => item.id === req.body?.formula);
+  const participants: ExtraTimeParticipant[] = req.body?.participants;
+  const agreement = typeof req.body?.agreement === "string" ? req.body.agreement.trim() : "";
+  if (!formula || !Array.isArray(participants) || participants.length < formula.min || participants.length > formula.max ||
+      agreement.length > 1000 || participants.some((participant, index) =>
+        !participant || !Number.isSafeInteger(participant.playerId) || participant.playerId <= 0 ||
+        !Array.isArray(participant.movements) || participant.movements.length > 120 ||
+        !participant.movements.every(validExtraTimeMovement) ||
+        participant.movements.reduce((sum, movement) => sum + paymentPlanCents(movement.amount), 0) >
+          extraTimeShareCents(formula.cents, participants.length, index)) ||
+      new Set(participants.map(participant => participant.playerId)).size !== participants.length) {
+    res.status(400).json({ error: "Controlla pacchetto, partecipanti, importi, date e metodi di incasso." });
+    return;
+  }
+  const ids = participants.map(participant => participant.playerId);
+  const scope = await getScopedPlayerIds(req, clubId);
+  if (scope && ids.some(id => !scope.includes(id))) { res.sendStatus(403); return; }
+  await ensureExtraTimeStorage();
+  const packageId = await db.transaction(async tx => {
+    const players = await tx.select({ id: playersTable.id }).from(playersTable)
+      .where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, ids), sql`${playersTable.status} <> 'training_trial'`))
+      .orderBy(asc(playersTable.id)).for("update");
+    if (players.length !== ids.length) return null;
+    const pkg = await tx.execute(sql`
+      INSERT INTO extra_time_packages (club_id, formula, agreement) VALUES (${clubId}, ${formula.id}, ${agreement}) RETURNING id
+    `);
+    const id = Number(pkg.rows[0].id);
+    for (const [index, participant] of participants.entries()) {
+      const share = extraTimeShareCents(formula.cents, ids.length, index);
+      const member = await tx.execute(sql`
+        INSERT INTO extra_time_participants (package_id, player_id, share_cents) VALUES (${id}, ${participant.playerId}, ${share}) RETURNING id
+      `);
+      await insertExtraTimeMovements(tx, clubId, participant.playerId, Number(member.rows[0].id), formula.name, participant.movements);
+    }
+    return id;
+  });
+  if (packageId === null) { res.status(404).json({ error: "Uno o più giocatori non appartengono alla società." }); return; }
+  for (const id of ids) await reconcilePaymentAvailability(clubId, id);
+  res.status(201).json({ id: packageId });
+});
+
+router.post("/extra-time/participants/:id/movements", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditFinancials(req.session.role)) { res.sendStatus(403); return; }
+  const id = Number(req.params.id);
+  const clubId = req.session.clubId!;
+  const movement: ExtraTimeMovement = req.body;
+  const existingPaymentId = req.body?.paymentId;
+  const linking = existingPaymentId !== undefined;
+  if (!Number.isSafeInteger(id) || id <= 0 || (linking
+    ? !Number.isSafeInteger(existingPaymentId) || existingPaymentId <= 0
+    : !validExtraTimeMovement(movement))) {
+    res.status(400).json({ error: "Controlla importo, data e metodo di incasso." });
+    return;
+  }
+  const scope = await getScopedPlayerIds(req, clubId);
+  await ensureExtraTimeStorage();
+  const result = await db.transaction(async tx => {
+    const { rows: [participant] } = await tx.execute(sql`
+      SELECT a.player_id, a.share_cents, e.formula FROM extra_time_participants a
+      JOIN extra_time_packages e ON e.id = a.package_id
+      WHERE a.id = ${id} AND e.club_id = ${clubId} FOR UPDATE OF a
+    `);
+    if (!participant || (scope && !scope.includes(Number(participant.player_id)))) return null;
+    const { rows: [balance] } = await tx.execute(sql`
+      SELECT coalesce(sum(round(m.amount::numeric * 100)), 0) AS booked
+      FROM extra_time_receipts r JOIN player_payments m ON m.id = r.payment_id
+      WHERE r.participant_id = ${id} AND m.club_id = ${clubId} AND m.player_id = ${Number(participant.player_id)}
+    `);
+    if (linking) {
+      const [existing] = await tx.select().from(playerPaymentsTable).where(and(
+        eq(playerPaymentsTable.id, existingPaymentId), eq(playerPaymentsTable.clubId, clubId),
+        eq(playerPaymentsTable.playerId, Number(participant.player_id)), eq(playerPaymentsTable.status, "paid"),
+      )).for("update");
+      const existingCents = paymentPlanCents(existing?.amount);
+      if (!existing || !["player_total_deposit", "player_total_installment", "other", "extra_time_fee"].includes(existing.paymentType) ||
+          !(existingCents > 0) || Number(balance.booked) + existingCents > Number(participant.share_cents)) return false;
+      const attached = await tx.execute(sql`
+        INSERT INTO extra_time_receipts (participant_id, payment_id) VALUES (${id}, ${existing.id})
+        ON CONFLICT (payment_id) DO NOTHING RETURNING payment_id
+      `);
+      return attached.rows.length ? Number(participant.player_id) : false;
+    }
+    if (Number(balance.booked) + paymentPlanCents(movement.amount) > Number(participant.share_cents)) return false;
+    const name = extraTimeCatalog.find(item => item.id === participant.formula)?.name ?? "Pacchetto";
+    await insertExtraTimeMovements(tx, clubId, Number(participant.player_id), id, name, [movement]);
+    return Number(participant.player_id);
+  });
+  if (result === null) { res.sendStatus(404); return; }
+  if (result === false) {
+    res.status(409).json({ error: linking ? "Movimento non collegabile o importo superiore al residuo." :
+      "L’importo supera il residuo ancora da registrare. Per incassare una rata, selezionala nei movimenti." });
+    return;
+  }
+  await reconcilePaymentAvailability(clubId, result);
+  res.sendStatus(204);
+});
 
 router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void> => {
   if (!canEditFinancials(req.session.role)) {

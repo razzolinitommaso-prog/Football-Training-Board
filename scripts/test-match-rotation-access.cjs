@@ -38,6 +38,9 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
+    if (process.argv.includes("--extra-time")) {
+      fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as secretary} from '../../artifacts/api-server/src/routes/secretary';");
+    }
     await esbuild.build({
       entryPoints: [path.join(dir, "entry.ts")],
       outfile: bundle,
@@ -173,6 +176,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       next();
     });
     app.use("/api", routes.restrictTeamManagerApi, routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
+    if (routes.secretary) app.use("/api", routes.secretary);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -184,6 +188,52 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+    if (process.argv.includes("--extra-time")) {
+      await pg.exec("UPDATE players SET status='active', available=true, availability_override_active=false WHERE club_id=1; INSERT INTO players(id,club_id,team_id,first_name,last_name,status,available,availability_override_active) VALUES(103,1,11,'Third','Child','active',true,false)");
+      const secretary = { "x-role": "secretary" };
+      const send = (url, method, body, headers = secretary) => fetch(base + url, {
+        method, headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body),
+      });
+      const body = { formula: "group-3-5", agreement: "Due rate", participants: [
+        { playerId: 101, movements: [{ amount: 10, status: "paid", date: "2026-11-11", method: "cash" }, { amount: 13.34, status: "pending", date: "2026-12-01" }] },
+        { playerId: 102, movements: [{ amount: 23.33, status: "paid", date: "2026-11-12", method: "card" }] },
+        { playerId: 103, movements: [] },
+      ] };
+      assert.equal((await send("/extra-time", "POST", body, { "x-role": "coach" })).status, 403);
+      assert.equal((await send("/extra-time", "POST", { ...body, participants: [...body.participants.slice(0, 2), { playerId: 201, movements: [] }] })).status, 404);
+      const create = await send("/extra-time", "POST", body);
+      const saved = await create.json();
+      assert.equal(create.status, 201, JSON.stringify(saved));
+      const group = await call("/extra-time", secretary);
+      assert.equal(group.status, 200, JSON.stringify(group.data));
+      assert.deepEqual(group.data.map(row => row.shareCents), [2334, 2333, 2333]);
+      assert.ok(group.data.every(row => row.id === saved.id));
+      const playerView = await call("/extra-time?playerId=101", secretary);
+      assert.deepEqual(playerView.data, [group.data[0]]);
+      assert.deepEqual((await call("/extra-time", { ...secretary, "x-club": "2" })).data, []);
+      const [receipt, installment] = playerView.data[0].movements;
+      assert.equal(receipt.paymentMethod, "cash");
+      assert.equal(receipt.paymentDate, "2026-11-11");
+      assert.equal((await send("/player-payments/" + installment.id, "PATCH", { status: "paid", paymentDate: "2026-11-12", paymentMethod: "bank_transfer" })).status, 200);
+      const after = await call("/extra-time?playerId=101", secretary);
+      assert.equal(after.data[0].movements.length, 2);
+      assert.equal(after.data[0].movements.find(row => row.id === installment.id).paymentMethod, "bank_transfer");
+      const extraMovement = "/extra-time/participants/" + group.data[2].participantId + "/movements";
+      assert.equal((await send(extraMovement, "POST", { amount: 23.34, status: "paid", date: "2026-11-12", method: "cash" })).status, 409);
+      assert.equal((await send(extraMovement, "POST", { amount: 10, status: "paid", date: "2026-11-12", method: "cash" })).status, 204);
+      const legacy = await send("/player-payments", "POST", { playerId: 103, amount: 13.33, status: "paid", paymentType: "other", paymentDate: "2026-11-12", paymentMethod: "card" });
+      assert.equal(legacy.status, 201);
+      const legacyPayment = await legacy.json();
+      assert.equal((await send(extraMovement, "POST", { paymentId: legacyPayment.id })).status, 204);
+      assert.equal((await send(extraMovement, "POST", { paymentId: legacyPayment.id })).status, 409);
+      const third = await call("/extra-time?playerId=103", secretary);
+      assert.equal(third.data[0].movements.reduce((total, row) => total + Math.round(row.amount * 100), 0), 2333);
+      const payments = await call("/player-payments", secretary);
+      assert.equal(payments.data.length, 5);
+      assert.equal(payments.data.reduce((total, row) => total + Math.round(row.amount * 100), 0), 7000);
+      console.log("PASS Extra Time: scoped package, split to cents, both views, settlement and global payment totals.");
+      return;
+    }
     if (process.argv.includes("--secretary-guests")) {
       await pg.exec("INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,duration_minutes,status,notes,session_kind,created_by_user_id) VALUES (34001,1,11,'Guest trial','2026-10-12T15:30:00Z',90,'scheduled','','regular',1),(34002,1,12,'Other section','2026-10-12T15:30:00Z',90,'scheduled','','regular',1),(34003,2,22,'Other club','2026-10-12T15:30:00Z',90,'scheduled','','regular',1)");
       const secretary = { "x-role": "secretary" };

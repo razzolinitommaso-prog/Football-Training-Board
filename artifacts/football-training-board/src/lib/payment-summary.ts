@@ -1,6 +1,6 @@
 export const paymentViewRoles = ["admin", "presidente", "director", "secretary"];
 
-export const paymentCategories = { kit: "Kit", quotes: "Quote", shuttle: "Pulmino", other: "Altro" } as const;
+export const paymentCategories = { kit: "Kit", quotes: "Quote", shuttle: "Pulmino", extra_time: "Extra Time", other: "Altro" } as const;
 export type PaymentCategory = keyof typeof paymentCategories;
 export const paymentStatuses = { paid: "Incassato", pending: "Da incassare", overdue: "Scaduto" } as const;
 export type PaymentStatus = keyof typeof paymentStatuses;
@@ -26,10 +26,12 @@ export type PaymentEntry = {
 
 export function paymentCategory(payment: PaymentEntry): PaymentCategory {
   switch (payment.paymentType) {
+    case "extra_time_fee": return "extra_time";
     case "player_total_deposit": {
       const purpose = payment.description?.split(" - ")[2];
       if (purpose === "Kit") return "kit";
       if (purpose === "Pulmino") return "shuttle";
+      if (purpose === "Extra Time") return "extra_time";
       return purpose === "Iscrizione" || purpose === "Quota annuale" || purpose === "Assicurazione" ? "quotes" : "other";
     }
     case "kit_payment": return "kit";

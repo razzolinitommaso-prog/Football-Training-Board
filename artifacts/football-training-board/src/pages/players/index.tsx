@@ -30,6 +30,7 @@ import { normalizeSessionRole } from "@/lib/session-role";
 import { Link, useLocation } from "wouter";
 import { MAX_PLAYER_PAYMENT_AMOUNT } from "@/lib/fee-list";
 import { depositPurposes, isReceiptMethod, paymentStatus, playerEconomicBalance, quotePaymentStatus, receiptMethodLabel } from "@/lib/payment-summary";
+import { ExtraTime } from "@/components/extra-time";
 import { ReceiptMethodSelect } from "@/components/receipt-method-select";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { Separator } from "@/components/ui/separator";
@@ -516,14 +517,6 @@ const EXTRA_TIME_ITEMS: Array<Pick<ExtraTimeRow, "key" | "group" | "label" | "ac
   { key: "group_package", group: "group", label: "Lezione di gruppo", activity: "Tecnica" },
 ];
 
-const EXTRA_TIME_ACTIVITY_OPTIONS = [
-  "Motoria",
-  "Tecnica",
-  "Motoria + tecnica",
-  "Recupero infortuni",
-  "Preparazione",
-];
-
 const EXTRA_TIME_PACKAGE_PRICES: Record<ExtraTimeRow["group"], Array<{ value: string; label: string; price: string }>> = {
   individual: [
     { value: "package_1", label: "Pacchetto 1", price: "35" },
@@ -544,10 +537,6 @@ function extraTimePackageLabel(row: ExtraTimeRow): string {
 
 function extraTimePackagePrice(group: ExtraTimeRow["group"], value: string): string {
   return EXTRA_TIME_PACKAGE_PRICES[group].find((entry) => entry.value === value)?.price ?? "";
-}
-
-function extraTimePackageOptions(group: ExtraTimeRow["group"]) {
-  return EXTRA_TIME_PACKAGE_PRICES[group];
 }
 
 function normalizeExtraTimeRows(rows: ExtraTimeRow[]): ExtraTimeRow[] {
@@ -1757,12 +1746,6 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const editingPrimarySquad = editingPlayer?.squad ?? editingPlayerMeta.squad ?? null;
   const editingSupplementalSquad = editingPlayer?.supplementalSquad ?? editingPlayerMeta.supplementalSquad ?? null;
   const editingPlayerIsYouthSection = (editingPlayerTeam as any)?.clubSection === "settore_giovanile" || section === "settore_giovanile";
-  const extraTimeAssignableStaff = (clubMembers as ClubMember[])
-    .filter((member) => {
-      const memberSections = Array.isArray(member.clubSection) ? member.clubSection : [member.clubSection ?? ""];
-      return ["coach", "fitness_coach", "athletic_director", "technical_director"].includes(member.role) && memberSections.includes("extra_time");
-    })
-    .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "it"));
   const depositAmounts = depositDrafts.map(draft => draft.amount === "" ? 0 : parseEuroInput(draft.amount));
   const extraDepositCents = depositAmounts.slice(1).reduce((sum, amount) => sum + Math.round(amount * 100), 0);
   const economicBalance = playerEconomicBalance({
@@ -2490,10 +2473,6 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     setKitRows((rows) => rows.map((row) => row.key === key ? { ...row, ...patch } : row));
   };
 
-  const updateExtraTimeRow = (key: string, patch: Partial<ExtraTimeRow>) => {
-    setExtraTimeRows((rows) => normalizeExtraTimeRows(rows).map((row) => row.key === key ? { ...row, ...patch } : row));
-  };
-
   const applyListItemPrice = (itemId: string, setter: (value: string) => void) => {
     const item = activeListItems.find((entry) => String(entry.id) === itemId);
     const price = item?.price;
@@ -3043,6 +3022,15 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     if (editKit) {
       window.setTimeout(() => {
         const panel = document.querySelector("[data-player-kit-editor]");
+        if (panel instanceof HTMLDetailsElement) {
+          panel.open = true;
+          panel.scrollIntoView({ block: "start" });
+        }
+      }, 120);
+    }
+    if (params.get("focus") === "extra-time") {
+      window.setTimeout(() => {
+        const panel = document.querySelector("[data-player-extra-time]");
         if (panel instanceof HTMLDetailsElement) {
           panel.open = true;
           panel.scrollIntoView({ block: "start" });
@@ -3970,10 +3958,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               </details>
 
               {canViewExtraTime && (
-                <details className="group rounded-lg border p-3">
+                <details data-player-extra-time className="group rounded-lg border p-3">
                   <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} />
                   <div className="mt-3">
-                    <ExtraTimeSummary rows={displayedExtraTimeRows} />
+                    {canViewFinancials && editingPlayer && <ExtraTime key={editingPlayer.id} playerId={editingPlayer.id} readOnly />}
+                    {(!canViewFinancials || displayedExtraTimeRows.some(extraTimeRowHasContent)) && <ExtraTimeSummary rows={displayedExtraTimeRows} />}
                   </div>
                 </details>
               )}
@@ -5106,7 +5095,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
                   <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} />
                   <div className="mt-3">
-                    <ExtraTimeSummary rows={displayedExtraTimeRows} />
+                    {canViewFinancials && editingPlayer && <ExtraTime key={editingPlayer.id} playerId={editingPlayer.id} readOnly />}
+                    {(!canViewFinancials || displayedExtraTimeRows.some(extraTimeRowHasContent)) && <ExtraTimeSummary rows={displayedExtraTimeRows} />}
                   </div>
                 </details>
               )}
@@ -5163,130 +5153,15 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 </details>
               )}
 
-              {canEditFinancials && (
+              {canEditFinancials && editingPlayer && (
                 <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                  <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} status={plannedExtraTimeTotal > 0 ? { tone: "yellow", label: "Programmato" } : { tone: "red", label: "Non registrato" }} />
-                  <div className="mt-3 space-y-3 rounded-md border bg-background p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Extra Time</p>
-                      </div>
-                      <Badge variant="outline">Totale Euro {formatEuro(plannedExtraTimeTotal)}</Badge>
-                    </div>
-                    {(["individual", "group"] as const).map((group) => (
-                      <div key={group} className="space-y-2 rounded-md border bg-muted/10 p-3">
-                        <p className="text-sm font-semibold">{group === "individual" ? "Allenamenti individuali" : "Lezioni di gruppo"}</p>
-                        {normalizedExtraTimeRows.filter((row) => row.group === group).map((row) => (
-                          <div key={row.key} className="grid grid-cols-1 gap-2 rounded-md border bg-background px-3 py-2 md:grid-cols-2 xl:grid-cols-4">
-                            <div className="space-y-2">
-                              <Label>Voce</Label>
-                              <Select value={row.activity} onValueChange={(value) => updateExtraTimeRow(row.key, { activity: value })}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {EXTRA_TIME_ACTIVITY_OPTIONS.map((activity) => (
-                                    <SelectItem key={activity} value={activity}>{activity}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Tipologia pacchetto</Label>
-                              <Select
-                                value={row.packageType || "_none"}
-                                onValueChange={(value) => {
-                                  const packageType = value === "_none" ? "" : value;
-                                  updateExtraTimeRow(row.key, {
-                                    packageType,
-                                    packagePrice: extraTimePackagePrice(row.group, packageType),
-                                  });
-                                }}
-                              >
-                                <SelectTrigger><SelectValue placeholder={extraTimePackageLabel(row)} /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="_none">Da definire</SelectItem>
-                                  {extraTimePackageOptions(row.group).map((item) => (
-                                    <SelectItem key={item.value} value={item.value}>
-                                      {item.label} - Euro {formatEuro(item.price)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            {group === "group" && (
-                              <div className="space-y-2">
-                                <Label>N. giocatori</Label>
-                                <Input type="number" min={2} value={row.playersCount} onChange={(e) => updateExtraTimeRow(row.key, { playersCount: e.target.value })} />
-                              </div>
-                            )}
-                            <div className="space-y-2">
-                              <Label>N. lezioni</Label>
-                              <Input type="number" min={0} value={row.lessonsCount} onChange={(e) => updateExtraTimeRow(row.key, { lessonsCount: e.target.value })} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Minuti per lezione</Label>
-                              <Input type="number" min={0} step={15} value={row.durationMinutes} onChange={(e) => updateExtraTimeRow(row.key, { durationMinutes: e.target.value })} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Prezzo pacchetto</Label>
-                              <Input type="number" step="0.01" value={row.packagePrice || row.hourlyCost} onChange={(e) => updateExtraTimeRow(row.key, { packagePrice: e.target.value, packageType: "" })} />
-                            </div>
-                            <div className="space-y-2 md:col-span-2">
-                              <Label>Date pacchetto calendario</Label>
-                              <Input placeholder="es. 12/09, 19/09, 26/09" value={row.packageDates} onChange={(e) => updateExtraTimeRow(row.key, { packageDates: e.target.value })} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Orario lezioni</Label>
-                              <Input placeholder="es. 17:30" value={row.lessonTime} onChange={(e) => updateExtraTimeRow(row.key, { lessonTime: e.target.value })} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Mister assegnato</Label>
-                              <Select
-                                value={row.coachName || "unassigned"}
-                                onValueChange={(value) => updateExtraTimeRow(row.key, { coachName: value === "unassigned" ? "" : value })}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Seleziona mister/preparatore" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="unassigned">Non assegnato</SelectItem>
-                                  {extraTimeAssignableStaff.map((member) => {
-                                    const fullName = `${member.firstName} ${member.lastName}`.trim();
-                                    return (
-                                      <SelectItem key={member.id} value={fullName}>
-                                        {fullName}
-                                      </SelectItem>
-                                    );
-                                  })}
-                                </SelectContent>
-                              </Select>
-                              {extraTimeAssignableStaff.length === 0 && (
-                                <p className="text-xs text-muted-foreground">Assegna Extra Time al membro dalla sezione Membri.</p>
-                              )}
-                            </div>
-                            <label className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                              <Checkbox checked={row.parentVisible} onCheckedChange={(value) => updateExtraTimeRow(row.key, { parentVisible: value === true })} />
-                              Area genitori
-                            </label>
-                            <div className="space-y-2 md:col-span-2">
-                              <Label>Note</Label>
-                              <Textarea
-                                placeholder="Note interne sul pacchetto, obiettivi o accordi specifici"
-                                value={row.notes}
-                                onChange={(e) => updateExtraTimeRow(row.key, { notes: e.target.value })}
-                              />
-                            </div>
-                            <div className="rounded-md border bg-muted/30 px-3 py-2">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Totale voce</p>
-                              <p className="text-base font-bold">Euro {formatEuro(extraTimeRowTotal(row))}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                    <p className="text-xs text-muted-foreground">
-                      Le voci Extra Time entrano nel totale economico finale. Il collegamento automatico con calendario e area genitori verra gestito come fase dedicata.
-                    </p>
+                  <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} />
+                  <div className="mt-3 space-y-3">
+                    <ExtraTime key={editingPlayer.id} playerId={editingPlayer.id} />
+                    {displayedExtraTimeRows.some(extraTimeRowHasContent) && <>
+                      <p className="text-xs font-medium text-muted-foreground">Pacchetti registrati in precedenza</p>
+                      <ExtraTimeSummary rows={displayedExtraTimeRows} />
+                    </>}
                   </div>
                 </details>
               )}

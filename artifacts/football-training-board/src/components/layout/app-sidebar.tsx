@@ -153,6 +153,7 @@ export function AppSidebar() {
     { titleKey: "registrations",   url: "/secretary/registrations", icon: ClipboardList, roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { label: "Pulmino",            url: "/secretary/shuttle",       icon: Bus,           roles: ["admin", "presidente", "director", "secretary", "sporting_director"], group: "secretary" },
     { titleKey: "payments",        url: "/secretary/payments",      icon: Banknote,      roles: paymentViewRoles, group: "secretary" },
+    { label: "Extra Time", url: "/secretary/extra-time", icon: Banknote, roles: paymentViewRoles, group: "secretary" },
     { titleKey: "documents",       url: "/secretary/documents",     icon: FileText,      roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
     { label: "Listino quote", url: "/secretary/fee-list", icon: Banknote, roles: feeListRoles, group: "secretary" },
     { label: "Magazzino",          url: "/secretary/warehouse",     icon: Package,       roles: ["admin", "presidente", "secretary", "sporting_director"], group: "secretary" },
