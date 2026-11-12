@@ -2240,7 +2240,7 @@ function SessionDetailsDialog({
           editor={editingMetadata&&canEditMetadata?<EditSessionDialog key={session.id} inline onDirtyChange={setMetadataDirty} session={session} teams={teams} onClose={()=>{setEditingMetadata(false);setMetadataDirty(false);}} onSaved={()=>{setMetadataDirty(false);void qc.invalidateQueries({queryKey:["/api/training-sessions"]});}}/>:undefined}
           attendance={session.sessionKind !== "tipo" && <>
             <TrainingAttendanceComparison data={participants.data} loading={participants.isLoading} error={participants.isError} />
-            {session.teamId && (role === "secretary" || (role === "coach" && !readOnly)) && (
+            {session.teamId && role === "coach" && !readOnly && (
               <TrainingTrialPlayers
                 key={session.id}
                 sessionId={session.id}
@@ -3011,9 +3011,9 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
   }, [initialSessionId, initialSessionQuery.data, initialSessionQuery.isError, initialSessionQuery.isLoading, initialSessionQuery.isSuccess, sessions, sessionsQuery.isLoading, sessionsQuery.isSuccess, toast]);
 
   useEffect(() => {
-    if (!initialSessionDraft) return;
+    if (!initialSessionDraft || role === "secretary") return;
     setCreateOpen(true);
-  }, [initialSessionDraft]);
+  }, [initialSessionDraft, role]);
 
   const activeDirectives = directives.filter(d => !dismissedDirectives.includes(d.id));
 
@@ -3130,7 +3130,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
       teams={teams}
       sessions={regularSessions}
       section={section}
-      canCreate={["coach", "fitness_coach", "athletic_director", "secretary"].includes(role ?? "")}
+      canCreate={["coach", "fitness_coach", "athletic_director"].includes(role ?? "")}
       loading={sessionsQuery.isLoading || teamsQuery.isLoading}
       error={sessionsQuery.isError || teamsQuery.isError}
       onRetry={() => { void sessionsQuery.refetch(); void teamsQuery.refetch(); }}
@@ -3532,83 +3532,34 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
     );
   }
 
-  // ── Secretary: pianificazione per tutto il club ────────────────────────────
   if (role === "secretary") {
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Calendar className="w-6 h-6 text-primary" />
-              Pianificazione sedute (segreteria)
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Gestisci le sedute di tutte le squadre. Per avvisi verso allenatori, preparatori e genitori usa le notifiche piattaforma.
-            </p>
-          </div>
-          <Button asChild variant="outline" className="shrink-0">
-            <Link href="/club/platform-notifications">Notifiche piattaforma</Link>
-          </Button>
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold"><Calendar className="h-6 w-6 text-primary" />Ospiti in prova</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Seleziona una seduta esistente per aggiungere un ospite.</p>
         </div>
-
-        <Card className="border-primary/20 bg-primary/[0.03]">
-          <CardContent className="p-4 text-sm text-muted-foreground">
-            Puoi creare, modificare ed eliminare sedute per conto del club. Staff tecnico e preparatori vedono e aggiornano le sedute delle proprie annate dalla propria area.
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-end">
-          <Button onClick={() => { setCalendarDraft(null); setCreateOpen(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
-            Nuova seduta
-          </Button>
-        </div>
-
-        <details className="rounded-xl border bg-card p-3"><DisclosureSummary className="cursor-pointer text-sm font-medium">Elenco e gestione sedute</DisclosureSummary><div className="mt-4">
-        <SessionGrid
-          items={sessions}
-          emptyMsg="Nessuna seduta di allenamento registrata nel club"
-          canDeleteFn={() => true}
-          canEditFn={() => true}
-          onOpenDetails={setDetailsSession}
-          showRecovery
-        />
-
-        </div></details>
         {renderSessionsCalendar()}
-
-
-        <CreateSessionDialog
-          open={createOpen}
-          onClose={() => setCreateOpen(false)}
-          onCreated={invalidateSessions}
-          onCreatedSession={(created,phase)=>{setCreatedPhase(phase);setDetailsSession(created);}}
-          members={[]}
-          isTD={false}
-          teams={teams}
-          initialDraft={calendarDraft ?? initialSessionDraft ?? undefined}
-        />
         {detailsSession && (
-          <SessionDetailsDialog
-            onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)}
-            initialAddPhase={createdPhase}
-            session={detailsSession}
-            onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}
-            teams={teams}
-            onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }}
-          />
-        )}
-        {editingSession && (
-          <EditSessionDialog
-            session={editingSession}
-            onClose={() => setEditingSession(null)}
-            onSaved={invalidateSessions}
-            onManageExercises={() => {
-              setDetailsSession(editingSession);
-              setEditingSession(null);
-            }}
-            teams={teams}
-          />
+          <Dialog open onOpenChange={open => { if (!open) setDetailsSession(null); }}>
+            <DialogContent className="max-h-[90dvh] overflow-y-auto">
+              <DialogHeader><DialogTitle>Ospiti in prova</DialogTitle></DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                {detailsSession.teamName} · {format(new Date(detailsSession.scheduledAt), "dd/MM/yyyy HH:mm")}
+              </p>
+              {detailsSession.teamId && detailsSession.sessionKind === "regular" ? (
+                <TrainingTrialPlayers
+                  key={detailsSession.id}
+                  sessionId={detailsSession.id}
+                  scheduledAt={detailsSession.scheduledAt}
+                  teamName={detailsSession.teamName}
+                  canEvaluate={false}
+                  defaultOpen
+                  canAdd={!["cancelled", "canceled"].includes(detailsSession.status)}
+                />
+              ) : <p className="text-sm text-muted-foreground">Scegli una seduta associata a un’annata.</p>}
+            </DialogContent>
+          </Dialog>
         )}
       </div>
     );

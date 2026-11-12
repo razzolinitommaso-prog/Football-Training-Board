@@ -35,7 +35,7 @@ import { requireClubAndUserIds } from "../lib/session-context";
 
 /** Per le statistiche dashboard: solo chi è vincolato alle squadre assegnate (non il direttore tecnico). */
 const DASHBOARD_ASSIGNMENT_SCOPED_NORM = new Set(["coach", "fitness_coach", "athletic_director"]);
-const CAN_CREATE_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director", "secretary"];
+const CAN_CREATE_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
 const STAFF_RESTRICTED_ROLES = ["coach", "fitness_coach", "athletic_director"];
 const router: IRouter = Router();
 // Dedicated endpoints enforce their own TD-only access; do not guard other training routes.
@@ -110,7 +110,7 @@ async function canManageSession(
   userId: number,
   role: string,
 ): Promise<boolean> {
-  if (role === "secretary") return true;
+  if (role === "secretary") return false;
   if (role === "technical_director") return session.sessionKind === "tipo" && session.createdByUserId === userId;
   if (session.sessionKind === "tipo") return session.createdByUserId === userId;
   if (session.createdByUserId === userId) return true;
@@ -278,9 +278,10 @@ router.get("/training-sessions", requireAuth, async (req, res): Promise<void> =>
     teams: new Map(teamRows.map(team => [team.id, team.name])),
     creators: new Map(creatorRows.map(user => [user.id, `${user.firstName} ${user.lastName}`])),
     canEdit: (session: typeof trainingSessionsTable.$inferSelect) => {
+      if (role === "secretary") return false;
       if (role === "technical_director") return session.sessionKind === "tipo" && session.createdByUserId === userId;
       if (session.sessionKind === "tipo") return session.createdByUserId === userId;
-      return role === "secretary" || session.createdByUserId === userId || STAFF_RESTRICTED_ROLES.includes(role) &&
+      return session.createdByUserId === userId || STAFF_RESTRICTED_ROLES.includes(role) &&
         (programEditable.has(session.id) || !!session.teamId && (primaryIds.includes(session.teamId) || !!session.notes?.startsWith(AUTO_TRAINING_MARKER) && assignedIds.includes(session.teamId)));
     },
   };
@@ -481,7 +482,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
   const userId = req.session.userId!;
   const clubId = req.session.clubId!;
 
-  if (role === "admin" || role === "presidente" || role === "director") {
+  if (role === "admin" || role === "presidente" || role === "director" || role === "secretary") {
     res.status(403).json({ error: "Non hai i permessi per modificare sedute" });
     return;
   }
@@ -500,14 +501,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
 
   let updateData: Record<string, unknown> = {};
 
-  if (role === "secretary") {
-    const parsed = UpdateTrainingSessionBody.safeParse(body);
-    if (!parsed.success) {
-      res.status(400).json({ error: parsed.error.message });
-      return;
-    }
-    updateData = { ...parsed.data };
-  } else if (role === "technical_director") {
+  if (role === "technical_director") {
     // TD can update comment/guidelines on any session, or edit their own sessions
     if (existing.createdByUserId === userId && existing.sessionKind === "tipo") {
       const parsed = UpdateTrainingSessionBody.safeParse(body);
@@ -610,9 +604,16 @@ async function planningAccess(req: Parameters<typeof resolveAllowedClubSections>
   return session;
 }
 
-router.get("/training-sessions/:id/trial-players", requireAuth, async (req, res): Promise<void> => {
+function guestSessionAccess(req: Parameters<typeof resolveAllowedClubSections>[0], id: number) {
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
   const role = normalizeSessionRole(req.session.role);
-  const session = ["coach", "secretary"].includes(role) ? await planningAccess(req, Number(req.params.id), true) : null;
+  if (role === "secretary") return planningAccess(req, id, false);
+  if (role === "coach") return planningAccess(req, id, true);
+  return null;
+}
+
+router.get("/training-sessions/:id/trial-players", requireAuth, async (req, res): Promise<void> => {
+  const session = await guestSessionAccess(req, Number(req.params.id));
   if (!session?.teamId || session.sessionKind === "tipo") {
     res.status(403).json({ error: "Ospiti in prova non gestibili per questa seduta." });
     return;
@@ -621,8 +622,7 @@ router.get("/training-sessions/:id/trial-players", requireAuth, async (req, res)
 });
 
 router.post("/training-sessions/:id/trial-players", requireAuth, async (req, res): Promise<void> => {
-  const role = normalizeSessionRole(req.session.role);
-  const session = ["coach", "secretary"].includes(role) ? await planningAccess(req, Number(req.params.id), true) : null;
+  const session = await guestSessionAccess(req, Number(req.params.id));
   if (!session?.teamId || session.sessionKind === "tipo" || ["cancelled", "canceled"].includes(session.status)) {
     res.status(403).json({ error: "Ospiti in prova non gestibili per questa seduta." });
     return;

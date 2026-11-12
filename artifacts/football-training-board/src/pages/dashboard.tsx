@@ -3490,7 +3490,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
 
               {selectedCalendarItem.kind === "training" && (
                 <>
-                  {canEditDashboardCalendar && selectedCalendarItem.teamId && selectedCalendarItem.originalDate && (
+                  {canEditDashboardCalendar && nr !== "secretary" && selectedCalendarItem.teamId && selectedCalendarItem.originalDate && (
                     <div className="rounded-xl border p-3">
                       <p className="mb-3 text-sm font-semibold">Modifica allenamento</p>
                       <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -3689,6 +3689,11 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                       </Button>
                     </div>
                   )}
+                  {nr === "secretary" && selectedCalendarItem.trainingSession && <Button
+                    type="button" variant="outline"
+                    onClick={() => setLocation(`/training?sessionId=${selectedCalendarItem.trainingSession!.id}`)}>
+                    Ospiti in prova
+                  </Button>}
                   {canPrepareFromDashboardCalendar && (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <Button

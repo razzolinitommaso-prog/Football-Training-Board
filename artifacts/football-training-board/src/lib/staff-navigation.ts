@@ -31,7 +31,7 @@ export function staffNavigation(role: string) {
       label:
         role === "technical_director"
           ? "Sedute del mister"
-          : role === "secretary" ? "Pianificazione sedute" : "Sedute Allenamento",
+          : role === "secretary" ? "Ospiti in prova" : "Sedute Allenamento",
       url: "/training",
       icon: CalendarDays,
     });

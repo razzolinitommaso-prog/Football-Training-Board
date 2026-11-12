@@ -184,6 +184,32 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+    if (process.argv.includes("--secretary-guests")) {
+      await pg.exec("INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,duration_minutes,status,notes,session_kind,created_by_user_id) VALUES (34001,1,11,'Guest trial','2026-10-12T15:30:00Z',90,'scheduled','','regular',1),(34002,1,12,'Other section','2026-10-12T15:30:00Z',90,'scheduled','','regular',1),(34003,2,22,'Other club','2026-10-12T15:30:00Z',90,'scheduled','','regular',1)");
+      const secretary = { "x-role": "secretary" };
+      const send = async (url, method, body) => fetch(base + url, {
+        method, headers: { "Content-Type": "application/json", ...secretary }, body: JSON.stringify(body),
+      });
+      const sessionUrl = "/training-sessions/34001";
+      const detail = await call(sessionUrl, secretary);
+      assert.equal(detail.status, 200, JSON.stringify(detail.data));
+      assert.equal(detail.data.canEdit, false);
+      assert.equal((await send("/training-sessions", "POST", {})).status, 403);
+      assert.equal((await send(sessionUrl, "PATCH", { title: "Modified" })).status, 403);
+      assert.equal((await send(sessionUrl, "DELETE", {})).status, 403);
+      assert.equal((await send(sessionUrl + "/planning", "PUT", { recoveries: [0, 0], recalculate: false })).status, 403);
+      assert.equal((await send(sessionUrl + "/exercises", "POST", { exerciseId: 1 })).status, 403);
+      const guest = { firstName: "Giocatore", lastName: "Ospite", startsOn: "2026-10-12", endsOn: "2026-10-14" };
+      assert.equal((await call("/training-sessions/34002/trial-players", secretary)).status, 200);
+      assert.equal((await send("/training-sessions/34003/trial-players", "POST", guest)).status, 403);
+      const created = await send(sessionUrl + "/trial-players", "POST", guest);
+      const result = await created.json();
+      assert.equal(created.status, 201, JSON.stringify(result));
+      assert.ok((await call(sessionUrl + "/trial-players", secretary)).data.some(trial => trial.playerId === result.playerId));
+      assert.equal((await send(sessionUrl + "/trial-players/" + result.playerId, "PATCH", { score: 8, decision: "approved" })).status, 403);
+      console.log("PASS secretary can add a guest in scope and cannot prepare, delete or evaluate a session.");
+      return;
+    }
     if (process.argv.includes("--parent-family")) {
       await pg.exec("ALTER TABLE players ALTER COLUMN created_at SET DEFAULT now()");
       await pg.exec("UPDATE clubs SET access_code='FAMILY-CLUB', parent_code='FAMILY1' WHERE id=1");

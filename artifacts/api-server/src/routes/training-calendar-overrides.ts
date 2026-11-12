@@ -15,8 +15,8 @@ import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-sc
 
 const router: IRouter = Router();
 
-const MANAGE_ROLES = ["admin", "presidente", "director", "technical_director", "secretary"];
-const VIEW_ROLES = [...MANAGE_ROLES, "coach", "fitness_coach", "athletic_director"];
+const MANAGE_ROLES = ["admin", "presidente", "director", "technical_director"];
+const VIEW_ROLES = [...MANAGE_ROLES, "secretary", "coach", "fitness_coach", "athletic_director"];
 const SESSION_NOTE_MARKER = "[FTB_TRAINING_CALENDAR]";
 
 async function ensureTrainingCalendarOverridesTable() {

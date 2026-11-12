@@ -68,15 +68,16 @@ function TrialReview({ trial, endpoint, onSaved }: {
   );
 }
 
-export function TrainingTrialPlayers({ sessionId, scheduledAt, teamName, canEvaluate, canAdd }: {
+export function TrainingTrialPlayers({ sessionId, scheduledAt, teamName, canEvaluate, canAdd, defaultOpen = false }: {
   sessionId: number;
   scheduledAt: string;
   teamName?: string | null;
   canEvaluate: boolean;
   canAdd: boolean;
+  defaultOpen?: boolean;
 }) {
   const sessionDay = trainingLocalDate(new Date(scheduledAt));
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [birthYear, setBirthYear] = useState("");
