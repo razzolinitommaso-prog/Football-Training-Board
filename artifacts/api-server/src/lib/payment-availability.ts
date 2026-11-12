@@ -3,7 +3,7 @@ import { trainingLocalDate } from "@workspace/api-zod";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
-export async function reconcilePaymentAvailability(clubId: number, playerId?: number, today = trainingLocalDate()) {
+export async function reconcilePaymentAvailability(clubId: number, playerId?: number, today = trainingLocalDate(), afterSettlement = false) {
   const playerScope = playerId === undefined ? sql`` : sql`AND player_id = ${playerId}`;
   const targetScope = playerId === undefined ? sql`` : sql`AND p.id = ${playerId}`;
   const override = sql`(p.availability_override_active AND p.availability_override_until IS NOT NULL
@@ -11,6 +11,11 @@ export async function reconcilePaymentAvailability(clubId: number, playerId?: nu
     AND (p.availability_override_from IS NULL OR p.availability_override_from <= ${today}::date))`;
   const canRestore = sql`(p.status = 'active' AND (${override} OR
     (p.registered IS TRUE AND coalesce(p.medical_certificate_expiry >= ${today}::date, false))))`;
+  const staleRegularFlag = sql`(${afterSettlement} AND NOT p.available
+    AND (p.unavailability_reason IS NULL OR p.unavailability_reason = 'regular')
+    AND p.status IN ('active', 'inactive') AND p.registered IS TRUE
+    AND p.medical_certificate_expiry >= ${today}::date
+    AND NOT EXISTS (SELECT 1 FROM overdue WHERE player_id = p.id))`;
   const result = await db.execute(sql`
     WITH overdue AS (
       SELECT DISTINCT player_id FROM player_payments
@@ -19,10 +24,13 @@ export async function reconcilePaymentAvailability(clubId: number, playerId?: nu
     )
     UPDATE players p
     SET available = CASE
+          WHEN ${staleRegularFlag} THEN true
           WHEN p.unavailability_reason = 'payment' THEN ${canRestore}
           ELSE false
         END,
+        status = CASE WHEN ${staleRegularFlag} THEN 'active' ELSE p.status END,
         unavailability_reason = CASE
+          WHEN ${staleRegularFlag} THEN NULL
           WHEN p.unavailability_reason IS DISTINCT FROM 'payment' THEN 'payment'
           WHEN p.status = 'injured' THEN 'injury'
           WHEN p.status = 'suspended' THEN 'suspended'
@@ -37,6 +45,7 @@ export async function reconcilePaymentAvailability(clubId: number, playerId?: nu
           AND NOT ${override})
         OR (p.unavailability_reason = 'payment'
           AND ((p.status = 'active' AND ${override}) OR NOT EXISTS (SELECT 1 FROM overdue WHERE player_id = p.id)))
+        OR ${staleRegularFlag}
       )
     RETURNING p.id
   `);

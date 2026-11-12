@@ -38,7 +38,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
-    if (process.argv.includes("--extra-time")) {
+    if (process.argv.includes("--extra-time") || process.argv.includes("--payment-desk")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as secretary} from '../../artifacts/api-server/src/routes/secretary';");
     }
     await esbuild.build({
@@ -188,6 +188,49 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+    if (process.argv.includes("--payment-desk")) {
+      await pg.exec(`UPDATE players SET status='active', available=true, registered=true,
+        medical_certificate_expiry='2099-01-01', availability_override_active=false WHERE id IN (101,102,201);
+        UPDATE players SET available=false, unavailability_reason='other' WHERE id=102`);
+      const send = (url, method, body, role = "secretary", club = "1") => fetch(base + url, {
+        method, headers: { "Content-Type": "application/json", "x-role": role, "x-club": club }, body: JSON.stringify(body),
+      });
+      const add = async (playerId, dueDate, paymentType = "annual_fee_installment", amount = 180) => {
+        const response = await send("/player-payments", "POST", { playerId, dueDate, paymentType, amount, status: "pending" });
+        assert.equal(response.status, 201);
+        return response.json();
+      };
+      const availability = async id => (await pg.query("SELECT available, unavailability_reason FROM players WHERE id=$1", [id])).rows[0];
+      const first = await add(101, "2020-01-01");
+      const second = await add(101, "2020-02-01", "insurance_fee", 25);
+      const unrelated = await add(102, "2020-02-01");
+      assert.deepEqual(await availability(101), { available: false, unavailability_reason: "payment" });
+      const due = `/player-payments/${first.id}/due-date`;
+      const newDate = { dueDate: "2098-02-01" };
+      assert.equal((await send(due, "PATCH", newDate, "admin")).status, 403);
+      assert.equal((await send(due, "PATCH", newDate, "presidente", "2")).status, 409);
+      assert.equal((await send(due, "PATCH", { dueDate: "2026-02-30" }, "presidente")).status, 400);
+      assert.equal((await send(due, "PATCH", newDate, "presidente")).status, 200);
+      assert.equal((await availability(101)).available, false);
+      const collect = (playerId, ids, role) => send("/player-payments/settle", "POST",
+        { playerId, ids, paymentDate: "2026-11-12", paymentMethod: "cash" }, role);
+      assert.equal((await collect(101, [second.id], "presidente")).status, 403);
+      assert.equal((await collect(101, [first.id, unrelated.id])).status, 409);
+      assert.equal((await collect(101, [second.id])).status, 204);
+      assert.deepEqual(await availability(101), { available: true, unavailability_reason: null });
+      assert.equal((await collect(101, [second.id])).status, 409);
+      assert.equal((await send(`/player-payments/${second.id}/due-date`, "PATCH", newDate, "presidente")).status, 409);
+      assert.equal((await collect(102, [unrelated.id])).status, 204);
+      assert.deepEqual(await availability(102), { available: false, unavailability_reason: "other" });
+      await pg.exec("UPDATE players SET available=false, status='inactive', unavailability_reason='regular' WHERE id=101");
+      assert.equal((await collect(101, [first.id])).status, 204);
+      assert.deepEqual(await availability(101), { available: true, unavailability_reason: null });
+      const ledger = await call("/player-payments", { "x-role": "presidente" });
+      assert.equal(ledger.data.find(row => row.id === second.id).paymentMethod, "cash");
+      assert.equal(ledger.data.find(row => row.id === first.id).dueDate, newDate.dueDate);
+      console.log("PASS payment desk: scope, restricted rescheduling, settlement, ledger and availability.");
+      return;
+    }
     if (process.argv.includes("--extra-time")) {
       await pg.exec("UPDATE players SET status='active', available=true, availability_override_active=false WHERE club_id=1; INSERT INTO players(id,club_id,team_id,first_name,last_name,status,available,availability_override_active) VALUES(103,1,11,'Third','Child','active',true,false)");
       const secretary = { "x-role": "secretary" };

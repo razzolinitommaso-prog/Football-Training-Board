@@ -61,12 +61,15 @@ export function paymentStatus(payment: PaymentEntry, today: string): PaymentStat
 }
 
 export function quotePaymentStatus(payments: PaymentEntry[], today: string) {
-  const quotes = payments.filter(payment => payment.paymentType !== "player_total_deposit" && paymentCategory(payment) === "quotes");
+  const unified = payments.some(payment => ["player_total_deposit", "player_total_installment"].includes(payment.paymentType ?? ""));
+  const quotes = payments.filter(payment => payment.paymentType === "player_total_installment" ||
+    (payment.paymentType !== "player_total_deposit" && paymentCategory(payment) === "quotes"));
   if (quotes.some(payment => paymentStatus(payment, today) === "overdue")) return { tone: "red" as const, label: "Scadute" };
-  if (quotes.some(payment => paymentStatus(payment, today) === "pending")) return { tone: "yellow" as const, label: "Da saldare" };
-  if (payments.some(payment => ["player_total_deposit", "player_total_installment"].includes(payment.paymentType ?? ""))) {
-    return { tone: "yellow" as const, label: "Quote da verificare" };
+  if (unified) {
+    if (quotes.some(payment => payment.status !== "paid" && !payment.dueDate)) return { tone: "yellow" as const, label: "Scadenze da indicare" };
+    return { tone: "green" as const, label: quotes.some(payment => payment.status !== "paid") ? "In regola · piano in corso" : "In regola" };
   }
+  if (quotes.some(payment => paymentStatus(payment, today) === "pending")) return { tone: "yellow" as const, label: "Da saldare" };
   if (!quotes.length) return { tone: "yellow" as const, label: "Quote da registrare" };
   if (!quotes.some(payment => payment.paymentType === "registration_fee" || /^quota iscrizione\b/i.test(payment.description?.trim() ?? ""))) {
     return { tone: "yellow" as const, label: "Iscrizione da verificare" };
@@ -94,17 +97,25 @@ export function playerEconomicBalance(
   useSavedPlan: boolean,
   upfront: number,
   settle: boolean,
+  registrationIsInstallment = false,
 ) {
   const types: string[] = ["player_total_installment"];
   let quotes = 0;
   let gross = cents(extraTime);
   let recorded = 0;
+  let bookedDirect = 0;
   for (const [key, accepted] of Object.entries(economicPaymentTypes)) {
     const group = payments.filter((payment) => accepted.some((type) => type === payment.paymentType));
     const entered = cents(charges[key as keyof EconomicCharges]);
     const paid = group.reduce((sum, payment) => sum + (payment.status === "paid" ? cents(payment.amount) : 0), 0);
     const booked = group.reduce((sum, payment) => sum + cents(payment.amount), 0);
-    const target = entered || (key === "kit" || key === "shuttle" ? 0 : booked);
+    bookedDirect += booked;
+    if (key === "registration" && registrationIsInstallment) {
+      recorded += paid;
+      types.push(...accepted);
+      continue;
+    }
+    const target = entered || (key === "shuttle" ? 0 : booked);
     gross += target;
     if (key !== "kit") quotes += target;
     recorded += Math.min(target, paid);
@@ -114,7 +125,8 @@ export function playerEconomicBalance(
     payment.paymentType === "player_total_deposit" || payment.paymentType === "player_total_installment");
   const directTotal = gross;
   if (useSavedPlan) {
-    gross = Math.max(gross, ...unified.map((payment) => cents(payment.annualFeeTotal ?? 0)));
+    gross = Math.max(gross, ...unified.map((payment) => cents(payment.annualFeeTotal ?? 0)),
+      bookedDirect + unified.reduce((sum, payment) => sum + cents(payment.amount), 0));
   }
   recorded = Math.min(gross, recorded + unified.reduce((sum, payment) =>
     sum + (payment.status === "paid" ? cents(payment.amount) : 0), 0));

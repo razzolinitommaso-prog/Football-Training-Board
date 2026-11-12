@@ -1,3 +1,4 @@
+import { PlayerPaymentWorkspace } from "@/components/player-payment-register";
 import { useState, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Banknote, Plus, Trash2 } from "lucide-react";
@@ -17,6 +18,7 @@ import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, pay
 
 type Payment = PaymentEntry & {
   id: number;
+  playerId: number;
   playerName?: string | null;
   amount: number;
   paymentDate?: string | null;
@@ -78,6 +80,7 @@ export default function PaymentsPage() {
   const { toast } = useToast();
   const cache = useQueryClient();
   const today = trainingLocalDate();
+  const [view, setView] = useState<"players" | "ledger">("players");
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(blank);
   const [search, setSearch] = useState("");
@@ -211,7 +214,7 @@ export default function PaymentsPage() {
         <h1 className="flex items-center gap-2 text-2xl font-semibold"><Banknote className="h-6 w-6 text-primary" />Pagamenti</h1>
         <p className="mt-1 text-sm text-muted-foreground">Consulta incassi, quote e scadenze della società.</p>
       </div>
-      {canEdit && <Dialog open={open} onOpenChange={setOpen}>
+      {canEdit && view === "ledger" && <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild><Button><Plus className="h-4 w-4" />Aggiungi pagamento</Button></DialogTrigger>
         <DialogContent>
           <DialogHeader><DialogTitle>Aggiungi pagamento</DialogTitle></DialogHeader>
@@ -254,7 +257,11 @@ export default function PaymentsPage() {
       </Dialog>}
     </div>
 
-    <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-3 md:grid-cols-3 xl:grid-cols-6">
+    <div className="flex flex-wrap gap-2">
+      <Button type="button" aria-pressed={view === "players"} variant={view === "players" ? "default" : "outline"} onClick={() => setView("players")}>Incassi giocatori</Button>
+      <Button type="button" aria-pressed={view === "ledger"} variant={view === "ledger" ? "default" : "outline"} onClick={() => setView("ledger")}>Registro e grafici</Button>
+    </div>
+    {view === "ledger" && <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-3 md:grid-cols-3 xl:grid-cols-6">
       <label className="min-w-0 space-y-1 text-xs font-medium">Giocatore o descrizione
         <Input placeholder="Cerca…" value={search} onChange={event => setSearch(event.target.value)} />
       </label>
@@ -287,13 +294,13 @@ export default function PaymentsPage() {
           <option value="missing">Senza metodo</option>
         </ScrollableSelect>
       </label>
-    </div>
+    </div>}
 
     {list.isPending ? <p role="status">Caricamento pagamenti…</p> : list.isError ? (
       <div role="alert" className="flex flex-wrap items-center gap-2">Impossibile caricare i pagamenti.
         <Button type="button" variant="outline" size="sm" onClick={() => void list.refetch()}>Riprova</Button>
       </div>
-    ) : <>
+    ) : view === "players" ? <PlayerPaymentWorkspace payments={payments} /> : <>
       <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2 lg:grid-cols-4">
         {(Object.keys(paymentStatuses) as PaymentStatus[]).map(key => <Card key={key}><CardContent className="p-3">
           <p className="text-xs text-muted-foreground">{paymentStatuses[key]}</p>

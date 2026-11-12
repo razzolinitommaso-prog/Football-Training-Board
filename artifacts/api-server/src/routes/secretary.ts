@@ -294,7 +294,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     availabilityBlocking: availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1,
     paymentMethod: status === "paid" ? paymentMethod : null,
   }).returning();
-  await reconcilePaymentAvailability(clubId, player.id);
+  await reconcilePaymentAvailability(clubId, player.id, undefined, status === "paid");
   res.status(201).json(record);
 });
 
@@ -510,10 +510,13 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
     if (!player) return "missing";
     const scope = and(eq(playerPaymentsTable.playerId, playerId), eq(playerPaymentsTable.clubId, clubId));
     const current = await tx.select().from(playerPaymentsTable).where(scope).for("update");
-    const expected = new Map<number, { status: string; amount: number }>(expectedPayments.map((row) => [row.id, row]));
-    if (expectedPayments.length !== current.length || expected.size !== current.length || current.some((row) =>
-      expected.get(row.id)?.status !== row.status ||
-      Math.round(Number(expected.get(row.id)?.amount) * 100) !== Math.round(row.amount * 100))) return "changed";
+    const expected = new Map<number, { status: string; amount: number; dueDate?: string | null }>(expectedPayments.map((row) => [row.id, row]));
+    if (expectedPayments.length !== current.length || expected.size !== current.length || current.some((row) => {
+      const snapshot = expected.get(row.id);
+      return !snapshot || snapshot.status !== row.status ||
+        Math.round(Number(snapshot.amount) * 100) !== Math.round(row.amount * 100) ||
+        (snapshot.dueDate !== undefined && snapshot.dueDate !== row.dueDate);
+    })) return "changed";
 
     const eligiblePaid = current.reduce((sum, row) =>
       row.status === "paid" && (replaceTypes.includes(row.paymentType) || row.paymentType === "player_total_deposit")
@@ -543,7 +546,52 @@ router.post("/player-payment-plan", requireAuth, async (req, res): Promise<void>
   });
   if (result === "missing") { res.status(404).json({ error: "Giocatore non trovato." }); return; }
   if (result === "changed") { res.status(409).json({ error: "I pagamenti sono cambiati. Rivedi il totale e riprova." }); return; }
-  await reconcilePaymentAvailability(clubId, playerId);
+  await reconcilePaymentAvailability(clubId, playerId, undefined, deposits.length > 0);
+  res.sendStatus(204);
+});
+
+router.patch("/player-payments/:id/due-date", requireAuth, async (req, res): Promise<void> => {
+  if (!["secretary", "presidente"].includes(normalizeSessionRole(req.session.role))) { res.sendStatus(403); return; }
+  const id = Number(req.params.id);
+  const { dueDate } = req.body ?? {};
+  if (!Number.isSafeInteger(id) || id <= 0 || !isPaymentPlanDate(dueDate)) {
+    res.status(400).json({ error: "Indica una scadenza valida." }); return;
+  }
+  const clubId = req.session.clubId!;
+  const scope = await getScopedPlayerIds(req, clubId);
+  if (scope?.length === 0) { res.sendStatus(404); return; }
+  const [record] = await db.update(playerPaymentsTable).set({ dueDate, status: "pending" }).where(and(
+    eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId),
+    sql`${playerPaymentsTable.status} <> 'paid'`, scope ? inArray(playerPaymentsTable.playerId, scope) : undefined,
+  )).returning();
+  if (!record) { res.status(409).json({ error: "La rata non è più modificabile." }); return; }
+  await reconcilePaymentAvailability(clubId, record.playerId, undefined, true);
+  res.json(record);
+});
+
+router.post("/player-payments/settle", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditFinancials(req.session.role)) { res.sendStatus(403); return; }
+  const { playerId, ids, paymentDate, paymentMethod } = req.body ?? {};
+  if (!Number.isSafeInteger(playerId) || playerId <= 0 || !Array.isArray(ids) || ids.length === 0 || ids.length > 120 ||
+      new Set(ids).size !== ids.length || ids.some(id => !Number.isSafeInteger(id) || id <= 0) ||
+      !isPaymentPlanDate(paymentDate) || !validReceiptMethod(paymentMethod)) {
+    res.status(400).json({ error: "Controlla rate, data e metodo d’incasso." }); return;
+  }
+  const clubId = req.session.clubId!;
+  const scope = await getScopedPlayerIds(req, clubId);
+  if (scope && !scope.includes(playerId)) { res.sendStatus(403); return; }
+  const count = await db.transaction(async tx => {
+    const condition = and(eq(playerPaymentsTable.clubId, clubId), eq(playerPaymentsTable.playerId, playerId),
+      inArray(playerPaymentsTable.id, ids), sql`${playerPaymentsTable.status} <> 'paid' AND ${playerPaymentsTable.amount} > 0`);
+    const rows = await tx.select({ id: playerPaymentsTable.id }).from(playerPaymentsTable).where(condition)
+      .orderBy(asc(playerPaymentsTable.id)).for("update");
+    if (rows.length !== ids.length) return 0;
+    const updated = await tx.update(playerPaymentsTable).set({ status: "paid", paymentDate, paymentMethod })
+      .where(condition).returning({ id: playerPaymentsTable.id });
+    return updated.length;
+  });
+  if (!count) { res.status(409).json({ error: "Le rate sono cambiate. Aggiorna il riepilogo e riprova." }); return; }
+  await reconcilePaymentAvailability(clubId, playerId, undefined, true);
   res.sendStatus(204);
 });
 
@@ -575,7 +623,7 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   const [record] = await db.update(playerPaymentsTable).set(updates)
     .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!))).returning();
   if (!record) { res.status(404).json({ error: "Not found" }); return; }
-  await reconcilePaymentAvailability(req.session.clubId!, record.playerId);
+  await reconcilePaymentAvailability(req.session.clubId!, record.playerId, undefined, status === "paid");
   res.json(record);
 });
 

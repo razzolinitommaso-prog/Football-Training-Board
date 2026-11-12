@@ -1,3 +1,4 @@
+import { PlayerPaymentRegister } from "@/components/player-payment-register";
 import { PlayerKitEditor } from "./player-kit-editor";
 import { ParentFamilyLinks } from "@/components/parent-family-links";
 import { PLAYER_KIT_ROWS, kitRowHasContent, kitRowItemIds, kitRowNeedsLink, KIT_REQUEST_STATUS, savedKitSelections, type KitRequestLine, type KitRow } from "@/lib/player-kit-catalog";
@@ -1479,6 +1480,8 @@ function importSeasonStartYearFromSeasons(seasons: SeasonOption[]): number | nul
   return years.length > 0 ? Math.max(...years) : null;
 }
 
+const emptyQuoteDeposits = () => [{ id: "registration", amount: "", purpose: "Iscrizione", method: "", paymentDate: "", confirmed: false }, { id: "insurance", amount: "", purpose: "Assicurazione", method: "", paymentDate: "", confirmed: false }];
+
 export default function PlayersList({ section: pageSection }: PlayersListProps = {}) {
   const technicalScope = useTechnicalScope();
   const section = technicalScope.enabled ? technicalScope.section : pageSection;
@@ -1643,14 +1646,12 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const [documentNotes, setDocumentNotes] = useState("");
   const [isUploadingDocument, setIsUploadingDocument] = useState(false);
   const [registrationFeeTotal, setRegistrationFeeTotal] = useState("");
-  const [registrationFeeListItemId, setRegistrationFeeListItemId] = useState("");
   const [insuranceFeeTotal, setInsuranceFeeTotal] = useState("");
   const [annualFeeTotal, setAnnualFeeTotal] = useState("");
   const [annualFeeListItemId, setAnnualFeeListItemId] = useState("");
   const [insuranceFeeListItemId, setInsuranceFeeListItemId] = useState("");
   const [shuttleFeeListItemId, setShuttleFeeListItemId] = useState("");
-  const [depositDrafts, setDepositDrafts] = useState([{ id: "first", amount: "", purpose: "Generale", method: "", paymentDate: "" }]);
-  const [economicPlanPaid, setEconomicPlanPaid] = useState(false);
+  const [depositDrafts, setDepositDrafts] = useState(emptyQuoteDeposits);
   const [installmentCount, setInstallmentCount] = useState("1");
   const [firstInstallmentDueDate, setFirstInstallmentDueDate] = useState("");
   const [annualInstallments, setAnnualInstallments] = useState<InstallmentDraft[]>([]);
@@ -1721,7 +1722,6 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const editingKitPayment = editingKitPayments[0];
   const editingShuttlePayments = editingPlayerPayments.filter((payment) => payment.paymentType === "shuttle_monthly");
   const editingShuttlePayment = editingShuttlePayments[0];
-  const plannedRegistrationFee = parseEuroInput(registrationFeeTotal);
   const plannedAnnualFee = parseEuroInput(annualFeeTotal);
   const plannedInsuranceFee = parseEuroInput(insuranceFeeTotal);
   const plannedShuttleFee = parseEuroInput(shuttleMonthlyCost);
@@ -1746,25 +1746,22 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const editingPrimarySquad = editingPlayer?.squad ?? editingPlayerMeta.squad ?? null;
   const editingSupplementalSquad = editingPlayer?.supplementalSquad ?? editingPlayerMeta.supplementalSquad ?? null;
   const editingPlayerIsYouthSection = (editingPlayerTeam as any)?.clubSection === "settore_giovanile" || section === "settore_giovanile";
-  const depositAmounts = depositDrafts.map(draft => draft.amount === "" ? 0 : parseEuroInput(draft.amount));
-  const extraDepositCents = depositAmounts.slice(1).reduce((sum, amount) => sum + Math.round(amount * 100), 0);
+  const deposits = depositDrafts.map(draft => ({
+    ...draft,
+    amount: draft.amount === "" || !draft.confirmed ? 0 : parseEuroInput(draft.amount),
+  }));
+  const depositTotal = deposits.reduce((sum, deposit) => sum + Math.round(deposit.amount * 100), 0) / 100;
   const economicBalance = playerEconomicBalance({
-    registration: isSafePlayerPaymentAmount(plannedRegistrationFee) ? plannedRegistrationFee : 0,
+    registration: 0,
     annual: isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0,
     insurance: isSafePlayerPaymentAmount(plannedInsuranceFee) ? plannedInsuranceFee : 0,
     shuttle: isSafePlayerPaymentAmount(plannedShuttleFee) ? plannedShuttleFee * plannedShuttleMonths : 0,
     kit: plannedKitTotal,
   }, plannedExtraTimeTotal, editingPlayerPayments,
-  !registrationFeeTotal && !annualFeeTotal && !insuranceFeeTotal,
-  (Math.round(depositAmounts[0] * 100) + extraDepositCents) / 100, economicPlanPaid);
+  !annualFeeTotal && !insuranceFeeTotal,
+  depositTotal, false, isSafePlayerPaymentAmount(plannedAnnualFee));
   const { quotes: plannedQuotesTotal, savedPlanBalance, total: plannedEconomicTotal, alreadyPaid: plannedAlreadyPaid, upfront: plannedUpfrontAmount,
     outstanding: plannedOutstanding, residual: plannedResidualTotal } = economicBalance;
-  const deposits = depositDrafts.map((draft, index) => ({
-    ...draft,
-    amount: economicPlanPaid && index === 0
-      ? (Math.round(plannedOutstanding * 100) - extraDepositCents) / 100
-      : depositAmounts[index],
-  }));
   function updateDeposit(id: string, patch: Partial<Omit<(typeof depositDrafts)[number], "id">>) {
     setDepositDrafts(drafts => drafts.map(draft => draft.id === id ? { ...draft, ...patch } : draft));
   }
@@ -1774,8 +1771,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     .filter((doc) => doc.type === "medicalCertificate")
     .sort((a, b) => String(b.expiryDate ?? "").localeCompare(String(a.expiryDate ?? "")))[0] ?? null;
   const activeListItems = warehouseListItems.filter((item) => item.isActive !== 0 && item.price != null);
-  const registrationFeeListItems = activeListItems.filter((item) => item.itemType === "registration_fee");
-  const annualFeeListItems = activeListItems.filter((item) => item.itemType === "annual_fee");
+  const annualTariffs = activeListItems.filter(item => item.itemType === "annual_fee");
+  const annualFeeListItems = annualTariffs.length ? annualTariffs : activeListItems.filter(item => item.itemType === "registration_fee");
   const insuranceFeeListItems = activeListItems.filter((item) => item.itemType === "insurance_fee");
   const shuttleFeeListItems = activeListItems.filter((item) => item.itemType === "shuttle_fee");
   const kitListItems = activeListItems.filter((item) =>
@@ -2302,7 +2299,15 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       toast({ title: "Acconto troppo alto", description: "Il nuovo acconto non può superare il saldo ancora da pagare.", variant: "destructive" });
       return;
     }
-    const receipts = deposits.filter((deposit, index) => index > 0 || deposit.amount !== 0);
+    if (depositDrafts.some(draft => draft.amount !== "" && Number(draft.amount) !== 0 && !draft.confirmed)) {
+      toast({ title: "Conferma gli incassi", description: "Conferma ciascun versamento inserito prima di salvare.", variant: "destructive" });
+      return;
+    }
+    const receipts = deposits.filter(deposit => deposit.amount !== 0);
+    if ((plannedAnnualFee > 0 && deposits[0].amount > plannedAnnualFee) || (plannedInsuranceFee > 0 && deposits[1].amount > plannedInsuranceFee)) {
+      toast({ title: "Controlla gli importi", description: "Il versamento non può superare la quota associata.", variant: "destructive" });
+      return;
+    }
     if (receipts.some(deposit => !isSafePlayerPaymentAmount(deposit.amount) || deposit.amount < 0.01 || !isReceiptMethod(deposit.method) || !deposit.paymentDate)) {
       toast({ title: "Controlla i versamenti", description: "Indica importo, data e metodo di incasso per ogni versamento.", variant: "destructive" });
       return;
@@ -2324,15 +2329,14 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           playerId: editingPlayer.id, total: plannedEconomicTotal, alreadyPaid: plannedAlreadyPaid, upfront: plannedUpfrontAmount,
           deposits: receipts.map(({ amount, purpose, method, paymentDate }) => ({ amount, purpose, paymentMethod: method, paymentDate })),
           replaceTypes: economicBalance.replaceTypes, installments,
-          expectedPayments: editingPlayerPayments.map(({ id, status, amount }) => ({ id, status, amount })),
+          expectedPayments: editingPlayerPayments.map(({ id, status, amount, dueDate }) => ({ id, status, amount, dueDate: dueDate ?? null })),
         }),
       });
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? "Piano totale non salvato");
       queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/players"] });
-      setDepositDrafts([{ id: "first", amount: "", purpose: "Generale", method: "", paymentDate: "" }]);
-      setEconomicPlanPaid(false);
+      setDepositDrafts(emptyQuoteDeposits());
       toast({ title: "Piano totale creato" });
     } catch (error) {
       queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
@@ -2450,8 +2454,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         });
       }
       setRegistrationFeeTotal("");
-      setRegistrationFeeListItemId("");
-      setInsuranceFeeTotal("");
+        setInsuranceFeeTotal("");
       setAnnualFeeTotal("");
       setShuttleMonthlyCost("");
       setAnnualFeeListItemId("");
@@ -2723,13 +2726,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     setPlayerDialogMode(mode);
     setEditingPlayer(player);
     setRegistrationFeeTotal("");
-    setRegistrationFeeListItemId("");
     setAnnualFeeTotal("");
     setAnnualFeeListItemId("");
     setInsuranceFeeTotal("");
     setInsuranceFeeListItemId("");
-    setDepositDrafts([{ id: "first", amount: "", purpose: "Generale", method: "", paymentDate: "" }]);
-    setEconomicPlanPaid(false);
+    setDepositDrafts(emptyQuoteDeposits());
     const { notesRaw, meta } = splitPlayerMeta(player.notes ?? "");
     const parsedNotes = splitPlayerNotes(notesRaw);
     setNoteDraftText("");
@@ -3037,6 +3038,15 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         }
       }, 120);
     }
+    if (params.get("focus") === "quotes") {
+      window.setTimeout(() => {
+        const panel = document.querySelector("[data-player-quotes]");
+        if (panel instanceof HTMLDetailsElement) {
+          panel.open = true;
+          panel.scrollIntoView({ block: "start" });
+        }
+      }, 120);
+    }
     if (params.get("focus") === "notes") {
       window.setTimeout(() => {
         const el = document.querySelector('textarea[placeholder="Scrivi una comunicazione sul giocatore..."]');
@@ -3049,6 +3059,17 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     const nextUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
     window.history.replaceState({}, "", nextUrl);
   }, [openedFromQuery, editingPlayer, players, nr]);
+
+  useEffect(() => {
+    if (playerDialogMode !== "edit" || !editingPlayer) return;
+    const latest = players.find(player => player.id === editingPlayer.id);
+    if (!latest || latest.available === editingPlayer.available || latest.available !== true) return;
+    if (editForm.getFieldState("available").isDirty || editForm.getFieldState("status").isDirty ||
+      editForm.getFieldState("unavailabilityReason").isDirty) return;
+    editForm.resetField("available", { defaultValue: true });
+    editForm.resetField("status", { defaultValue: latest.status ?? "active" });
+    editForm.resetField("unavailabilityReason", { defaultValue: latest.unavailabilityReason ?? "" });
+  }, [editForm, editingPlayer, playerDialogMode, players]);
 
   const handleEditSubmit = (data: EditForm) => {
     if (!editingPlayer) return;
@@ -3956,6 +3977,15 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 })()}
                 </div>
               </details>
+
+              {canViewFinancials && editingPlayer && (
+                <details data-player-quotes className="group rounded-lg border p-3">
+                  <CollapsibleSectionSummary title="Quote" icon={<Banknote className="h-4 w-4" />} status={paymentSectionStatus} />
+                  <div className="mt-3">
+                    <PlayerPaymentRegister key={editingPlayer.id} playerId={editingPlayer.id} payments={editingPlayerPayments} allowSecretaryEdit={false} />
+                  </div>
+                </details>
+              )}
 
               {canViewExtraTime && (
                 <details data-player-extra-time className="group rounded-lg border p-3">
@@ -4887,24 +4917,6 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         <div className="space-y-2">
-                          <Label>Quota iscrizione</Label>
-                          <Select value={registrationFeeListItemId || "_manual"} onValueChange={(value) => {
-                            setRegistrationFeeListItemId(value === "_manual" ? "" : value);
-                            if (value !== "_manual") applyListItemPrice(value, setRegistrationFeeTotal);
-                          }}>
-                            <SelectTrigger aria-label="Listino quota iscrizione"><SelectValue placeholder="Scegli dal listino" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_manual">Manuale</SelectItem>
-                              {!priceListPending && !priceListError && !registrationFeeListItems.length && <SelectItem value="_empty" disabled>Nessuna tariffa attiva</SelectItem>}
-                              {registrationFeeListItems.map(item => <SelectItem key={item.id} value={String(item.id)}>{item.name} - Euro {formatEuro(item.price)}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                          <Input aria-label="Importo quota iscrizione" type="number" step="0.01" value={registrationFeeTotal} onChange={event => {
-                            setRegistrationFeeListItemId("");
-                            setRegistrationFeeTotal(event.target.value);
-                          }} />
-                        </div>
-                        <div className="space-y-2">
                           <Label>Quota annuale</Label>
                           <Select value={annualFeeListItemId || "_manual"} onValueChange={(value) => {
                             setAnnualFeeListItemId(value === "_manual" ? "" : value);
@@ -4980,13 +4992,6 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Residuo totale da rateizzare</p>
                           <p className="text-lg font-bold">Euro {formatEuro(plannedResidualTotal)}</p>
                         </div>
-                        <label className="flex min-w-0 items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm">
-                          <Checkbox
-                            checked={economicPlanPaid}
-                            onCheckedChange={(value) => setEconomicPlanPaid(value === true)}
-                          />
-                          Pagato totale
-                        </label>
                         <div className="space-y-2">
                           <Label>Numero rate</Label>
                           <Input type="number" min={1} value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
@@ -4997,29 +5002,29 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <Label>Acconti e saldo già versati</Label>
+                        <Label>Iscrizione, assicurazione e altri versamenti</Label>
+                        <p className="text-xs text-muted-foreground">L’iscrizione è la prima rata della quota annuale.</p>
                         {depositDrafts.map((draft, index) => (
                           <div key={draft.id} className="grid items-end gap-2 rounded-md border px-3 py-2 sm:grid-cols-2 lg:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
-                            <label className="block min-w-0 space-y-1 text-sm">Voce
+                            {index < 2 ? <p className="self-center text-sm font-medium">{index === 0 ? "Iscrizione · prima rata" : "Assicurazione"}</p> : <label className="block min-w-0 space-y-1 text-sm">Voce
                               <ScrollableSelect aria-label={`Voce versamento ${index + 1}`} className="w-full" value={draft.purpose} onValueChange={purpose => updateDeposit(draft.id, { purpose })}>
                                 {depositPurposes.map(purpose => <option key={purpose} value={purpose}>{purpose}</option>)}
                               </ScrollableSelect>
-                            </label>
+                            </label>}
                             <label className="block min-w-0 space-y-1 text-sm">Importo (€)
-                              <Input type="number" min="0" step="0.01" readOnly={economicPlanPaid && index === 0}
-                                value={economicPlanPaid && index === 0 ? Math.max(0, deposits[0].amount || 0) : draft.amount}
+                              <Input type="number" min="0" step="0.01" value={draft.amount}
                                 onChange={event => updateDeposit(draft.id, { amount: event.target.value })} />
                             </label>
                             <ReceiptMethodSelect value={draft.method} onChange={method => updateDeposit(draft.id, { method })} />
                             <label className="block min-w-0 space-y-1 text-sm">Data d’incasso
                               <Input type="date" value={draft.paymentDate} onChange={event => updateDeposit(draft.id, { paymentDate: event.target.value })} />
                             </label>
-                            {index > 0 && <Button type="button" variant="ghost" size="icon" aria-label={`Rimuovi versamento ${index + 1}`}
+                            {index < 2 ? <label className="flex items-center gap-2 self-center text-sm"><Checkbox checked={draft.confirmed} onCheckedChange={value => updateDeposit(draft.id, { confirmed: value === true })} /> Incassato</label> : <Button type="button" variant="ghost" size="icon" aria-label={`Rimuovi versamento ${index + 1}`}
                               onClick={() => setDepositDrafts(drafts => drafts.filter(row => row.id !== draft.id))}><Trash2 className="h-4 w-4" /></Button>}
                           </div>
                         ))}
                         <Button type="button" variant="outline" size="sm" disabled={depositDrafts.length >= 120}
-                          onClick={() => setDepositDrafts(drafts => [...drafts, { id: crypto.randomUUID(), amount: "", purpose: "Generale", method: "", paymentDate: "" }])}>
+                          onClick={() => setDepositDrafts(drafts => [...drafts, { id: crypto.randomUUID(), amount: "", purpose: "Generale", method: "", paymentDate: "", confirmed: true }])}>
                           <Plus className="h-4 w-4" /> Aggiungi versamento
                         </Button>
                       </div>
@@ -5056,37 +5061,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       )}
                     </div>
                   )}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between border-t pt-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagamenti registrati</p>
-                      <Badge variant="outline">{editingPlayerPayments.length} voci</Badge>
-                    </div>
-                    {editingPlayerPayments.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">Nessuna quota registrata.</p>
-                    ) : editingPlayerPayments.map((payment) => (
-                      <div key={payment.id} className="flex flex-col gap-2 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{payment.description || "Quota giocatore"}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {payment.dueDate ? `Scadenza ${payment.dueDate}` : "Senza scadenza"}
-                            {payment.installmentNumber && payment.totalInstallments ? ` - rata ${payment.installmentNumber}/${payment.totalInstallments}` : ""}
-                            {payment.status === "paid" && " · " + receiptMethodLabel(payment.paymentMethod)}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold">Euro {formatEuro(payment.amount)}</span>
-                          <Badge variant={payment.status === "paid" ? "default" : overduePlayerPayments.some((p) => p.id === payment.id) ? "destructive" : "secondary"}>
-                            {payment.status === "paid" ? "Versata" : "Non versata"}
-                          </Badge>
-                          {canEditFinancials && (
-                            <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => void deletePlayerPayment(payment.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  {editingPlayer && <PlayerPaymentRegister key={editingPlayer.id} playerId={editingPlayer.id}
+                    payments={editingPlayerPayments} allowSecretaryEdit={canEditFinancials} onDelete={id => void deletePlayerPayment(id)} />}
                   </div>
                 </details>
               )}
@@ -5192,12 +5168,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     {canEditFinancials && (
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Già incassato</p>
-                          <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedAlreadyPaid)}</p>
-                        </div>
-                        <div className="min-w-0 rounded-md border bg-background/80 px-3 py-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Nuovo acconto</p>
-                          <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedUpfrontAmount)}</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">{plannedUpfrontAmount > 0 ? "Incassato dopo il salvataggio" : "Incassato"}</p>
+                          <p className="text-lg font-bold text-emerald-900">Euro {formatEuro(plannedAlreadyPaid + plannedUpfrontAmount)}</p>
                           {deposits.filter(deposit => deposit.amount > 0).map(deposit => (
                             <p key={deposit.id} className="text-xs text-muted-foreground">
                               {deposit.purpose} · € {formatEuro(deposit.amount)} · {receiptMethodLabel(deposit.method)} · {deposit.paymentDate ? deposit.paymentDate.split("-").reverse().join("/") : "Data da indicare"}
