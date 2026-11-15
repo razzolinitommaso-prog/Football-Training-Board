@@ -48,7 +48,9 @@ const inviteSchema = z.object({
   firstName: z.string().min(2, "Inserisci un nome di almeno 2 caratteri"),
   lastName: z.string().min(2, "Inserisci un cognome di almeno 2 caratteri"),
   email: z.string().email("Inserisci un indirizzo email valido"),
-  activationChannel: z.enum(["email", "sms"]),
+  activationChannel: z.enum(["email", "sms", "direct"]),
+  password: z.string().optional(),
+  confirmPassword: z.string().optional(),
   role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   staffRole: z.string().optional(),
@@ -63,6 +65,13 @@ const inviteSchema = z.object({
 }).refine(data => data.activationChannel !== "sms" || /^(?:\+|00)[1-9]\d{7,14}$/.test(data.phone?.replace(/[\s().-]/g, "") ?? ""), {
   message: "Per l’SMS inserisci il numero con prefisso internazionale (es. +39).",
   path: ["phone"],
+}).refine(data => data.activationChannel !== "direct" ||
+  (typeof data.password === "string" && data.password.length >= 8 && new TextEncoder().encode(data.password).length <= 72), {
+  message: "La password deve avere almeno 8 caratteri e al massimo 72 byte.",
+  path: ["password"],
+}).refine(data => data.activationChannel !== "direct" || data.password === data.confirmPassword, {
+  message: "Le password non coincidono.",
+  path: ["confirmPassword"],
 });
 
 const editSchema = z.object({
@@ -181,8 +190,12 @@ export default function MembersList() {
         queryClient.invalidateQueries({ queryKey: ["/api/clubs/me/members"] });
         setIsInviteOpen(false);
         const sent = (member as typeof member & { activationStatus?: string }).activationStatus === "sent";
-        toast({ title: sent ? "Invito inviato" : "Membro salvato · invio da riprovare",
-          description: sent ? undefined : "Controlla il recapito e usa Reinvia invito dalla scheda del membro." });
+        if (inviteForm.getValues("activationChannel") === "direct") {
+          toast({ title: "Membro creato", description: "Può accedere subito con email e password iniziale." });
+        } else {
+          toast({ title: sent ? "Invito inviato" : "Membro salvato · invio da riprovare",
+            description: sent ? undefined : "Controlla il recapito e usa Reinvia invito dalla scheda del membro." });
+        }
         inviteForm.reset();
       },
       onError: (err) => {
@@ -526,7 +539,8 @@ export default function MembersList() {
               }
               const sections = (data.clubSection ?? []) as ClubSection[];
               const staffRole = serializeStaffRoleBySection(parseStaffRoleBySection(data.staffRole, sections));
-              inviteMutation.mutate({ data: { ...data, password: "", staffRole } });
+              const { confirmPassword: _confirmation, password, ...member } = data;
+              inviteMutation.mutate({ data: { ...member, password: member.activationChannel === "direct" ? password ?? "" : "", staffRole } });
             }, (errors) => {
               toast({ title: "Controlla i dati del nuovo membro", description: Object.values(errors).find(error => error?.message)?.message ?? "Completa i campi obbligatori indicati nel modulo.", variant: "destructive" });
             })} className="space-y-4 pt-2 sm:pt-4">
@@ -548,11 +562,21 @@ export default function MembersList() {
                 {inviteForm.formState.errors.email && <p id="invite-email-error" role="alert" className="text-xs text-destructive">{inviteForm.formState.errors.email.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="invite-channel">Invia l’attivazione tramite</Label>
+                <Label htmlFor="invite-channel">Modalità di accesso</Label>
                 <select id="invite-channel" className="h-9 w-full rounded-md border bg-background px-3 text-sm" {...inviteForm.register("activationChannel")}>
-                  <option value="email">Email</option><option value="sms">SMS</option>
+                  <option value="email">Email</option><option value="sms">SMS</option><option value="direct">Accesso diretto con password iniziale</option>
                 </select>
-                <p className="text-xs text-muted-foreground">Il membro riceve un link personale valido 48 ore e sceglie la password al primo accesso.</p>
+                {inviteForm.watch("activationChannel") === "direct" ? (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">Password iniziale
+                      <Input type="password" autoComplete="new-password" {...inviteForm.register("password")} />
+                    </label>
+                    <label className="space-y-1 text-sm">Conferma password
+                      <Input type="password" autoComplete="new-password" {...inviteForm.register("confirmPassword")} />
+                    </label>
+                    <p className="text-xs text-muted-foreground sm:col-span-2">Il membro accede subito con email e password iniziale. Usa un’email nuova.</p>
+                  </div>
+                ) : <p className="text-xs text-muted-foreground">Il membro riceve un link personale valido 48 ore e sceglie la password al primo accesso.</p>}
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -716,7 +740,9 @@ export default function MembersList() {
               <DialogFooter className="sticky bottom-0 -mx-4 -mb-4 border-t bg-background/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:mb-0 sm:border-t-0 sm:bg-transparent sm:px-0 sm:py-0 sm:pt-4">
                 <Button type="submit" disabled={inviteMutation.isPending} className="w-full">
                   <Mail className="w-4 h-4 mr-2" />
-                  {inviteMutation.isPending ? t.sendingInvite : t.sendInvite}
+                  {inviteForm.watch("activationChannel") === "direct"
+                    ? (inviteMutation.isPending ? "Creazione…" : "Crea membro")
+                    : (inviteMutation.isPending ? t.sendingInvite : t.sendInvite)}
                 </Button>
               </DialogFooter>
             </form>

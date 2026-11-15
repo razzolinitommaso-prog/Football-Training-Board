@@ -14,7 +14,7 @@ import {
 import { requireAuth } from "../lib/auth";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
-import { activationContact, activationScope, activations, deliverActivation, ensureAccountActivations, issueActivation } from "../lib/account-activation";
+import { activationContact, activationScope, activations, deliverActivation, ensureAccountActivations, issueActivation, validAccountPassword } from "../lib/account-activation";
 
 const router: IRouter = Router();
 
@@ -266,6 +266,10 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
   const { firstName, lastName, password, role, clubSection, staffRole, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
   const email = parsed.data.email.trim().toLowerCase();
   const clubId = req.session.clubId!;
+  if (channel === "direct" && (!activationContact(email) || !validAccountPassword(password))) {
+    res.status(400).json({ error: "Indica un’email valida e una password di almeno 8 caratteri e al massimo 72 byte." });
+    return;
+  }
   const contact = activationContact(email, phone, channel === "sms");
   if (useInvite && (!activationContact(email) || contact?.channel !== channel)) {
     res.status(400).json({ error: "Controlla il recapito scelto per l’invito. Per SMS serve il prefisso internazionale." });
@@ -285,6 +289,7 @@ router.post("/clubs/me/members", requireAuth, async (req, res): Promise<void> =>
       .where(eq(sql`lower(${usersTable.email})`, email));
     const existingUser = matches.find(candidate => candidate.email === email)
       ?? (matches.length === 1 ? matches[0] : undefined);
+    if (channel === "direct" && existingUser) return null;
     if (!existingUser && matches.length) return null;
     let userId = existingUser?.id;
     let existingAccount = Boolean(existingUser);
