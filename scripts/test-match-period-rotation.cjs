@@ -615,3 +615,18 @@ const firstEdited = rotation.setReportUnitLineup(splitReport, firstUnit, [7], fo
 same(rotation.reportLineupAt(firstEdited, 0, 0), [7]);
 same(rotation.reportLineupAt(firstEdited, 0, splitUnits[1].start), splitAll[0].secondPart.lineupPlayerIds);
 console.log("PASS paired formation lists: kickoff and fourth-fraction edits, automatic downstream rotations and report round-trip.");
+
+const shortThird = { ...report, periods: report.periods.map((period, i) => i === 2 ? { ...period, minutes: 6 } : period) };
+const repairedThird = { ...report, periods: report.periods.map((period, i) => i === 2 ? { ...period, minutes: 12 } : period) };
+const lineupSaveWithCachedReport = { periods: three, postMatchReport: shortThird };
+const reportApproval = { confirmedAt: "2026-11-15T12:00:00Z", confirmedBy: 12 };
+backend.preserveMatchReport(lineupSaveWithCachedReport, { periods: three, postMatchReport: repairedThird }, reportApproval, true);
+assert.equal(lineupSaveWithCachedReport.postMatchReport.periods[2].minutes, 12);
+same(lineupSaveWithCachedReport.postMatchConfirmation, reportApproval);
+const reportEdit = { periods: three, postMatchReport: repairedThird };
+backend.preserveMatchReport(reportEdit, { periods: three, postMatchReport: shortThird });
+assert.equal(reportEdit.postMatchReport.periods[2].minutes, 12);
+const withFourth = { periods: added.periods, postMatchReport: added.postMatchReport };
+backend.preserveMatchReport(withFourth, { periods: three, postMatchReport: repairedThird }, undefined, true);
+assert.equal(withFourth.postMatchReport.periods.length, 4);
+console.log("PASS 3B regression: a cached lineup save cannot roll back repaired report duration, report save and fourth-period extension still work.");

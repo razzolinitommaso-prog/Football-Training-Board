@@ -2004,8 +2004,10 @@ function MatchCard({
 
   const patch = useMutation({
     mutationFn: (body: object) =>
-      apiFetch(`/api/matches/${match.id}`, { method: "PATCH", body: JSON.stringify(body) }),
-    onSuccess: () => {
+      apiFetch(`/api/matches/${match.id}`, { method: "PATCH", body: JSON.stringify(body) }) as Promise<Match>,
+    onSuccess: (saved) => {
+      qc.setQueryData<Match[]>(["/api/matches", match.teamId], current =>
+        current?.map(item => item.id === saved.id ? saved : item));
       qc.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Salvato" });
     },
@@ -2576,8 +2578,12 @@ function MatchCard({
       const selected = new Set(selectedPlayerIds);
       const selectedKeys = new Set(Array.from(selected).map(String));
       const savedKeeper = (id: number | null | undefined) => id != null && !selected.has(id) ? null : id;
+      const reportForNewPeriodCount = savedReport.success && savedReport.data.periods.length !== planDraft.periods.length
+        ? toggleFourthPeriod({ ...planDraft, postMatchReport: savedReport.data }, !!planDraft.fourthTime).postMatchReport
+        : undefined;
       const normalizedPlan: MatchPlanData = {
         ...planDraft,
+        postMatchReport: reportForNewPeriodCount,
         matchGoalkeeperId: savedKeeper(planDraft.matchGoalkeeperId),
         ...(planDraft.fourthPeriodDraft ? { fourthPeriodDraft: { ...planDraft.fourthPeriodDraft, lineupGoalkeeperId: savedKeeper(planDraft.fourthPeriodDraft.lineupGoalkeeperId) } } : {}),
         periods: planDraft.periods.map((p) => {

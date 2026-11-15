@@ -271,9 +271,14 @@ function normalizeMatchPlan(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function preserveMatchReport(next: Record<string, unknown> | null, previous: unknown, confirmation?: unknown) {
+function preserveMatchReport(next: Record<string, unknown> | null, previous: unknown, confirmation?: unknown, savingLineups = false) {
   const old = normalizeMatchPlan(previous);
-  if (next && next.postMatchReport === undefined && old?.postMatchReport !== undefined) {
+  // A lineup save may carry a cached report. Only the report editor can replace it
+  // unless the number of periods changed (for example, adding a fourth period).
+  const currentReport = savingLineups ? matchReportSchema.safeParse(old?.postMatchReport) : null;
+  const keepRecordedReport = currentReport?.success && Array.isArray(next?.periods) &&
+    next.periods.length === currentReport.data.periods.length;
+  if (next && (next.postMatchReport === undefined || keepRecordedReport) && old?.postMatchReport !== undefined) {
     next.postMatchReport = old.postMatchReport;
   }
   if (next) {
@@ -983,7 +988,7 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
     return;
   }
 
-  preserveMatchReport(matchPlan, existingMatch.matchPlan ?? splitPublicNotesAndPlan(existingMatch.notes ?? null).plan, existingMatch.matchPlan?.postMatchConfirmation);
+  preserveMatchReport(matchPlan, existingMatch.matchPlan ?? splitPublicNotesAndPlan(existingMatch.notes ?? null).plan, existingMatch.matchPlan?.postMatchConfirmation, true);
   const reportError = validateMatchReport(matchPlan, desiredPlayerIds);
   if (reportError) { res.status(400).json({ error: reportError }); return; }
 
