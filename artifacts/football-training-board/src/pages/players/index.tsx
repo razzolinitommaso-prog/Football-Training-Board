@@ -5,7 +5,7 @@ import { PLAYER_KIT_ROWS, kitRowHasContent, kitRowItemIds, kitRowNeedsLink, KIT_
 import "./player-directory.css";
 import { useTechnicalScope } from "@/components/technical-scope";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type FormEvent } from "react";
 import { TrainingRosterManager } from "@/components/training-roster-groups";
 import { useListPlayers, useCreatePlayer, useDeletePlayer, useListTeams, useUpdatePlayer, useCreateTeam, useListClubMembers, type ClubMember, type Team } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -165,6 +165,7 @@ const editSchema = z.object({
 });
 
 type EditForm = z.infer<typeof editSchema>;
+
 
 type Player = {
   clubSection?: string | null;
@@ -3231,13 +3232,32 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
   };
 
-  const handleEditInvalid = (errors?: Record<string, unknown>) => {
+  const handlePlayerFormInvalid = (errors?: Record<string, unknown>) => {
     const invalidFields = Object.keys(errors ?? {});
+    const fieldLabels: Record<string, string> = {
+      firstName: "Nome", lastName: "Cognome", height: "Altezza", weight: "Peso", jerseyNumber: "Numero maglia",
+    };
     toast({
       title: "Scheda non salvata",
       description: invalidFields.length > 0
-        ? `Controlla questi campi: ${invalidFields.slice(0, 4).join(", ")}.`
+        ? `Controlla i campi obbligatori o non validi: ${invalidFields.slice(0, 4).map(field => fieldLabels[field] ?? field).join(", ")}.`
         : "Controlla i campi della scheda: alcuni dati non sono in un formato valido.",
+      variant: "destructive",
+    });
+  };
+
+  const handlePlayerNativeInvalid = (event: FormEvent<HTMLFormElement>) => {
+    const field = event.target;
+    if (!(field instanceof HTMLInputElement) ||
+      event.currentTarget.querySelector("input:invalid, select:invalid, textarea:invalid") !== field) return;
+    for (let section = field.closest("details"); section; section = section.parentElement?.closest("details") ?? null) {
+      section.open = true;
+    }
+    toast({
+      title: "Scheda non salvata",
+      description: field.validity.typeMismatch && field.type === "email"
+        ? `Indirizzo non valido nel campo «${field.dataset.validationLabel ?? "Email"}».`
+        : field.validationMessage || "Controlla il valore del campo evidenziato.",
       variant: "destructive",
     });
   };
@@ -3478,7 +3498,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               }
               if (createParentFamilyId !== undefined) payload.parentFamilyDelegateId = createParentFamilyId;
               createMutation.mutate({ data: payload as any });
-            })} className="flex min-h-0 flex-1 flex-col">
+            }, handlePlayerFormInvalid)} onInvalidCapture={handlePlayerNativeInvalid} className="flex min-h-0 flex-1 flex-col">
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-6 py-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -3553,7 +3573,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email giocatore</Label>
-                    <Input id="email" type="email" {...form.register("email")} />
+                    <Input id="email" type="email" data-validation-label="Email giocatore" {...form.register("email")} />
                   </div>
                   <div className="space-y-2 sm:col-span-2">
                     <Label>Telefono riferito a</Label>
@@ -3590,7 +3610,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     </div>
                     <div className="space-y-2">
                       <Label>Email genitore</Label>
-                      <Input type="email" {...form.register("parentEmail")} />
+                      <Input type="email" data-validation-label="Email genitore" {...form.register("parentEmail")} />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
                       <Label>Relazione</Label>
@@ -3613,7 +3633,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   </div>
                   <div className="space-y-2">
                     <Label>Email secondo referente</Label>
-                    <Input type="email" {...form.register("secondaryContactEmail")} />
+                    <Input type="email" data-validation-label="Email contatto secondario" {...form.register("secondaryContactEmail")} />
                   </div>
                   <div className="space-y-2 sm:col-span-2">
                     <Label>Relazione secondo referente</Label>
@@ -3850,7 +3870,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           </DialogHeader>
           {editingPlayer && (
             playerDialogMode === "view" ? (
-            <form onSubmit={editForm.handleSubmit(handleEditSubmit, handleEditInvalid)} className="space-y-4 pt-2">
+            <form onSubmit={editForm.handleSubmit(handleEditSubmit, handlePlayerFormInvalid)} onInvalidCapture={handlePlayerNativeInvalid} className="space-y-4 pt-2">
               <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
                 {editForm.watch("imageUrl") ? (
                   <img src={editForm.watch("imageUrl") ?? ""} alt="Giocatore" className="h-12 w-12 shrink-0 rounded-lg border bg-background object-cover sm:h-16 sm:w-16" />
@@ -4129,7 +4149,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               </DialogFooter>
             </form>
             ) : (
-            <form onSubmit={editForm.handleSubmit(handleEditSubmit, handleEditInvalid)} className="space-y-4 pt-2">
+            <form onSubmit={editForm.handleSubmit(handleEditSubmit, handlePlayerFormInvalid)} onInvalidCapture={handlePlayerNativeInvalid} className="space-y-4 pt-2">
               <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-3 sm:grid-cols-[5rem_minmax(0,1fr)]">
                 <div className="space-y-2">
                   <Label>Immagine giocatore</Label>
@@ -4356,7 +4376,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   </div>
                   <div className="space-y-2">
                     <Label>Email giocatore</Label>
-                    <Input type="email" {...editForm.register("email")} disabled={!canEditFullPlayer} />
+                    <Input type="email" data-validation-label="Email giocatore" {...editForm.register("email")} disabled={!canEditFullPlayer} />
                   </div>
                   <div className="space-y-2 sm:col-span-2">
                     <Label>Telefono riferito a</Label>
@@ -4393,7 +4413,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     </div>
                     <div className="space-y-2">
                       <Label>Email genitore</Label>
-                      <Input type="email" {...editForm.register("parentEmail")} disabled={!canEditFullPlayer} />
+                      <Input type="email" data-validation-label="Email genitore" {...editForm.register("parentEmail")} disabled={!canEditFullPlayer} />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
                       <Label>Relazione</Label>
@@ -4416,7 +4436,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   </div>
                   <div className="space-y-2">
                     <Label>Email secondo referente</Label>
-                    <Input type="email" {...editForm.register("secondaryContactEmail")} disabled={!canEditFullPlayer} />
+                    <Input type="email" data-validation-label="Email contatto secondario" {...editForm.register("secondaryContactEmail")} disabled={!canEditFullPlayer} />
                   </div>
                   <div className="space-y-2 sm:col-span-2">
                     <Label>Relazione secondo referente</Label>
@@ -4501,7 +4521,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                           </div>
                           <div className="space-y-2 sm:col-span-2">
                             <Label>Email</Label>
-                            <Input type="email" value={delegate.email ?? ""} onChange={(e) => updateParentDelegateRow(index, { email: e.target.value })} disabled={!canEditFullPlayer} />
+                            <Input type="email" data-validation-label={`Email delegato ${index + 1}`}
+                              value={delegate.email ?? ""} onChange={(e) => updateParentDelegateRow(index, { email: e.target.value })} disabled={!canEditFullPlayer} />
                           </div>
                         </div>
                       </div>
@@ -5038,12 +5059,18 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                               <Input type="number" min="0" step="0.01" value={draft.amount}
                                 onChange={event => updateDeposit(draft.id, { amount: event.target.value })} />
                             </label>
-                            <div>{draft.confirmed && <ReceiptMethodSelect value={draft.method} onChange={method => updateDeposit(draft.id, { method })} />}</div>
+                            <ReceiptMethodSelect value={draft.method} onChange={method => updateDeposit(draft.id, { method })} disabled={!draft.confirmed} />
                             <label className="block min-w-0 space-y-1 text-sm">{draft.confirmed ? "Data d’incasso" : "Scadenza"}
                               <Input type="date" value={draft.confirmed ? draft.paymentDate : draft.dueDate ?? ""}
                                 onChange={event => updateDeposit(draft.id, draft.confirmed ? { paymentDate: event.target.value } : { dueDate: event.target.value })} />
                             </label>
-                            {index < 2 ? <label className="flex items-center gap-2 self-center text-sm"><Checkbox checked={draft.confirmed} onCheckedChange={value => updateDeposit(draft.id, { confirmed: value === true })} /> {draft.confirmed ? "Incassato" : "Da incassare"}</label> : <Button type="button" variant="ghost" size="icon" aria-label={`Rimuovi versamento ${index + 1}`}
+                            {index < 2 ? <div className="self-center">
+                              <label className="flex items-center gap-2 text-sm">
+                                <Checkbox checked={draft.confirmed} onCheckedChange={value => updateDeposit(draft.id, { confirmed: value === true })} />
+                                Incassato
+                              </label>
+                              <p className="mt-1 text-xs text-muted-foreground" aria-live="polite">{draft.confirmed ? "Incasso confermato" : "Da incassare"}</p>
+                            </div> : <Button type="button" variant="ghost" size="icon" aria-label={`Rimuovi versamento ${index + 1}`}
                               onClick={() => setDepositDrafts(drafts => drafts.filter(row => row.id !== draft.id))}><Trash2 className="h-4 w-4" /></Button>}
                           </div>
                         ))}
