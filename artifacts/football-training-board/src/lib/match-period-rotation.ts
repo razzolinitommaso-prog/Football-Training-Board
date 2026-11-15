@@ -327,32 +327,70 @@ export function seedMatchReport<T extends RotationPeriod>(
       starters: splitMatchLineup(p, limitFor(p), called).starters,
     })),
   };
-  const previous = report.periods.map(period => period.starters);
-  for (const { period, index, part, start } of rotationUnits(periods)) {
-    if (part === 0) continue;
-    if (part === 1 && !periods[index].secondPart && periods[index].fractionCount === undefined) continue;
-    const first = previous[index];
-    const next = splitMatchLineup(period, limitFor(period), called).starters;
-    const outgoing = first.filter(id => !next.includes(id));
-    const incoming = next.filter(id => !first.includes(id));
-    if (incoming.length > outgoing.length) {
-      throw Error("Completa gli schieramenti delle frazioni del " + periods[index].label.toLowerCase() + " prima di generare il resoconto.");
-    }
-    if (report.substitutions.length + outgoing.length > MATCH_REPORT_SUBSTITUTION_LIMIT) {
-      throw Error("Il piano supera il limite di " + MATCH_REPORT_SUBSTITUTION_LIMIT + " cambi precompilabili. Puoi compilare il resoconto a partire dai cambi effettivi.");
-    }
-    outgoing.forEach((id, i) => report.substitutions.push({
-      id: "planned-" + period.key + "-" + i,
-      outPlayerId: id,
-      inPlayerId: incoming[i] ?? null,
-      period: index,
-      minute: start,
-      notes: "Cambio tra le frazioni del " + periods[index].label.toLowerCase(),
-    }));
-    previous[index] = next;
-  }
-  return report;
+  const boundaries = reportFractionBoundaries(periods, called, limitFor);
+  return synchronizeReportFractions({ ...report, automaticFractions: true }, boundaries);
 }
+
+export type ReportFractionBoundary = { key: string; period: number; minute: number; starters: number[] };
+type ReportSubstitution = MatchReport["substitutions"][number];
+
+export function reportFractionBoundaries<T extends RotationPeriod>(
+  periods: T[], called: Set<number>, limitFor: (period: T) => number,
+): ReportFractionBoundary[] {
+  return rotationUnits(periods).flatMap(({ period, index, part, start }) => {
+    if (!part || !period.lineupPlayerIds?.length && period.lineupStarterCount === undefined) return [];
+    return [{ key: period.key, period: index, minute: start, starters: splitMatchLineup(period, limitFor(period), called).starters }];
+  });
+}
+
+export function isPlannedFractionChange(change: ReportSubstitution, boundary: ReportFractionBoundary) {
+  return change.id.startsWith("planned-" + boundary.key + "-");
+}
+
+/** Rebuild automatic boundary changes from the actual lineup immediately before each boundary. */
+export function synchronizeReportFractions(report: MatchReport, boundaries: ReportFractionBoundary[]): MatchReport {
+  if (!report.automaticFractions) return report;
+  const automatic = boundaries.filter(boundary => !report.fractionOverrides?.includes(boundary.key));
+  const manual = report.substitutions.filter(change => !automatic.some(boundary => isPlannedFractionChange(change, boundary)));
+  const substitutions = [...manual];
+  const generated = new Set<string>();
+  for (const [index, period] of report.periods.entries()) {
+    const active = new Set(period.starters);
+    const changes = manual.filter(change => change.period === index).sort((a, b) => a.minute - b.minute);
+    let cursor = 0;
+    for (const boundary of automatic.filter(item => item.period === index)) {
+      while (cursor < changes.length && changes[cursor].minute < boundary.minute) {
+        const change = changes[cursor++];
+        if (!active.has(change.outPlayerId) || (change.inPlayerId !== null && active.has(change.inPlayerId))) continue;
+        active.delete(change.outPlayerId);
+        if (change.inPlayerId !== null) active.add(change.inPlayerId);
+      }
+      const outgoing = [...active].filter(id => !boundary.starters.includes(id));
+      const incoming = boundary.starters.filter(id => !active.has(id));
+      if (incoming.length > outgoing.length) {
+        throw Error("La rotazione al minuto " + boundary.minute + " del " + (index + 1) +
+          "° tempo richiede più giocatori di quanti siano in campo. Modifica o annulla quella rotazione prima di registrare il cambio.");
+      }
+      outgoing.forEach((id, i) => {
+        const changeId = "planned-" + boundary.key + "-" + i;
+        generated.add(changeId);
+        substitutions.push({
+          id: changeId, outPlayerId: id, inPlayerId: incoming[i] ?? null,
+          period: index, minute: boundary.minute, notes: "Rotazione dal piano",
+        });
+      });
+      for (const id of outgoing) active.delete(id);
+      for (const id of incoming) active.add(id);
+    }
+  }
+  if (substitutions.length > MATCH_REPORT_SUBSTITUTION_LIMIT) {
+    throw Error("Il resoconto supera il limite di " + MATCH_REPORT_SUBSTITUTION_LIMIT + " cambi.");
+  }
+  // Put the planned reset first when a manually recorded event is at the same minute.
+  return { ...report, substitutions: substitutions.sort((a, b) =>
+    a.period - b.period || a.minute - b.minute || Number(generated.has(b.id)) - Number(generated.has(a.id))) };
+}
+
 export function toggleFourthPeriod<
   T extends RotationPeriod,
   P extends {

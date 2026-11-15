@@ -6,6 +6,8 @@ const playerId = z.number().int().positive();
 const moment = { period: z.number().int().min(0).max(3), minute: z.number().min(0).max(180) };
 export const matchReportSchema = z.object({
   version: z.literal(1),
+  automaticFractions: z.literal(true).optional(),
+  fractionOverrides: z.array(z.string().max(100)).max(2880).optional(),
   periods: z.array(z.object({
     minutes: z.number().min(1).max(180),
     starters: z.array(playerId).max(30),

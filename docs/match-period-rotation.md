@@ -69,3 +69,13 @@ dirigente assegnato alla squadra verifica titolari, cambi e minutaggi in
 **Dirigenti → Convocazioni → Convocazione, ritrovo e minutaggi** e conferma il
 resoconto dopo la conclusione della gara. Modificare il resoconto richiede
 una nuova conferma. I resoconti storici sono inizialmente provvisori.
+
+## Schieramenti e cambi nel resoconto
+
+La griglia del resoconto riprende titolari e panchina dal piano salvato, con
+una colonna per ogni frazione, comprese quelle dell’eventuale quarto tempo.
+La cronologia riporta il minuto locale del tempo, le rotazioni precompilate
+e le sostituzioni effettive. Lo staff può modificare, annullare o ripristinare
+una rotazione nel resoconto e vedere il minutaggio ricalcolato. Le rotazioni
+automatiche successive tengono conto degli ingressi già registrati nello
+stesso tempo. Il dirigente conferma il resoconto completo dopo il salvataggio.

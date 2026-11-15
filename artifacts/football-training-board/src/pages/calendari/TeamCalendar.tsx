@@ -3,7 +3,7 @@ import { MatchAttendanceComparison, type AttendancePeriod, type MatchAttendanceS
 import {MatchCallupRoster, MatchRotationComparison, matchMinutesLabel} from "@/components/calendar/MatchRotationComparison";
 import {buildMatchRotationSummary, matchPeriodParts, matchPeriodPartLimit, matchPeriodLabel} from "@workspace/api-zod";
 import {matchPreparation, upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
-import {clearMatchLineups, designateMatchKeeper, editManualLineupCell, selectRotationCell, rotationUnits, rotateMatchPeriods, periodMinutes, firstPartDuration, matchRotationPart, updateMatchRotationPart, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
+import {clearMatchLineups, designateMatchKeeper, editManualLineupCell, selectRotationCell, rotationUnits, rotateMatchPeriods, periodMinutes, firstPartDuration, matchRotationPart, updateMatchRotationPart, seedMatchReport, reportFractionBoundaries, toggleFourthPeriod} from "@/lib/match-period-rotation";
 import SharedTournamentHub from "./SharedTournamentHub";
 import { trainingSlotOnDate } from "@workspace/api-zod";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
@@ -50,7 +50,7 @@ import {
 import { downloadGeneratedPdf, serverCallupPdfUrls } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { analyseMatchReport, matchReportSchema, type MatchReport } from "@workspace/api-zod";
-import { MatchReportEditor, MatchReportSummary, type ReportPlayer } from "./MatchReportEditor";
+import { MatchReportEditor, MatchReportLineups, MatchReportSummary, type ReportPlayer } from "./MatchReportEditor";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
   EMPTY_SCHEDULE_FILTER,
@@ -2126,12 +2126,18 @@ function MatchCard({
   }
 
   const homeLabel = isHome ? clubLabel : match.opponent;
-  const reportPlayers: ReportPlayer[] = callups.map(callup => {
+  const reportPlayers: ReportPlayer[] = [...new Map(callups.map(callup => [callup.playerId, callup])).values()].map(callup => {
     const player = sortedTeamPlayers.find(player => player.id === callup.playerId);
     return { id: callup.playerId, name: player ? `${player.lastName} ${player.firstName}` : callup.playerName || `Giocatore #${callup.playerId}` };
   });
   const savedReport = matchReportSchema.safeParse(match.matchPlan?.postMatchReport);
-  const reportPlayerLimits = planDraft.periods.map(period => playerLimitForFormat(period.format ?? matchFormat));
+  const savedReportPlan = match.matchPlan?.periods?.length ? match.matchPlan
+    : ensurePlanPeriods(match.matchPlan, defaultPeriodsForTeam(matchSection, teamName, teamCategory));
+  const reportPeriods = savedReportPlan.periods;
+  const reportPlayerLimits = reportPeriods.map(period => startersLimitForPeriod(period, matchFormat));
+  function prefillReport() {
+    return seedMatchReport(reportPeriods, new Set(reportPlayers.map(player => player.id)), period => startersLimitForPeriod(period, matchFormat));
+  }
   const awayLabel = isHome ? match.opponent : clubLabel;
   const postView = splitPostNotesAndAttachments(match.postMatchNotes);
   const hasPostNotes = postView.note.length > 0 || postView.attachments.length > 0 || savedReport.success;
@@ -2169,8 +2175,7 @@ function MatchCard({
     const playedAt = match.isPostponed ? (!match.rescheduleTbd && match.rescheduleDate ? new Date(match.rescheduleDate) : null) : matchDate;
     if (!draft && canManageMatchPlan && playedAt && playedAt < new Date() && reportPlayers.length) {
       try {
-        const called = new Set(reportPlayers.map(player => player.id));
-        const seeded = seedMatchReport(planDraft.periods, called, period => startersLimitForPeriod(period, matchFormat));
+        const seeded = prefillReport();
         if (seeded.periods.every(period => period.starters.length > 0)) draft = seeded;
       } catch {
         // Incomplete lineups can still be entered manually in the report.
@@ -2219,7 +2224,7 @@ function MatchCard({
     patch.mutate({
       postMatchNotes: composePostNotes(postNoteValue, postAttachments),
       result,
-      ...(canManageMatchPlan ? { matchPlan: { ...planDraft, ...(postReportDraft ? { postMatchReport: postReportDraft } : {}) } } : {}),
+      ...(canManageMatchPlan ? { matchPlan: { ...savedReportPlan, disciplineCards: planDraft.disciplineCards, ...(postReportDraft ? { postMatchReport: postReportDraft } : {}) } } : {}),
     }, { onSuccess: () => setPostMenuOpen(false) });
   }
 
@@ -3046,7 +3051,6 @@ function MatchCard({
                             try {
                               const next = toggleFourthPeriod(planDraft, value === true);
                               setPlanDraft({ ...next, periods: applyScuolaCalcioPeriodRotation(next.periods, selectedPlayerIds, matchFormat, convokedById) });
-                              if (next.postMatchReport) setPostReportDraft(next.postMatchReport);
                             } catch (error) { toast({ title: (error as Error).message, variant: "destructive" }); }
                           }} />
                           Abilita 4° tempo
@@ -3570,11 +3574,21 @@ function MatchCard({
   </>;
 
   function renderNotes() {
-    const reportRotation = workspace && canViewMatchPlan ? buildMatchRotationSummary(
-      match.matchPlan,
-      selectedPlayersOrdered.map(id => convokedById.get(id)).filter((player): player is Player => !!player),
+    const reportRotation = canViewMatchPlan ? buildMatchRotationSummary(
+      savedReportPlan,
+      reportPlayers.map(player => {
+        const found = convokedById.get(player.id);
+        return found ?? { id: player.id, firstName: "", lastName: player.name };
+      }),
       playerLimitForFormat(matchFormat),
     ) : undefined;
+    const fractionBoundaries = canViewMatchPlan && postMenuOpen ? reportFractionBoundaries(
+      reportPeriods, new Set(reportPlayers.map(player => player.id)), period => startersLimitForPeriod(period, matchFormat),
+    ) : [];
+    let plannedReport: MatchReport | null = null;
+    if (canViewMatchPlan && postMenuOpen) {
+      try { plannedReport = prefillReport(); } catch { /* The saved lineup remains available in the matrix. */ }
+    }
     return <>
         <MatchWorkspacePanel active={activePanel("gara")}>
         {/* Pre-match notes */}
@@ -3722,11 +3736,19 @@ function MatchCard({
                     </div>
                     {canManageMatchPlan && (
                       postReportDraft ? <MatchReportEditor value={postReportDraft} onChange={setPostReportDraft}
-                        players={reportPlayers} limit={reportPlayerLimits} /> :
-                      <Button type="button" variant="outline" size="sm" disabled={reportPlayers.length === 0} onClick={() => {
-                        const called = new Set(reportPlayers.map(player => player.id));
-                        try{setPostReportDraft(seedMatchReport(planDraft.periods,called,p=>startersLimitForPeriod(p,matchFormat)));}catch(error){toast({title:(error as Error).message,variant:"destructive"});}
-                      }}>Inserisci marcatori, minutaggio e sostituzioni</Button>
+                        players={reportPlayers} limit={reportPlayerLimits} rotation={reportRotation} planned={plannedReport}
+                        boundaries={fractionBoundaries} /> :
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" disabled={!reportPlayers.length} onClick={() => {
+                          try { setPostReportDraft(prefillReport()); }
+                          catch (error) { toast({ title: (error as Error).message, variant: "destructive" }); }
+                        }}>Compila dal piano del mister</Button>
+                        <Button type="button" variant="ghost" size="sm" disabled={!reportPlayers.length} onClick={() => setPostReportDraft({
+                          version: 1, goals: [], substitutions: [],
+                          periods: reportPeriods.map(period => ({ minutes: periodMinutes(period.minutes), starters: [] })),
+                          fractionOverrides: fractionBoundaries.map(boundary => boundary.key),
+                        })}>Compila manualmente</Button>
+                      </div>
                     )}
                     {canManageMatchPlan && usesChampionshipSeason(matchSection) && (
                       <div className="rounded-md border border-border/60 bg-muted/20 p-2 space-y-2">
@@ -3853,7 +3875,8 @@ function MatchCard({
               </MatchReportEditFrame>}
             </div>
             {workspace && !postMenuOpen && match.result && <p className="my-3 text-sm">Risultato <strong>{match.result}</strong></p>}
-            {reportRotation && !postMenuOpen && <p className="my-2 text-sm text-muted-foreground">
+            {workspace && reportRotation && !postMenuOpen && <MatchReportLineups rotation={reportRotation} />}
+            {workspace && reportRotation && !postMenuOpen && <p className="my-2 text-sm text-muted-foreground">
               {reportRotation.reportConfirmed ? "Effettivi confermati dal dirigente."
                 : reportRotation.hasReport ? "In attesa della verifica del dirigente." : "Minuti effettivi da registrare."}
             </p>}
@@ -3871,7 +3894,7 @@ function MatchCard({
             )}
             {canViewMatchPlan && savedReport.success && (
               <div className="mt-2 rounded-md border p-3"><MatchReportSummary report={savedReport.data}
-                players={reportPlayers} limit={reportPlayerLimits} rotation={reportRotation} /></div>
+                players={reportPlayers} limit={reportPlayerLimits} rotation={workspace ? reportRotation : undefined} /></div>
             )}
           </div>
         )}

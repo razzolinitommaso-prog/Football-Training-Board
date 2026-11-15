@@ -76,6 +76,7 @@ const actual = extract(
 const backend = extract(
   path.join(root, "artifacts/api-server/src/routes/matches.ts"),
   ["normalizeMatchPlan", "preserveMatchReport"],
+  { matchReportSchema: load(path.join(root, "lib/api-zod/src/match-report.ts")).matchReportSchema },
 );
 const zodReq = createRequire(path.join(root, "lib/api-zod/package.json"));
 const reportFile = path.join(root, "lib/api-zod/src/match-report.ts");
@@ -578,3 +579,25 @@ backend.preserveMatchReport(oldClientPlan, { periods: fourParts });
 assert.equal(oldClientPlan.periods[0].fractionCount, 4);
 assert.equal(oldClientPlan.periods[0].additionalParts[1].boardId, 900);
 console.log("PASS multiple fractions: cumulative substitutions, exact seconds, projected minutes, individual edits, dormant boards and older clients.");
+
+// A real early substitution changes which automatic fourth-period rotation is needed.
+const fourthBoundaries = rotation.reportFractionBoundaries(splitAll, allCalled, limit);
+const fourthBoundary = fourthBoundaries.find(item => item.key === "t4-second");
+const fourthChange = splitReport.substitutions.find(item => item.period === 3);
+const earlyEntry = { ...fourthChange, id: "real-fourth", minute: 3, notes: "Ingresso anticipato" };
+const corrected = rotation.synchronizeReportFractions({
+  ...splitReport, substitutions: [...splitReport.substitutions, earlyEntry],
+}, fourthBoundaries);
+same(corrected.substitutions.filter(item => item.period === 3).map(item => [item.id, item.minute]), [["real-fourth", 3]]);
+same(reportModule.exports.analyseMatchReport(corrected, [...allCalled], 5).errors, []);
+const cancelled = rotation.synchronizeReportFractions({
+  ...splitReport, fractionOverrides: [fourthBoundary.key],
+  substitutions: splitReport.substitutions.filter(item => item.period !== 3),
+}, fourthBoundaries);
+assert.equal(cancelled.substitutions.some(item => item.period === 3), false);
+const readBack = reportModule.exports.matchReportSchema.parse(json(cancelled));
+same(readBack.fractionOverrides, [fourthBoundary.key]);
+same(rotation.synchronizeReportFractions({ ...readBack, fractionOverrides: [] }, fourthBoundaries).substitutions, splitReport.substitutions);
+const { automaticFractions, ...legacyReport } = splitReport;
+assert.equal(rotation.synchronizeReportFractions(legacyReport, fourthBoundaries), legacyReport);
+console.log("PASS report timeline: early fourth-period entry, cancelled and restored rotation, preserved historical report.");
