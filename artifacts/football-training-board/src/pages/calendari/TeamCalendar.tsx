@@ -1,4 +1,5 @@
 import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
+import { MatchAttendanceComparison, type AttendancePeriod, type MatchAttendanceState } from "@/components/calendar/MatchAttendanceComparison";
 import {MatchCallupRoster, MatchRotationComparison, matchMinutesLabel} from "@/components/calendar/MatchRotationComparison";
 import {buildMatchRotationSummary, matchPeriodParts, matchPeriodPartLimit, matchPeriodLabel} from "@workspace/api-zod";
 import {matchPreparation, upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
@@ -266,9 +267,9 @@ interface MatchCallUp {
   parentAvailabilityReason?: string | null;
   parentAvailabilityNotes?: string | null;
 }
-interface TrainingSessionLite { id: number; teamId?: number | null; scheduledAt: string; }
+interface TrainingSessionLite { id: number; teamId?: number | null; scheduledAt: string; status?: string; }
 interface AttendanceLite { id: number; playerId: number; status: string; }
-interface MatchWeekTrainingDay { key: string; date: Date; sessionId?: number; }
+interface MatchTrainingEvent { id: string; date: string; showTime?: boolean; sessionId?: number; }
 type LineupPositionMap = Record<string, { x: number; y: number }>;
 type LineupPoint = { x: number; y: number };
 type LineupDrawing = { id: string; tool: "pen" | "arrow"; color: string; width: number; lineStyle: "solid" | "dashed"; arrowHeads: "end" | "start" | "both" | "none"; geometry: "freehand" | "straight" | "conduzione-freehand" | "conduzione-straight"; points: LineupPoint[] };
@@ -1935,7 +1936,7 @@ function MatchCard({
   const sortedTeamPlayers = useMemo(() => {
     return [...rosterForMatch].sort(comparePlayersByRole);
   }, [rosterForMatch]);
-  const { data: callupRows = EMPTY_CALLUPS, isSuccess: callupsLoaded } = useQuery<MatchCallUp[]>({
+  const { data: callupRows = EMPTY_CALLUPS, isSuccess: callupsLoaded, error: callupError, refetch: refetchCallups } = useQuery<MatchCallUp[]>({
     queryKey: ["/api/matches", match.id, "callups", "with-parent-availability"],
     queryFn: () => apiFetch(`/api/matches/${match.id}/callups?includeParentAvailability=1`),
     enabled: canViewMatchPlan,
@@ -2022,93 +2023,107 @@ function MatchCard({
   const matchDate = new Date(match.date);
   const isPast = matchDate < new Date();
   const isHome = match.homeAway === "home";
-  const attendanceWeekRange = useMemo(() => {
+  const [attendancePeriod, setAttendancePeriod] = useState<AttendancePeriod>("week");
+  const [attendanceOpen, setAttendanceOpen] = useState(false);
+  const attendanceRange = useMemo(() => {
     if (Number.isNaN(matchDate.getTime())) return null;
     const matchDay = startOfLocalDay(matchDate);
     const dayOfWeek = matchDay.getDay();
     const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     return {
-      start: addLocalDays(matchDay, mondayOffset),
+      start: addLocalDays(matchDay, attendancePeriod === "four" ? -28 : mondayOffset),
       end: matchDay,
     };
-  }, [match.date]);
-  const { data: trainingSessions = EMPTY_TRAINING_SESSIONS } = useQuery<TrainingSessionLite[]>({
+  }, [match.date, attendancePeriod]);
+  const { data: trainingSessions = EMPTY_TRAINING_SESSIONS, isLoading: trainingLoading, error: trainingError, refetch: refetchTraining } = useQuery<TrainingSessionLite[]>({
     queryKey: ["/api/training-sessions", "match-week", match.teamId],
     queryFn: () => apiFetch(match.teamId ? `/api/training-sessions?teamId=${match.teamId}` : "/api/training-sessions"),
-    enabled: canViewMatchPlan && !!match.teamId && planOpen,
+    enabled: canViewMatchPlan && !!match.teamId && planOpen && attendanceOpen,
   });
-  const matchWeekTrainingSessions = useMemo(() => {
-    if (!attendanceWeekRange || !match.teamId) return [];
+  const comparisonSessions = useMemo(() => {
+    if (!attendanceRange || !match.teamId) return [];
     return trainingSessions
       .filter((session) => {
-        if (session.teamId !== match.teamId) return false;
+        if (session.teamId !== match.teamId || ["cancelled", "canceled"].includes(session.status ?? "")) return false;
         const scheduledAt = new Date(session.scheduledAt);
         if (Number.isNaN(scheduledAt.getTime())) return false;
-        return scheduledAt >= attendanceWeekRange.start && scheduledAt < attendanceWeekRange.end;
+        return scheduledAt >= attendanceRange.start && scheduledAt < attendanceRange.end;
       })
       .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
-  }, [attendanceWeekRange, match.teamId, trainingSessions]);
-  const matchWeekTrainingDays = useMemo<MatchWeekTrainingDay[]>(() => {
-    if (!attendanceWeekRange) return [];
-    const actualSessionByDate = new Map<string, TrainingSessionLite>();
-    for (const session of matchWeekTrainingSessions) {
-      const scheduledAt = new Date(session.scheduledAt);
-      if (!Number.isNaN(scheduledAt.getTime())) {
-        actualSessionByDate.set(localDateKey(scheduledAt), session);
+  }, [attendanceRange, match.teamId, trainingSessions]);
+  const comparisonEvents = useMemo<MatchTrainingEvent[]>(() => {
+    if (!attendanceRange) return [];
+    const actual: MatchTrainingEvent[] = comparisonSessions.map(session => ({
+      id: `session-${session.id}`, date: session.scheduledAt, sessionId: session.id,
+    }));
+    const actualByDay = new Map<string, MatchTrainingEvent[]>();
+    for (const event of actual) {
+      const day = localDateKey(new Date(event.date));
+      actualByDay.set(day, [...(actualByDay.get(day) ?? []), event]);
+    }
+    const planned = new Map<string, MatchTrainingEvent>();
+    for (let day = new Date(attendanceRange.start); day < attendanceRange.end; day = addLocalDays(day, 1)) {
+      const dayKey = localDateKey(day);
+      const slots = (teamTrainingSchedule ?? []).filter(slot =>
+        italianTrainingDayNumber(slot.day) === day.getDay() && trainingSlotOnDate(slot, dayKey));
+      const recorded = actualByDay.get(dayKey) ?? [];
+      if (slots.length === 1 && recorded.length === 1) continue;
+      for (const slot of slots) {
+        const time = normalizeTime24(slot.startTime ?? "");
+        if (recorded.length && (!time || recorded.some(event => format(new Date(event.date), "HH:mm") === time))) continue;
+        const id = `planned-${dayKey}-${time ?? ""}`;
+        planned.set(id, { id, date: `${dayKey}T${time ?? "00:00"}:00`, showTime: Boolean(time) });
       }
     }
-
-    const plannedDays = new Map<string, MatchWeekTrainingDay>();
-    for (const slot of teamTrainingSchedule ?? []) {
-      const dayNumber = italianTrainingDayNumber(slot.day);
-      if (dayNumber == null) continue;
-      for (let day = new Date(attendanceWeekRange.start); day < attendanceWeekRange.end; day = addLocalDays(day, 1)) {
-        if (!trainingSlotOnDate(slot,localDateKey(day)) || day.getDay() !== dayNumber) continue;
-        const key = localDateKey(day);
-        plannedDays.set(key, {
-          key,
-          date: new Date(day),
-          sessionId: actualSessionByDate.get(key)?.id,
-        });
-      }
-    }
-
-    for (const session of matchWeekTrainingSessions) {
-      const scheduledAt = new Date(session.scheduledAt);
-      const key = localDateKey(scheduledAt);
-      if (!plannedDays.has(key)) {
-        plannedDays.set(key, { key, date: startOfLocalDay(scheduledAt), sessionId: session.id });
-      }
-    }
-
-    return Array.from(plannedDays.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [attendanceWeekRange, matchWeekTrainingSessions, teamTrainingSchedule]);
-  const matchWeekTrainingSessionIds = useMemo(
-    () => matchWeekTrainingSessions.map((session) => session.id).join(","),
-    [matchWeekTrainingSessions],
+    return [...actual, ...planned.values()].sort((first, second) => Date.parse(first.date) - Date.parse(second.date));
+  }, [attendanceRange, comparisonSessions, teamTrainingSchedule]);
+  const comparisonSessionIds = useMemo(
+    () => comparisonSessions.map((session) => session.id).join(","),
+    [comparisonSessions],
   );
-  const { data: matchWeekAttendance = EMPTY_ATTENDANCE_BY_SESSION } = useQuery<Record<number, AttendanceLite[]>>({
-    queryKey: ["/api/attendance", "match-week", matchWeekTrainingSessionIds],
+  const { data: comparisonAttendance = EMPTY_ATTENDANCE_BY_SESSION, isLoading: attendanceLoading, error: attendanceError, refetch: refetchAttendance } = useQuery<Record<number, AttendanceLite[]>>({
+    queryKey: ["/api/attendance", "match-week", comparisonSessionIds],
     queryFn: async () => {
       const entries = await Promise.all(
-        matchWeekTrainingSessions.map(async (session) => {
+        comparisonSessions.map(async (session) => {
           const records = await apiFetch(`/api/attendance?sessionId=${session.id}`);
           return [session.id, records] as const;
         }),
       );
       return Object.fromEntries(entries);
     },
-    enabled: canViewMatchPlan && planOpen && matchWeekTrainingSessions.length > 0,
+    enabled: canViewMatchPlan && planOpen && attendanceOpen && comparisonSessions.length > 0,
   });
-  const matchWeekAttendanceByPlayer = useMemo(() => {
+  const comparisonAttendanceByPlayer = useMemo(() => {
     const map = new Map<string, string>();
-    for (const [sessionId, records] of Object.entries(matchWeekAttendance)) {
+    for (const [sessionId, records] of Object.entries(comparisonAttendance)) {
       for (const record of records) {
         map.set(`${record.playerId}:${sessionId}`, record.status);
       }
     }
     return map;
-  }, [matchWeekAttendance]);
+  }, [comparisonAttendance]);
+
+  function attendanceComparisonPlayers() {
+    const calledIds = new Set(callups.map(callup => callup.playerId));
+    const now = Date.now();
+    return sortedTeamPlayers.map(player => {
+      const cells = comparisonEvents.map(event => {
+        const status = event.sessionId ? comparisonAttendanceByPlayer.get(`${player.id}:${event.sessionId}`) : undefined;
+        const state: MatchAttendanceState = status === "present" || status === "absent" || status === "requested" || status === "injured" || status === "unavailable" ? status
+          : Date.parse(event.date) > now ? "upcoming" : "unknown";
+        return { state, availability: null };
+      });
+      return {
+        id: player.id, firstName: player.firstName, lastName: player.lastName,
+        called: calledIds.has(player.id), cells,
+        note: [player.position, playerUnavailableLabel(player).replace(/^\s*-\s*/, ""),
+          parentUnavailableCallupsByPlayer.has(player.id) ? "Genitore · non disponibile per la gara" : ""].filter(Boolean).join(" · "),
+        present: cells.filter(cell => cell.state === "present").length,
+        absent: cells.filter(cell => cell.state === "absent").length,
+      };
+    });
+  }
 
   const homeLabel = isHome ? clubLabel : match.opponent;
   const reportPlayers: ReportPlayer[] = callups.map(callup => {
@@ -3151,7 +3166,20 @@ function MatchCard({
                 </div>)}</details>
                 </MatchWorkspacePanel>
                 <MatchWorkspacePanel active={activePanel("convocati")}>
-                <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Disponibilità e presenze allenamenti</DisclosureSummary><div className="divide-y">{sortedTeamPlayers.map(p=><div key={p.id} className="flex flex-wrap justify-between gap-2 py-2 text-xs"><span>{p.lastName} {p.firstName} {p.position||''} {playerUnavailableLabel(p)} {parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':''}</span><span>{matchWeekTrainingDays.map(day=>{const status=day.sessionId?matchWeekAttendanceByPlayer.get(p.id+':'+day.sessionId):null;return <span key={day.key} className="ml-2">{format(day.date,'EEE d',{locale:itLocale})}: {status??'non registrato'}</span>;})}</span></div>)}</div></details>
+                <details className="rounded-lg border p-3" onToggle={event => setAttendanceOpen(event.currentTarget.open)}>
+                  <DisclosureSummary className="text-sm font-semibold">Confronta presenze</DisclosureSummary>
+                  {attendanceOpen && <div className="mt-3">
+                    <MatchAttendanceComparison period={attendancePeriod} onPeriodChange={setAttendancePeriod} matchDate={match.date}
+                      events={comparisonEvents} players={attendanceComparisonPlayers()}
+                      loading={trainingLoading || attendanceLoading || !callupsLoaded && !callupError}
+                      error={trainingError?.message ?? attendanceError?.message ?? callupError?.message}
+                      onRetry={() => {
+                        if (trainingError) void refetchTraining();
+                        if (attendanceError) void refetchAttendance();
+                        if (callupError) void refetchCallups();
+                      }} />
+                  </div>}
+                </details>
                 </MatchWorkspacePanel>
                 <MatchWorkspacePanel active={activePanel("schieramenti")}>
                 {false && matchSection === "settore_giovanile" && (
