@@ -1364,7 +1364,8 @@ const QuickPage = () => {
     if (raw) {
       try {
         const target = new URL(raw, window.location.origin);
-        if (target.origin === window.location.origin && target.pathname.startsWith("/calendari/")) {
+        if (target.origin === window.location.origin && (target.pathname.startsWith("/calendari/") ||
+          /^\/(?:scuola-calcio|settore-giovanile|prima-squadra)\/calendari\/\d+\/?$/.test(target.pathname))) {
           return `${target.pathname}${target.search}${target.hash}`;
         }
       } catch {

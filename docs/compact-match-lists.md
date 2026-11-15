@@ -13,8 +13,8 @@ La presentazione condivisa `CompactMatchHeading` / `CompactMatchDetails` uniform
 | Note pre/post | Indicatori sintetici in elenco; testo completo, allegati e resoconto nei dettagli |
 | Note d'importazione | Testo integrale nei dettagli della scheda operativa |
 | Rosa, moduli, minutaggi e lavagna | Editor e controlli esistenti nella scheda aperta, con gli stessi permessi |
-| Export convocazione | Menu rapido e pulsante originale nei dettagli; apertura dei dettagli per rendere visibile anche il successivo Scarica |
-| Modifica data/luogo | Menu rapido per i ruoli già abilitati; editor originale conservato |
+| Export convocazione | In Convocati nella scheda dedicata del calendario annata, con il successivo Scarica |
+| Modifica data/luogo | In Gara e ritrovo per i ruoli già abilitati |
 | Eliminazione | Azione nella scheda aperta e conferma originale, senza cambi di autorizzazione |
 | Import/export calendario, duplicati, selezione multipla | Raccolti in pannelli apribili; Crea partita sempre raggiungibile quando prima consentito |
 | Risultato nella lista generica | Valore visibile in intestazione, editor e salvataggio nei dettagli |
@@ -22,9 +22,9 @@ La presentazione condivisa `CompactMatchHeading` / `CompactMatchDetails` uniform
 
 ## Interazioni
 
-- Le righe iniziano chiuse per ridurre l'ingombro. I collegamenti diretti con openMatchId e la scheda singola incorporata mantengono l'apertura iniziale.
-- I disclosure nativi mantengono i figli montati: chiudere una riga non azzera una bozza di data, luogo, risultato, disponibilità o nota. Non vengono inviati salvataggi durante apertura o chiusura.
-- Apri scheda mantiene il comportamento operativo dell'allenatore; Dettagli e note consente anche la semplice lettura senza attivare l'editor del piano.
+- Nel calendario annata, **Apri partita** porta alla scheda dedicata con intestazione fissa. **Torna al calendario** ripristina la lista, i filtri e la posizione quando si rientra dalla scheda nello stesso calendario.
+- La scheda mostra una sezione alla volta: **Gara e ritrovo**, **Convocati**, **Schieramenti** e **Resoconto**. Su telefono la sezione si sceglie con un menu. I passaggi tra sezioni conservano la bozza già compilata.
+- I collegamenti con `openMatchId` continuano ad aprire la gara. Il ritorno dalla lavagna riapre Schieramenti dai nuovi collegamenti del calendario. La scheda incorporata dei campionati e i disclosure nelle altre aree rimangono disponibili.
 - La ricerca principale è sempre visibile e mantiene gli stessi criteri di filtraggio. Non apre automaticamente i filtri avanzati; questi conservano i controlli precedenti. La selezione multipla rende accessibili gli strumenti di gruppo.
 - Riepiloghi delle fasi su due colonne su mobile, quattro su desktop; conteggi e descrizioni restano visibili.
 - CSS basato sui colori del tema corrente. Nessuna tabella con scorrimento orizzontale aggiunta. In stampa il contenuto dei disclosure montati viene reso disponibile.

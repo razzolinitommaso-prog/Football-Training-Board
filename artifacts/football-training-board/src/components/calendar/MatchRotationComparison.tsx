@@ -101,6 +101,88 @@ function SummaryPitch({
   );
 }
 
+export function MatchCallupRoster({ roster, onCallup }: {
+  roster: RosterPlayer[];
+  onCallup?: (id: number, called: boolean) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [all, setAll] = useState(false);
+  const called = roster.filter((p) => p.called);
+  const rosterVisible = roster.filter(
+    (p) =>
+      (all || p.called || !called.length) &&
+      p.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
+  );
+  return (
+    <section
+      className="rounded-xl border bg-background p-3"
+      aria-label="Convocati"
+    >
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">
+          Convocati · {called.length}
+        </h4>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 text-xs"
+          aria-expanded={all}
+          onClick={() => setAll(!all)}
+        >
+          {all ? "Mostra convocati" : "Modifica convocati"}
+        </Button>
+      </div>
+      {(all || !called.length) && (
+        <Input
+          className="mb-2 h-8 text-xs"
+          aria-label="Cerca convocato"
+          placeholder="Cerca giocatore…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      )}
+      <div
+        className={
+          all || !called.length
+            ? "grid gap-x-3 sm:grid-cols-2"
+            : "flex flex-wrap gap-1.5"
+        }
+      >
+        {rosterVisible?.map((p) => (
+          <label
+            key={p.id}
+            className={
+              (all || !called.length
+                ? "min-h-9 py-1"
+                : "rounded-md border px-2 py-1.5") +
+              " flex items-center gap-2 text-xs"
+            }
+          >
+            <Checkbox
+              checked={p.called}
+              disabled={p.disabled || !onCallup}
+              aria-label={"Convoca " + p.name}
+              onCheckedChange={(v) => {
+                if (!called.length) setAll(true);
+                onCallup?.(p.id, v === true);
+              }}
+            />
+            <span className="min-w-0 break-words">
+              {p.name}
+              {(all || !called.length) && p.note && (
+                <span className="block text-[10px] text-muted-foreground">
+                  {p.note}
+                </span>
+              )}
+            </span>
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function MatchRotationComparison({
   summary,
   roster,
@@ -127,8 +209,6 @@ export function MatchRotationComparison({
   automatic?: boolean;
 }) {
   const [enlarged, setEnlarged] = useState<RotationSummaryUnit | null>(null);
-  const [search, setSearch] = useState("");
-  const [all, setAll] = useState(false);
   const [unitPage, setUnitPage] = useState(0);
   const pageSize = 8;
   const lastPage = Math.max(0, Math.ceil(summary.units.length / pageSize) - 1);
@@ -141,12 +221,6 @@ export function MatchRotationComparison({
     else periodHeadings.push({ key: unit.periodKey, count: 1, label: unit.periodKey.slice(1) + "° tempo" });
   }
 
-  const called = roster?.filter((p) => p.called) ?? [];
-  const rosterVisible = roster?.filter(
-    (p) =>
-      (all || p.called || !called.length) &&
-      p.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
-  );
   const values = summary.rows.map((row) => row.plannedMinutes);
   const minimum = values.length ? Math.min(...values) : 0;
   const maximum = values.length ? Math.max(...values) : 0;
@@ -173,74 +247,7 @@ export function MatchRotationComparison({
       </Dialog>
       <div className={renderPitch ? "match-comparison-layout match-comparison-layout--editor" : "match-comparison-layout"}>
         <div className="min-w-0 space-y-3">
-          {roster && (
-            <section
-              className="rounded-xl border bg-background p-3"
-              aria-label="Convocati"
-            >
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h4 className="text-sm font-semibold">
-                  Convocati · {called.length}
-                </h4>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs"
-                  aria-expanded={all}
-                  onClick={() => setAll(!all)}
-                >
-                  {all ? "Mostra convocati" : "Modifica convocati"}
-                </Button>
-              </div>
-              {(all || !called.length) && (
-                <Input
-                  className="mb-2 h-8 text-xs"
-                  aria-label="Cerca convocato"
-                  placeholder="Cerca giocatore…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              )}
-              <div
-                className={
-                  all || !called.length
-                    ? "grid gap-x-3 sm:grid-cols-2"
-                    : "flex flex-wrap gap-1.5"
-                }
-              >
-                {rosterVisible?.map((p) => (
-                  <label
-                    key={p.id}
-                    className={
-                      (all || !called.length
-                        ? "min-h-9 py-1"
-                        : "rounded-md border px-2 py-1.5") +
-                      " flex items-center gap-2 text-xs"
-                    }
-                  >
-                    <Checkbox
-                      checked={p.called}
-                      disabled={p.disabled || !onCallup}
-                      aria-label={"Convoca " + p.name}
-                      onCheckedChange={(v) => {
-                        if (!called.length) setAll(true);
-                        onCallup?.(p.id, v === true);
-                      }}
-                    />
-                    <span className="min-w-0 break-words">
-                      {p.name}
-                      {(all || !called.length) && p.note && (
-                        <span className="block text-[10px] text-muted-foreground">
-                          {p.note}
-                        </span>
-                      )}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </section>
-          )}
+          {roster && <MatchCallupRoster roster={roster} onCallup={onCallup} />}
           <section className="min-w-0 rounded-xl border bg-background p-2 sm:p-3">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h4 className="text-sm font-semibold">{title}</h4>

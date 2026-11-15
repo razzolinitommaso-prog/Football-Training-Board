@@ -1,5 +1,5 @@
 import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
-import {MatchRotationComparison, matchMinutesLabel} from "@/components/calendar/MatchRotationComparison";
+import {MatchCallupRoster, MatchRotationComparison, matchMinutesLabel} from "@/components/calendar/MatchRotationComparison";
 import {buildMatchRotationSummary, matchPeriodParts, matchPeriodPartLimit, matchPeriodLabel} from "@workspace/api-zod";
 import {matchPreparation, upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
 import {clearMatchLineups, designateMatchKeeper, editManualLineupCell, selectRotationCell, rotationUnits, rotateMatchPeriods, periodMinutes, firstPartDuration, matchRotationPart, updateMatchRotationPart, seedMatchReport, toggleFourthPeriod} from "@/lib/match-period-rotation";
@@ -10,7 +10,7 @@ import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { splitMatchLineup, changeMatchLineupStatus, lineupKeeper } from "@/lib/match-lineup";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useRoute } from "wouter";
+import { useLocation, useRoute, useSearch } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
@@ -1787,6 +1787,50 @@ function MatchDraftLineupPreview({ period, matchFormat, selectedIds, playersById
   </div>;
 }
 
+const MATCH_WORKSPACE_SECTIONS = [
+  { id: "gara", label: "Gara e ritrovo" },
+  { id: "convocati", label: "Convocati" },
+  { id: "schieramenti", label: "Schieramenti" },
+  { id: "resoconto", label: "Resoconto" },
+] as const;
+type MatchWorkspaceSection = typeof MATCH_WORKSPACE_SECTIONS[number]["id"];
+type MatchWorkspace = {
+  initialSection: MatchWorkspaceSection;
+  onBack: () => void;
+};
+
+function MatchWorkspacePanel({ active, children }: {
+  active: boolean | undefined;
+  children: React.ReactNode;
+}) {
+  return active === undefined ? <>{children}</> : <section hidden={!active} className="min-w-0 space-y-3">{children}</section>;
+}
+
+function MatchReportEditFrame({ inline, open, onOpenChange, onStart, existing, children }: {
+  inline: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onStart: () => void;
+  existing: boolean;
+  children: React.ReactNode;
+}) {
+  if (inline) return open
+    ? <div className="my-3 basis-full space-y-3 rounded-xl border bg-background p-3">{children}</div>
+    : <Button type="button" size="sm" variant="outline" onClick={onStart}>
+        {existing ? "Modifica resoconto" : "Compila resoconto"}
+      </Button>;
+  return <Popover open={open} onOpenChange={onOpenChange}>
+    <PopoverTrigger asChild>
+      <Button size="sm" variant="ghost" className="h-6 gap-1 text-xs text-muted-foreground hover:text-primary" onClick={onStart}>
+        <Pencil className="h-3 w-3" /> {existing ? "Modifica" : "Aggiungi"}
+      </Button>
+    </PopoverTrigger>
+    <PopoverContent align="end" className="w-[min(640px,calc(100vw-24px))] max-h-[85dvh] space-y-3 overflow-y-auto p-3">
+      {children}
+    </PopoverContent>
+  </Popover>;
+}
+
 function MatchCard({
   match,
   canEditPreNotes,
@@ -1804,6 +1848,8 @@ function MatchCard({
   bulkSelected,
   onBulkToggle,
   startExpanded = false,
+  workspace,
+  onOpenMatch,
   nextMatch = false,
 }: {
   match: MatchTimelineItem;
@@ -1822,6 +1868,8 @@ function MatchCard({
   bulkSelected?: boolean;
   onBulkToggle?: () => void;
   startExpanded?: boolean;
+  workspace?: MatchWorkspace;
+  onOpenMatch?: () => void;
   nextMatch?: boolean;
 }) {
   const qc = useQueryClient();
@@ -1841,10 +1889,19 @@ function MatchCard({
     return match.homeAway === "home" ? parsed.away : parsed.home;
   });
   const [postAttachments, setPostAttachments] = useState<string[]>(() => splitPostNotesAndAttachments(match.postMatchNotes).attachments);
+  const [workspaceSection, setWorkspaceSection] = useState<MatchWorkspaceSection>(workspace?.initialSection ?? "gara");
+  const workspaceHeader = useRef<HTMLElement>(null);
+  const activePanel = (section: MatchWorkspaceSection) => workspace ? workspaceSection === section : undefined;
+  const workspaceSections = MATCH_WORKSPACE_SECTIONS.filter(section =>
+    canViewMatchPlan || section.id === "gara" || section.id === "resoconto");
+  function switchWorkspaceSection(section: MatchWorkspaceSection) {
+    setWorkspaceSection(section);
+    workspaceHeader.current?.closest("main")?.scrollTo({ top: 0 });
+  }
   const shouldOpenPlanFromQuery = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    return startExpanded || Number(params.get("openMatchId")) === match.id;
-  }, [match.id, startExpanded]);
+    return !!workspace || startExpanded || (!onOpenMatch && Number(params.get("openMatchId")) === match.id);
+  }, [match.id, onOpenMatch, startExpanded, workspace]);
   const cardRef = useRef<HTMLDivElement>(null);
   const [planOpen, setPlanOpen] = useState(shouldOpenPlanFromQuery);
   const [detailsOpen, setDetailsOpen] = useState(shouldOpenPlanFromQuery);
@@ -1935,13 +1992,13 @@ function MatchCard({
   const postCameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!shouldOpenPlanFromQuery) return;
+    if (workspace || !shouldOpenPlanFromQuery) return;
     setPlanOpen(true);
     setDetailsOpen(true);
     window.setTimeout(() => {
       cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 80);
-  }, [shouldOpenPlanFromQuery]);
+  }, [shouldOpenPlanFromQuery, workspace]);
 
   const patch = useMutation({
     mutationFn: (body: object) =>
@@ -1957,6 +2014,7 @@ function MatchCard({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Partita eliminata" });
+      workspace?.onBack();
     },
     onError: (err: any) => toast({ title: err?.message ?? "Errore nell'eliminazione", variant: "destructive" }),
   });
@@ -2211,7 +2269,11 @@ function MatchCard({
       ? "Amichevole"
       : (match.competition ?? "").trim() || "Partita";
   const boardTitleForMatch = `${matchKindLabel} ${homeLabel} vs ${awayLabel} schieramenti e tattiche`;
-  const returnToMatchUrl = window.location.pathname.endsWith("/campionati")
+  const workspaceReturnParams = new URLSearchParams(window.location.search);
+  workspaceReturnParams.set("matchView", "schieramenti");
+  const returnToMatchUrl = workspace
+    ? `${window.location.pathname}?${workspaceReturnParams}`
+    : window.location.pathname.endsWith("/campionati")
     ? `${window.location.pathname}${window.location.search}`
     : `/calendari/${match.teamId ?? ""}?openMatchId=${match.id}&phase=${matchPhase(match)}`;
   const tacticalBaseUrl = `/tactical-board?teamId=${match.teamId ?? ""}&matchId=${match.id}&source=match-plan&phase=${matchPhase(match)}&preset=${encodeURIComponent(tacticalPreset)}&convocati=${encodeURIComponent(Array.from(selectedPlayerIds).join(","))}&matchTitle=${encodeURIComponent(boardTitleForMatch)}&returnTo=${encodeURIComponent(returnToMatchUrl)}`;
@@ -2658,31 +2720,13 @@ function MatchCard({
     return lineupPointFromPortrait(portraitPoint);
   };
 
-  return (
-    <>
-    <Card
-      ref={cardRef}
-      id={`match-${match.id}`}
-      className={cn(
-        "compact-match-card min-w-0 max-w-full",
-        statusColor,
-        bulkSelectEnabled && bulkSelected && "ring-2 ring-primary/50 ring-offset-2 ring-offset-background",
-      )}
-    >
-      <CardContent className="p-0">
+  const callupRoster = sortedTeamPlayers.map(p=>({id:p.id,name:(p.jerseyNumber? p.jerseyNumber+' · ':'')+p.lastName+' '+p.firstName,called:selectedPlayerIds.has(p.id),disabled:p.available===false||parentUnavailableCallupsByPlayer.has(p.id),note:parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':playerUnavailableLabel(p).replace(/^\s*-\s*/,'')}));
+  const changeCallup = (id: number, called: boolean)=>setSelectedPlayerIds(previous=>{const next=new Set(previous);if(called)next.add(id);else next.delete(id);return next;});
+  const cardActions = !workspace && !onOpenMatch;
 
-        <CompactMatchHeading preparationStatus={preparation} nextMatch={nextMatch} date={match.date} home={homeLabel} away={awayLabel} result={match.result}
-          selection={bulkSelectEnabled && onBulkToggle ? <Checkbox checked={!!bulkSelected} onCheckedChange={()=>onBulkToggle()} aria-label="Seleziona partita per azioni di gruppo"/> : undefined}
-          metadata={<><span className="match-location-tag rounded border bg-muted/30">{isHome ? "Casa" : "Trasferta"}</span>{match.competition&&<span><Trophy/>{match.competition}</span>}{match.location&&<span><MapPin/>{match.location}</span>}{match.isPostponed&&<span className="text-amber-700 dark:text-amber-400"><AlertTriangle/>Rinviata · {match.rescheduleTbd ? "recupero da concordare" : match.rescheduleDate ? format(new Date(match.rescheduleDate),"d MMM yyyy · HH:mm",{locale:itLocale}) : "data recupero non definita"}</span>}{isRecoveryView&&<span className="text-emerald-700 dark:text-emerald-400"><RotateCcw/>Recupero{match.__originalDate ? " del " + format(new Date(match.__originalDate),"d MMM yyyy",{locale:itLocale}) : ""}</span>}{!isPast&&!match.isPostponed&&<span className="text-primary"><Clock/>In programma</span>}</>}
-          indicators={<>{canViewMatchPlan&&<span><ListChecks/>Convocati: {callupsLoaded ? selectedPlayerIds.size : "…"}</span>}{(canEditPreNotes||match.preMatchNotes)&&<span><ClipboardList/>Pre: {match.preMatchNotes ? "presenti" : "—"}</span>}{(canEditPostNotes||isPast||hasPostNotes)&&<span><FileText/>Post: {hasPostNotes ? "presenti" : "—"}{postView.attachments.length>0 ? " · " + postView.attachments.length + " allegati" : ""}</span>}{canViewMatchPlan&&!canManageMatchPlan&&<span className="ml-auto rounded border px-1.5 py-0.5 text-[10px]">Solo lettura piano</span>}</>}
-          actions={<><Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 px-2 text-xs" aria-label={detailsOpen ? "Chiudi scheda partita" : "Apri scheda partita"} onClick={()=>{setDetailsOpen(!detailsOpen);if(!detailsOpen&&canManageMatchPlan)setPlanOpen(true);}}><Eye className="h-3.5 w-3.5"/><span className="match-open-label">{detailsOpen?"Chiudi scheda":"Apri scheda"}</span></Button>
-          <Popover open={actionsOpen} onOpenChange={setActionsOpen}><PopoverTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Azioni partita"><MoreHorizontal className="h-4 w-4"/></Button></PopoverTrigger><PopoverContent align="end" className="w-56 space-y-1 p-2">
-            {canEditSchedule&&<Button type="button" variant="ghost" className="h-8 w-full justify-start text-xs" onClick={()=>{setDetailsOpen(true);setEditingSchedule(true);setActionsOpen(false);}}><Pencil className="mr-2 h-3.5 w-3.5"/>Modifica data e luogo</Button>}
-            {canViewMatchPlan&&<Button type="button" variant="ghost" className="h-8 w-full justify-start text-xs" disabled={exportingCallupPdf} onClick={()=>{setDetailsOpen(true);setActionsOpen(false);void exportCallupPdf();}}><Download className="mr-2 h-3.5 w-3.5"/>Export convocazione</Button>}
-            <Button type="button" variant="ghost" className="h-8 w-full justify-start text-xs" onClick={()=>{setDetailsOpen(true);setActionsOpen(false);}}><FileText className="mr-2 h-3.5 w-3.5"/>Note e altre azioni</Button>
-          </PopoverContent></Popover></>}
-        />
-        <CompactMatchDetails open={detailsOpen} onOpenChange={setDetailsOpen}>
+  const body = onOpenMatch ? null : <>
+        <MatchWorkspacePanel active={activePanel("gara")}>
+        {workspace && <h2 className="text-xl font-semibold">Gara e ritrovo</h2>}
         <div className="flex justify-end"><div className="flex items-center gap-0.5 shrink-0">
             {canDeleteMatch && (
               <AlertDialog>
@@ -2729,7 +2773,14 @@ function MatchCard({
               </Button>
             )}
           </div></div>
-        {match.notes&&<p className="compact-match-inline-notes">{match.notes}</p>}
+        {workspace && <dl className="grid grid-cols-2 gap-3 rounded-lg border bg-background p-3 text-sm">
+          <div><dt className="text-muted-foreground">Campo</dt><dd className="break-words font-medium">{match.location || "Da definire"}</dd></div>
+          <div><dt className="text-muted-foreground">Competizione</dt><dd className="break-words font-medium">{match.competition || "Da definire"}</dd></div>
+          {match.isPostponed && <div className="col-span-2"><dt className="text-muted-foreground">Recupero</dt>
+            <dd className="font-medium">{match.rescheduleDate && !match.rescheduleTbd
+              ? format(new Date(match.rescheduleDate), "EEE d MMM yyyy · HH:mm", { locale: itLocale }) : "Da concordare"}</dd></div>}
+        </dl>}
+        {match.notes && <p className="compact-match-inline-notes">{match.notes}</p>}
 
         {/* Schedule editor */}
         {editingSchedule && canEditSchedule && (
@@ -2823,10 +2874,13 @@ function MatchCard({
           </div>
         )}
 
+        </MatchWorkspacePanel>
+
         {/* Convocazioni / schieramenti */}
         {canViewMatchPlan && (
-          <div className="pt-2 border-t border-border/40 space-y-2">
-            <div className="flex items-center justify-between">
+          <div hidden={activePanel("resoconto")} className={workspace ? "space-y-3" : "pt-2 border-t border-border/40 space-y-2"}>
+            <MatchWorkspacePanel active={activePanel("convocati")}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                 <ListChecks className="w-3 h-3" /> Convocazione e preparazione partita
               </span>
@@ -2856,27 +2910,44 @@ function MatchCard({
                     </Button>
                   </>
                 )}
-                {canManageMatchPlan ? (
+                {!workspace && (canManageMatchPlan ? (
                   <Button size="sm" variant="ghost" className="h-6 text-xs gap-1" onClick={() => setPlanOpen((v) => !v)}>
                     <Pencil className="w-3 h-3" /> {planOpen ? "Chiudi" : "Gestisci"}
                   </Button>
                 ) : (
                   <Badge variant="outline" className="text-[10px]">solo lettura</Badge>
-                )}
+                ))}
               </div>
             </div>
+            {workspace && <>
+              <MatchCallupRoster roster={canManageMatchPlan ? callupRoster : callupRoster.filter(player => player.called)}
+                onCallup={canManageMatchPlan ? changeCallup : undefined} />
+              {canManageMatchPlan && <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" disabled={!selectedPlayerIds.size || !planDraft.convocationAt || !planDraft.convocationPlace}
+                  onClick={publishCallupsToParents}>Export bacheca + avviso genitori</Button>
+                <Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button>
+              </div>}
+            </>}
+            </MatchWorkspacePanel>
+            <MatchWorkspacePanel active={activePanel("schieramenti")}>
             <div className="text-[11px] text-muted-foreground">
               Convocati: {selectedPlayerIds.size} ·
               <a href={canOpenBoard ? tacticalUrl : "#"} className={cn("ml-1 underline underline-offset-2", !canOpenBoard && "pointer-events-none opacity-50")}>
                 Lavagna preparazione partita
               </a>
             </div>
+            </MatchWorkspacePanel>
             {!canManageMatchPlan && <div className="space-y-3">
+              <MatchWorkspacePanel active={activePanel("gara")}>
               <section className="rounded-xl border bg-background p-3 text-xs"><h4 className="mb-2 font-semibold">Partita e ritrovo</h4><p>{planDraft.convocationAt ? format(new Date(planDraft.convocationAt), "d MMM yyyy · HH:mm", {locale:itLocale}) : "Orario convocazione da definire"} · {planDraft.convocationPlace || "Luogo convocazione da definire"}</p></section>
+              </MatchWorkspacePanel>
+              <MatchWorkspacePanel active={activePanel("schieramenti")}>
               <MatchRotationComparison summary={buildMatchRotationSummary(planDraft,selectedPlayersOrdered.map(id=>convokedById.get(id)).filter((p):p is Player=>!!p),playerLimitForFormat(matchFormat))} />
+              </MatchWorkspacePanel>
             </div>}
             {planOpen && canManageMatchPlan && (
               <div className="rounded-md border border-border/60 bg-muted/20 p-1 sm:p-3 space-y-3">
+                <MatchWorkspacePanel active={activePanel("gara")}>
                 <section className="rounded-xl border bg-background p-3 space-y-3" aria-label="Partita e ritrovo">
                   <h4 className="text-sm font-semibold">Partita e ritrovo</h4>
                   <p className="text-xs text-muted-foreground">{format(matchDate, "EEEE d MMMM yyyy · HH:mm", {locale:itLocale})} · {match.location || "Campo da definire"} · {matchFormat}</p>
@@ -2939,11 +3010,14 @@ function MatchCard({
                   </a>
                 )}
 
+                {workspace && <div className="flex justify-end"><Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button></div>}
                 </section>
+                </MatchWorkspacePanel>
+                <MatchWorkspacePanel active={activePanel("schieramenti")}>
                 <MatchRotationComparison
                   summary={buildMatchRotationSummary(planDraft,selectedPlayersOrdered.map(id=>convokedById.get(id)).filter((p):p is Player=>!!p),playerLimitForFormat(matchFormat))}
-                  roster={sortedTeamPlayers.map(p=>({id:p.id,name:(p.jerseyNumber? p.jerseyNumber+' · ':'')+p.lastName+' '+p.firstName,called:selectedPlayerIds.has(p.id),disabled:p.available===false||parentUnavailableCallupsByPlayer.has(p.id),note:parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':playerUnavailableLabel(p).replace(/^\s*-\s*/,'')}))}
-                  onCallup={(id,called)=>setSelectedPlayerIds(previous=>{const next=new Set(previous);if(called)next.add(id);else next.delete(id);return next;})}
+                  roster={workspace ? undefined : callupRoster}
+                  onCallup={changeCallup}
                   onStatus={selectComparisonCell}
                   onBenchAll={() => setResetLineupsMode("bench")}
                   automatic={autoReserveRuleEnabled && !planDraft.periods.every(p=>p.lineupManual)}
@@ -3075,7 +3149,11 @@ function MatchCard({
                     </div>;
                   })}
                 </div>)}</details>
+                </MatchWorkspacePanel>
+                <MatchWorkspacePanel active={activePanel("convocati")}>
                 <details className="rounded-lg border p-3"><DisclosureSummary className="text-xs font-semibold">Disponibilità e presenze allenamenti</DisclosureSummary><div className="divide-y">{sortedTeamPlayers.map(p=><div key={p.id} className="flex flex-wrap justify-between gap-2 py-2 text-xs"><span>{p.lastName} {p.firstName} {p.position||''} {playerUnavailableLabel(p)} {parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':''}</span><span>{matchWeekTrainingDays.map(day=>{const status=day.sessionId?matchWeekAttendanceByPlayer.get(p.id+':'+day.sessionId):null;return <span key={day.key} className="ml-2">{format(day.date,'EEE d',{locale:itLocale})}: {status??'non registrato'}</span>;})}</span></div>)}</div></details>
+                </MatchWorkspacePanel>
+                <MatchWorkspacePanel active={activePanel("schieramenti")}>
                 {false && matchSection === "settore_giovanile" && (
                   <div className="rounded-md border border-border/60 bg-background/80 p-2 space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -3159,7 +3237,12 @@ function MatchCard({
                   <DisclosureSummary className="cursor-pointer py-1 text-xs font-semibold">Opzioni avanzate dei tempi: formato e ordinamento</DisclosureSummary>
                   {planDraft.periods.map((p, i) => {
                     const periodFormat = p.format ?? matchFormat;
-                    const periodBoardUrl = p.boardUrl || (p.boardId ? `/tactical-board?boardId=${p.boardId}&teamId=${match.teamId ?? ""}&matchId=${match.id}&periodKey=${p.key}&returnTo=${encodeURIComponent(returnToMatchUrl)}` : "");
+                    let periodBoardUrl = p.boardUrl || (p.boardId ? `/tactical-board?boardId=${p.boardId}&teamId=${match.teamId ?? ""}&matchId=${match.id}&periodKey=${p.key}&returnTo=${encodeURIComponent(returnToMatchUrl)}` : "");
+                    if (workspace && periodBoardUrl.startsWith("/tactical-board?")) {
+                      const boardParams = new URLSearchParams(periodBoardUrl.split("?")[1]);
+                      boardParams.set("returnTo", returnToMatchUrl);
+                      periodBoardUrl = `/tactical-board?${boardParams}`;
+                    }
                     const lineupIds = (p.lineupPlayerIds ?? [])
                       .filter((id) => selectedPlayerIds.has(id));
                     const startersLimit = startersLimitForPeriod(p, matchFormat);
@@ -3435,7 +3518,7 @@ function MatchCard({
                   <Button type="button" size="sm" variant="outline" className="h-8 text-xs" disabled={!canOpenBoard} asChild>
                     <a href={tacticalUrl}>Apri lavagna con prefill</a>
                   </Button>
-                  <Button
+                  {!workspace && <Button
                     type="button"
                     size="sm"
                     variant="outline"
@@ -3444,17 +3527,28 @@ function MatchCard({
                     onClick={publishCallupsToParents}
                   >
                     Export bacheca + avviso genitori
-                  </Button>
+                  </Button>}
                   <Button size="sm" className="h-8 text-xs gap-1.5" onClick={saveMatchPlanAndCallups}>
                     <CheckCircle className="w-3.5 h-3.5" /> Salva piano partita
                   </Button>
                 </div>
+                </MatchWorkspacePanel>
               </div>
             )}
           </div>
         )}
 
-        <details open={editingPreNotes || postMenuOpen || undefined} className="rounded-lg border bg-background p-3"><DisclosureSummary className="text-xs font-semibold">Note, allegati e resoconto</DisclosureSummary><div className="mt-3 space-y-3">
+        {workspace ? renderNotes() : <details open={editingPreNotes || postMenuOpen || undefined} className="rounded-lg border bg-background p-3"><DisclosureSummary className="text-xs font-semibold">Note, allegati e resoconto</DisclosureSummary><div className="mt-3 space-y-3">{renderNotes()}</div></details>}
+  </>;
+
+  function renderNotes() {
+    const reportRotation = workspace && canViewMatchPlan ? buildMatchRotationSummary(
+      match.matchPlan,
+      selectedPlayersOrdered.map(id => convokedById.get(id)).filter((player): player is Player => !!player),
+      playerLimitForFormat(matchFormat),
+    ) : undefined;
+    return <>
+        <MatchWorkspacePanel active={activePanel("gara")}>
         {/* Pre-match notes */}
         {(canEditPreNotes || match.preMatchNotes) && (
           <div className="pt-2 border-t border-border/40">
@@ -3498,29 +3592,20 @@ function MatchCard({
           </div>
         )}
 
+        </MatchWorkspacePanel>
+        <MatchWorkspacePanel active={activePanel("resoconto")}>
+        {workspace && <h2 className="text-xl font-semibold">Resoconto</h2>}
         {/* Post-match notes */}
         {(canEditPostNotes || isPast || hasPostNotes) && (
           <div className="pt-2 border-t border-border/40">
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
                 <FileText className="w-3 h-3" /> Note post-partita
                 {hasPostNotes && <Badge variant="secondary" className="text-[10px] h-5">presenti</Badge>}
               </span>
-              {canEditPostNotes && (
-                <Popover open={postMenuOpen} onOpenChange={setPostMenuOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 text-xs gap-1 text-muted-foreground hover:text-primary"
-                      onClick={startPostNoteEditor}
-                    >
-                      <Pencil className="w-3 h-3" />
-                      {hasPostNotes ? "Modifica" : "Aggiungi"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent align="end" className="w-[min(640px,calc(100vw-24px))] max-h-[85dvh] overflow-y-auto p-3 space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground">Menu note post-partita</p>
+              {canEditPostNotes && <MatchReportEditFrame inline={!!workspace} open={postMenuOpen}
+                onOpenChange={setPostMenuOpen} onStart={startPostNoteEditor} existing={hasPostNotes}>
+                    <p className="text-xs font-semibold text-muted-foreground">Modifica resoconto</p>
                     <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
@@ -3734,13 +3819,16 @@ function MatchCard({
                       </Button>
                       <Button type="button" size="sm" className="h-8 text-xs gap-1.5" disabled={patch.isPending} onClick={savePostNotes}>
                         <CheckCircle className="w-3.5 h-3.5" />
-                        Salva
+                        {workspace ? "Salva resoconto" : "Salva"}
                       </Button>
                     </div>
-                  </PopoverContent>
-                </Popover>
-              )}
+              </MatchReportEditFrame>}
             </div>
+            {workspace && !postMenuOpen && match.result && <p className="my-3 text-sm">Risultato <strong>{match.result}</strong></p>}
+            {reportRotation && !postMenuOpen && <p className="my-2 text-sm text-muted-foreground">
+              {reportRotation.reportConfirmed ? "Effettivi confermati dal dirigente."
+                : reportRotation.hasReport ? "In attesa della verifica del dirigente." : "Minuti effettivi da registrare."}
+            </p>}
             {postView.note ? (
               <p className="text-sm bg-muted/40 rounded-md px-3 py-2 italic text-foreground/80 leading-relaxed">
                 {postView.note}
@@ -3755,14 +3843,60 @@ function MatchCard({
             )}
             {canViewMatchPlan && savedReport.success && (
               <div className="mt-2 rounded-md border p-3"><MatchReportSummary report={savedReport.data}
-                players={reportPlayers} limit={reportPlayerLimits} /></div>
+                players={reportPlayers} limit={reportPlayerLimits} rotation={reportRotation} /></div>
             )}
           </div>
         )}
-        </div></details>
-        </CompactMatchDetails>
-      </CardContent>
-    </Card>
+        </MatchWorkspacePanel>
+    </>;
+  }
+
+  return (<>
+    {workspace ? (
+      <div className="mx-auto max-w-6xl space-y-4">
+        <header ref={workspaceHeader} className="sticky top-0 z-20 space-y-2 rounded-xl border bg-background p-3 shadow-sm sm:p-4">
+          <Button type="button" variant="ghost" size="sm" className="gap-2 pl-0" onClick={workspace.onBack}>
+            <ArrowLeft className="h-4 w-4" /> Torna al calendario
+          </Button>
+          <h1 className="break-words text-xl font-semibold leading-tight sm:text-2xl">{homeLabel} – {awayLabel}</h1>
+          <p className="text-sm text-muted-foreground">
+            {teamName} · {format(matchDate, "EEE d MMM yyyy · HH:mm", { locale: itLocale })} · {isHome ? "Casa" : "Trasferta"}
+            {isPostponedOriginalView && " · Rinviata"}{isRecoveryView && " · Recupero"}
+          </p>
+          <nav aria-label="Sezioni della partita" className="hidden flex-wrap gap-2 sm:flex">
+            {workspaceSections.map(section => <Button key={section.id} type="button" size="sm"
+              variant={workspaceSection === section.id ? "secondary" : "ghost"}
+              aria-current={workspaceSection === section.id ? "page" : undefined}
+              onClick={() => switchWorkspaceSection(section.id)}>{section.label}</Button>)}
+          </nav>
+          <label className="flex items-center gap-3 text-sm sm:hidden">Sezione
+            <select className="min-w-0 flex-1 rounded-md border bg-muted px-3 py-2 font-medium" value={workspaceSection}
+              onChange={event => switchWorkspaceSection(event.target.value as MatchWorkspaceSection)}>
+              {workspaceSections.map(section => <option key={section.id} value={section.id}>{section.label}</option>)}
+            </select>
+          </label>
+        </header>
+        <div className="min-w-0 space-y-3 rounded-xl border bg-card p-3 sm:p-5">{body}</div>
+      </div>
+    ) : (
+      <Card ref={cardRef} id={`match-${match.id}`} className={cn("compact-match-card min-w-0 max-w-full", statusColor,
+        bulkSelectEnabled && bulkSelected && "ring-2 ring-primary/50 ring-offset-2 ring-offset-background")}>
+        <CardContent className="p-0">
+        <CompactMatchHeading preparationStatus={preparation} nextMatch={nextMatch} date={match.date} home={homeLabel} away={awayLabel} result={match.result}
+          selection={bulkSelectEnabled && onBulkToggle ? <Checkbox checked={!!bulkSelected} onCheckedChange={()=>onBulkToggle()} aria-label="Seleziona partita per azioni di gruppo"/> : undefined}
+          metadata={<><span className="match-location-tag rounded border bg-muted/30">{isHome ? "Casa" : "Trasferta"}</span>{match.competition&&<span><Trophy/>{match.competition}</span>}{match.location&&<span><MapPin/>{match.location}</span>}{match.isPostponed&&<span className="text-amber-700 dark:text-amber-400"><AlertTriangle/>Rinviata · {match.rescheduleTbd ? "recupero da concordare" : match.rescheduleDate ? format(new Date(match.rescheduleDate),"d MMM yyyy · HH:mm",{locale:itLocale}) : "data recupero non definita"}</span>}{isRecoveryView&&<span className="text-emerald-700 dark:text-emerald-400"><RotateCcw/>Recupero{match.__originalDate ? " del " + format(new Date(match.__originalDate),"d MMM yyyy",{locale:itLocale}) : ""}</span>}{!isPast&&!match.isPostponed&&<span className="text-primary"><Clock/>In programma</span>}</>}
+          indicators={onOpenMatch ? (canViewMatchPlan && callupsLoaded ? <span><ListChecks/>{selectedPlayerIds.size} convocati</span> : undefined) : <>{canViewMatchPlan&&<span><ListChecks/>Convocati: {callupsLoaded ? selectedPlayerIds.size : "…"}</span>}{(canEditPreNotes||match.preMatchNotes)&&<span><ClipboardList/>Pre: {match.preMatchNotes ? "presenti" : "—"}</span>}{(canEditPostNotes||isPast||hasPostNotes)&&<span><FileText/>Post: {hasPostNotes ? "presenti" : "—"}{postView.attachments.length>0 ? " · " + postView.attachments.length + " allegati" : ""}</span>}{canViewMatchPlan&&!canManageMatchPlan&&<span className="ml-auto rounded border px-1.5 py-0.5 text-[10px]">Solo lettura piano</span>}</>}
+          actions={<><Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 px-2 text-xs" aria-label={onOpenMatch ? "Apri partita" : detailsOpen ? "Chiudi scheda partita" : "Apri scheda partita"} onClick={onOpenMatch ?? (()=>{setDetailsOpen(!detailsOpen);if(!detailsOpen&&canManageMatchPlan)setPlanOpen(true);})}><Eye className="h-3.5 w-3.5"/><span className={onOpenMatch ? "whitespace-nowrap" : "match-open-label"}>{onOpenMatch ? "Apri partita" : detailsOpen ? "Chiudi scheda" : "Apri scheda"}</span></Button>
+          {cardActions && <Popover open={actionsOpen} onOpenChange={setActionsOpen}><PopoverTrigger asChild><Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Azioni partita"><MoreHorizontal className="h-4 w-4"/></Button></PopoverTrigger><PopoverContent align="end" className="w-56 space-y-1 p-2">
+            {canEditSchedule&&<Button type="button" variant="ghost" className="h-8 w-full justify-start text-xs" onClick={()=>{setDetailsOpen(true);setEditingSchedule(true);setActionsOpen(false);}}><Pencil className="mr-2 h-3.5 w-3.5"/>Modifica data e luogo</Button>}
+            {canViewMatchPlan&&<Button type="button" variant="ghost" className="h-8 w-full justify-start text-xs" disabled={exportingCallupPdf} onClick={()=>{setDetailsOpen(true);setActionsOpen(false);void exportCallupPdf();}}><Download className="mr-2 h-3.5 w-3.5"/>Export convocazione</Button>}
+            <Button type="button" variant="ghost" className="h-8 w-full justify-start text-xs" onClick={()=>{setDetailsOpen(true);setActionsOpen(false);}}><FileText className="mr-2 h-3.5 w-3.5"/>Note e altre azioni</Button>
+          </PopoverContent></Popover>}</>}
+        />
+          {!onOpenMatch && <CompactMatchDetails open={detailsOpen} onOpenChange={setDetailsOpen}>{body}</CompactMatchDetails>}
+        </CardContent>
+      </Card>
+    )}
     <Dialog open={!!lineupDialog} onOpenChange={(open) => !open && setLineupDialog(null)}>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-auto">
         <DialogHeader>
@@ -4262,7 +4396,10 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
   const [, scuolaCalcioParams] = useRoute("/scuola-calcio/calendari/:teamId");
   const [, settoreGiovanileParams] = useRoute("/settore-giovanile/calendari/:teamId");
   const [, primaSquadraParams] = useRoute("/prima-squadra/calendari/:teamId");
-  const [, setLocation] = useLocation();
+  const [calendarPath, setLocation] = useLocation();
+  const search = useSearch();
+  const calendarRef = useRef<HTMLDivElement>(null);
+  const calendarScroll = useRef<number | null>(null);
   const { role, user, section } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -4302,11 +4439,21 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
   const [imageOcrStatus, setImageOcrStatus] = useState<string | null>(null);
   const [smartInternalStatus, setSmartInternalStatus] = useState<string | null>(null);
   const [aiImportStatus, setAiImportStatus] = useState<string | null>(null);
-  const openMatchIdFromQuery = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    const id = Number(params.get("openMatchId"));
-    return Number.isFinite(id) && id > 0 ? id : null;
-  }, []);
+  const matchQuery = new URLSearchParams(search);
+  const requestedMatchId = Number(matchQuery.get("openMatchId"));
+  const openMatchIdFromQuery = Number.isSafeInteger(requestedMatchId) && requestedMatchId > 0 ? requestedMatchId : null;
+  const requestedMatchView = matchQuery.get("matchView");
+  const requestedTimelineView = matchQuery.get("matchTimeline");
+  useEffect(() => {
+    if (detailMatchId) return;
+    const scroller = calendarRef.current?.closest("main");
+    if (!scroller) return;
+    if (openMatchIdFromQuery) scroller.scrollTop = 0;
+    else if (calendarScroll.current !== null) {
+      scroller.scrollTop = calendarScroll.current;
+      calendarScroll.current = null;
+    }
+  }, [detailMatchId, openMatchIdFromQuery]);
   const initialPhaseTab = useMemo(() => {
     const phase = new URLSearchParams(window.location.search).get("phase");
     return phase === "campionato" || phase === "autunnale" || phase === "primaverile" || phase === "tornei" || phase === "amichevoli"
@@ -4403,7 +4550,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
     enabled: !!teamId,
   });
 
-  const { data: teams = [] } = useQuery<Team[]>({
+  const { data: teams = [], isLoading: teamsLoading } = useQuery<Team[]>({
     queryKey: ["/api/teams"],
     queryFn: () => apiFetch("/api/teams"),
   });
@@ -5458,19 +5605,6 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
     () => [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
     [matches],
   );
-  useEffect(() => {
-    if (!openMatchIdFromQuery) return;
-    const targetMatch = sorted.find((m) => m.id === openMatchIdFromQuery);
-    if (!targetMatch) return;
-    const targetPhase = matchPhase(targetMatch);
-    setPhaseTab(teamUsesChampionshipSeason && (targetPhase === "autunnale" || targetPhase === "primaverile") ? "campionato" : targetPhase);
-    setMatchSearchText("");
-    setMatchTournamentFilter("");
-    setMatchVenueFilter("all");
-    setMatchSquadFilter("all");
-    setScheduleFilter({ ...EMPTY_SCHEDULE_FILTER });
-  }, [openMatchIdFromQuery, sorted, teamUsesChampionshipSeason]);
-
   const autunnale = useMemo(() => sorted.filter((m) => matchPhase(m) === "autunnale"), [sorted]);
   const primaverile = useMemo(() => sorted.filter((m) => matchPhase(m) === "primaverile"), [sorted]);
   const campionato = useMemo(
@@ -6073,6 +6207,32 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
   const upcomingPhaseItems = orderedPhaseItems.filter(item => isUpcomingMatch(item));
   const historicalPhaseItems = orderedPhaseItems.filter(item => !isUpcomingMatch(item));
   const nextPhaseId = upcomingPhaseItems[0]?.id;
+  const requestedMatch = openMatchIdFromQuery ? matches.find(item => item.id === openMatchIdFromQuery && item.teamId === teamId) : undefined;
+  const requestedTimeline = requestedMatch ? buildMatchTimelineItems([requestedMatch]) : [];
+  const workspaceMatch = requestedTimeline.find(item => item.__timelineView === requestedTimelineView)
+    ?? requestedTimeline.find(item => item.__timelineView === "recovery") ?? requestedTimeline[0];
+  const initialWorkspaceSection = MATCH_WORKSPACE_SECTIONS.find(item => item.id === requestedMatchView)?.id ?? "gara";
+  function openMatchWorkspace(match: MatchTimelineItem) {
+    calendarScroll.current = calendarRef.current?.closest("main")?.scrollTop ?? 0;
+    const params = new URLSearchParams(search);
+    params.set("openMatchId", String(match.id));
+    params.set("phase", phaseTab);
+    if (match.__timelineView) params.set("matchTimeline", match.__timelineView);
+    setLocation(`${calendarPath}?${params}`);
+  }
+  function closeMatchWorkspace() {
+    const params = new URLSearchParams(search);
+    params.delete("openMatchId");
+    params.delete("matchView");
+    params.delete("matchTimeline");
+    if (requestedMatch && calendarScroll.current === null && !params.has("phase")) {
+      const phase = matchPhase(requestedMatch);
+      const nextPhase = teamUsesChampionshipSeason && (phase === "autunnale" || phase === "primaverile") ? "campionato" : phase;
+      setPhaseTab(nextPhase);
+      params.set("phase", nextPhase);
+    }
+    setLocation(params.size ? `${calendarPath}?${params}` : calendarPath, { replace: true });
+  }
   const renderPhaseMatch = (m: MatchTimelineItem) => {
     const originalPostponedView = m.__timelineView === "postponed-original";
     return <MatchCard key={m.id + "-" + (m.__timelineView ?? "standard")} match={m} nextMatch={m.id === nextPhaseId && !originalPostponedView}
@@ -6081,7 +6241,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
       canManageMatchPlan={canManageMatchPlan && !originalPostponedView} canViewMatchPlan={canViewMatchPlan && !originalPostponedView}
       teamPlayers={teamPlayers} teamTrainingSchedule={team?.trainingSchedule ?? null} matchSection={currentSection}
       teamName={team?.name ?? ""} teamCategory={team?.category ?? undefined} bulkSelectEnabled={canImportExport && !originalPostponedView}
-      bulkSelected={selectedMatchIds.has(m.id)} onBulkToggle={() => togglePhaseMatchSelection(m.id)} />;
+      bulkSelected={selectedMatchIds.has(m.id)} onBulkToggle={() => togglePhaseMatchSelection(m.id)} onOpenMatch={() => openMatchWorkspace(m)} />;
   };
 
 
@@ -6098,7 +6258,25 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
 
 
   return (
-    <div className="relative min-w-0 w-full overflow-x-clip">
+    <>
+    {openMatchIdFromQuery && (
+      workspaceMatch && team ? <MatchCard key={`${workspaceMatch.id}-${workspaceMatch.__timelineView ?? "standard"}`}
+        match={workspaceMatch}
+        workspace={{ initialSection: canViewMatchPlan && workspaceMatch.__timelineView !== "postponed-original" ? initialWorkspaceSection : initialWorkspaceSection === "resoconto" ? "resoconto" : "gara", onBack: closeMatchWorkspace }}
+        canEditPreNotes={canEditPreNotes && workspaceMatch.__timelineView !== "postponed-original"}
+        canEditPostNotes={canEditPostNotes && workspaceMatch.__timelineView !== "postponed-original"}
+        canEditSchedule={canEditSchedule && workspaceMatch.__timelineView !== "postponed-original"}
+        canDeleteMatch={canImportExport && workspaceMatch.__timelineView !== "postponed-original"}
+        canManageMatchPlan={canManageMatchPlan && workspaceMatch.__timelineView !== "postponed-original"}
+        canViewMatchPlan={canViewMatchPlan && workspaceMatch.__timelineView !== "postponed-original"}
+        teamPlayers={teamPlayers} teamTrainingSchedule={team.trainingSchedule ?? null} matchSection={currentSection}
+        teamName={team.name} teamCategory={team.category ?? undefined} />
+      : <div className="space-y-3">
+          <Button type="button" variant="outline" onClick={closeMatchWorkspace}>Torna al calendario</Button>
+          <p role={isLoading || teamsLoading ? "status" : "alert"}>{isLoading || teamsLoading ? "Caricamento scheda partita…" : "Scheda partita non disponibile per questa squadra."}</p>
+        </div>
+    )}
+    <div ref={calendarRef} hidden={!!openMatchIdFromQuery} className="relative min-w-0 w-full overflow-x-clip">
     {(pdfOcrStatus || importPdfMutation.isPending) && (
       <div
         className="fixed bottom-4 right-4 z-[1000] max-w-sm rounded-md border border-border bg-background/95 px-4 py-3 shadow-lg backdrop-blur"
@@ -6605,7 +6783,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
           ) : <>
             <p className="flex flex-wrap gap-4 text-[11px] text-muted-foreground"><span>● Da preparare</span><span className="text-amber-700 dark:text-amber-300">● Da completare</span><span className="text-emerald-700 dark:text-emerald-300">● Preparazione completa</span></p>
             {upcomingPhaseItems.map(renderPhaseMatch)}
-            {historicalPhaseItems.length > 0 && <details className="rounded-xl border bg-card p-3" open={historicalPhaseItems.some(m => m.id === openMatchIdFromQuery) || matchFiltersActive || undefined}>
+            {historicalPhaseItems.length > 0 && <details className="rounded-xl border bg-card p-3" open={matchFiltersActive || undefined}>
               <DisclosureSummary className="text-sm font-medium">Partite passate e rinviate · {historicalPhaseItems.length}</DisclosureSummary>
               <div className="mt-3 space-y-3">{historicalPhaseItems.map(renderPhaseMatch)}</div>
             </details>}
@@ -8000,5 +8178,6 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </>
   );
 }

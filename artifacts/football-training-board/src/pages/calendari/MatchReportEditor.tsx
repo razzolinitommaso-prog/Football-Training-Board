@@ -1,6 +1,7 @@
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
-import { analyseMatchReport, type MatchReport } from "@workspace/api-zod";
+import { matchMinutesLabel } from "@/components/calendar/MatchRotationComparison";
+import { analyseMatchReport, type MatchRotationSummary, type MatchReport } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,15 +22,24 @@ function PlayerSelect({ value, players, onChange, label, empty = "Giocatore" }: 
   </label>;
 }
 
-export function MatchReportSummary({ report, players, limit }: { report: MatchReport; players: ReportPlayer[]; limit: number | number[] }) {
+export function MatchReportSummary({ report, players, limit, rotation }: { report: MatchReport; players: ReportPlayer[]; limit: number | number[]; rotation?: MatchRotationSummary }) {
   const name = (id: number) => players.find(player => player.id === id)?.name ?? `Giocatore #${id}`;
   const analysis = analyseMatchReport(report, players.map(player => player.id), limit);
   return <div className="space-y-2 text-xs">
     <p className="font-semibold">Marcatori e minutaggio effettivo</p>
     {report.goals.length === 0 ? <p>Nessun marcatore registrato.</p> : report.goals.map(goal =>
       <p key={goal.id}>{name(goal.playerId)} · {goal.period + 1}° tempo, {goal.minute}′</p>)}
-    <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">{players.map(player =>
-      <p key={player.id}>{player.name}: {analysis.errors.length ? "da verificare" : `${analysis.minutes[player.id] ?? 0}′`} · {report.goals.filter(goal => goal.playerId === player.id).length} gol</p>)}</div>
+    {rotation ? <table className="w-full table-fixed text-left text-sm">
+      <thead className="bg-muted/50 text-xs text-muted-foreground">
+        <tr><th scope="col" className="w-1/2 break-words p-2">Giocatore</th><th scope="col" className="break-words p-2 text-right">Pianificati</th><th scope="col" className="break-words p-2 text-right">Effettivi</th></tr>
+      </thead>
+      <tbody>{rotation.rows.map(row => <tr key={row.playerId} className="border-b">
+        <th scope="row" className="break-words p-2 font-medium">{row.name}</th>
+        <td className="p-2 text-right text-muted-foreground">{matchMinutesLabel(row.plannedMinutes, true)}</td>
+        <td className="p-2 text-right font-semibold">{row.actualMinutes === null || analysis.errors.length ? "—" : matchMinutesLabel(row.actualMinutes, true)}</td>
+      </tr>)}</tbody>
+    </table> : <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">{players.map(player =>
+      <p key={player.id}>{player.name}: {analysis.errors.length ? "da verificare" : `${analysis.minutes[player.id] ?? 0}′`} · {report.goals.filter(goal => goal.playerId === player.id).length} gol</p>)}</div>}
     {report.substitutions.map(change => <p key={change.id} className="break-words">
       {change.period + 1}° tempo, {change.minute}′ · Esce {name(change.outPlayerId)}
       {change.inPlayerId ? ` → entra ${name(change.inPlayerId)}` : " · senza ingresso"}
