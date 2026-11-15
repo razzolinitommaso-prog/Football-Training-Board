@@ -10,6 +10,7 @@ export function splitPublicNotesAndPlan(raw?: string | null): { publicNotes: str
   let parsed: unknown = null;
   try {
     parsed = jsonPart ? JSON.parse(jsonPart) : null;
+    if (parsed && typeof parsed === "object" && "postMatchConfirmation" in parsed) delete parsed.postMatchConfirmation;
   } catch {
     parsed = null;
   }

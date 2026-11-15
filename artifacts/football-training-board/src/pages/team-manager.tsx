@@ -1,13 +1,13 @@
 import {upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
 import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import { AttendanceRegister } from "@/components/training/AttendanceRegister";
-import type {MatchRotationSummary} from "@workspace/api-zod";
-import {MatchRotationComparison} from "@/components/calendar/MatchRotationComparison";
+import type {MatchReport, MatchRotationSummary} from "@workspace/api-zod";
+import {MatchRotationComparison, matchMinutesLabel} from "@/components/calendar/MatchRotationComparison";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { TeamManagerPlayers } from "@/components/calendar/TeamManagerPlayers";
 import type { ManagerPlayer } from "@/lib/team-manager-player-status";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { CalendarDays, Users, ClipboardList, ChevronRight } from "lucide-react";
 import type { ManagerTrainingCalendar } from "@/lib/team-manager-training-calendar";
@@ -15,15 +15,48 @@ import { TeamManagerComparison } from "@/components/calendar/TeamManagerComparis
 import { TeamManagerCalendar } from "@/components/calendar/TeamManagerCalendar";
 import { useAuth } from "@/hooks/use-auth";
 import { withApi } from "@/lib/api-base";
+import { Button } from "@/components/ui/button";
 
 type Player = ManagerPlayer & { teamName?: string };
 type Team = {id:number;name:string;category:string|null;clubSection:string};
-type Match = {preparationStatus?:"empty"|"partial"|"complete";rotation?:MatchRotationSummary;id:number;opponent:string;date:string;location:string|null;competition:string|null;homeAway:string;result:string|null;convocationAt:string|null;convocationPlace:string|null;isPostponed:boolean;rescheduleDate:string|null;rescheduleTbd:boolean;callups:Pick<Player,"id"|"firstName"|"lastName">[]};
+type Match = {preparationStatus?:"empty"|"partial"|"complete";rotation?:MatchRotationSummary;report?:MatchReport;id:number;opponent:string;date:string;location:string|null;competition:string|null;homeAway:string;result:string|null;convocationAt:string|null;convocationPlace:string|null;isPostponed:boolean;rescheduleDate:string|null;rescheduleTbd:boolean;callups:Pick<Player,"id"|"firstName"|"lastName">[]};
 type Training = {id:number;title:string;scheduledAt:string;location:string|null;durationMinutes:number|null;status:string};
 type Overview = {teams:Team[];selectedTeamId:number|null;players:Player[];rosterTeams?:{ id:number; name:string }[];matches:Match[];training:Training[];trainingCalendar?:ManagerTrainingCalendar|null};
 const when = (value:string|null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("it-IT",{weekday:"short",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}) : "Da definire";
 const matchDate = (match:Match) => match.isPostponed ? match.rescheduleTbd ? null : match.rescheduleDate : match.date;
 const paths = [{path:"presenze",label:"Presenze",Icon:ClipboardList},{path:"calendario",label:"Calendario",Icon:CalendarDays},{path:"convocazioni",label:"Convocazioni",Icon:ClipboardList},{path:"squadra",label:"Squadra",Icon:Users}];
+function ReportConfirmation({ match, onConfirmed }: { match: Match; onConfirmed: () => void }) {
+  const confirmation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(withApi(`/api/matches/${match.id}/report-confirmation`), {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ report: match.report }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.error ?? "Impossibile confermare il resoconto.");
+      }
+    },
+    onSuccess: onConfirmed,
+  });
+  const date = matchDate(match);
+  if (!date || Date.parse(date) >= Date.now() || match.rotation?.reportConfirmed) return null;
+  if (!match.report || !match.rotation?.hasReport) return <p>In attesa del resoconto dello staff.</p>;
+  if (Date.parse(date) + match.report.periods.reduce((sum, period) => sum + period.minutes, 0) * 60_000 > Date.now()) return null;
+  const name = (id: number) => {
+    const player = match.callups.find(item => item.id === id);
+    return player ? `${player.lastName} ${player.firstName}` : `Giocatore ${id}`;
+  };
+  return <div className="space-y-2 rounded-lg border p-3">
+    <p>Verifica i minutaggi e i cambi registrati prima di confermare.</p>
+    <ul className="space-y-1 text-muted-foreground">
+      {match.report.periods.map((period, index) => <li key={index}>{index + 1}° tempo · Titolari: {period.starters.map(name).join(", ")}</li>)}
+      {match.report.substitutions.map(change => <li key={change.id}>{change.period + 1}° tempo · {matchMinutesLabel(change.minute, true)} · Esce {name(change.outPlayerId)}{change.inPlayerId !== null && ` · Entra ${name(change.inPlayerId)}`}</li>)}
+    </ul>
+    <Button type="button" disabled={confirmation.isPending} onClick={() => confirmation.mutate()}>Conferma resoconto</Button>
+    {confirmation.error && <p role="alert" className="text-destructive">{confirmation.error.message}</p>}
+  </div>;
+}
 export default function TeamManagerArea() {
   const {club,user,section} = useAuth();
   const [location,setLocation] = useLocation(); const search=useSearch(); const params=new URLSearchParams(search);
@@ -39,6 +72,6 @@ export default function TeamManagerArea() {
     <div><h1 className="text-2xl font-bold">Area Dirigenti</h1><p className="mt-1 text-sm text-muted-foreground">{club?.name} · Dirigente accompagnatore</p></div>
     {Boolean(data?.teams.length)&&<label className="block space-y-2 text-sm font-medium">Squadra<ScrollableSelect aria-label="Squadra assegnata" value={data?.selectedTeamId??""} onValueChange={event=>{const next=new URLSearchParams(search);next.set("teamId",event);setLocation(`${location}?${next}`);}} className="block min-h-11 w-full rounded-xl border bg-background px-3">{data?.teams.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</ScrollableSelect></label>}
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">{paths.map(({path,label,Icon})=><Link key={path} href={href(path)} aria-current={view===path?"page":undefined} className={`flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border bg-card p-2 text-center text-xs shadow-sm sm:text-sm ${view===path?"border-primary bg-primary/5":""}`}><Icon className="h-6 w-6 text-primary"/>{label}</Link>)}</div>
-    {!data?.teams.length && view!=="calendario"?<div className="rounded-2xl border bg-card p-5 text-sm text-muted-foreground">Nessuna squadra assegnata in questa sezione. Chiedi alla società di associarti alla squadra dalla sezione Membri.</div>:!view?<div className="rounded-2xl border bg-card p-5"><h2 className="font-semibold">{team?.name}</h2><p className="mt-2 text-sm text-muted-foreground">Consulta gli appuntamenti, i ritrovi e le convocazioni predisposte dallo staff.</p><Link href={href("calendario")} className="mt-4 flex items-center gap-2 text-sm font-medium text-primary">Apri calendario<ChevronRight className="h-4 w-4"/></Link></div>:view==="presenze"?<AttendanceRegister lockTeam key={data.selectedTeamId} initialTeamId={String(data.selectedTeamId)} />:view==="calendario"?<TeamManagerCalendar key={data.selectedTeamId} events={events} training={data.training} trainingCalendar={data.trainingCalendar}/>:view==="convocazioni"?<section className="space-y-3"><h2 className="text-lg font-semibold">Convocazioni</h2>{upcomingFirst(data.matches.filter(match=>match.callups.length>0)).map((match,index)=><article key={match.id} className="compact-match-card border bg-card"><CompactMatchHeading preparationStatus={match.preparationStatus} nextMatch={index===0&&isUpcomingMatch(match)} date={matchDate(match)} home={match.homeAway==="home"?team?.name:match.opponent} away={match.homeAway==="home"?match.opponent:team?.name} result={match.result} metadata={<><span className="match-location-tag rounded border">{match.homeAway==="home"?"Casa":"Trasferta"}</span>{match.competition&&<span>{match.competition}</span>}{match.isPostponed&&<span className="text-amber-700">Rinviata</span>}{match.location&&<span>{match.location}</span>}</>} indicators={<span>{match.callups.length} convocati</span>}/><CompactMatchDetails label="Convocazione, ritrovo e minutaggi"><div className="space-y-3 border-t p-4 text-sm"><p>Campo: {match.location||"Da definire"}</p><p>Ritrovo: {when(match.convocationAt)}</p><p className="break-words">Luogo convocazione: {match.convocationPlace||"Da definire"}</p><ul className="divide-y rounded-xl border px-3">{match.callups.map(player=><li key={player.id} className="py-2">{player.lastName} {player.firstName}</li>)}</ul>{match.rotation&&<MatchRotationComparison summary={match.rotation}/>}<TeamManagerComparison teamId={data.selectedTeamId!} matchId={match.id} date={matchDate(match)}/></div></CompactMatchDetails></article>)}{!data.matches.some(match=>match.callups.length>0)&&<p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">Nessuna convocazione disponibile.</p>}</section>:<section className="space-y-3"><h2 className="text-lg font-semibold">{team?.name}</h2><p className="text-sm text-muted-foreground">{data.rosterTeams && data.rosterTeams.length > 1 ? "Rosa congiunta · " + data.rosterTeams.map(item => item.name).join(" e ") : "Rosa principale"} · {data.players.length} giocatori</p><TeamManagerPlayers key={data.selectedTeamId} players={data.players}/></section>}
+    {!data?.teams.length && view!=="calendario"?<div className="rounded-2xl border bg-card p-5 text-sm text-muted-foreground">Nessuna squadra assegnata in questa sezione. Chiedi alla società di associarti alla squadra dalla sezione Membri.</div>:!view?<div className="rounded-2xl border bg-card p-5"><h2 className="font-semibold">{team?.name}</h2><p className="mt-2 text-sm text-muted-foreground">Consulta gli appuntamenti, i ritrovi e le convocazioni predisposte dallo staff.</p><Link href={href("calendario")} className="mt-4 flex items-center gap-2 text-sm font-medium text-primary">Apri calendario<ChevronRight className="h-4 w-4"/></Link></div>:view==="presenze"?<AttendanceRegister lockTeam key={data.selectedTeamId} initialTeamId={String(data.selectedTeamId)} />:view==="calendario"?<TeamManagerCalendar key={data.selectedTeamId} events={events} training={data.training} trainingCalendar={data.trainingCalendar}/>:view==="convocazioni"?<section className="space-y-3"><h2 className="text-lg font-semibold">Convocazioni</h2>{upcomingFirst(data.matches.filter(match=>match.callups.length>0)).map((match,index)=><article key={match.id} className="compact-match-card border bg-card"><CompactMatchHeading preparationStatus={match.preparationStatus} nextMatch={index===0&&isUpcomingMatch(match)} date={matchDate(match)} home={match.homeAway==="home"?team?.name:match.opponent} away={match.homeAway==="home"?match.opponent:team?.name} result={match.result} metadata={<><span className="match-location-tag rounded border">{match.homeAway==="home"?"Casa":"Trasferta"}</span>{match.competition&&<span>{match.competition}</span>}{match.isPostponed&&<span className="text-amber-700">Rinviata</span>}{match.location&&<span>{match.location}</span>}</>} indicators={<span>{match.callups.length} convocati</span>}/><CompactMatchDetails label="Convocazione, ritrovo e minutaggi"><div className="space-y-3 border-t p-4 text-sm"><p>Campo: {match.location||"Da definire"}</p><p>Ritrovo: {when(match.convocationAt)}</p><p className="break-words">Luogo convocazione: {match.convocationPlace||"Da definire"}</p><ul className="divide-y rounded-xl border px-3">{match.callups.map(player=><li key={player.id} className="py-2">{player.lastName} {player.firstName}</li>)}</ul>{match.rotation&&<MatchRotationComparison summary={match.rotation}/>}<ReportConfirmation match={match} onConfirmed={() => void refetch()}/><TeamManagerComparison teamId={data.selectedTeamId!} matchId={match.id} date={matchDate(match)}/></div></CompactMatchDetails></article>)}{!data.matches.some(match=>match.callups.length>0)&&<p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">Nessuna convocazione disponibile.</p>}</section>:<section className="space-y-3"><h2 className="text-lg font-semibold">{team?.name}</h2><p className="text-sm text-muted-foreground">{data.rosterTeams && data.rosterTeams.length > 1 ? "Rosa congiunta · " + data.rosterTeams.map(item => item.name).join(" e ") : "Rosa principale"} · {data.players.length} giocatori</p><TeamManagerPlayers key={data.selectedTeamId} players={data.players}/></section>}
   </div>;
 }

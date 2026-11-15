@@ -1,4 +1,4 @@
-import {buildMatchRotationSummary,defaultRotationCapacity,matchPreparationStatus,trainingLocalDate} from "@workspace/api-zod";
+import {buildMatchRotationSummary,defaultRotationCapacity,matchPreparationStatus,matchReportSchema,trainingLocalDate} from "@workspace/api-zod";
 import { activeTrainingGroup } from "../lib/joint-training-program";
 import { sessionTeamScope } from "../lib/session-team-scope";
 import { Router } from "express";
@@ -64,18 +64,20 @@ router.get("/dirigenti/overview", requireAuth, async (req, res): Promise<void> =
   };
   const callups = matchRows.length ? await db.select({ matchId:callUpsTable.matchId, id:playersTable.id, firstName:playersTable.firstName, lastName:playersTable.lastName, status:callUpsTable.status }).from(callUpsTable).innerJoin(playersTable,and(eq(playersTable.id,callUpsTable.playerId),eq(playersTable.clubId,clubId))).where(inArray(callUpsTable.matchId,matchRows.map(match=>match.id))).orderBy(asc(playersTable.lastName)) : [];
   const coachCallups = callups.filter(callup=>!["available","unavailable","availability","absent","declined","not_called"].includes(callup.status.toLowerCase()));
+  const uniqueCallups = [...new Map(coachCallups.map(row => [`${row.matchId}:${row.id}`, row])).values()];
   const comparisonId = req.query.comparisonMatchId;
   let comparison;
   if (comparisonId !== undefined) {
     const match = matchRows.find(item=>item.id===Number(comparisonId));
     if (!match || !Number.isInteger(Number(comparisonId))) { res.status(403).json({error:"Partita non disponibile per questa squadra"}); return; }
     const date = match.isPostponed ? match.rescheduleTbd ? null : match.rescheduleDate : match.date;
-    comparison = await managerMatchComparison(clubId,selectedTeamId,date,coachCallups.filter(callup=>callup.matchId===match.id).map(callup=>callup.id));
+    comparison = await managerMatchComparison(clubId,selectedTeamId,date,uniqueCallups.filter(callup=>callup.matchId===match.id).map(callup=>callup.id));
   }
   const matches = matchRows.map(({ matchPlan: savedPlan, notes, ...match }) => {
     const legacy = splitPublicNotesAndPlan(notes).plan;
     const matchPlan = savedPlan ?? (legacy && typeof legacy === "object" && !Array.isArray(legacy) ? legacy as Record<string, unknown> : null);
-    return {...match, preparationStatus:matchPreparationStatus(matchPlan,defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), rotation:buildMatchRotationSummary(matchPlan,coachCallups.filter(callup=>callup.matchId===match.id).map(callup=>({...callup,jerseyNumber:players.find(p=>p.id===callup.id)?.jerseyNumber})),defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), convocationAt:typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null, convocationPlace:typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null, callups:coachCallups.filter(callup=>callup.matchId===match.id).map(({status,...callup})=>callup)};
+    const report = matchReportSchema.safeParse(matchPlan?.postMatchReport);
+    return {...match, ...(report.success ? { report: report.data } : {}), preparationStatus:matchPreparationStatus(matchPlan,defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), rotation:buildMatchRotationSummary(matchPlan,uniqueCallups.filter(callup=>callup.matchId===match.id).map(callup=>({...callup,jerseyNumber:players.find(p=>p.id===callup.id)?.jerseyNumber})),defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), convocationAt:typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null, convocationPlace:typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null, callups:uniqueCallups.filter(callup=>callup.matchId===match.id).map(({status,...callup})=>callup)};
   });
   res.json({ teams, selectedTeamId, players, rosterTeams, training, matches, trainingCalendar, ...(comparison ? {comparison} : {}) });
 });

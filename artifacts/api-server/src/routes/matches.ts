@@ -4,6 +4,7 @@ import {
   matchesTable,
   callUpsTable,
   clubsTable,
+  clubMembershipsTable,
   playersTable,
   teamsTable,
   teamStaffAssignmentsTable,
@@ -15,7 +16,7 @@ import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-sc
 import { composeNotesWithPlan, splitPublicNotesAndPlan } from "../lib/match-plan-notes";
 import { requireAuth } from "../lib/auth";
 import { sendParentNotificationEmail } from "../lib/parent-email";
-import { analyseMatchReport, matchReportSchema } from "@workspace/api-zod";
+import { analyseMatchReport, defaultRotationCapacity, matchReportSchema, rotationSummaryCapacity } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -270,10 +271,19 @@ function normalizeMatchPlan(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function preserveMatchReport(next: Record<string, unknown> | null, previous: unknown) {
+function preserveMatchReport(next: Record<string, unknown> | null, previous: unknown, confirmation?: unknown) {
   const old = normalizeMatchPlan(previous);
   if (next && next.postMatchReport === undefined && old?.postMatchReport !== undefined) {
     next.postMatchReport = old.postMatchReport;
+  }
+  if (next) {
+    delete next.postMatchConfirmation;
+    const before = matchReportSchema.safeParse(old?.postMatchReport);
+    const after = matchReportSchema.safeParse(next.postMatchReport);
+    if (confirmation && before.success && after.success &&
+        JSON.stringify(before.data) === JSON.stringify(after.data)) {
+      next.postMatchConfirmation = confirmation;
+    }
   }
   if (next && next.matchGoalkeeperId === undefined && old?.matchGoalkeeperId !== undefined) {
     next.matchGoalkeeperId = old.matchGoalkeeperId;
@@ -656,7 +666,7 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   if (postMatchNotes !== undefined) updates.postMatchNotes = postMatchNotes;
   if (matchPlan !== undefined) {
     const parsed = splitPublicNotesAndPlan(existing.notes ?? null);
-    const nextPlan = preserveMatchReport(normalizeMatchPlan(matchPlan), existing.matchPlan ?? parsed.plan);
+    const nextPlan = preserveMatchReport(normalizeMatchPlan(matchPlan), existing.matchPlan ?? parsed.plan, existing.matchPlan?.postMatchConfirmation);
     if (!nextPlan && normalizeMatchPlan(existing.matchPlan ?? parsed.plan)?.postMatchReport !== undefined) {
       res.status(400).json({ error: "Non puoi cancellare un piano con un resoconto post-partita." }); return;
     }
@@ -686,10 +696,69 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   }
 
   const [match] = await db.update(matchesTable).set(updates)
-    .where(and(eq(matchesTable.id, id), eq(matchesTable.clubId, clubId))).returning();
+    .where(and(eq(matchesTable.id, id), eq(matchesTable.clubId, clubId),
+      ...(matchPlan === undefined ? [] : [sql`${matchesTable.matchPlan} IS NOT DISTINCT FROM ${existing.matchPlan ? JSON.stringify(existing.matchPlan) : null}::jsonb`]))).returning();
+  if (!match && matchPlan !== undefined) { res.status(409).json({ error: "Il piano è cambiato. Ricarica la partita prima di salvare." }); return; }
   if (!match) { res.status(404).json({ error: "Match not found" }); return; }
   const enriched = await enrichMatch(match);
   res.json(enriched);
+});
+
+router.post("/matches/:id/report-confirmation", requireAuth, async (req, res): Promise<void> => {
+  const { role, userId, clubId, section } = req.session;
+  const id = parseRouteIdParam(req.params.id);
+  if (role !== "team_manager" || !userId || !clubId) {
+    res.status(403).json({ error: "Solo il dirigente assegnato può confermare il resoconto." });
+    return;
+  }
+  if (!id) { res.status(400).json({ error: "Partita non valida." }); return; }
+  const outcome = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('match-callups'), ${id})`);
+    const [entry] = await tx.select({ match: matchesTable, team: teamsTable, sections: clubMembershipsTable.clubSection })
+      .from(matchesTable)
+      .innerJoin(teamsTable, and(eq(teamsTable.id, matchesTable.teamId), eq(teamsTable.clubId, clubId)))
+      .innerJoin(teamStaffAssignmentsTable, and(eq(teamStaffAssignmentsTable.teamId, teamsTable.id),
+        eq(teamStaffAssignmentsTable.clubId, clubId), eq(teamStaffAssignmentsTable.userId, userId)))
+      .innerJoin(clubMembershipsTable, and(eq(clubMembershipsTable.clubId, clubId),
+        eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.role, "team_manager")))
+      .where(and(eq(matchesTable.id, id), eq(matchesTable.clubId, clubId))).limit(1);
+    if (!entry || (section && section.replace(/-/g, "_") !== entry.team.clubSection) ||
+        !entry.sections.some(allowed => allowed.replace(/-/g, "_") === entry.team.clubSection)) {
+      return { status: 403, error: "Squadra non assegnata." };
+    }
+    const { match, team } = entry;
+    const date = match.isPostponed ? (match.rescheduleTbd ? null : match.rescheduleDate) : match.date;
+    if (!date || date.getTime() >= Date.now()) {
+      return { status: 400, error: "Il resoconto si conferma a partita conclusa." };
+    }
+    const plan = normalizeMatchPlan(match.matchPlan ?? splitPublicNotesAndPlan(match.notes ?? null).plan);
+    if (!plan?.postMatchReport) return { status: 400, error: "Salva prima il resoconto con schieramenti e cambi effettivi." };
+    const called = uniqueCoachCallups(await tx.select().from(callUpsTable).where(eq(callUpsTable.matchId, id)));
+    const error = validateMatchReport(plan, called.map(row => row.playerId));
+    if (error) return { status: 400, error };
+    const report = matchReportSchema.parse(plan.postMatchReport);
+    const endsAt = date.getTime() + report.periods.reduce((sum, period) => sum + period.minutes, 0) * 60_000;
+    if (endsAt > Date.now()) return { status: 400, error: "Il resoconto si conferma a partita conclusa." };
+    const expected = matchReportSchema.safeParse(req.body?.report);
+    if (!expected.success || JSON.stringify(expected.data) !== JSON.stringify(report)) {
+      return { status: 409, error: "Il resoconto è cambiato. Ricarica la gara e verifica i nuovi dati." };
+    }
+    const periods = (plan.periods as Record<string, unknown>[]);
+    const fallback = defaultRotationCapacity(team.name, team.category, team.clubSection);
+    const analysis = analyseMatchReport(report, called.map(row => row.playerId),
+      periods.map(period => rotationSummaryCapacity(period, fallback)));
+    if (analysis.errors.length || report.periods.some(period => !period.starters.length)) {
+      return { status: 400, error: analysis.errors[0] ?? "Indica lo schieramento effettivo di ogni tempo." };
+    }
+    if (normalizeMatchPlan(match.matchPlan?.postMatchConfirmation)?.confirmedAt) return { status: 200 };
+    const [updated] = await tx.update(matchesTable)
+      .set({ matchPlan: { ...plan, postMatchConfirmation: { confirmedAt: new Date().toISOString(), confirmedBy: userId } } })
+      .where(and(eq(matchesTable.id, id), eq(matchesTable.clubId, clubId),
+        sql`${matchesTable.matchPlan} IS NOT DISTINCT FROM ${match.matchPlan ? JSON.stringify(match.matchPlan) : null}::jsonb`))
+      .returning({ id: matchesTable.id });
+    return updated ? { status: 200 } : { status: 409, error: "Il resoconto è cambiato. Ricarica la gara e verifica i nuovi dati." };
+  });
+  res.status(outcome.status).json(outcome.error ? { error: outcome.error } : { confirmed: true });
 });
 
 router.delete("/matches/:id", requireAuth, async (req, res): Promise<void> => {
@@ -914,7 +983,7 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
     return;
   }
 
-  preserveMatchReport(matchPlan, existingMatch.matchPlan ?? splitPublicNotesAndPlan(existingMatch.notes ?? null).plan);
+  preserveMatchReport(matchPlan, existingMatch.matchPlan ?? splitPublicNotesAndPlan(existingMatch.notes ?? null).plan, existingMatch.matchPlan?.postMatchConfirmation);
   const reportError = validateMatchReport(matchPlan, desiredPlayerIds);
   if (reportError) { res.status(400).json({ error: reportError }); return; }
 
@@ -946,23 +1015,20 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
   }
 
   await ensureParentAvailabilityColumns();
-  await db.transaction(async (tx) => {
+  const saved = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('match-callups'), ${matchId})`);
+    const parsed = splitPublicNotesAndPlan(existingMatch.notes ?? null);
+    const [updated] = await tx.update(matchesTable).set({ notes: parsed.publicNotes, matchPlan })
+      .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId),
+        sql`${matchesTable.matchPlan} IS NOT DISTINCT FROM ${existingMatch.matchPlan ? JSON.stringify(existingMatch.matchPlan) : null}::jsonb`))
+      .returning({ id: matchesTable.id });
+    if (!updated) return false;
     // Deselecting a called player must retain the parent's separate reply.
     await tx.execute(sql`
       UPDATE call_ups SET status = 'availability'
       WHERE match_id = ${matchId} AND parent_availability_status IS NOT NULL
         ${desiredPlayerIds.length ? sql`AND player_id NOT IN (${sql.join(desiredPlayerIds.map(id => sql`${id}`), sql`, `)})` : sql``}
     `);
-    const parsed = splitPublicNotesAndPlan(existingMatch.notes ?? null);
-    await tx
-      .update(matchesTable)
-      .set({
-        notes: parsed.publicNotes,
-        matchPlan,
-      })
-      .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId)));
-
     if (desiredPlayerIds.length === 0) {
       await tx
         .delete(callUpsTable)
@@ -970,7 +1036,7 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
           eq(callUpsTable.matchId, matchId),
           sql`lower(${callUpsTable.status}) NOT IN ('unavailable', 'availability')`,
         ));
-      return;
+      return true;
     }
 
     await tx
@@ -1001,7 +1067,9 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
     if (toInsert.length > 0) {
       await tx.insert(callUpsTable).values(toInsert);
     }
+    return true;
   });
+  if (!saved) { res.status(409).json({ error: "Il piano è cambiato. Ricarica la partita prima di salvare." }); return; }
 
   const [updatedMatch] = await db
     .select()

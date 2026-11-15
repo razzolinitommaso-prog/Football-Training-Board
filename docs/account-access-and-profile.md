@@ -13,3 +13,11 @@ La pagina pubblica della società offre un accesso diretto per genitori e uno pe
 ## Profilo
 
 Dal proprio avatar si raggiungono i dati personali, il cambio password, le sessioni registrate sul server e le preferenze di tema e caratteri sul dispositivo. Per i genitori c’è un collegamento ai pagamenti dei figli abilitati. I movimenti amministrativi della società restano nell’area autorizzata. Le password degli accessi a codice esistenti si gestiscono dal collegamento alla chiave personale.
+
+## Anteprima del menu per ruolo
+
+Amministratore e Presidente possono aprire **Visualizza come** dall’avatar,
+scegliere un ruolo e una squadra e consultare un’anteprima delle voci di
+navigazione in sola lettura. Il ruolo e la sessione restano quelli originali.
+Per verificare il contenuto di una schermata o provare un salvataggio con un
+altro profilo si usa un account di test creato da **Membri**.

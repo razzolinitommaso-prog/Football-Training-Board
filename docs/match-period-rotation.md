@@ -55,3 +55,17 @@ Il portiere è una scelta della formazione: si può assegnare in scheda o dalla 
 La durata si imposta sopra la tabella dei titolari. Il selettore propone frazioni uguali e ripartisce gli eventuali secondi residui. Con due frazioni resta disponibile la durata personalizzata della prima. Tabella, schieramenti, lavagna e minuti previsti usano la stessa sequenza. Per piani con molte frazioni, il confronto mostra gruppi di colonne e mantiene visibili i totali dell'intera partita.
 
 Ridurre il numero di frazioni conserva le formazioni escluse per un eventuale ripristino. La precompilazione di un nuovo resoconto usa i minuti cumulativi dei cambi e rispetta il limite del resoconto esistente. I resoconti già salvati restano distinti dalla pianificazione.
+
+## Obiettivo equo e verifica post-partita
+
+L’obiettivo indicativo divide i minuti-giocatore disponibili per i convocati e
+rispetta il limite della durata totale della partita. I minuti pianificati
+sommano le frazioni assegnate allo schieramento di ciascun convocato. Il
+riepilogo evidenzia i minuti-giocatore scoperti nel piano e nel resoconto.
+
+Quando lo staff apre il resoconto dopo la gara, gli schieramenti salvati
+precompilano una bozza, che lo staff può correggere con i cambi reali. Il
+dirigente assegnato alla squadra verifica titolari, cambi e minutaggi in
+**Dirigenti → Convocazioni → Convocazione, ritrovo e minutaggi** e conferma il
+resoconto dopo la conclusione della gara. Modificare il resoconto richiede
+una nuova conferma. I resoconti storici sono inizialmente provvisori.

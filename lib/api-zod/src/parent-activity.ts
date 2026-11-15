@@ -34,7 +34,7 @@ export function parentTrainingOccurrence(teamId: number, at: Date): string {
 export function parentPlayedMinutes(plan: unknown, ownPlayerId: number): number | null {
   const source = plan && typeof plan === "object" ? plan as { postMatchReport?: unknown } : null;
   const parsed = matchReportSchema.safeParse(source?.postMatchReport);
-  if (!parsed.success) return null;
+  if (!parsed.success || parsed.data.periods.some(period => !period.starters.length)) return null;
   const report = parsed.data;
   const ids = new Set([ownPlayerId, ...report.periods.flatMap(period => period.starters), ...report.goals.map(goal => goal.playerId),
     ...report.substitutions.flatMap(change => change.inPlayerId === null ? [change.outPlayerId] : [change.outPlayerId, change.inPlayerId])]);

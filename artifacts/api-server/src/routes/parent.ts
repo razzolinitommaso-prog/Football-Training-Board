@@ -654,7 +654,7 @@ router.get("/parent/activity", requireParentSession, async (req, res): Promise<v
     playerName: `${player.firstName} ${player.lastName}`,
     trainings: [...history.values()].sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt)),
     matches: uniqueMatches.map(match => ({ id: match.id, date: match.date.toISOString(), opponent: match.opponent,
-      minutes: parentPlayedMinutes(match.plan, playerId), rotation:buildMatchRotationSummary(match.plan,[{id:playerId,firstName:player.firstName,lastName:player.lastName}],defaultRotationCapacity(match.teamName,match.teamCategory,match.section)) })),
+      minutes: parentPlayedMinutes(match.plan, playerId), rotation:buildMatchRotationSummary(match.plan,[{id:playerId,firstName:player.firstName,lastName:player.lastName}],defaultRotationCapacity(match.teamName,match.teamCategory,match.section),false) })),
   };
   res.json(response);
 });

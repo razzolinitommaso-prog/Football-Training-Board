@@ -269,11 +269,14 @@ export function MatchRotationComparison({
                 aria-label="Riepilogo minutaggio previsto"
               >
                 <span>
-                  Minuti previsti:{" "}
+                  Minuti pianificati:{" "}
                   <strong>
                     {minimum === maximum ? matchMinutesLabel(minimum, true) : `${matchMinutesLabel(minimum, true)}–${matchMinutesLabel(maximum, true)}`}
                   </strong>
                 </span>
+                {summary.equitableMinutes != null && <span>Obiettivo equo: <strong>{matchMinutesLabel(summary.equitableMinutes, true)}</strong> a testa</span>}
+                {(summary.unassignedActualMinutes ?? 0) >= 1 / 60 && <span className="text-amber-700 dark:text-amber-300">Minuti-giocatore scoperti nel resoconto: <strong>{matchMinutesLabel(summary.unassignedActualMinutes!, true)}</strong></span>}
+                {(summary.unassignedMinutes ?? 0) >= 1 / 60 && <span className="text-amber-700 dark:text-amber-300">Minuti-giocatore scoperti: <strong>{matchMinutesLabel(summary.unassignedMinutes!, true)}</strong></span>}
                 {values.length > 1 && (
                   <span>
                     Differenza: <strong>{number(maximum - minimum)}′</strong>
@@ -398,6 +401,7 @@ export function MatchRotationComparison({
               T = titolare · P = panchina · — = non assegnato. Le lettere indicano
               le frazioni di ogni tempo. I minuti effettivi provengono dal resoconto.
             </p>
+            {summary.hasReport && <p className="mt-2 text-xs text-muted-foreground">{summary.reportConfirmed ? "Effettivi confermati dal dirigente." : "Effettivi provvisori · In attesa della verifica del dirigente."}</p>}
             {!summary.hasReport && (
               <p className="mt-1 text-xs text-muted-foreground">
                 Minuti effettivi non registrati: i dati mancanti non valgono

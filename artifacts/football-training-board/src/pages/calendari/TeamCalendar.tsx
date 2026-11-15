@@ -2092,7 +2092,18 @@ function MatchCard({
     setPostAttachments(parsed.attachments);
     setPostOwnGoalsValue(match.homeAway === "home" ? parsedResult.home : parsedResult.away);
     setPostOpponentGoalsValue(match.homeAway === "home" ? parsedResult.away : parsedResult.home);
-    setPostReportDraft(savedReport.success ? savedReport.data : null);
+    let draft = savedReport.success ? savedReport.data : null;
+    const playedAt = match.isPostponed ? (!match.rescheduleTbd && match.rescheduleDate ? new Date(match.rescheduleDate) : null) : matchDate;
+    if (!draft && canManageMatchPlan && playedAt && playedAt < new Date() && reportPlayers.length) {
+      try {
+        const called = new Set(reportPlayers.map(player => player.id));
+        const seeded = seedMatchReport(planDraft.periods, called, period => startersLimitForPeriod(period, matchFormat));
+        if (seeded.periods.every(period => period.starters.length > 0)) draft = seeded;
+      } catch {
+        // Incomplete lineups can still be entered manually in the report.
+      }
+    }
+    setPostReportDraft(draft);
     setPostMenuOpen(true);
   }
 

@@ -37,6 +37,10 @@ export type MatchRotationSummary = {
   units: RotationSummaryUnit[];
   rows: RotationSummaryRow[];
   hasReport: boolean;
+  reportConfirmed: boolean;
+  equitableMinutes: number | null;
+  unassignedMinutes: number | null;
+  unassignedActualMinutes: number | null;
 };
 const record = (v: unknown): Record<string, any> =>
   v && typeof v === "object" && !Array.isArray(v)
@@ -164,6 +168,7 @@ export function buildMatchRotationSummary(
   value: unknown,
   players: RotationSummaryPlayer[],
   fallback = 11,
+  fullRoster = true,
 ): MatchRotationSummary {
   const plan = record(value),
     periods = (Array.isArray(plan.periods) ? plan.periods : []).map(record),
@@ -200,12 +205,10 @@ export function buildMatchRotationSummary(
           ...(e.inPlayerId === null ? [] : [e.inPlayerId]),
         ]),
       ]);
-    if (!analyseMatchReport(data, [...ids]).errors.length) report = data;
+    if (data.periods.every(period => period.starters.length > 0) &&
+        !analyseMatchReport(data, [...ids], periods.map(period => rotationSummaryCapacity(period, fallback))).errors.length) report = data;
   }
-  return {
-    units,
-    hasReport: !!report,
-    rows: players.map((player) => {
+  const rows = players.map((player) => {
       let plannedMinutes = 0,
         plannedPeriods = 0;
       const cells = units.map((unit, i) => {
@@ -269,7 +272,20 @@ export function buildMatchRotationSummary(
           ? cells.reduce((sum, c) => sum + (c.actualMinutes ?? 0), 0)
           : null,
       };
-    }),
+  });
+  const totalMinutes = units.reduce((sum, unit) => sum + unit.minutes, 0);
+  const capacityMinutes = units.reduce((sum, unit, index) =>
+    sum + unit.minutes * rotationSummaryCapacity(sources[index], fallback), 0);
+  return {
+    units, rows, hasReport: !!report,
+    reportConfirmed: !!report && typeof plan.postMatchConfirmation?.confirmedAt === "string",
+    equitableMinutes: fullRoster && players.length && units.length
+      ? Math.min(totalMinutes, capacityMinutes / players.length) : null,
+    unassignedActualMinutes: fullRoster && report ? Math.max(0,
+      report.periods.reduce((sum, period, index) => sum + period.minutes * rotationSummaryCapacity(periods[index], fallback), 0) -
+      rows.reduce((sum, row) => sum + (row.actualMinutes ?? 0), 0)) : null,
+    unassignedMinutes: fullRoster && units.length
+      ? Math.max(0, capacityMinutes - rows.reduce((sum, row) => sum + row.plannedMinutes, 0)) : null,
   };
 }
 /** Public preparation state only; does not expose formations, attendance or peer minutes. */

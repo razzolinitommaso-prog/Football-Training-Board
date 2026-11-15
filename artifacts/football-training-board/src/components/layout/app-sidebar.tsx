@@ -1,9 +1,9 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { feeListRoles } from "@/lib/fee-list";
 import { paymentViewRoles } from "@/lib/payment-summary";
-import { useGetMyClub } from "@workspace/api-client-react";
+import { getListTeamsQueryKey, useGetMyClub, useListTeams } from "@workspace/api-client-react";
 import {
   LayoutDashboard,
   User,
@@ -52,6 +52,7 @@ import {
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useLanguage } from "@/lib/i18n";
@@ -119,7 +120,14 @@ const TECHNICAL_DIRECTOR_EXTRA: { label: string; url: string; icon: typeof Users
   { label: "Stagioni", url: "/seasons", icon: Layers },
 ];
 
-export function AppSidebar() {
+export function AppSidebar({ rolePreview, onRolePreviewChange, roleLabels }: {
+  rolePreview: boolean;
+  onRolePreviewChange: (open: boolean) => void;
+  roleLabels: Record<string, string>;
+}) {
+  const [previewRole, setPreviewRole] = useState("team_manager");
+  const [previewTeamId, setPreviewTeamId] = useState("");
+  const { data: previewTeams = [] } = useListTeams({ query: { queryKey: getListTeamsQueryKey(), enabled: rolePreview } });
   const workScope = useTechnicalScope();
   const [location] = useLocation();
   const search = useSearch();
@@ -331,7 +339,42 @@ export function AppSidebar() {
   const bottomMainItems = mainNav.filter(i => !topMainUrls.includes(i.url) && i.url !== "/dashboard");
   const unifiedItems = [...staffNavigation(role ?? ""), ...mainNav.filter(item=>!["/dashboard","/training","/training?view=guidelines","/training/convocazioni","/exercises"].includes(item.url)).map(item=>({label:item.label??(item.titleKey?t[item.titleKey] as string:""),url:item.url,icon:item.icon}))];
 
-  return (
+  const previewTeam = previewTeams.find(team => String(team.id) === previewTeamId);
+  const previewSection = previewTeam?.clubSection?.replace(/_/g, "-");
+  const previewItems = Array.from(new Set([
+    ...staffNavigation(previewRole).map(item => item.label),
+    ...navigation.filter(item => item.roles.includes(previewRole) && !["/dashboard", "/training", "/training/convocazioni", "/exercises"].includes(item.url))
+      .map(item => item.label ?? (item.titleKey ? String(t[item.titleKey]) : "")),
+    ...(previewRole === "technical_director" ? TECHNICAL_DIRECTOR_EXTRA.map(item => item.label) : []),
+    ...(previewSection && SEZIONE_ROLES.includes(previewRole) ? SEZIONE_SUB_ITEMS.filter(item => item.roles.includes(previewRole) &&
+      !(previewSection === "settore-giovanile" && item.url === "matches") &&
+      !(previewRole === "presidente" && ["training", "exercises"].includes(item.url)) &&
+      !(previewRole === "secretary" && ["teams", "matches", "attendance"].includes(item.url))).map(item => item.label) : []),
+  ])).filter(Boolean);
+  return (<>
+    {rolePreview && <Dialog open onOpenChange={onRolePreviewChange}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Visualizza come</DialogTitle>
+          <DialogDescription>Anteprima del menu in sola lettura · {roleLabels[previewRole]}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1 text-sm">Ruolo
+            <select className="rounded-md border bg-background p-2" value={previewRole} onChange={event => setPreviewRole(event.target.value)}>
+              {Object.entries(roleLabels).filter(([key]) => key !== "superadmin").map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm">Squadra
+            <select className="rounded-md border bg-background p-2" value={previewTeamId} onChange={event => setPreviewTeamId(event.target.value)}>
+              <option value="">Seleziona la squadra</option>
+              {previewTeams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}
+            </select>
+          </label>
+        </div>
+        {previewTeam && <p className="text-sm text-muted-foreground">Squadra di riferimento: {previewTeam.name}</p>}
+        <ul className="divide-y rounded-md border px-3">{previewItems.map(label => <li key={label} className="py-2 text-sm">{label}</li>)}</ul>
+      </DialogContent>
+    </Dialog>}
     <Sidebar variant="sidebar" className="border-r shadow-sm">
       <SidebarContent>
         <div className="p-5 pb-2">
@@ -451,5 +494,5 @@ export function AppSidebar() {
         </div>
       </SidebarFooter>
     </Sidebar>
-  );
+  </>);
 }

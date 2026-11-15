@@ -106,6 +106,8 @@ function notificationDestinationUrl(notification: LayoutNotification, userSectio
 export function AppLayout({ children }: { children: ReactNode }) {
   const workScope = useTechnicalScope();
   const { user, club, role, section, logout } = useAuth();
+  const [rolePreview, setRolePreview] = useState(false);
+  const canPreviewRoles = role === "admin" || role === "presidente";
   const { toast } = useToast();
   const { data: liveClub } = useGetMyClub();
   const activeClub = liveClub ?? club;
@@ -271,7 +273,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <SidebarProvider defaultOpen={defaultSidebarOpen} style={style}>
       <div className="flex h-dvh min-h-svh w-full overflow-hidden bg-muted/30">
-        <AppSidebar />
+        <AppSidebar rolePreview={canPreviewRoles && rolePreview} onRolePreviewChange={setRolePreview} roleLabels={ROLE_LABELS} />
         <div className="mobile-contain-x flex flex-col flex-1 min-w-0 overflow-hidden">
           <header
             className={`mobile-safe-header flex shrink-0 items-center justify-between overflow-hidden px-4 pb-0 sm:px-6 sm:pt-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 transition-all duration-200 ${
@@ -434,13 +436,23 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   <span className="text-xs text-muted-foreground capitalize">{user?.email}</span>
                 </div>
                 <AccountTextSize />
-                <Link href="/profilo" aria-label="Il mio profilo" title="Il mio profilo" className="rounded-full focus-visible:ring-2 focus-visible:ring-primary">
+                {canPreviewRoles ? <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" aria-label="Menu profilo" className="rounded-full focus-visible:ring-2 focus-visible:ring-primary">
+                      <Avatar className="h-8 w-8 sm:h-9 sm:w-9 border"><AvatarFallback>{user?.firstName?.[0]}{user?.lastName?.[0]}</AvatarFallback></Avatar>
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem asChild><Link href="/profilo">Il mio profilo</Link></DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setRolePreview(true)}>Visualizza come</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu> : <Link href="/profilo" aria-label="Il mio profilo" title="Il mio profilo" className="rounded-full focus-visible:ring-2 focus-visible:ring-primary">
                 <Avatar className="h-8 w-8 sm:h-9 sm:w-9 border shrink-0">
                   <AvatarFallback className="bg-primary/10 text-primary font-medium text-sm">
                     {user?.firstName?.[0]}{user?.lastName?.[0]}
                   </AvatarFallback>
                 </Avatar>
-                </Link>
+                </Link>}
                 <Button
                   size="icon"
                   variant="ghost"
