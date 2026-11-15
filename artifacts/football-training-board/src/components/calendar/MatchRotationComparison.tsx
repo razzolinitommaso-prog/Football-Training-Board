@@ -194,6 +194,7 @@ export function MatchRotationComparison({
   controls,
   footer,
   automatic = false,
+  showActual = true,
   title = "Confronto tempi e minutaggio",
 }: {
   summary: MatchRotationSummary;
@@ -207,7 +208,9 @@ export function MatchRotationComparison({
   footer?: ReactNode;
   title?: string;
   automatic?: boolean;
+  showActual?: boolean;
 }) {
+  const hasActual = showActual && summary.hasReport;
   const [enlarged, setEnlarged] = useState<RotationSummaryUnit | null>(null);
   const [unitPage, setUnitPage] = useState(0);
   const pageSize = 8;
@@ -282,7 +285,7 @@ export function MatchRotationComparison({
                   </strong>
                 </span>
                 {summary.equitableMinutes != null && <span>Obiettivo equo: <strong>{matchMinutesLabel(summary.equitableMinutes, true)}</strong> a testa</span>}
-                {(summary.unassignedActualMinutes ?? 0) >= 1 / 60 && <span className="text-amber-700 dark:text-amber-300">Minuti-giocatore scoperti nel resoconto: <strong>{matchMinutesLabel(summary.unassignedActualMinutes!, true)}</strong></span>}
+                {showActual && (summary.unassignedActualMinutes ?? 0) >= 1 / 60 && <span className="text-amber-700 dark:text-amber-300">Minuti-giocatore scoperti nel resoconto: <strong>{matchMinutesLabel(summary.unassignedActualMinutes!, true)}</strong></span>}
                 {(summary.unassignedMinutes ?? 0) >= 1 / 60 && <span className="text-amber-700 dark:text-amber-300">Minuti-giocatore scoperti: <strong>{matchMinutesLabel(summary.unassignedMinutes!, true)}</strong></span>}
                 {values.length > 1 && (
                   <span>
@@ -308,7 +311,7 @@ export function MatchRotationComparison({
                   {periodHeadings.map(group => <th key={group.key} colSpan={group.count} scope="colgroup" className="border-l p-1 text-center text-[10px]">{group.label}</th>)}
                   <th rowSpan={2} className="match-planned-column p-1 text-center">Previsti</th>
                   <th rowSpan={2} className="match-eq-column p-1 text-center">Tempi eq.</th>
-                  {summary.hasReport && <th rowSpan={2} className="match-actual-column p-1 text-center">Eff.′</th>}
+                  {hasActual && <th rowSpan={2} className="match-actual-column p-1 text-center">Eff.′</th>}
                 </tr>
                 <tr className="border-t bg-muted/40">
                   {units.map(unit => <th key={unit.key} className="match-unit-column p-1 text-center" scope="col">
@@ -325,7 +328,7 @@ export function MatchRotationComparison({
                       <span className="match-mobile-only mt-1 text-xs font-normal text-muted-foreground">
                         <strong className="font-semibold text-foreground">{matchMinutesLabel(row.plannedMinutes, true)} previsti</strong>
                         {" · "}{number(row.plannedPeriods)} tempi eq.
-                        {summary.hasReport && (
+                        {hasActual && (
                           <span>
                             {" "}
                             · Eff.{" "}
@@ -379,7 +382,7 @@ export function MatchRotationComparison({
                           }
                         >
                           {cell.status}
-                          {summary.hasReport && (
+                          {hasActual && (
                             <small className="block text-[9px] font-normal">
                               {matchMinutesLabel(cell.actualMinutes ?? 0, true)} eff.
                             </small>
@@ -393,7 +396,7 @@ export function MatchRotationComparison({
                     <td className="match-eq-column p-1 text-center text-muted-foreground">
                       {number(row.plannedPeriods)}
                     </td>
-                    {summary.hasReport && (
+                    {hasActual && (
                       <td className="match-actual-column p-1 text-center font-semibold">
                         {row.actualMinutes === null
                           ? "—"
@@ -406,10 +409,10 @@ export function MatchRotationComparison({
             </table>
             <p className="mt-2 text-xs text-muted-foreground">
               T = titolare · P = panchina · — = non assegnato. Le lettere indicano
-              le frazioni di ogni tempo. I minuti effettivi provengono dal resoconto.
+              le frazioni di ogni tempo. {showActual ? "I minuti effettivi provengono dal resoconto." : "Consulta gli effettivi nella sezione Resoconto."}
             </p>
-            {summary.hasReport && <p className="mt-2 text-xs text-muted-foreground">{summary.reportConfirmed ? "Effettivi confermati dal dirigente." : "Effettivi provvisori · In attesa della verifica del dirigente."}</p>}
-            {!summary.hasReport && (
+            {hasActual && <p className="mt-2 text-xs text-muted-foreground">{summary.reportConfirmed ? "Effettivi confermati dal dirigente." : "Effettivi provvisori · In attesa della verifica del dirigente."}</p>}
+            {showActual && !hasActual && (
               <p className="mt-1 text-xs text-muted-foreground">
                 Minuti effettivi non registrati: i dati mancanti non valgono
                 zero.

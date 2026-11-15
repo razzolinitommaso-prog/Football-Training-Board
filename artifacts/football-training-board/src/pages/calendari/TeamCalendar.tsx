@@ -1879,6 +1879,7 @@ function MatchCard({
   const clubLabel = myClub?.name?.trim() || CLUB_NAME;
 
   const [postMenuOpen, setPostMenuOpen] = useState(false);
+  const [pendingReportLineup, setPendingReportLineup] = useState(false);
   const [postReportDraft, setPostReportDraft] = useState<MatchReport | null>(null);
   const [postNoteValue, setPostNoteValue] = useState(() => splitPostNotesAndAttachments(match.postMatchNotes).note);
   const [postOwnGoalsValue, setPostOwnGoalsValue] = useState(() => {
@@ -2165,6 +2166,7 @@ function MatchCard({
   }
 
   function startPostNoteEditor() {
+    setPendingReportLineup(false);
     const parsed = splitPostNotesAndAttachments(match.postMatchNotes);
     const parsedResult = splitMatchResult(match.result);
     setPostNoteValue(parsed.note);
@@ -3036,6 +3038,7 @@ function MatchCard({
                 <MatchWorkspacePanel active={activePanel("schieramenti")}>
                 <MatchRotationComparison
                   summary={buildMatchRotationSummary(planDraft,selectedPlayersOrdered.map(id=>convokedById.get(id)).filter((p):p is Player=>!!p),playerLimitForFormat(matchFormat))}
+                  showActual={!workspace}
                   roster={workspace ? undefined : callupRoster}
                   onCallup={changeCallup}
                   onStatus={selectComparisonCell}
@@ -3737,7 +3740,7 @@ function MatchCard({
                     {canManageMatchPlan && (
                       postReportDraft ? <MatchReportEditor value={postReportDraft} onChange={setPostReportDraft}
                         players={reportPlayers} limit={reportPlayerLimits} rotation={reportRotation} planned={plannedReport}
-                        boundaries={fractionBoundaries} /> :
+                        boundaries={fractionBoundaries} onPendingLineupChange={setPendingReportLineup} /> :
                       <div className="flex flex-wrap gap-2">
                         <Button type="button" variant="outline" size="sm" disabled={!reportPlayers.length} onClick={() => {
                           try { setPostReportDraft(prefillReport()); }
@@ -3867,15 +3870,15 @@ function MatchCard({
                       <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setPostMenuOpen(false)}>
                         Annulla
                       </Button>
-                      <Button type="button" size="sm" className="h-8 text-xs gap-1.5" disabled={patch.isPending} onClick={savePostNotes}>
+                      <Button type="button" size="sm" className="h-8 text-xs gap-1.5" disabled={patch.isPending || pendingReportLineup} onClick={savePostNotes}>
                         <CheckCircle className="w-3.5 h-3.5" />
                         {workspace ? "Salva resoconto" : "Salva"}
                       </Button>
                     </div>
               </MatchReportEditFrame>}
             </div>
-            {workspace && !postMenuOpen && match.result && <p className="my-3 text-sm">Risultato <strong>{match.result}</strong></p>}
-            {workspace && reportRotation && !postMenuOpen && <MatchReportLineups rotation={reportRotation} />}
+            {workspace && !postMenuOpen && match.result && <p className="my-3 text-right text-sm">Risultato finale <strong>{match.result}</strong></p>}
+            {workspace && reportRotation && !postMenuOpen && <MatchReportLineups rotation={reportRotation} report={savedReport.success ? savedReport.data : undefined} players={reportPlayers} />}
             {workspace && reportRotation && !postMenuOpen && <p className="my-2 text-sm text-muted-foreground">
               {reportRotation.reportConfirmed ? "Effettivi confermati dal dirigente."
                 : reportRotation.hasReport ? "In attesa della verifica del dirigente." : "Minuti effettivi da registrare."}
@@ -3894,7 +3897,7 @@ function MatchCard({
             )}
             {canViewMatchPlan && savedReport.success && (
               <div className="mt-2 rounded-md border p-3"><MatchReportSummary report={savedReport.data}
-                players={reportPlayers} limit={reportPlayerLimits} rotation={workspace ? reportRotation : undefined} /></div>
+                players={reportPlayers} limit={reportPlayerLimits} rotation={workspace ? reportRotation : undefined} manualChangesOnly={!!workspace} /></div>
             )}
           </div>
         )}

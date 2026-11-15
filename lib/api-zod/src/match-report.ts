@@ -7,6 +7,7 @@ const moment = { period: z.number().int().min(0).max(3), minute: z.number().min(
 export const matchReportSchema = z.object({
   version: z.literal(1),
   automaticFractions: z.literal(true).optional(),
+  fractionLineups: z.record(z.string().max(100), z.array(playerId).max(30)).optional(),
   fractionOverrides: z.array(z.string().max(100)).max(2880).optional(),
   periods: z.array(z.object({
     minutes: z.number().min(1).max(180),

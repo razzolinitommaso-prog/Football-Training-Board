@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { isPlannedFractionChange, synchronizeReportFractions, type ReportFractionBoundary } from "@/lib/match-period-rotation";
+import { isPlannedFractionChange, reportLineupAt, setReportUnitLineup, synchronizeReportFractions, type ReportFractionBoundary } from "@/lib/match-period-rotation";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { matchMinutesLabel } from "@/components/calendar/MatchRotationComparison";
-import { analyseMatchReport, type MatchRotationSummary, type MatchReport } from "@workspace/api-zod";
+import { analyseMatchReport, type MatchRotationSummary, type RotationSummaryUnit, type MatchReport } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,13 +24,14 @@ function PlayerSelect({ value, players, onChange, label, empty = "Giocatore" }: 
   </label>;
 }
 
-export function MatchReportSummary({ report, players, limit, rotation, showChanges = true }: { report: MatchReport; players: ReportPlayer[]; limit: number | number[]; rotation?: MatchRotationSummary; showChanges?: boolean }) {
+export function MatchReportSummary({ report, players, limit, rotation, showChanges = true, manualChangesOnly = false }: { report: MatchReport; players: ReportPlayer[]; limit: number | number[]; rotation?: MatchRotationSummary; showChanges?: boolean; manualChangesOnly?: boolean }) {
   const name = (id: number) => players.find(player => player.id === id)?.name ?? `Giocatore #${id}`;
   const analysis = analyseMatchReport(report, players.map(player => player.id), limit);
   const validMinutes = !analysis.errors.length && report.periods.every(period => period.starters.length > 0);
   const changes = [
-    ...report.substitutions.map(change => ({ period: change.period, minute: change.minute, key: change.id, change, interval: null })),
-    ...analysis.intervals.map(interval => ({ period: interval.period, minute: 0, key: "interval-" + interval.period, interval, change: null })),
+    ...report.substitutions.filter(change => !manualChangesOnly || !change.id.startsWith("planned-") ||
+      report.fractionOverrides?.some(key => change.id.startsWith("planned-" + key + "-"))).map(change => ({ period: change.period, minute: change.minute, key: change.id, change, interval: null })),
+    ...(!manualChangesOnly ? analysis.intervals : []).map(interval => ({ period: interval.period, minute: 0, key: "interval-" + interval.period, interval, change: null })),
   ].sort((a, b) => a.period - b.period || a.minute - b.minute || Number(!!b.interval) - Number(!!a.interval));
   return <div className="space-y-2 text-xs">
     <p className="font-semibold">Marcatori e minutaggio effettivo</p>
@@ -77,27 +78,93 @@ function Timing({ period, minute, periods, onChange: change }: {
     </div>;
   }
 
-export function MatchReportLineups({ rotation }: { rotation: MatchRotationSummary }) {
-  if (!rotation.units.length || !rotation.rows.length) return null;
-  return <section className="space-y-2" aria-label="Schieramenti del mister">
-    <h4 className="text-base font-semibold">Schieramenti del mister</h4>
-    <div role="region" aria-label="Titolari e panchina per frazione" tabIndex={0} className="max-w-full overflow-x-auto rounded-lg border">
-      <table className="w-full border-collapse text-left text-sm">
-        <thead className="bg-muted"><tr>
-          <th scope="col" className="sticky left-0 z-10 min-w-36 bg-muted px-3 py-2">Giocatore</th>
-          {rotation.units.map(unit => <th scope="col" key={unit.key} className="whitespace-nowrap px-3 py-2">
-            {unit.label}<span className="ml-1 font-normal text-muted-foreground">{matchMinutesLabel(unit.minutes, true)}</span>
-          </th>)}
-        </tr></thead>
-        <tbody>{rotation.rows.map(row => <tr key={row.playerId} className="border-t">
-          <th scope="row" className="sticky left-0 z-10 bg-card px-3 py-2 font-medium">{row.name}</th>
-          {row.cells.map(cell => <td key={cell.key} className="px-3 py-2">
-            {cell.status === "T" ? <span className="rounded bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">Titolare</span>
-              : <span className="text-xs text-muted-foreground">{cell.status === "P" ? "Panchina" : "—"}</span>}
-          </td>)}
-        </tr>)}</tbody>
-      </table>
+type ReportUnit = Pick<RotationSummaryUnit, "key" | "periodIndex" | "start" | "minutes" | "label">;
+
+function ReportLineupLists({ players, rotation, unit, actual, onToggle }: {
+  players: ReportPlayer[];
+  rotation?: MatchRotationSummary;
+  unit: ReportUnit;
+  actual: number[];
+  onToggle?: (id: number, checked: boolean) => void;
+}) {
+  const status = new Map(rotation?.rows.map(row => [row.playerId,
+    row.cells.find(cell => cell.key === unit.key)?.status ?? "—"]));
+  const rank = (id: number) => status.get(id) === "T" ? 0 : status.get(id) === "P" ? 1 : 2;
+  const ordered = [...players].sort((first, second) => rank(first.id) - rank(second.id));
+  const plannedCount = ordered.filter(player => status.get(player.id) === "T").length;
+  const reserveCount = ordered.filter(player => status.get(player.id) === "P").length;
+  const differences = ordered.filter(player => status.has(player.id) && status.get(player.id) !== "—"
+    && (status.get(player.id) === "T") !== actual.includes(player.id)).length;
+  return <div className="rounded-lg border text-sm">
+    <div className="grid grid-cols-2 gap-px border-b bg-border text-xs font-semibold sm:text-sm">
+      <span className="bg-muted p-2 sm:p-3">Formazione del mister</span>
+      <span className="bg-muted p-2 sm:p-3">Formazione effettiva</span>
     </div>
+    <ul className="divide-y">{ordered.map(player => {
+      const planned = status.get(player.id);
+      const checked = actual.includes(player.id);
+      const comparison = planned === "T" || planned === "P" ? checked === (planned === "T") : null;
+      return <li key={player.id} className="grid grid-cols-2 divide-x">
+        <div className="min-w-0 p-2 sm:flex sm:items-center sm:justify-between sm:gap-2 sm:p-3">
+          <span className="block break-words font-medium">{player.name}</span>
+          <span className="block text-xs text-muted-foreground">{planned === "T" ? "Titolare" : planned === "P" ? "Riserva" : "Non assegnato"}</span>
+        </div>
+        <div className="min-w-0 space-y-1 p-2 sm:flex sm:items-center sm:justify-between sm:gap-2 sm:space-y-0 sm:p-3">
+          <label className="flex min-w-0 items-center gap-2">
+            <Checkbox checked={checked} disabled={!onToggle} aria-label={"Titolare effettivo: " + player.name}
+              onCheckedChange={next => onToggle?.(player.id, next === true)} />
+            <span className="break-words">{player.name}</span>
+          </label>
+          {comparison !== null && <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${comparison
+            ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+            : "bg-red-500/10 text-red-800 dark:text-red-300"}`}>
+            {comparison ? "✓ Coincide" : "× Diverso"}
+          </span>}
+        </div>
+      </li>;
+    })}</ul>
+    <div className="grid grid-cols-2 divide-x border-t text-xs text-muted-foreground">
+      <span className="p-2 sm:p-3">{plannedCount} titolari · {reserveCount} riserve</span>
+      <span className="p-2 sm:p-3">{actual.length} titolari · {ordered.length - actual.length} riserve
+        {differences > 0 && <strong className="ml-2 text-destructive">{differences} {differences === 1 ? "differenza" : "differenze"}</strong>}
+      </span>
+    </div>
+  </div>;
+}
+
+function reportUnits(report: MatchReport, rotation?: MatchRotationSummary): ReportUnit[] {
+  return rotation?.units.length ? rotation.units.filter(unit => Boolean(report.periods[unit.periodIndex]))
+    : report.periods.map((period, index) => ({
+      key: "t" + (index + 1), periodIndex: index, start: 0, minutes: period.minutes, label: (index + 1) + "° tempo",
+    }));
+}
+
+function ReportUnitPicker({ units, active, onSelect, disabled }: {
+  units: ReportUnit[]; active: ReportUnit; onSelect: (key: string) => void; disabled?: boolean;
+}) {
+  return <nav aria-label="Tempi e frazioni" className="flex flex-wrap gap-2">
+    {units.map(unit => <Button type="button" key={unit.key} size="sm" aria-pressed={unit.key === active.key}
+      disabled={disabled && unit.key !== active.key} variant={unit.key === active.key ? "secondary" : "outline"}
+      onClick={() => onSelect(unit.key)}>{unit.label} · {matchMinutesLabel(unit.minutes, true)}</Button>)}
+  </nav>;
+}
+
+export function MatchReportLineups({ rotation, report, players }: {
+  rotation: MatchRotationSummary;
+  report?: MatchReport;
+  players: ReportPlayer[];
+}) {
+  const [selected, setSelected] = useState("");
+  if (!report) return null;
+  const units = reportUnits(report, rotation);
+  const unit = units.find(item => item.key === selected) ?? units[0];
+  if (!unit) return null;
+  const played = unit.start < report.periods[unit.periodIndex].minutes;
+  return <section className="space-y-2" aria-label="Verifica formazione">
+    <h4 className="text-base font-semibold">Verifica formazione</h4>
+    <ReportUnitPicker units={units} active={unit} onSelect={setSelected} />
+    {played ? <ReportLineupLists players={players} rotation={rotation} unit={unit} actual={reportLineupAt(report, unit.periodIndex, unit.start)} />
+      : <p className="text-sm text-amber-700 dark:text-amber-300">Questa frazione è fuori dalla durata registrata.</p>}
   </section>;
 }
 
@@ -107,7 +174,7 @@ const minuteLabel = (minute: number) => {
   return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
 };
 
-export function MatchReportEditor({ value, onChange, players, limit, rotation, planned, boundaries }: {
+export function MatchReportEditor({ value, onChange, players, limit, rotation, planned, boundaries, onPendingLineupChange }: {
   value: MatchReport;
   onChange: (report: MatchReport) => void;
   players: ReportPlayer[];
@@ -115,12 +182,36 @@ export function MatchReportEditor({ value, onChange, players, limit, rotation, p
   rotation?: MatchRotationSummary;
   planned: MatchReport | null;
   boundaries: ReportFractionBoundary[];
+  onPendingLineupChange: (pending: boolean) => void;
 }) {
+  const [selectedUnit, setSelectedUnit] = useState("");
+  const [draftStarters, setDraftStarters] = useState<number[] | null>(null);
   const [expandedChange, setExpandedChange] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState("");
   const analysis = analyseMatchReport(value, players.map(player => player.id), limit);
   const name = (id: number) => players.find(player => player.id === id)?.name ?? (id ? "Giocatore #" + id : "Da scegliere");
-  const names = (ids: number[]) => ids.map(name).join(", ") || "—";
+  const units = reportUnits(value, rotation);
+  const unit = units.find(item => item.key === selectedUnit) ?? units[0];
+  const period = unit && value.periods[unit.periodIndex];
+  const boundary = unit && boundaries.find(item => item.key === unit.key);
+  const actual = unit ? reportLineupAt(value, unit.periodIndex, unit.start) : [];
+  const canEditLineup = !!unit && !!period && (unit.start === 0 || !!boundary) && unit.start < period.minutes;
+  const periodLimit = unit && (typeof limit === "number" ? limit : limit[unit.periodIndex] ?? 11);
+  const shortDuration = period && units.some(item => item.periodIndex === unit.periodIndex && item.start >= period.minutes);
+  function updateDraft(next: number[] | null) {
+    setDraftStarters(next);
+    onPendingLineupChange(next !== null);
+    setUpdateError("");
+  }
+  function applyLineup(starters: number[]) {
+    if (!unit || !periodLimit || !starters.length || starters.length > periodLimit) return;
+    try {
+      onChange(setReportUnitLineup(value, unit, starters, boundaries));
+      updateDraft(null);
+    } catch (error) {
+      setUpdateError((error as Error).message);
+    }
+  }
   function apply(report: MatchReport) {
     try {
       onChange(synchronizeReportFractions(report, boundaries));
@@ -131,31 +222,10 @@ export function MatchReportEditor({ value, onChange, players, limit, rotation, p
   }
   const updatePeriod = (index: number, patch: Partial<MatchReport["periods"][number]>) =>
     apply({ ...value, periods: value.periods.map((period, i) => i === index ? { ...period, ...patch } : period) });
-  function overrideBoundary(boundary: ReportFractionBoundary, remove = false) {
-    apply({ ...value,
-      fractionOverrides: [...new Set([...(value.fractionOverrides ?? []), boundary.key])],
-      substitutions: remove ? value.substitutions.filter(change => !isPlannedFractionChange(change, boundary)) : value.substitutions,
-    });
-  }
-  function restoreBoundary(boundary: ReportFractionBoundary) {
-    const source = value.automaticFractions ? [] : planned?.substitutions.filter(change => isPlannedFractionChange(change, boundary)) ?? [];
-    apply({ ...value,
-      fractionOverrides: value.fractionOverrides?.filter(key => key !== boundary.key),
-      substitutions: [...value.substitutions.filter(change => !isPlannedFractionChange(change, boundary)), ...source],
-    });
-  }
-  function addChange(period: number, minute: number, boundary?: ReportFractionBoundary) {
-    const id = boundary ? "planned-" + boundary.key + "-" + eventId() : eventId();
+  function addChange(period: number, minute: number) {
+    const id = eventId();
     setExpandedChange(id);
     apply({ ...value, substitutions: [...value.substitutions, { id, outPlayerId: 0, inPlayerId: null, period, minute, notes: "" }] });
-  }
-
-  function followsPlan(boundary: ReportFractionBoundary) {
-    if (value.fractionOverrides?.includes(boundary.key)) return false;
-    if (value.automaticFractions) return true;
-    const transitions = (report: MatchReport | null) => report?.substitutions.filter(change => isPlannedFractionChange(change, boundary))
-      .map(change => [change.period, change.minute, change.outPlayerId, change.inPlayerId]).sort();
-    return planned !== null && JSON.stringify(transitions(value)) === JSON.stringify(transitions(planned));
   }
 
   function renderChange(change: Substitution) {
@@ -180,76 +250,66 @@ export function MatchReportEditor({ value, onChange, players, limit, rotation, p
     </details>;
   }
 
+  const substitutions = value.substitutions
+    .filter(change => {
+      const source = boundaries.find(item => isPlannedFractionChange(change, item));
+      if (!source || value.fractionOverrides?.includes(source.key)) return true;
+      if (value.automaticFractions) return false;
+      return !planned?.substitutions.some(item => item.id === change.id && item.period === change.period &&
+        item.minute === change.minute && item.outPlayerId === change.outPlayerId && item.inPlayerId === change.inPlayerId);
+    })
+    .sort((first, second) => first.period - second.period || first.minute - second.minute);
+
   return <section className="space-y-4">
-    {rotation && <MatchReportLineups rotation={rotation} />}
+    {unit && period && <>
+      <h4 className="font-semibold">Verifica formazione</h4>
+      <ReportUnitPicker units={units} active={unit} onSelect={setSelectedUnit} disabled={draftStarters !== null} />
+      <p className="text-sm text-muted-foreground">Spunta a destra chi è partito in campo. Le rotazioni del mister sono già precompilate.</p>
+      {unit.start < period.minutes ? <ReportLineupLists players={players} rotation={rotation} unit={unit}
+        actual={draftStarters ?? actual} onToggle={canEditLineup ? (id, checked) => {
+          const next = new Set(draftStarters ?? actual);
+          if (checked) next.add(id); else next.delete(id);
+          const starters = [...next];
+          if (starters.length === actual.length && starters.every(playerId => actual.includes(playerId))) {
+            updateDraft(null);
+            return;
+          }
+          updateDraft(starters);
+          if (starters.length > 0 && starters.length === actual.length) applyLineup(starters);
+        } : undefined} /> : null}
+      {draftStarters && <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" size="sm" disabled={!periodLimit || !draftStarters.length || draftStarters.length > periodLimit} onClick={() => applyLineup(draftStarters)}>Applica formazione</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => updateDraft(null)}>Annulla modifiche alla formazione</Button>
+        {periodLimit && draftStarters.length > periodLimit && <p role="status" className="text-sm text-destructive">Massimo {periodLimit} titolari.</p>}
+      </div>}
+      {shortDuration && <p role="status" className="text-sm text-amber-700 dark:text-amber-300">
+        La durata del {unit.periodIndex + 1}° tempo lascia fuori almeno una frazione. Verifica la durata dell’intero tempo.
+      </p>}
+      <details open={shortDuration || undefined} className="rounded-lg border p-3">
+        <DisclosureSummary className="text-sm">Durata e note del {unit.periodIndex + 1}° tempo</DisclosureSummary>
+        <div className="mt-2 space-y-2">
+          <label className="block text-xs">Durata effettiva dell’intero tempo, recupero incluso
+            <Input type="number" min={1} max={180} step="0.5" value={period.minutes}
+              onChange={event => updatePeriod(unit.periodIndex, { minutes: Number(event.target.value) })} />
+          </label>
+          {planned?.periods[unit.periodIndex] && planned.periods[unit.periodIndex].minutes !== period.minutes &&
+            <Button type="button" size="sm" variant="outline" onClick={() =>
+              updatePeriod(unit.periodIndex, { minutes: planned.periods[unit.periodIndex].minutes })}>
+              Usa durata pianificata · {matchMinutesLabel(planned.periods[unit.periodIndex].minutes, true)}
+            </Button>}
+          {unit.periodIndex > 0 && <label className="block text-xs">Note all’intervallo
+            <Textarea rows={2} maxLength={2000} value={period.intervalNotes ?? ""}
+              onChange={event => updatePeriod(unit.periodIndex, { intervalNotes: event.target.value })} />
+          </label>}
+        </div>
+      </details>
+    </>}
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h4 className="font-semibold">Cambi e minuti effettivi</h4>
-      <Button type="button" variant="outline" size="sm" disabled={!players.length} onClick={() => addChange(0, 0)}>Registra cambio</Button>
+      <h4 className="font-semibold">Sostituzioni durante il gioco</h4>
+      <Button type="button" variant="outline" size="sm" disabled={!players.length || !unit}
+        onClick={() => unit && addChange(unit.periodIndex, unit.start)}>Registra sostituzione</Button>
     </div>
-    {value.periods.map((period, index) => {
-      const original = planned?.periods[index];
-      const same = original?.starters.length === period.starters.length && period.starters.every(id => original.starters.includes(id));
-      const interval = analysis.intervals.find(event => event.period === index);
-      const fractionRows = boundaries.filter(boundary => boundary.period === index);
-      const rows = [
-        ...fractionRows.map(boundary => ({ minute: boundary.minute, boundary, change: null })),
-        ...value.substitutions.filter(change => change.period === index &&
-          !fractionRows.some(boundary => followsPlan(boundary) && isPlannedFractionChange(change, boundary)))
-          .map(change => ({ minute: change.minute, change, boundary: null })),
-      ].sort((a, b) => a.minute - b.minute);
-      return <div key={index} className="space-y-2">
-        <details className="rounded-lg border bg-muted/30 p-3">
-          <DisclosureSummary className="text-sm">
-            <span><strong>Inizio {index + 1}° tempo · 0:00</strong>
-              <span className="block text-xs text-muted-foreground">{matchMinutesLabel(period.minutes, true)} · {period.starters.length} titolari
-                {original?.starters.length ? same ? " · Come da piano" : " · Formazione modificata" : " · Formazione da verificare"}
-              </span>
-              {interval && <span className="block break-words text-xs text-muted-foreground">Escono {names(interval.outPlayerIds)} · Entrano {names(interval.inPlayerIds)}</span>}
-            </span>
-          </DisclosureSummary>
-          <div className="mt-3 space-y-2">
-            <label className="block text-xs">Durata effettiva (recupero incluso)
-              <Input type="number" min={1} max={180} step="0.5" value={period.minutes} onChange={e => updatePeriod(index, { minutes: Number(e.target.value) })} />
-            </label>
-            {index > 0 && <label className="block text-xs">Note sui cambi all’intervallo
-              <Textarea rows={2} maxLength={2000} value={period.intervalNotes ?? ""} onChange={e => updatePeriod(index, { intervalNotes: e.target.value })} />
-            </label>}
-            <p className="text-xs font-medium">Titolari effettivi</p>
-            <div className="grid gap-2 sm:grid-cols-2">{players.map(player => <label key={player.id} className="flex min-w-0 items-center gap-2 text-sm">
-              <Checkbox checked={period.starters.includes(player.id)} onCheckedChange={checked => updatePeriod(index, {
-                starters: checked ? [...period.starters, player.id] : period.starters.filter(id => id !== player.id),
-              })} />{player.name}
-            </label>)}</div>
-            {original?.starters.length && !same ? <Button type="button" variant="outline" size="sm"
-              onClick={() => updatePeriod(index, { starters: original.starters })}>Ripristina titolari del mister</Button> : null}
-          </div>
-        </details>
-        {rows.map(({ boundary, change }) => {
-          if (change) return renderChange(change);
-          if (!boundary) return null;
-          const overridden = !followsPlan(boundary);
-          const changes = value.substitutions.filter(item => isPlannedFractionChange(item, boundary));
-          const label = rotation?.units.find(unit => unit.key === boundary.key)?.label ?? "frazione";
-          return <div key={boundary.key} className="rounded-lg border bg-muted/30 p-3 text-sm">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div><strong>Inizio {label} · {minuteLabel(boundary.minute)} del {index + 1}° tempo</strong>
-                <p className="text-xs text-muted-foreground">{overridden ? "Rotazione modificata" : "Come da piano"}</p>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {overridden
-                  ? <><Button type="button" size="sm" variant="outline" onClick={() => addChange(index, boundary.minute, boundary)}>Registra cambio</Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => restoreBoundary(boundary)}>Ripristina piano</Button></>
-                  : <><Button type="button" size="sm" variant="outline" onClick={() => overrideBoundary(boundary)}>Modifica</Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => overrideBoundary(boundary, true)}>Annulla rotazione</Button></>}
-              </div>
-            </div>
-            {!overridden && <p className="mt-2 break-words text-sm">{changes.length
-              ? `Escono ${names(changes.map(item => item.outPlayerId))} · Entrano ${names(changes.flatMap(item => item.inPlayerId === null ? [] : [item.inPlayerId]))}`
-              : "Nessun cambio registrato a questo minuto."}</p>}
-          </div>;
-        })}
-      </div>;
-    })}
+    {substitutions.map(renderChange)}
     <div className="space-y-2"><h5 className="text-sm font-semibold">Marcatori · {value.goals.length} gol</h5>
       {value.goals.map(goal => <div key={goal.id} className="space-y-2 rounded border p-2">
         <PlayerSelect label="Marcatore" value={goal.playerId} players={players} onChange={playerId => apply({ ...value, goals: value.goals.map(g => g.id === goal.id ? { ...g, playerId } : g) })} />

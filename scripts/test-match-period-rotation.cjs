@@ -601,3 +601,17 @@ same(rotation.synchronizeReportFractions({ ...readBack, fractionOverrides: [] },
 const { automaticFractions, ...legacyReport } = splitReport;
 assert.equal(rotation.synchronizeReportFractions(legacyReport, fourthBoundaries), legacyReport);
 console.log("PASS report timeline: early fourth-period entry, cancelled and restored rotation, preserved historical report.");
+
+const fourthUnit = projected.units.find(item => item.key === "t4-second");
+const fourthLineupEdit = rotation.setReportUnitLineup(splitReport, fourthUnit, [7], fourthBoundaries);
+same(rotation.reportLineupAt(fourthLineupEdit, 3, fourthUnit.start), [7]);
+same(fourthLineupEdit.periods[3].starters, splitReport.periods[3].starters);
+same(reportModule.exports.matchReportSchema.parse(json(fourthLineupEdit)).fractionLineups["t4-second"], [7]);
+same(reportModule.exports.analyseMatchReport(fourthLineupEdit, [...allCalled], 5).errors, []);
+const fourthRestored = rotation.setReportUnitLineup(fourthLineupEdit, fourthUnit, fourthBoundary.starters, fourthBoundaries);
+same(fourthRestored.substitutions, splitReport.substitutions);
+const firstUnit = projected.units[0];
+const firstEdited = rotation.setReportUnitLineup(splitReport, firstUnit, [7], fourthBoundaries);
+same(rotation.reportLineupAt(firstEdited, 0, 0), [7]);
+same(rotation.reportLineupAt(firstEdited, 0, splitUnits[1].start), splitAll[0].secondPart.lineupPlayerIds);
+console.log("PASS paired formation lists: kickoff and fourth-fraction edits, automatic downstream rotations and report round-trip.");

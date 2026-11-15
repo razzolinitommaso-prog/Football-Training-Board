@@ -79,3 +79,15 @@ e le sostituzioni effettive. Lo staff può modificare, annullare o ripristinare
 una rotazione nel resoconto e vedere il minutaggio ricalcolato. Le rotazioni
 automatiche successive tengono conto degli ingressi già registrati nello
 stesso tempo. Il dirigente conferma il resoconto completo dopo il salvataggio.
+
+### Verificare la formazione per tempo o frazione
+
+In **Resoconto** si seleziona un tempo o una frazione, incluso il quarto se
+presente. I convocati compaiono nello stesso ordine nelle due liste. A
+sinistra si legge la formazione salvata dal mister, a destra si spuntano i
+titolari effettivi. Un cambio che mantiene il numero di titolari si applica
+quando le due spunte sono complete. Per una variazione del numero di
+titolari si usa **Applica formazione**. Le rotazioni precompilate si
+ricalcolano e sotto si registrano le sole sostituzioni durante il gioco.
+La durata riportata è quella dell’intero tempo. Se esclude una frazione,
+il resoconto la segnala e propone la durata del piano.

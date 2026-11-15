@@ -343,6 +343,49 @@ export function reportFractionBoundaries<T extends RotationPeriod>(
   });
 }
 
+export function reportLineupAt(report: MatchReport, period: number, minute: number): number[] {
+  const starters = report.periods[period]?.starters ?? [];
+  if (minute === 0) return starters;
+  const active = new Set(starters);
+  const changes = report.substitutions.filter(change => change.period === period && change.minute <= minute)
+    .sort((a, b) => a.minute - b.minute);
+  for (const change of changes) {
+    if (!active.has(change.outPlayerId) || (change.inPlayerId !== null && active.has(change.inPlayerId))) continue;
+    active.delete(change.outPlayerId);
+    if (change.inPlayerId !== null) active.add(change.inPlayerId);
+  }
+  return [...active];
+}
+
+export function setReportUnitLineup(
+  report: MatchReport, unit: { key: string; periodIndex: number; start: number },
+  starters: number[], boundaries: ReportFractionBoundary[],
+) {
+  if (!unit.start) {
+    return synchronizeReportFractions({
+      ...report, periods: report.periods.map((period, index) =>
+        index === unit.periodIndex ? { ...period, starters } : period),
+    }, boundaries);
+  }
+  const boundary = boundaries.find(item => item.key === unit.key);
+  if (!boundary) throw Error("Salva prima lo schieramento della frazione.");
+  // Historical reports retain their other rotations and all manually recorded events.
+  const overrides = report.automaticFractions
+    ? report.fractionOverrides ?? []
+    : boundaries.map(item => item.key);
+  const fractionLineups = { ...report.fractionLineups };
+  if (starters.length === boundary.starters.length && starters.every(id => boundary.starters.includes(id))) {
+    delete fractionLineups[unit.key];
+  } else {
+    fractionLineups[unit.key] = starters;
+  }
+  return synchronizeReportFractions({
+    ...report, automaticFractions: true,
+    fractionLineups,
+    fractionOverrides: overrides.filter(key => key !== unit.key),
+  }, boundaries);
+}
+
 export function isPlannedFractionChange(change: ReportSubstitution, boundary: ReportFractionBoundary) {
   return change.id.startsWith("planned-" + boundary.key + "-");
 }
@@ -365,8 +408,9 @@ export function synchronizeReportFractions(report: MatchReport, boundaries: Repo
         active.delete(change.outPlayerId);
         if (change.inPlayerId !== null) active.add(change.inPlayerId);
       }
-      const outgoing = [...active].filter(id => !boundary.starters.includes(id));
-      const incoming = boundary.starters.filter(id => !active.has(id));
+      const starters = report.fractionLineups?.[boundary.key] ?? boundary.starters;
+      const outgoing = [...active].filter(id => !starters.includes(id));
+      const incoming = starters.filter(id => !active.has(id));
       if (incoming.length > outgoing.length) {
         throw Error("La rotazione al minuto " + boundary.minute + " del " + (index + 1) +
           "° tempo richiede più giocatori di quanti siano in campo. Modifica o annulla quella rotazione prima di registrare il cambio.");
