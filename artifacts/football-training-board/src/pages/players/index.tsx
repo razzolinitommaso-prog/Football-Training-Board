@@ -3031,7 +3031,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     const target = list.find((p) => p.id === openPlayerId);
     if (!target) return;
     const editKit = params.get("focus") === "kit" && nr === "secretary";
-    openPlayerDialog(target, editKit ? "edit" : "view");
+    const editFromLink = params.get("mode") === "edit" && nr === "secretary";
+    openPlayerDialog(target, editKit || editFromLink ? "edit" : "view");
     setOpenedFromQuery(true);
     if (editKit) {
       window.setTimeout(() => {
@@ -3068,6 +3069,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     }
     params.delete("openPlayerId");
     params.delete("focus");
+    params.delete("mode");
     const qs = params.toString();
     const nextUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
     window.history.replaceState({}, "", nextUrl);

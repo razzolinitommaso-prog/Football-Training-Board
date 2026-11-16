@@ -567,7 +567,7 @@ export function UnifiedOverview({
               </div>
               {visibleAlerts.length ? <ul className="divide-y rounded-lg border">
                 {visibleAlerts.map(({ player, birthYear, teamName, supplementalTeamName, registration, certificate }) => <li key={player.id}>
-                  <Link href={`${playersPath}?openPlayerId=${player.id}`}
+                  <Link href={`${playersPath}?openPlayerId=${player.id}${role === "secretary" ? "&mode=edit" : ""}`}
                     className="flex min-w-0 items-center justify-between gap-2 rounded-md p-3 hover:bg-muted/50">
                     <span className="min-w-0 space-y-1">
                       <span className="block break-words text-sm font-semibold">{player.lastName} {player.firstName}</span>
