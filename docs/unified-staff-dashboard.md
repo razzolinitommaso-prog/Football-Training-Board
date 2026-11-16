@@ -47,4 +47,6 @@ atleti segnalati nell’ambito selezionato. I contatori aprono il filtro
 corrispondente. La ricerca per nome, cognome, anno di nascita o squadra si
 combina con il tipo di segnalazione. Ogni riga mostra annata e squadra e
 apre direttamente la scheda del giocatore. Per la Segreteria la scheda si
-apre in modalità modifica.
+apre in modalità modifica. Chiudendo o salvando una scheda aperta dalla
+lista si torna alle segnalazioni con ricerca, filtro e posizione di
+scorrimento ripristinati.

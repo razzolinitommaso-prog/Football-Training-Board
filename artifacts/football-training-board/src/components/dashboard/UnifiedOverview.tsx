@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import {
   CalendarDays,
@@ -35,6 +35,9 @@ export type OverviewSession = {
   creatorName?: string | null;
   preparation?: { exerciseCount: number; phases: string[]; complete: boolean };
 };
+type AlertFilter = "all" | "registration" | "certificate";
+type AlertListState = { filter: AlertFilter; search: string; scrollTop: number };
+
 type Player = {
   id: number;
   firstName: string;
@@ -175,9 +178,22 @@ export function UnifiedOverview({
   playersPath: string;
   children?: ReactNode;
 }) {
-  const [alertFilter, setAlertFilter] = useState<"all" | "registration" | "certificate" | null>(null);
-  const [alertSearch, setAlertSearch] = useState("");
+  const [restoredAlerts] = useState<AlertListState | undefined>(() => window.history.state?.playerAlerts);
+  const [alertFilter, setAlertFilter] = useState<AlertFilter | null>(restoredAlerts?.filter ?? null);
+  const [alertSearch, setAlertSearch] = useState(restoredAlerts?.search ?? "");
   const alertsTitle = useRef<HTMLHeadingElement>(null);
+  const alertsDialog = useRef<HTMLDivElement>(null);
+  const restoreScroll = useRef(restoredAlerts?.scrollTop);
+
+  useEffect(() => {
+    if (!alertFilter || dataState.players !== "ready" || restoreScroll.current === undefined) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (!alertsDialog.current || restoreScroll.current === undefined) return;
+      alertsDialog.current.scrollTop = restoreScroll.current;
+      restoreScroll.current = undefined;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [alertFilter, dataState.players]);
   const technical = [
     "admin",
     "director",
@@ -540,9 +556,11 @@ export function UnifiedOverview({
             if (!open) {
               setAlertFilter(null);
               setAlertSearch("");
+              restoreScroll.current = undefined;
+              window.history.replaceState({ ...window.history.state, playerAlerts: undefined }, "");
             }
           }}>
-            <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl" onOpenAutoFocus={event => {
+            <DialogContent ref={alertsDialog} className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl" onOpenAutoFocus={event => {
               event.preventDefault();
               alertsTitle.current?.focus();
             }}>
@@ -568,6 +586,15 @@ export function UnifiedOverview({
               {visibleAlerts.length ? <ul className="divide-y rounded-lg border">
                 {visibleAlerts.map(({ player, birthYear, teamName, supplementalTeamName, registration, certificate }) => <li key={player.id}>
                   <Link href={`${playersPath}?openPlayerId=${player.id}${role === "secretary" ? "&mode=edit" : ""}`}
+                    state={{ fromPlayerAlerts: true }}
+                    onClick={() => {
+                      const playerAlerts: AlertListState = {
+                        filter: alertFilter ?? "all",
+                        search: alertSearch,
+                        scrollTop: alertsDialog.current?.scrollTop ?? 0,
+                      };
+                      window.history.replaceState({ ...window.history.state, playerAlerts }, "");
+                    }}
                     className="flex min-w-0 items-center justify-between gap-2 rounded-md p-3 hover:bg-muted/50">
                     <span className="min-w-0 space-y-1">
                       <span className="block break-words text-sm font-semibold">{player.lastName} {player.firstName}</span>

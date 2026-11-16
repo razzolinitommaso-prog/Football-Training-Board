@@ -1616,6 +1616,15 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createParentFamilyId, setCreateParentFamilyId] = useState<number>();
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const returningToAlerts = useRef(false);
+  const closePlayerDialog = () => {
+    setEditingPlayer(null);
+    if (window.history.state?.fromPlayerAlerts === true && !returningToAlerts.current &&
+        Number(new URLSearchParams(window.location.search).get("openPlayerId")) === editingPlayer?.id) {
+      returningToAlerts.current = true;
+      window.history.back();
+    }
+  };
   const playerActivity = usePlayerActivitySummary(editingPlayer?.id);
   const [playerDialogMode, setPlayerDialogMode] = useState<"view" | "edit">("view");
   const [openedFromQuery, setOpenedFromQuery] = useState(false);
@@ -2114,7 +2123,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           return current.map((player: Player) => player.id === updatedPlayer.id ? { ...player, ...updatedPlayer } : player);
         });
         queryClient.invalidateQueries({ queryKey: ["/api/players"], exact: false });
-        setEditingPlayer(null);
+        closePlayerDialog();
         toast({ title: t.editPlayer });
       },
       onError: (error: any) => {
@@ -3067,12 +3076,13 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
         if (el instanceof HTMLElement) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 120);
     }
+    if (window.history.state?.fromPlayerAlerts === true) return;
     params.delete("openPlayerId");
     params.delete("focus");
     params.delete("mode");
     const qs = params.toString();
     const nextUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
-    window.history.replaceState({}, "", nextUrl);
+    window.history.replaceState(window.history.state, "", nextUrl);
   }, [openedFromQuery, editingPlayer, players, nr]);
 
   useEffect(() => {
@@ -3864,7 +3874,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       </Dialog>
 
       {/* Edit Dialog */}
-      <Dialog open={!!editingPlayer} onOpenChange={(o) => !o && setEditingPlayer(null)}>
+      <Dialog open={!!editingPlayer} onOpenChange={(open) => { if (!open) closePlayerDialog(); }}>
         <DialogContent className="w-[calc(100vw-1rem)] max-w-[900px] max-h-[90dvh] overflow-y-auto overflow-x-hidden p-3 sm:p-6">
           <DialogHeader>
             <DialogTitle>{playerDialogMode === "edit" ? t.editPlayer : "Scheda giocatore"}</DialogTitle>
@@ -4145,7 +4155,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               )}
 
               <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" onClick={() => setEditingPlayer(null)}>{t.cancel}</Button>
+                <Button type="button" variant="outline" onClick={closePlayerDialog}>{t.cancel}</Button>
                 {canWritePlayerNotes && (
                   <Button type="submit" disabled={updateMutation.isPending || !noteDraftText.trim()}>
                     {updateMutation.isPending ? t.saving : "Invia comunicazione"}
@@ -5587,7 +5597,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               </div>
 
               <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" onClick={() => setEditingPlayer(null)}>{t.cancel}</Button>
+                <Button type="button" variant="outline" onClick={closePlayerDialog}>{t.cancel}</Button>
                 <Button type="submit" disabled={updateMutation.isPending}>
                   {updateMutation.isPending ? t.saving : "INVIA MODIFICHE"}
                 </Button>
