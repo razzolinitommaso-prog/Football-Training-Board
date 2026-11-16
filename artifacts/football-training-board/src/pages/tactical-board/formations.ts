@@ -178,3 +178,20 @@ export const LEGACY_FORMATIONS: Record<string, [number, number][]> = {
   ],
 };
 
+export function formationSlotsForLineup(module: string | null | undefined, format: string, limit: number): FormationSlot[] {
+  if (module && isFormationPresetId(module) && FORMATIONS[module].formats.some(candidate => candidate === format)) {
+    return FORMATIONS[module].slots.slice(0, limit);
+  }
+  const slots: FormationSlot[] = [{ x: 10, y: 50, role: "goalkeeper" }];
+  const outfield = Math.max(0, limit - 1);
+  for (let i = 0; i < outfield; i += 1) {
+    const band = Math.floor(i / 3);
+    const inBand = i % 3;
+    slots.push({
+      x: Math.min(78, 30 + band * 18),
+      y: outfield <= 2 ? 35 + i * 30 : 25 + inBand * 25,
+      role: "player" as const,
+    });
+  }
+  return slots;
+}

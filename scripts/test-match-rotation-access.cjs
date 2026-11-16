@@ -410,6 +410,8 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       [101, 102],
     );
     assert.equal(manager.data.matches[0].matchPlan, undefined);
+    assert.equal(manager.data.matches[0].rotation.units[0].formation.capacity, 5);
+    assert.equal(manager.data.matches[0].rotation.rows[0].cells[0].lineupOrder, 0);
     const confirmationMatch = manager.data.matches[0];
     const confirmationRequest = async (url, method, body, headers) => {
       const response = await fetch(base + url, { method, body: JSON.stringify(body),
@@ -418,6 +420,12 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     };
     const submitConfirmation = (headers, report = confirmationMatch.report) =>
       confirmationRequest(`/matches/${confirmationMatch.id}/report-confirmation`, "POST", { report }, headers);
+    const secretarySession = { "x-role": "secretary" };
+    const matchPath = `/matches/${confirmationMatch.id}`;
+    assert.equal((await confirmationRequest(matchPath, "PATCH", { postMatchNotes: "Nota post-partita" }, secretarySession)).status, 403);
+    assert.equal((await confirmationRequest(matchPath, "PATCH", { result: "2-1" }, secretarySession)).status, 403);
+    assert.equal((await confirmationRequest(matchPath, "PATCH", { matchPlan: plan }, secretarySession)).status, 403);
+    assert.equal((await confirmationRequest(matchPath, "PATCH", { location: "Campo test" }, secretarySession)).status, 200);
     const managerSession = { "x-role": "team_manager" };
     assert.equal((await submitConfirmation({ ...managerSession, "x-user": "2" })).status, 403);
     assert.equal((await submitConfirmation(managerSession, { ...confirmationMatch.report, goals: [{ id: "stale", playerId: 101, period: 0, minute: 1 }] })).status, 409);

@@ -8,6 +8,7 @@ export type RotationSummaryPlayer = {
   firstName: string;
   lastName: string;
   jerseyNumber?: number | null;
+  position?: string | null;
 };
 export type RotationSummaryUnit = {
   key: string;
@@ -17,16 +18,19 @@ export type RotationSummaryUnit = {
   periodIndex: number;
   start: number;
   share: number;
+  formation?: { module: string; format: string; capacity: number; goalkeeperId?: number | null };
 };
 export type RotationSummaryRow = {
   playerId: number;
   name: string;
   jerseyNumber: number | null;
+  rosterPosition?: string | null;
   cells: {
     key: string;
     status: "T" | "P" | "—";
     actualMinutes: number | null;
     fixed?: boolean;
+    lineupOrder?: number;
     position?: { x: number; y: number };
   }[];
   plannedMinutes: number;
@@ -169,6 +173,7 @@ export function buildMatchRotationSummary(
   players: RotationSummaryPlayer[],
   fallback = 11,
   fullRoster = true,
+  includePitchDetails = false,
 ): MatchRotationSummary {
   const plan = record(value),
     periods = (Array.isArray(plan.periods) ? plan.periods : []).map(record),
@@ -182,13 +187,22 @@ export function buildMatchRotationSummary(
     const total = parts.reduce((sum, minutes) => sum + minutes, 0);
     let start = 0;
     parts.forEach((minutes, part) => {
+      const nested = record(part === 1 ? p.secondPart : p.additionalParts?.[part - 2]);
+      const source = part === 0 ? p : { module: p.module, format: p.format, ...nested };
+      const goalkeeperId = part === 0 && source.lineupGoalkeeperId === undefined
+        ? plan.matchGoalkeeperId : source.lineupGoalkeeperId;
       units.push({
         key: matchPeriodPartKey(key, part),
         label: matchPeriodLabel(key, part, parts.length),
         minutes, periodKey: key, periodIndex: index, start, share: minutes / total,
+        ...(includePitchDetails ? { formation: {
+          module: typeof source.module === "string" ? source.module : "",
+          format: typeof source.format === "string" ? source.format : fallback + "v" + fallback,
+          capacity: rotationSummaryCapacity(source, fallback),
+          ...(goalkeeperId === null || Number.isSafeInteger(goalkeeperId) ? { goalkeeperId } : {}),
+        } } : {}),
       });
-      const nested = part === 1 ? p.secondPart : p.additionalParts?.[part - 2];
-      sources.push(part === 0 ? p : { ...p, ...record(nested), lineupPlayerIds: record(nested).lineupPlayerIds ?? [], lineupStarterCount: record(nested).lineupStarterCount });
+      sources.push(source);
       start += minutes;
     });
   });
@@ -227,7 +241,8 @@ export function buildMatchRotationSummary(
             Number.isFinite(p.lineupStarterCount)
               ? Math.max(0, Math.min(limit, Math.floor(p.lineupStarterCount)))
               : limit,
-          starter = ids.slice(0, count).includes(player.id),
+          lineupOrder = ids.slice(0, count).indexOf(player.id),
+          starter = lineupOrder >= 0,
           status = starter ? "T" : ids.includes(player.id) ? "P" : "—";
         if (starter) {
           plannedMinutes += unit.minutes;
@@ -236,6 +251,7 @@ export function buildMatchRotationSummary(
         const position = record(record(p.lineupPositions)[String(player.id)]);
         return {
           key: unit.key,
+          ...(includePitchDetails && starter ? { lineupOrder } : {}),
           fixed: record(p.rotationLocks)[String(player.id)] === "T" || record(p.rotationLocks)[String(player.id)] === "P",
           status: status as "T" | "P" | "—",
           actualMinutes: report
@@ -265,6 +281,7 @@ export function buildMatchRotationSummary(
         playerId: player.id,
         name: (player.lastName + " " + player.firstName).trim(),
         jerseyNumber: player.jerseyNumber ?? null,
+        ...(includePitchDetails ? { rosterPosition: player.position ?? null } : {}),
         cells,
         plannedMinutes,
         plannedPeriods,

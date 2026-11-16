@@ -206,7 +206,7 @@ export default function MatchesPage() {
                         </Button>
                       ) : null}
                     </div>}/>
-                <CompactMatchDetails label="Risultato e dettagli">
+                {role !== "secretary" && <CompactMatchDetails label="Risultato e dettagli">
                 <CardContent className="space-y-1 p-0">
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Input
@@ -232,7 +232,7 @@ export default function MatchesPage() {
                     <span className="text-xs text-muted-foreground">{t.result}</span>
                   </div>
                 </CardContent>
-                </CompactMatchDetails>
+                </CompactMatchDetails>}
               </Card>
             ))}
           </div>

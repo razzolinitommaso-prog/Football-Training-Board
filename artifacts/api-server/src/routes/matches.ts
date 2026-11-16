@@ -13,7 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, and, asc, desc, inArray, sql, notInArray } from "drizzle-orm";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
-import { composeNotesWithPlan, splitPublicNotesAndPlan } from "../lib/match-plan-notes";
+import { composeNotesWithPlan, publicMatchNotesInput, splitPublicNotesAndPlan } from "../lib/match-plan-notes";
 import { requireAuth } from "../lib/auth";
 import { sendParentNotificationEmail } from "../lib/parent-email";
 import { analyseMatchReport, defaultRotationCapacity, matchReportSchema, rotationSummaryCapacity } from "@workspace/api-zod";
@@ -74,7 +74,6 @@ const MATCH_CALENDAR_MANAGE_ROLES = [
 const SCHEDULE_ROLES = MATCH_CALENDAR_MANAGE_ROLES;
 const MATCH_CREATE_DELETE_ROLES = MATCH_CALENDAR_MANAGE_ROLES;
 const POST_NOTES_ROLES = [
-  "secretary",
   "sporting_director",
   "coach",
   "fitness_coach",
@@ -607,7 +606,7 @@ router.post("/matches", requireAuth, async (req, res): Promise<void> => {
   const [match] = await db.insert(matchesTable).values({
     clubId: req.session.clubId!, opponent, date: new Date(date),
     teamId: teamId ?? null, seasonId: seasonId ?? null, competition: competition ?? null,
-    location: location ?? null, homeAway: homeAway ?? "home", notes: notes ?? null,
+    location: location ?? null, homeAway: homeAway ?? "home", notes: publicMatchNotesInput(notes),
   }).returning();
   const enriched = await enrichMatch(match);
   res.status(201).json(enriched);
@@ -665,7 +664,7 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   if (result !== undefined) updates.result = result;
   if (notes !== undefined) {
     const parsed = splitPublicNotesAndPlan(existing.notes ?? null);
-    updates.notes = composeNotesWithPlan(typeof notes === "string" ? notes : null, parsed.plan);
+    updates.notes = composeNotesWithPlan(publicMatchNotesInput(notes), parsed.plan);
   }
   if (preMatchNotes !== undefined) updates.preMatchNotes = preMatchNotes;
   if (postMatchNotes !== undefined) updates.postMatchNotes = postMatchNotes;

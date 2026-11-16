@@ -64,7 +64,7 @@ import {
   groupTorneoMatchesByCompetition,
   type TournamentCardGroup,
 } from "@/pages/calendari/tournament-grouped-cards";
-import { FORMATIONS, isFormationPresetId, type FormationSlot } from "@/pages/tactical-board/formations";
+import { formationSlotsForLineup } from "@/pages/tactical-board/formations";
 import { isGoalkeeperPlayer } from "@/pages/tactical-board/player-mapping";
 import { useTeamPlayers } from "@/pages/tactical-board/use-team-players";
 import {
@@ -1171,24 +1171,6 @@ function movePlayerBetweenPeriods(
     }
     return period;
   });
-}
-
-function formationSlotsForLineup(module: string | null | undefined, format: MatchFormat, limit: number): FormationSlot[] {
-  if (module && isFormationPresetId(module) && FORMATIONS[module].formats.includes(format)) {
-    return FORMATIONS[module].slots.slice(0, limit);
-  }
-  const slots: FormationSlot[] = [{ x: 10, y: 50, role: "goalkeeper" }];
-  const outfield = Math.max(0, limit - 1);
-  for (let i = 0; i < outfield; i += 1) {
-    const band = Math.floor(i / 3);
-    const inBand = i % 3;
-    slots.push({
-      x: Math.min(78, 30 + band * 18),
-      y: outfield <= 2 ? 35 + i * 30 : 25 + inBand * 25,
-      role: "player" as const,
-    });
-  }
-  return slots;
 }
 
 function detectLineupModuleLabel(
@@ -4595,9 +4577,7 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
   const canEditSchedule  = canManageMatchCalendar;
   // stessa categoria: note pre-partita (indicazioni operative/logistiche)
   const canEditPreNotes  = canManageMatchCalendar;
-  // Post-partita: menu completo note/allegati disponibile anche in segreteria.
   const canEditPostNotes = [
-    "secretary",
     "coach",
     "fitness_coach",
     "athletic_director",

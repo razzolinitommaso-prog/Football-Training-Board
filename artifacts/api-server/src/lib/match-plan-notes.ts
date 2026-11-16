@@ -1,5 +1,9 @@
 const MATCH_PLAN_MARKER = "[FTB_MATCH_PLAN]";
 
+export function publicMatchNotesInput(value: unknown): string | null {
+  return typeof value === "string" ? value.split(MATCH_PLAN_MARKER, 1)[0].trim() || null : null;
+}
+
 export function splitPublicNotesAndPlan(raw?: string | null): { publicNotes: string | null; plan: unknown | null } {
   const text = (raw ?? "").trim();
   if (!text) return { publicNotes: null, plan: null };

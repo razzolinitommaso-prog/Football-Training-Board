@@ -630,3 +630,23 @@ const withFourth = { periods: added.periods, postMatchReport: added.postMatchRep
 backend.preserveMatchReport(withFourth, { periods: three, postMatchReport: repairedThird }, undefined, true);
 assert.equal(withFourth.postMatchReport.periods.length, 4);
 console.log("PASS 3B regression: a cached lineup save cannot roll back repaired report duration, report save and fourth-period extension still work.");
+
+// The manager preview gets the saved order and role even when its roster is alphabetical.
+const pitchPlan = { matchGoalkeeperId: 2, periods: [{
+  key: "t3", minutes: "12", format: "5v5", module: "1-2-1", fractionCount: 2,
+  lineupPlayerIds: [3, 2, 1], lineupStarterCount: 2, lineupPositions: { 3: { x: 34, y: 71 } },
+  secondPart: { lineupPlayerIds: [1, 3, 2], lineupStarterCount: 2, lineupGoalkeeperId: 1 },
+}] };
+const pitchRoster = [1, 2, 3].map(id => ({ id, firstName: "Player", lastName: String(id), position: id === 2 ? "GK" : "DC" }));
+const pitchSummary = sharedFractions.buildMatchRotationSummary(pitchPlan, pitchRoster, 5, true, true);
+same(pitchSummary.units.map(unit => unit.formation.goalkeeperId), [2, 1]);
+same(pitchSummary.units.map(unit => unit.formation.module), ["1-2-1", "1-2-1"]);
+const playerThree = pitchSummary.rows.find(row => row.playerId === 3);
+same(playerThree.cells.map(cell => cell.lineupOrder), [0, 1]);
+same(playerThree.cells[0].position, { x: 34, y: 71 });
+assert.equal(playerThree.cells[1].position, undefined);
+const publicPitch = sharedFractions.buildMatchRotationSummary(pitchPlan, pitchRoster.slice(0, 1), 5, false);
+assert.equal(publicPitch.units[0].formation, undefined);
+assert.equal(publicPitch.rows[0].rosterPosition, undefined);
+assert.equal(publicPitch.rows[0].cells[1].lineupOrder, undefined);
+console.log("PASS manager pitch: saved order, selected goalkeeper, fraction positions and no additional parent metadata.");

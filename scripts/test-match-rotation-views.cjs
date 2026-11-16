@@ -132,7 +132,7 @@ const full = {
     substitutions: [],
     periods: [
       { minutes: 13, starters: [101] },
-      { minutes: 12, starters: [] },
+      { minutes: 12, starters: [102] },
       { minutes: 13, starters: [101] },
       { minutes: 12, starters: [101] },
     ],

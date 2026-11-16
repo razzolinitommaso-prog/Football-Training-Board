@@ -15,6 +15,9 @@ import {
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import "./match-comparison.css";
 import { Checkbox } from "@/components/ui/checkbox";
+import { formationSlotsForLineup } from "@/pages/tactical-board/formations";
+import { isGoalkeeperPlayer } from "@/pages/tactical-board/player-mapping";
+import { lineupKeeper } from "@/lib/match-lineup";
 type RosterPlayer = {
   id: number;
   name: string;
@@ -41,9 +44,16 @@ function SummaryPitch({
   unit: RotationSummaryUnit;
   enlarged?: boolean;
 }) {
-  const starters = summary.rows.filter(
-    (row) => row.cells.find((c) => c.key === unit.key)?.status === "T",
-  );
+  const starters = summary.rows.flatMap(row => {
+    const cell = row.cells.find(item => item.key === unit.key);
+    return cell?.status === "T" ? [{ row, cell }] : [];
+  }).sort((a, b) => (a.cell.lineupOrder ?? 0) - (b.cell.lineupOrder ?? 0));
+  const formation = unit.formation;
+  const ids = starters.map(item => item.row.playerId);
+  const goalkeeper = formation ? lineupKeeper({ lineupGoalkeeperId: formation.goalkeeperId }, ids,
+    id => isGoalkeeperPlayer({ position: starters.find(item => item.row.playerId === id)?.row.rosterPosition })) : null;
+  const displayOrder = goalkeeper === null ? ids : [goalkeeper, ...ids.filter(id => id !== goalkeeper)];
+  const slots = formation ? formationSlotsForLineup(formation.module, formation.format, formation.capacity) : [];
   return (
     <>
       <div
@@ -58,8 +68,9 @@ function SummaryPitch({
         <div className="absolute left-[30%] top-[35%] h-[30%] w-[40%] rounded-full border border-white/70" />
         <div className="absolute left-[25%] right-[25%] top-[7%] h-[15%] border border-white/70" />
         <div className="absolute left-[25%] right-[25%] bottom-[7%] h-[15%] border border-white/70" />
-        {starters.map((row, index) => {
-          const point = row.cells.find((c) => c.key === unit.key)?.position;
+        {starters.map(({ row, cell }, index) => {
+          const keeper = row.playerId === goalkeeper;
+          const point = cell.position ?? slots[displayOrder.indexOf(row.playerId)];
           const left = point
               ? point.y
               : starters.length === 1
@@ -73,16 +84,16 @@ function SummaryPitch({
           return (
             <span
               key={row.playerId}
-              title={row.name}
-              className="absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white bg-blue-500 text-[11px] font-semibold text-white"
+              title={keeper ? row.name + " · Portiere" : row.name}
+              className={"absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white text-[11px] font-semibold text-white " + (keeper ? "bg-yellow-600" : "bg-blue-500")}
               style={{ left: left + "%", top: top + "%" }}
             >
-              {row.jerseyNumber ??
+              {row.jerseyNumber ?? (formation ? keeper ? "GK" : index + 1 :
                 row.name
                   .split(" ")
                   .map((part) => part[0])
                   .slice(0, 2)
-                  .join("")}
+                  .join(""))}
                 <span className="absolute top-full mt-0.5 max-w-24 truncate rounded bg-green-950/90 px-1 text-[10px] leading-tight">
                 {row.name}
               </span>
@@ -90,11 +101,10 @@ function SummaryPitch({
           );
         })}
       </div>
-      {starters.some(
-        (row) => !row.cells.find((cell) => cell.key === unit.key)?.position,
-      ) && (
+      {goalkeeper !== null && <p className="text-xs"><strong>Portiere:</strong> {starters.find(item => item.row.playerId === goalkeeper)?.row.name}</p>}
+      {starters.some(({ cell }) => !cell.position) && (
         <p className="text-[10px] text-muted-foreground">
-          Disposizione indicativa dove le posizioni non sono state salvate.
+          {formation ? "Posizioni da modulo dove il mister non ha salvato coordinate." : "Disposizione indicativa dove le posizioni non sono state salvate."}
         </p>
       )}
     </>

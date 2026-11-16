@@ -62,7 +62,7 @@ router.get("/dirigenti/overview", requireAuth, async (req, res): Promise<void> =
       newEndTime:change.teamId === selectedTeamId ? change.newEndTime : change.targetEndTime,
     })),
   };
-  const callups = matchRows.length ? await db.select({ matchId:callUpsTable.matchId, id:playersTable.id, firstName:playersTable.firstName, lastName:playersTable.lastName, status:callUpsTable.status }).from(callUpsTable).innerJoin(playersTable,and(eq(playersTable.id,callUpsTable.playerId),eq(playersTable.clubId,clubId))).where(inArray(callUpsTable.matchId,matchRows.map(match=>match.id))).orderBy(asc(playersTable.lastName)) : [];
+  const callups = matchRows.length ? await db.select({ matchId:callUpsTable.matchId, id:playersTable.id, firstName:playersTable.firstName, lastName:playersTable.lastName, jerseyNumber:playersTable.jerseyNumber, position:playersTable.position, status:callUpsTable.status }).from(callUpsTable).innerJoin(playersTable,and(eq(playersTable.id,callUpsTable.playerId),eq(playersTable.clubId,clubId))).where(inArray(callUpsTable.matchId,matchRows.map(match=>match.id))).orderBy(asc(playersTable.lastName)) : [];
   const coachCallups = callups.filter(callup=>!["available","unavailable","availability","absent","declined","not_called"].includes(callup.status.toLowerCase()));
   const uniqueCallups = [...new Map(coachCallups.map(row => [`${row.matchId}:${row.id}`, row])).values()];
   const comparisonId = req.query.comparisonMatchId;
@@ -73,11 +73,22 @@ router.get("/dirigenti/overview", requireAuth, async (req, res): Promise<void> =
     const date = match.isPostponed ? match.rescheduleTbd ? null : match.rescheduleDate : match.date;
     comparison = await managerMatchComparison(clubId,selectedTeamId,date,uniqueCallups.filter(callup=>callup.matchId===match.id).map(callup=>callup.id));
   }
+  const selectedTeam = teams.find(team => team.id === selectedTeamId);
+  const capacity = defaultRotationCapacity(selectedTeam?.name, selectedTeam?.category, selectedTeam?.clubSection);
   const matches = matchRows.map(({ matchPlan: savedPlan, notes, ...match }) => {
     const legacy = splitPublicNotesAndPlan(notes).plan;
     const matchPlan = savedPlan ?? (legacy && typeof legacy === "object" && !Array.isArray(legacy) ? legacy as Record<string, unknown> : null);
     const report = matchReportSchema.safeParse(matchPlan?.postMatchReport);
-    return {...match, ...(report.success ? { report: report.data } : {}), preparationStatus:matchPreparationStatus(matchPlan,defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), rotation:buildMatchRotationSummary(matchPlan,uniqueCallups.filter(callup=>callup.matchId===match.id).map(callup=>({...callup,jerseyNumber:players.find(p=>p.id===callup.id)?.jerseyNumber})),defaultRotationCapacity(teams.find(t=>t.id===selectedTeamId)?.name,teams.find(t=>t.id===selectedTeamId)?.category,teams.find(t=>t.id===selectedTeamId)?.clubSection)), convocationAt:typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null, convocationPlace:typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null, callups:uniqueCallups.filter(callup=>callup.matchId===match.id).map(({status,...callup})=>callup)};
+    const matchCallups = uniqueCallups.filter(callup => callup.matchId === match.id);
+    return {
+      ...match,
+      ...(report.success ? { report: report.data } : {}),
+      preparationStatus: matchPreparationStatus(matchPlan, capacity),
+      rotation: buildMatchRotationSummary(matchPlan, matchCallups, capacity, true, true),
+      convocationAt: typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null,
+      convocationPlace: typeof matchPlan?.convocationPlace === "string" ? matchPlan.convocationPlace : null,
+      callups: matchCallups.map(({ id, firstName, lastName }) => ({ id, firstName, lastName })),
+    };
   });
   res.json({ teams, selectedTeamId, players, rosterTeams, training, matches, trainingCalendar, ...(comparison ? {comparison} : {}) });
 });

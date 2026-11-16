@@ -41,11 +41,20 @@ export function MatchReportSummary({ report, players, limit, rotation, showChang
       <thead className="bg-muted/50 text-xs text-muted-foreground">
         <tr><th scope="col" className="w-1/2 break-words p-2">Giocatore</th><th scope="col" className="break-words p-2 text-right">Pianificati</th><th scope="col" className="break-words p-2 text-right">Effettivi</th></tr>
       </thead>
-      <tbody>{rotation.rows.map(row => <tr key={row.playerId} className="border-b">
-        <th scope="row" className="break-words p-2 font-medium">{row.name}</th>
-        <td className="p-2 text-right text-muted-foreground">{matchMinutesLabel(row.plannedMinutes, true)}</td>
-        <td className="p-2 text-right font-semibold">{validMinutes ? matchMinutesLabel(analysis.minutes[row.playerId] ?? 0, true) : "—"}</td>
-      </tr>)}</tbody>
+      <tbody>{rotation.rows.map(row => {
+        const actual = validMinutes ? analysis.minutes[row.playerId] ?? 0 : null;
+        const difference = actual === null ? 0 : Math.round((actual - row.plannedMinutes) * 60) / 60;
+        return <tr key={row.playerId} className="border-b align-top">
+          <th scope="row" className="break-words p-2 font-medium">{row.name}</th>
+          <td className="p-2 text-right text-muted-foreground">{matchMinutesLabel(row.plannedMinutes, true)}</td>
+          <td className="p-2 text-right font-semibold">
+            {actual === null ? "—" : matchMinutesLabel(actual, true)}
+            {difference !== 0 && <span className="block text-xs font-normal text-muted-foreground">
+              {difference > 0 ? "+" : "−"}{matchMinutesLabel(Math.abs(difference), true)} sul piano
+            </span>}
+          </td>
+        </tr>;
+      })}</tbody>
     </table> : <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">{players.map(player =>
       <p key={player.id}>{player.name}: {!validMinutes ? "da verificare" : `${analysis.minutes[player.id] ?? 0}′`} · {report.goals.filter(goal => goal.playerId === player.id).length} gol</p>)}</div>}
     {showChanges && changes.length > 0 && <div className="space-y-1">

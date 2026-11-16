@@ -97,3 +97,16 @@ numero di tempi, il piano adegua solo la struttura del resoconto. La durata
 e i cambi effettivi si correggono in **Resoconto**.
 La conferma è accessibile dall’area Dirigenti al dirigente assegnato alla
 squadra e si applica alla versione del resoconto che ha verificato.
+
+Nell’area Dirigenti, la conferma usa la stessa vista di verifica delle
+formazioni del resoconto, in sola lettura, anche su telefono. Il registro
+presenze mostra i giocatori in una tabella compatta e segnala le gare con
+minutaggio disponibile quando la copertura è parziale.
+
+La lavagna dell’area Dirigenti usa per ogni frazione le coordinate salvate,
+il modulo, l’ordine della formazione e il portiere scelto dal mister. Dove
+mancano le coordinate, usa lo stesso modulo della vista dello staff.
+
+La Segreteria consulta il resoconto e gestisce la logistica e le note
+pre-partita. Il salvataggio del risultato e delle note post-partita segue
+i permessi di compilazione del resoconto.

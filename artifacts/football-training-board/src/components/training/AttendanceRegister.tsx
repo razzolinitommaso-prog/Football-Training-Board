@@ -105,6 +105,7 @@ function summarize(player: Player, sessions: Event[], matches: Event[], today: s
     missing: attendance.filter(session => player.attendance[session.id] == null && dateKey(session.date) <= today).length,
     recorded: recorded.length,
     called: games.filter(game => game.called === true).length,
+    reportedCallups: games.filter(game => game.called === true && game.minutes != null).length,
     planned: sumMinutes(games.map(game => game.plannedMinutes)),
     actual: sumMinutes(games.map(game => game.minutes)),
   };
@@ -136,12 +137,14 @@ export function AttendanceRegister({
   initialTeamId,
   family = false,
   lockTeam = false,
+  compactOverview = false,
   attendancePath = "/attendance",
 }: {
   section?: string;
   initialTeamId?: string;
   family?: boolean;
   lockTeam?: boolean;
+  compactOverview?: boolean;
   attendancePath?: string;
 }) {
   const { user, club, role } = useAuth();
@@ -331,24 +334,26 @@ export function AttendanceRegister({
             <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>Stampa / PDF</Button>
           </div>
         </header>
-        <table className="attendance-summary-table mobile-player-table w-full border-collapse text-sm">
+        <div role={compactOverview ? "region" : undefined} aria-label={compactOverview ? "Riepilogo presenze e minutaggi" : undefined}
+          tabIndex={compactOverview ? 0 : undefined} className={compactOverview ? "max-w-full overflow-x-auto rounded-lg border print:overflow-visible" : undefined}>
+        <table className={compactOverview ? "w-full min-w-[27rem] border-separate border-spacing-0 text-xs sm:text-sm" : "attendance-summary-table mobile-player-table w-full border-collapse text-sm"}>
           <thead className="bg-muted text-xs text-muted-foreground">
             <tr>
-              <th scope="col" className="p-2 text-left">Giocatore / annata</th>
-              {showDates && sessions.map(session => <th scope="col" key={session.id} title={fullEventName(session)} className="hidden px-2 py-1.5 text-left lg:table-cell print:table-cell">{shortDate(session.date)}</th>)}
+              <th scope="col" className={compactOverview ? "sticky left-0 z-10 w-28 bg-muted p-2 text-left" : "p-2 text-left"}>Giocatore / annata</th>
+              {showDates && sessions.map(session => <th scope="col" key={session.id} title={fullEventName(session)} className={(compactOverview ? "" : "hidden lg:table-cell ") + "px-2 py-1.5 text-left print:table-cell"}>{shortDate(session.date)}</th>)}
               {["Presenze", "Assenze", "Convocazioni", "Min. previsti", "Min. effettivi"].map(label => <th scope="col" key={label} className="p-2 text-left">{label}</th>)}
             </tr>
           </thead>
           <tbody>
             {rows.map(row => <tr key={row.player.id} className="border-b">
-              <th scope="row" className="px-2 py-1.5 text-left font-semibold">
+              <th scope="row" className={"px-2 py-1.5 text-left font-semibold " + (compactOverview ? "sticky left-0 z-10 border-b bg-card" : "")}>
                 {row.player.name}<span className="block text-xs font-normal text-muted-foreground">{row.player.team}</span>
               </th>
               {showDates && sessions.map(session => {
                 const badge = statusBadges[row.player.attendance[session.id] ?? ""];
                 const label = attendanceLabel(row.player, session, data.today);
                 const short = label === "Non applicabile" ? "N/A" : label === "Non registrato" ? "NR" : "—";
-                return <td key={session.id} className="hidden px-2 py-1.5 lg:table-cell print:table-cell">
+                return <td key={session.id} className={(compactOverview ? "" : "hidden lg:table-cell ") + "px-2 py-1.5 print:table-cell"}>
                   <span title={label} aria-label={label} className={"rounded px-1.5 py-0.5 text-xs font-medium " + (badge?.tone ?? "bg-muted text-muted-foreground")}>{badge?.letter ?? short}</span>
                 </td>;
               })}
@@ -362,14 +367,20 @@ export function AttendanceRegister({
               </StatCell>
               <StatCell label="Convocazioni">{row.called}</StatCell>
               <StatCell label="Min. previsti">{minuteLabel(row.planned)}</StatCell>
-              <StatCell label="Min. effettivi"><strong>{minuteLabel(row.actual)}</strong></StatCell>
+              <StatCell label="Min. effettivi">
+                <strong>{minuteLabel(row.actual)}</strong>
+                {compactOverview && row.called > row.reportedCallups &&
+                  <span className="block text-[10px] text-muted-foreground">{row.reportedCallups}/{row.called} gare</span>}
+              </StatCell>
             </tr>)}
           </tbody>
         </table>
+        </div>
         {!rows.length && <p className="p-2 text-sm text-muted-foreground">Nessun giocatore corrisponde ai filtri.</p>}
         <p className="text-xs text-muted-foreground">
           Percentuale sugli appelli registrati. I minuti effettivi sommano le gare con resoconto. Il trattino indica un dato mancante.
-          {showDates && <span className="hidden lg:inline print:inline"> P presente · A assente · G giustificato · I infortunato · NR non registrato · N/A fuori elenco.</span>}
+          {compactOverview && " Il conteggio sotto gli effettivi indica quante convocazioni hanno un minutaggio registrato."}
+          {showDates && <span className={compactOverview ? undefined : "hidden lg:inline print:inline"}> P presente · A assente · G giustificato · I infortunato · NR non registrato · N/A fuori elenco.</span>}
         </p>
         {!season && (sessions.length > 0 || matches.length > 0) && <details ref={details} className="rounded-lg border">
           <DisclosureSummary className="px-3 py-2 text-sm font-medium">Dettaglio sedute e gare</DisclosureSummary>
