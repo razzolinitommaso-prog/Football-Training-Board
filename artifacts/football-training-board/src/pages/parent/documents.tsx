@@ -1,4 +1,6 @@
-import { ScrollableSelect } from "@/components/ui/scrollable-select";
+import { DocumentFilePicker } from "@/components/document-file-picker";
+import { downloadDocument, readDocumentFile } from "@/lib/document-files";
+import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect, useRef } from "react";
 import { FileText, Upload, Check, AlertTriangle, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -10,75 +12,71 @@ import { withApi } from "@/lib/api-base";
 
 async function apiFetch(path: string, options?: RequestInit) {
   const res = await fetch(withApi(`/api${path}`), { credentials: "include", headers: { "Content-Type": "application/json" }, ...options });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    throw new Error(error?.error ?? "Il server ha rifiutato la richiesta.");
+  }
   return res.json();
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 export default function ParentDocuments() {
   const [data, setData] = useState<{ clubDocs: any[]; uploads: any[] }>({ clubDocs: [], uploads: [] });
-  const [children, setChildren] = useState<any[]>([]);
+  const [child, setChild] = useState<{ id: number; firstName: string; lastName: string } | null>(null);
+  const { profileKey } = useAuth();
+  const currentProfile = useRef(profileKey);
+  currentProfile.current = profileKey;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [uploadSupported, setUploadSupported] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [selectedChild, setSelectedChild] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [notes, setNotes] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    Promise.all([apiFetch("/parent/documents"), apiFetch("/parent/children")])
-      .then(([d, c]) => {
-        setUploadSupported(!Array.isArray(d) && d?.uploadSupported === true);
-        setData(Array.isArray(d) ? { clubDocs: d, uploads: [] } : {
-          clubDocs: Array.isArray(d?.clubDocs) ? d.clubDocs : [],
-          uploads: Array.isArray(d?.uploads) ? d.uploads : [],
-        });
-        setChildren(c); if (c.length === 1) setSelectedChild(String(c[0].id));
-      })
-      .catch((error) => {
-        setLoadError(true);
-        if (import.meta.env.DEV) console.error(error);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    let current = true;
+    setLoading(true);
+    setLoadError(false);
+    setChild(null);
+    setFile(null);
+    setNotes("");
+    apiFetch("/parent/documents?view=upload").then(d => {
+      if (!current) return;
+      setChild(d.child ?? null);
+      setData(Array.isArray(d) ? { clubDocs: d, uploads: [] } : {
+        clubDocs: d.clubDocs ?? [], uploads: d.uploads ?? [],
+      });
+    }).catch(() => { if (current) setLoadError(true); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
+  }, [profileKey]);
 
-  async function handleUpload(e: React.FormEvent) {
-    e.preventDefault();
-    const file = fileRef.current?.files?.[0];
-    if (!file || !selectedChild) { toast({ title: "Errore", description: "Seleziona un figlio e un file.", variant: "destructive" }); return; }
-    if (file.size > 5 * 1024 * 1024) { toast({ title: "File troppo grande", description: "Max 5MB.", variant: "destructive" }); return; }
-
+  async function handleUpload(event: React.FormEvent) {
+    event.preventDefault();
+    if (!file || !child) return;
     setUploading(true);
     try {
-      const fileData = await fileToBase64(file);
-      const doc = await apiFetch("/parent/documents", {
-        method: "POST",
-        body: JSON.stringify({
-          playerId: Number(selectedChild),
-          fileName: file.name,
-          fileType: file.type,
-          fileData,
-          notes: notes || undefined,
-        }),
-      });
-      setData(prev => ({ ...prev, uploads: [{ ...doc, playerName: children.find(c => c.id === Number(selectedChild)) ? `${children.find(c => c.id === Number(selectedChild)).firstName} ${children.find(c => c.id === Number(selectedChild)).lastName}` : "" }, ...prev.uploads] }));
-      setNotes(""); if (fileRef.current) fileRef.current.value = "";
-      toast({ title: "Documento caricato!", description: file.name });
-    } catch {
-      toast({ title: "Errore upload", description: "Non è stato possibile caricare il file.", variant: "destructive" });
+      const attachment = await readDocumentFile(file, 5 * 1024 * 1024);
+      const doc = await apiFetch("/parent/documents", { method: "POST",
+        body: JSON.stringify({ playerId: child.id, ...attachment, notes: notes || undefined }) });
+      if (!doc.id || doc.playerId !== child.id || !doc.fileData) throw new Error("Il server non ha confermato il salvataggio.");
+      if (currentProfile.current !== profileKey) return;
+      setData(prev => ({ ...prev, uploads: [{ ...doc, playerName: child.firstName + " " + child.lastName }, ...prev.uploads] }));
+      setNotes("");
+      setFile(null);
+      toast({ title: "Documento inviato alla società", description: doc.fileName });
+    } catch (error) {
+      toast({ title: "Impossibile inviare il documento", description: (error as Error).message, variant: "destructive" });
     } finally {
       setUploading(false);
     }
+  }
+
+  function fileDownload(doc: { fileData?: string; fileName?: string }) {
+    if (!doc.fileData) return null;
+    return <Button type="button" variant="outline" size="sm" onClick={() => {
+      try { downloadDocument(doc.fileData!, doc.fileName ?? "documento"); }
+      catch (error) { toast({ title: "Impossibile scaricare il documento", description: (error as Error).message, variant: "destructive" }); }
+    }}>Scarica</Button>;
   }
 
   if (loading) return (
@@ -98,27 +96,16 @@ export default function ParentDocuments() {
         <p className="text-muted-foreground text-sm mt-1">Documenti e certificati dei tuoi figli</p>
       </div>
 
-      {uploadSupported && <div className="bg-card border rounded-2xl p-5">
+      {child && <div className="bg-card border rounded-2xl p-5">
         <h2 className="font-semibold mb-4">Carica Documento</h2>
         <form onSubmit={handleUpload} className="space-y-3">
-          {children.length > 1 && (
-            <div>
-              <Label className="text-sm">Figlio</Label>
-              <ScrollableSelect value={selectedChild} onValueChange={e => setSelectedChild(e)} className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm">
-                <option value="">Seleziona...</option>
-                {children.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
-              </ScrollableSelect>
-            </div>
-          )}
-          <div>
-            <Label className="text-sm">File (PDF, immagine, max 5MB)</Label>
-            <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic" capture="environment" className="mt-1 w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer" />
-          </div>
+          <p className="text-sm text-muted-foreground">{child.firstName} {child.lastName} · PDF o immagine, massimo 5 MB</p>
+          <DocumentFilePicker file={file} onChange={setFile} disabled={uploading} />
           <div>
             <Label className="text-sm">Note (opzionale)</Label>
             <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Es. Certificato medico 2025-2026" className="mt-1" />
           </div>
-          <Button type="submit" disabled={uploading} className="w-full gap-2">
+          <Button type="submit" disabled={uploading || !file} className="w-full gap-2">
             {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
             {uploading ? "Caricamento..." : "Carica Documento"}
           </Button>
@@ -145,6 +132,7 @@ export default function ParentDocuments() {
                 {isExpired && <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />}
                 {isExpiringSoon && !isExpired && <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />}
                 {!isExpired && !isExpiringSoon && <Check className="w-4 h-4 text-green-400 shrink-0" />}
+                {fileDownload(doc)}
               </div>
             );
           })}
@@ -165,6 +153,7 @@ export default function ParentDocuments() {
                 {doc.notes && <p className="text-xs text-muted-foreground truncate">{doc.notes}</p>}
                 <p className="text-xs text-muted-foreground mt-0.5">{new Date(doc.createdAt).toLocaleDateString("it-IT")}</p>
               </div>
+              {fileDownload(doc)}
             </div>
           ))}
         </div>

@@ -21,3 +21,12 @@ scegliere un ruolo e una squadra e consultare un’anteprima delle voci di
 navigazione in sola lettura. Il ruolo e la sessione restano quelli originali.
 Per verificare il contenuto di una schermata o provare un salvataggio con un
 altro profilo si usa un account di test creato da **Membri**.
+
+## Foto e documenti
+
+La scheda giocatore e Documenti di Segreteria supportano la fotocamera e
+la selezione dal dispositivo. I documenti salvati sono scaricabili anche
+in consultazione. La famiglia invia file dal profilo del figlio attivo.
+L’invio è visibile alla società e non modifica la scadenza del certificato.
+Gli allegati del resoconto salvati con il nuovo flusso sono scaricabili.
+Le vecchie righe con il solo nome richiedono di allegare il file di nuovo.

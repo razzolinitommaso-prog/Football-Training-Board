@@ -1,3 +1,4 @@
+import { parseDocumentUpload } from "../lib/document-upload";
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   db,
@@ -658,51 +659,28 @@ router.get("/player-documents", requireAuth, async (req, res): Promise<void> => 
 });
 
 router.post("/player-documents", requireAuth, async (req, res): Promise<void> => {
-  const { playerId, type, validFrom, expiryDate, notes, fileName, fileType, fileSize, fileData } = req.body;
-  if (!playerId || !type) { res.status(400).json({ error: "playerId and type required" }); return; }
-  let safeFileName: string | null = null;
-  let safeFileType: string | null = null;
-  let safeFileSize: number | null = null;
-  let safeFileData: string | null = null;
-  if (fileData || fileName) {
-    if (!fileName || !fileData) {
-      res.status(400).json({ error: "fileName e fileData sono obbligatori per allegare un file" });
-      return;
-    }
-    const mime = String(fileType ?? "application/octet-stream").slice(0, 200);
-    if (!/^(application\/pdf|image\/jpeg|image\/png|image\/webp|image\/heic|image\/heif)$/i.test(mime)) {
-      res.status(400).json({ error: "Formato file non consentito" });
-      return;
-    }
-    const { base64 } = parseBase64Payload(String(fileData));
-    if (!base64) {
-      res.status(400).json({ error: "Contenuto file non valido" });
-      return;
-    }
-    let buf: Buffer;
-    try {
-      buf = Buffer.from(base64, "base64");
-    } catch {
-      res.status(400).json({ error: "Contenuto file non valido" });
-      return;
-    }
-    if (buf.length > 8 * 1024 * 1024) {
-      res.status(413).json({ error: "File troppo grande: massimo 8MB" });
-      return;
-    }
-    safeFileName = String(fileName).replace(/[/\\]/g, "_").slice(0, 255);
-    safeFileType = mime;
-    safeFileSize = Number.isFinite(Number(fileSize)) ? Number(fileSize) : buf.length;
-    safeFileData = String(fileData).startsWith("data:") ? String(fileData) : `data:${mime};base64,${base64}`;
+  const { playerId, type, validFrom, expiryDate, notes, fileName, fileType, fileData } = req.body;
+  const id = Number(playerId);
+  const clubId = req.session.clubId!;
+  if (!Number.isSafeInteger(id) || id <= 0 || typeof type !== "string" || !type.trim()) {
+    res.status(400).json({ error: "Seleziona il giocatore e il tipo di documento." }); return;
   }
+  if (!["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"].includes(req.session.role ?? "")) {
+    res.status(403).json({ error: "Non autorizzato a caricare documenti giocatore." }); return;
+  }
+  const [player] = await db.select({ id: playersTable.id }).from(playersTable)
+    .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, id)));
+  const scope = await getScopedPlayerIds(req, clubId);
+  if (!player || (scope && !scope.includes(id))) {
+    res.status(404).json({ error: "Giocatore non disponibile." }); return;
+  }
+  const file = fileName || fileData ? parseDocumentUpload({ fileName, fileType, fileData }, 8 * 1024 * 1024) : null;
+  if (file?.error) { res.status(file.status).json({ error: file.error }); return; }
   const [record] = await db.insert(playerDocumentsTable).values({
     clubId: req.session.clubId!, playerId: Number(playerId), type,
     validFrom: validFrom ?? null,
     expiryDate: expiryDate ?? null,
-    fileName: safeFileName,
-    fileType: safeFileType,
-    fileSize: safeFileSize,
-    fileData: safeFileData,
+    ...file?.attachment,
     notes: notes ?? null,
   } as any).returning();
   res.status(201).json(record);

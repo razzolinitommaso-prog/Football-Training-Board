@@ -1,3 +1,5 @@
+import { DocumentFilePicker } from "@/components/document-file-picker";
+import { downloadDocument, readDocumentFile } from "@/lib/document-files";
 import { PlayerPaymentRegister } from "@/components/player-payment-register";
 import { PlayerKitEditor } from "./player-kit-editor";
 import { ParentFamilyLinks } from "@/components/parent-family-links";
@@ -628,20 +630,14 @@ function rebalanceInstallments(drafts: InstallmentDraft[], index: number, value:
   return next;
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("Errore lettura file"));
-    reader.readAsDataURL(file);
-  });
-}
+
 
 function playerDocumentLabel(type: string): string {
   if (type === "medicalCertificate") return "Certificato medico";
   if (type === "federationCard") return "Cartellino";
   if (type === "idCard") return "Documento identita";
   if (type === "privacy") return "Privacy";
+  if (type === "parentSubmission") return "Inviato dalla famiglia · da verificare";
   return "Altro";
 }
 
@@ -1574,7 +1570,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const seasonStartYearForImport = importSeasonStartYearFromTeams(importSeasonTeams)
     ?? importSeasonStartYearFromSeasons(seasons)
     ?? importSeasonStartYear(activeSeason?.name ?? activeSeason?.startDate);
-  const { data: playerDocuments = [] } = useQuery<PlayerDocument[]>({
+  const { data: playerDocuments = [], isError: playerDocumentsError } = useQuery<PlayerDocument[]>({
     queryKey: ["/api/player-documents"],
     queryFn: async () => {
       const res = await fetch(withApi("/api/player-documents"), { credentials: "include" });
@@ -2187,49 +2183,52 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       toast({ title: "Seleziona un file", variant: "destructive" });
       return;
     }
-    if (documentFile.size > 8 * 1024 * 1024) {
-      toast({ title: "File troppo grande", description: "Massimo 8MB.", variant: "destructive" });
-      return;
-    }
+    const playerId = editingPlayer.id;
     setIsUploadingDocument(true);
     try {
-      const fileData = await fileToDataUrl(documentFile);
+      const attachment = await readDocumentFile(documentFile);
       const res = await fetch(withApi("/api/player-documents"), {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          playerId: editingPlayer.id,
-          type: documentType,
-          validFrom: documentValidFrom || null,
-          expiryDate: documentExpiryDate || null,
-          notes: documentNotes || null,
-          fileName: documentFile.name,
-          fileType: documentFile.type || "application/octet-stream",
-          fileSize: documentFile.size,
-          fileData,
+          ...attachment, playerId, type: documentType, validFrom: documentValidFrom || null,
+          expiryDate: documentExpiryDate || null, notes: documentNotes || null,
         }),
       });
-      if (!res.ok) throw new Error(await res.text());
-      if (documentType === "medicalCertificate") {
-        editForm.setValue("medicalCertificateExpiry", documentExpiryDate || null, { shouldDirty: true });
-        if (documentExpiryDate) {
-          await updateMutation.mutateAsync({
-            id: editingPlayer.id,
-            data: { medicalCertificateExpiry: documentExpiryDate } as any,
-          });
+      if (!res.ok) {
+        const error = await res.json().catch(() => null);
+        throw new Error(error?.error ?? "Il server ha rifiutato il documento.");
+      }
+      const saved: PlayerDocument = await res.json();
+      if (!saved.id || !saved.fileData || saved.playerId !== playerId) throw new Error("Il server non ha confermato il salvataggio del file.");
+      queryClient.setQueryData<PlayerDocument[]>(["/api/player-documents"], current =>
+        [saved, ...(current ?? []).filter(item => item.id !== saved.id)]);
+      resetDocumentForm();
+      void queryClient.invalidateQueries({ queryKey: ["/api/player-documents"] });
+      if (saved.type === "medicalCertificate" && saved.expiryDate) {
+        editForm.setValue("medicalCertificateExpiry", saved.expiryDate, { shouldDirty: true });
+        try {
+          await updateMutation.mutateAsync({ id: playerId, data: { medicalCertificateExpiry: saved.expiryDate } as any });
+        } catch {
+          toast({ title: "Documento salvato", description: "La scadenza sulla scheda non è stata aggiornata. Salvare la scheda per sincronizzarla.", variant: "destructive" });
+          return;
         }
       }
-      queryClient.invalidateQueries({ queryKey: ["/api/player-documents"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/players"] });
-      resetDocumentForm();
-      toast({ title: "Documento caricato" });
-    } catch {
-      toast({ title: "Errore upload documento", variant: "destructive" });
+      toast({ title: "Documento salvato", description: saved.fileName ?? undefined });
+    } catch (error) {
+      toast({ title: "Impossibile caricare il documento", description: (error as Error).message, variant: "destructive" });
     } finally {
       setIsUploadingDocument(false);
     }
   };
+
+  function downloadPlayerDocument(doc: PlayerDocument) {
+    if (!doc.fileData) return;
+    try {
+      downloadDocument(doc.fileData, doc.fileName || playerDocumentLabel(doc.type));
+    } catch (error) {
+      toast({ title: "Impossibile scaricare il documento", description: (error as Error).message, variant: "destructive" });
+    }
+  }
 
   const deletePlayerDocument = async (docId: number) => {
     if (!canEditFullPlayer) return;
@@ -4087,8 +4086,12 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               <details className="group rounded-lg border p-3">
                 <CollapsibleSectionSummary title="Documenti giocatore" icon={<FileText className="h-4 w-4" />} status={documentSectionStatus} />
                 <div className="mt-2 space-y-1 text-sm">
+                  {playerDocumentsError && <p role="alert">Impossibile aggiornare l’elenco dei documenti.</p>}
                   {editingPlayerDocuments.length ? editingPlayerDocuments.map(doc => (
-                    <p key={doc.id} className="break-words">{playerDocumentLabel(doc.type)}{doc.expiryDate && " · Scadenza " + profileDateLabel(doc.expiryDate)}</p>
+                    <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="break-words">{playerDocumentLabel(doc.type)}{doc.fileName && " · " + doc.fileName}{doc.expiryDate && " · Scadenza " + profileDateLabel(doc.expiryDate)}</p>
+                      {doc.fileData && <Button type="button" variant="outline" size="sm" onClick={() => downloadPlayerDocument(doc)}>Scarica</Button>}
+                    </div>
                   )) : <p className="text-muted-foreground">Nessun documento registrato.</p>}
                 </div>
               </details>
@@ -4682,12 +4685,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>File PDF o immagine</Label>
-                    <Input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif"
-                      disabled={!canEditFullPlayer}
-                      onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
-                    />
+                    <DocumentFilePicker file={documentFile} onChange={setDocumentFile} disabled={!canEditFullPlayer || isUploadingDocument} />
                   </div>
                   <div className="space-y-2">
                     <Label>Data inizio validita</Label>
@@ -4708,6 +4706,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 </Button>
                 </div>
                 <div className="space-y-2">
+                  {playerDocumentsError && <p role="alert">Impossibile aggiornare l’elenco dei documenti.</p>}
                   {editingPlayerDocuments.length === 0 ? (
                     <p className="text-xs text-muted-foreground">Nessun documento caricato.</p>
                   ) : editingPlayerDocuments.map((doc) => (
@@ -4720,8 +4719,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       </div>
                       <div className="flex items-center gap-2">
                         {doc.fileData && (
-                          <Button type="button" size="sm" variant="outline" onClick={() => window.open(doc.fileData ?? "", "_blank")}>
-                            Apri
+                          <Button type="button" size="sm" variant="outline" onClick={() => downloadPlayerDocument(doc)}>
+                            Scarica
                           </Button>
                         )}
                         {canEditFullPlayer && (

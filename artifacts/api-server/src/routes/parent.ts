@@ -1,3 +1,4 @@
+import { parseDocumentUpload } from "../lib/document-upload";
 import { parentKitRows } from "../lib/warehouse-kit";
 import {buildMatchRotationSummary,parentPublicMatch,defaultRotationCapacity} from "@workspace/api-zod";
 import { trainingLocalDate, trainingSlotOnDate } from "@workspace/api-zod";
@@ -1113,26 +1114,38 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
 
 router.get("/parent/documents", requireParentSession, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
-  const parentPlayerId = getParentPlayerId(req);
+  const playerId = getParentPlayerId(req);
+  const [child] = playerId ? await db.select({ id: playersTable.id, firstName: playersTable.firstName, lastName: playersTable.lastName, teamName: teamsTable.name })
+    .from(playersTable)
+    .leftJoin(teamsTable, and(eq(teamsTable.id, playersTable.teamId), eq(teamsTable.clubId, clubId)))
+    .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, playerId))) : [];
+  const docs = child ? await db.select().from(playerDocumentsTable)
+    .where(and(eq(playerDocumentsTable.clubId, clubId), eq(playerDocumentsTable.playerId, child.id)))
+    .orderBy(desc(playerDocumentsTable.createdAt)) : [];
+  const enriched = docs.map(doc => ({ ...doc, playerName: child ? child.firstName + " " + child.lastName : "", teamName: child?.teamName ?? null }));
+  if (req.query.view !== "upload") { res.json(enriched); return; }
+  res.json({
+    child: child ?? null,
+    clubDocs: enriched.filter(doc => doc.type !== "parentSubmission"),
+    uploads: enriched.filter(doc => doc.type === "parentSubmission"),
+  });
+});
 
-  const docs = await db.select().from(playerDocumentsTable)
-    .where(and(
-      eq(playerDocumentsTable.clubId, clubId),
-      ...(parentPlayerId ? [eq(playerDocumentsTable.playerId, parentPlayerId)] : []),
-    ));
-
-  const enriched = await Promise.all(docs.map(async (d) => {
-    const [player] = await db.select({ firstName: playersTable.firstName, lastName: playersTable.lastName, teamId: playersTable.teamId })
-      .from(playersTable).where(and(eq(playersTable.id, d.playerId), eq(playersTable.clubId, clubId)));
-    let teamName = null;
-    if (player?.teamId) {
-      const [team] = await db.select({ name: teamsTable.name }).from(teamsTable).where(and(eq(teamsTable.id, player.teamId), eq(teamsTable.clubId, clubId)));
-      teamName = team?.name ?? null;
-    }
-    return { ...d, playerName: player ? `${player.firstName} ${player.lastName}` : `#${d.playerId}`, teamName };
-  }));
-
-  res.json(enriched);
+router.post("/parent/documents", requireParentSession, async (req, res): Promise<void> => {
+  const clubId = req.session.clubId!;
+  const playerId = getParentPlayerId(req);
+  if (!playerId || req.body?.playerId !== playerId) { res.status(403).json({ error: "Seleziona il profilo del figlio a cui appartiene il documento." }); return; }
+  const [child] = await db.select({ id: playersTable.id }).from(playersTable)
+    .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, playerId)));
+  if (!child) { res.status(404).json({ error: "Giocatore non disponibile." }); return; }
+  const file = parseDocumentUpload(req.body, 5 * 1024 * 1024);
+  if (file.error) { res.status(file.status).json({ error: file.error }); return; }
+  const [saved] = await db.insert(playerDocumentsTable).values({
+    clubId, playerId, type: "parentSubmission",
+    notes: typeof req.body.notes === "string" ? req.body.notes.trim().slice(0, 2000) || null : null,
+    ...file.attachment,
+  }).returning();
+  res.status(201).json(saved);
 });
 
 router.get("/parent/communications", requireParentSession, async (req, res): Promise<void> => {

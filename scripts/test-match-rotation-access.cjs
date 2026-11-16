@@ -38,7 +38,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
-    if (process.argv.includes("--extra-time") || process.argv.includes("--payment-desk")) {
+    if (process.argv.includes("--extra-time") || process.argv.includes("--payment-desk") || process.argv.includes("--document-files")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as secretary} from '../../artifacts/api-server/src/routes/secretary';");
     }
     await esbuild.build({
@@ -188,6 +188,43 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+    if (process.argv.includes("--document-files")) {
+      await pg.exec("UPDATE players SET club_section='scuola_calcio' WHERE id IN (101, 102); UPDATE teams SET coach_id=3 WHERE id=11");
+      const fileData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ZkAAAAASUVORK5CYII=";
+      const payload = { playerId: 101, type: "medicalCertificate", fileName: "certificato.png", fileType: "image/png", fileData };
+      const send = async (url, method, body, role) => {
+        const response = await fetch(base + url, {
+          method, headers: { "content-type": "application/json", "x-role": role, "x-user": role === "coach" ? "3" : "1" },
+          body: JSON.stringify(body),
+        });
+        return { status: response.status, data: await response.json() };
+      };
+      const saved = await send("/player-documents", "POST", payload, "secretary");
+      assert.equal(saved.status, 201, JSON.stringify(saved.data));
+      assert.equal(saved.data.fileData, fileData);
+      const loaded = await call("/player-documents", { "x-role": "secretary" });
+      assert.equal(loaded.data.find(doc => doc.id === saved.data.id).fileData, fileData);
+      assert.equal((await send("/player-documents", "POST", { ...payload, playerId: 201 }, "secretary")).status, 404);
+      assert.equal((await send("/parent/documents", "POST", { ...payload, playerId: 102 }, "parent")).status, 403);
+      assert.equal((await send("/parent/documents", "POST", { ...payload, fileData: "" }, "parent")).status, 400);
+      const sent = await send("/parent/documents", "POST", payload, "parent");
+      assert.equal(sent.status, 201, JSON.stringify(sent.data));
+      assert.equal(sent.data.type, "parentSubmission");
+      const opened = await call("/parent/documents?view=upload");
+      assert.equal(opened.data.child.id, 101);
+      assert.equal(opened.data.uploads[0].fileData, fileData);
+      assert.equal(opened.data.clubDocs[0].id, saved.data.id);
+      const notes = "Nota di prova\n\n[FTB_POST_FILES]" + JSON.stringify([{ fileName: "foto.png", fileData }]);
+      const savedNotes = await send("/matches/501", "PATCH", { postMatchNotes: notes }, "coach");
+      assert.equal(savedNotes.status, 200, JSON.stringify(savedNotes.data));
+      assert.equal(savedNotes.data.postMatchNotes, notes);
+      const stored = await pg.query("SELECT post_match_notes FROM matches WHERE id=501");
+      assert.equal(stored.rows[0].post_match_notes, notes);
+      const publicMatches = await call("/parent/matches");
+      assert.ok(!JSON.stringify(publicMatches.data).includes(fileData));
+      console.log("PASS document files: staff and parent upload, reload, scope and match attachment persistence.");
+      return;
+    }
     if (process.argv.includes("--payment-desk")) {
       await pg.exec(`UPDATE players SET status='active', available=true, registered=true,
         medical_certificate_expiry='2099-01-01', availability_override_active=false WHERE id IN (101,102,201);

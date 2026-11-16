@@ -331,7 +331,7 @@ export function matchPreparationStatus(value: unknown, fallback = 11, calledIds?
 
 /** Preserve public fixture metadata while excluding technical plans, report markers and peer availability. */
 export function parentPublicMatch<T extends Record<string, any>>(match: T, capacity = 11) {
-  const { matchPlan, ...publicMatch } = match;
+  const { matchPlan, postMatchNotes, ...publicMatch } = match;
   return {
     ...publicMatch,
     preparationStatus: matchPreparationStatus(matchPlan, capacity),

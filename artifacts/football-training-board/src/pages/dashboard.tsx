@@ -235,7 +235,7 @@ async function secretaryDownloadFile(fileId: number, filename: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 type ClubNotification = {

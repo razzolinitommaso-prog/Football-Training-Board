@@ -187,7 +187,7 @@ export default function SeasonsPage() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
       toast({ title: "Archivio scaricato", description: `stagione-${safeName}.json` });
     } catch {
       toast({ title: "Errore download", variant: "destructive" });

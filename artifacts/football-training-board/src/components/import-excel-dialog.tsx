@@ -118,16 +118,15 @@ export function ImportExcelDialog({
       return;
     }
 
-    const mapped = validRows.map(onParseRow);
     let success = 0;
     const errors: string[] = [];
 
-    for (let i = 0; i < mapped.length; i++) {
+    for (let i = 0; i < validRows.length; i++) {
       try {
-        await onImportRows([mapped[i]]);
+        await onImportRows([onParseRow(validRows[i])]);
         success++;
-      } catch {
-        errors.push(`Riga ${i + 1}: errore durante l'importazione`);
+      } catch (error) {
+        errors.push(`Riga ${i + 1}: ${error instanceof Error ? error.message : "errore durante l’importazione"}`);
       }
     }
 

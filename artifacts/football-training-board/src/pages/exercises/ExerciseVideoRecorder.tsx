@@ -49,7 +49,7 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
     setProcessing(false);
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-        setError("Registrazione video non supportata da questo dispositivo o browser.");
+        setError("Registrazione non disponibile. Puoi caricare un video dal dispositivo.");
         return;
       }
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -127,7 +127,10 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
     if (!file) return;
     setError(null);
     setProcessing(true);
-    if (!file.type.startsWith("video/")) {
+    const fileTypes: Record<string, string> = { mp4: "mp4", mov: "quicktime", webm: "webm", m4v: "mp4", ogv: "ogg" };
+    const fileType = fileTypes[file.name.split(".").pop()?.toLowerCase() ?? ""];
+    const mimeType = file.type.startsWith("video/") ? file.type : fileType && `video/${fileType}`;
+    if (!mimeType) {
       setProcessing(false);
       setError("Seleziona un file video valido.");
       return;
@@ -141,7 +144,7 @@ export function ExerciseVideoRecorder({ value, onChange, readOnly = false }: Pro
       setProcessing(false);
       setError("Caricamento del file video non riuscito.");
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(file.slice(0, file.size, mimeType));
   }
 
   if (readOnly) {

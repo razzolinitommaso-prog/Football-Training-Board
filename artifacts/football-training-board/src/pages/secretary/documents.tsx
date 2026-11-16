@@ -1,3 +1,5 @@
+import { DocumentFilePicker } from "@/components/document-file-picker";
+import { downloadDocument, readDocumentFile } from "@/lib/document-files";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/lib/i18n";
@@ -12,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileText, Plus, Trash2, AlertTriangle } from "lucide-react";
 import { withApi } from "@/lib/api-base";
 
-interface Doc { id: number; playerId: number; playerName?: string; type: string; expiryDate?: string; notes?: string; }
+interface Doc { id: number; playerId: number; playerName?: string; type: string; expiryDate?: string; notes?: string; fileName?: string; fileData?: string; }
 interface Player { id: number; firstName: string; lastName: string; }
 
 function playerName(player: Player): string {
@@ -49,6 +51,7 @@ export default function DocumentsPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
   const [playerId, setPlayerId] = useState(""); const [type, setType] = useState("");
   const [expiryDate, setExpiryDate] = useState(""); const [notes, setNotes] = useState("");
 
@@ -56,9 +59,10 @@ export default function DocumentsPage() {
   const { data: players = [] } = useQuery<Player[]>({ queryKey: ["/api/players"], queryFn: () => apiFetch("/api/players") });
 
   const create = useMutation({
-    mutationFn: (d: object) => apiFetch("/api/player-documents", { method: "POST", body: JSON.stringify(d) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/player-documents"] }); setOpen(false); setPlayerId(""); setType(""); setExpiryDate(""); setNotes(""); },
-    onError: () => toast({ title: "Error", variant: "destructive" }),
+    mutationFn: async ({ metadata, attachment }: { metadata: object; attachment: File | null }) =>
+      apiFetch("/api/player-documents", { method: "POST", body: JSON.stringify({ ...metadata, ...(attachment ? await readDocumentFile(attachment) : {}) }) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/player-documents"] }); setOpen(false); setPlayerId(""); setType(""); setExpiryDate(""); setNotes(""); setFile(null); toast({ title: "Documento salvato" }); },
+    onError: (error) => toast({ title: "Impossibile salvare il documento", description: error.message, variant: "destructive" }),
   });
 
   const remove = useMutation({
@@ -80,7 +84,7 @@ export default function DocumentsPage() {
           <DialogTrigger asChild><Button><Plus className="w-4 h-4 mr-2" />{t.addDocument}</Button></DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>{t.addDocument}</DialogTitle></DialogHeader>
-            <form onSubmit={(e) => { e.preventDefault(); create.mutate({ playerId: Number(playerId), type, expiryDate: expiryDate || null, notes: notes || null }); }} className="space-y-4">
+            <form onSubmit={(e) => { e.preventDefault(); create.mutate({ metadata: { playerId: Number(playerId), type, expiryDate: expiryDate || null, notes: notes || null }, attachment: file }); }} className="space-y-4">
               <div className="space-y-2">
                 <Label>{t.player}</Label>
                 <Select value={playerId} onValueChange={setPlayerId}>
@@ -97,6 +101,7 @@ export default function DocumentsPage() {
               </div>
               <div className="space-y-2"><Label>{t.expiryDate}</Label><Input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} /></div>
               <div className="space-y-2"><Label>{t.notes}</Label><Input value={notes} onChange={e => setNotes(e.target.value)} /></div>
+              <DocumentFilePicker file={file} onChange={setFile} disabled={create.isPending} />
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t.cancel}</Button>
                 <Button type="submit" disabled={!playerId || !type || create.isPending}>{t.save}</Button>
@@ -131,7 +136,7 @@ export default function DocumentsPage() {
                     <div className="space-y-1">
                       <p className="font-semibold">{d.playerName}</p>
                       <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                        <Badge variant="outline">{t[d.type as keyof typeof t] as string ?? d.type}</Badge>
+                        <Badge variant="outline">{d.type === "parentSubmission" ? "Inviato dalla famiglia · da verificare" : t[d.type as keyof typeof t] as string ?? d.type}</Badge>
                         {d.expiryDate && (
                           <span className={expired_ ? "text-red-500 font-medium" : expiring_ ? "text-amber-600 font-medium" : ""}>
                             {t.expiryDate}: {d.expiryDate} {expired_ ? "⚠️" : expiring_ ? "⚡" : ""}
@@ -140,7 +145,13 @@ export default function DocumentsPage() {
                         {d.notes && <span>{d.notes}</span>}
                       </div>
                     </div>
-                    <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => remove.mutate(d.id)}><Trash2 className="w-4 h-4" /></Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {d.fileData && <Button type="button" variant="outline" size="sm" onClick={() => {
+                        try { downloadDocument(d.fileData!, d.fileName || d.type); }
+                        catch (error) { toast({ title: "Impossibile scaricare il documento", description: (error as Error).message, variant: "destructive" }); }
+                      }}>Scarica</Button>}
+                      <Button size="icon" variant="ghost" className="text-destructive h-8 w-8" onClick={() => remove.mutate(d.id)}><Trash2 className="w-4 h-4" /></Button>
+                    </div>
                   </CardContent>
                 </Card>
               );

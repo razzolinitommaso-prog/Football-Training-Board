@@ -70,7 +70,7 @@ function exportCsv(title: string, rows: string[][]) {
   link.href = url;
   link.download = title + ".csv";
   link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 function attendanceLabel(player: Player, session: Event, today: string) {

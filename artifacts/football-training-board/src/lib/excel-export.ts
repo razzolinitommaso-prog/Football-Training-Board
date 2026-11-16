@@ -35,7 +35,7 @@ async function downloadWorkbook(wb: XLSX.WorkBook, filename: string, preferSaveP
   const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
   if (preferSavePicker && showSaveFilePicker) {
     try {
-      const handle = await showSaveFilePicker({
+      const handle = await showSaveFilePicker.call(window, {
         suggestedName: safeFilename,
         types: [{
           description: "File Excel",
@@ -60,7 +60,7 @@ async function downloadWorkbook(wb: XLSX.WorkBook, filename: string, preferSaveP
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 export function exportToExcel(rows: Record<string, any>[], filename: string, sheetName = "Dati", options?: { preferSavePicker?: boolean }) {

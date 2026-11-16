@@ -45,7 +45,7 @@ export function ExerciseVoiceRecorder({ value, onChange, readOnly = false }: Pro
     setError(null);
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-        setError("Registrazione non supportata da questo dispositivo o browser.");
+        setError("Registrazione non disponibile. Puoi caricare un file audio dal dispositivo.");
         return;
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -110,14 +110,17 @@ export function ExerciseVoiceRecorder({ value, onChange, readOnly = false }: Pro
   function uploadAudioFile(file?: File | null) {
     if (!file) return;
     setError(null);
-    if (!file.type.startsWith("audio/")) {
+    const fileTypes: Record<string, string> = { mp3: "mpeg", m4a: "mp4", wav: "wav", ogg: "ogg", aac: "aac", webm: "webm" };
+    const fileType = fileTypes[file.name.split(".").pop()?.toLowerCase() ?? ""];
+    const mimeType = file.type.startsWith("audio/") ? file.type : fileType && `audio/${fileType}`;
+    if (!mimeType) {
       setError("Seleziona un file audio valido.");
       return;
     }
     const reader = new FileReader();
     reader.onloadend = () => onChange(String(reader.result ?? ""));
     reader.onerror = () => setError("Caricamento del file audio non riuscito.");
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(file.slice(0, file.size, mimeType));
   }
 
   if (readOnly) {

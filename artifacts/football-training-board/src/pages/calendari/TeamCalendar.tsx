@@ -1,3 +1,4 @@
+import { downloadDocument, readDocumentFile, type DocumentFileData } from "@/lib/document-files";
 import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import { MatchAttendanceComparison, type AttendancePeriod, type MatchAttendanceState } from "@/components/calendar/MatchAttendanceComparison";
 import {MatchCallupRoster, MatchRotationComparison, matchMinutesLabel} from "@/components/calendar/MatchRotationComparison";
@@ -1570,28 +1571,30 @@ function teamNameMatchesSquadLetter(teamName: string, letter: Exclude<SquadLette
 }
 
 const POST_ATTACHMENTS_PREFIX = "Allegati:";
+const POST_FILES_PREFIX = "[FTB_POST_FILES]";
+const POST_FILE_LIMIT = 6 * 1024 * 1024;
+type PostAttachment = { fileName: string; fileData?: string; fileSize?: number };
 
-function splitPostNotesAndAttachments(raw?: string | null): { note: string; attachments: string[] } {
+function splitPostNotesAndAttachments(raw?: string | null): { note: string; attachments: PostAttachment[] } {
   const full = (raw ?? "").trim();
-  if (!full) return { note: "", attachments: [] };
+  const fileMarker = full.lastIndexOf("\n" + POST_FILES_PREFIX);
+  const offset = fileMarker >= 0 ? fileMarker + 1 : full.startsWith(POST_FILES_PREFIX) ? 0 : -1;
+  if (offset >= 0) {
+    try {
+      const files: unknown = JSON.parse(full.slice(offset + POST_FILES_PREFIX.length));
+      if (Array.isArray(files) && files.every(file => file && typeof file.fileName === "string")) {
+        return { note: full.slice(0, offset).trim(), attachments: files };
+      }
+    } catch { /* Preserve existing notes when the attachment record cannot be decoded. */ }
+  }
   const idx = full.lastIndexOf(POST_ATTACHMENTS_PREFIX);
   if (idx < 0) return { note: full, attachments: [] };
-  const before = full.slice(0, idx).trim();
-  const attachmentPart = full.slice(idx + POST_ATTACHMENTS_PREFIX.length).trim();
-  if (!attachmentPart) return { note: before, attachments: [] };
-  const attachments = attachmentPart
-    .split("|")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return { note: before, attachments };
+  return { note: full.slice(0, idx).trim(), attachments: full.slice(idx + POST_ATTACHMENTS_PREFIX.length)
+    .split("|").map(fileName => fileName.trim()).filter(Boolean).map(fileName => ({ fileName })) };
 }
 
-function composePostNotes(note: string, attachments: string[]): string {
-  const cleanNote = note.trim();
-  const cleanAttachments = attachments.map((a) => a.trim()).filter(Boolean);
-  if (cleanAttachments.length === 0) return cleanNote;
-  const row = `${POST_ATTACHMENTS_PREFIX} ${cleanAttachments.join(" | ")}`;
-  return cleanNote ? `${cleanNote}\n\n${row}` : row;
+function composePostNotes(note: string, attachments: PostAttachment[]): string {
+  return [note.trim(), attachments.length ? POST_FILES_PREFIX + JSON.stringify(attachments) : ""].filter(Boolean).join("\n\n");
 }
 
 const EMPTY_CALLUPS: MatchCallUp[] = [];
@@ -1872,7 +1875,8 @@ function MatchCard({
     const parsed = splitMatchResult(match.result);
     return match.homeAway === "home" ? parsed.away : parsed.home;
   });
-  const [postAttachments, setPostAttachments] = useState<string[]>(() => splitPostNotesAndAttachments(match.postMatchNotes).attachments);
+  const [postFilesLoading, setPostFilesLoading] = useState(false);
+  const [postAttachments, setPostAttachments] = useState<PostAttachment[]>(() => splitPostNotesAndAttachments(match.postMatchNotes).attachments);
   const [workspaceSection, setWorkspaceSection] = useState<MatchWorkspaceSection>(workspace?.initialSection ?? "gara");
   const workspaceHeader = useRef<HTMLElement>(null);
   const activePanel = (section: MatchWorkspaceSection) => workspace ? workspaceSection === section : undefined;
@@ -2171,15 +2175,22 @@ function MatchCard({
     setPostMenuOpen(true);
   }
 
-  function addPostAttachmentsFromFileList(list: FileList | null) {
-    if (!list || list.length === 0) return;
-    const names = Array.from(list).map((f) => f.name.trim()).filter(Boolean);
-    if (names.length === 0) return;
-    setPostAttachments((prev) => {
-      const next = new Set(prev);
-      names.forEach((n) => next.add(n));
-      return Array.from(next);
-    });
+  async function addPostAttachmentsFromFileList(list: File[]) {
+    if (!list.length || postFilesLoading) return;
+    const total = postAttachments.reduce((sum, item) => sum + (item.fileSize ?? 0), 0);
+    if (total + list.reduce((sum, file) => sum + file.size, 0) > POST_FILE_LIMIT) {
+      toast({ title: "Allegati troppo grandi", description: "Massimo 6 MB complessivi per resoconto.", variant: "destructive" });
+      return;
+    }
+    setPostFilesLoading(true);
+    try {
+      const files: DocumentFileData[] = await Promise.all(list.map(file => readDocumentFile(file, POST_FILE_LIMIT)));
+      setPostAttachments(current => [...current, ...files]);
+    } catch (error) {
+      toast({ title: "Impossibile aggiungere gli allegati", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setPostFilesLoading(false);
+    }
   }
 
   function savePostNotes() {
@@ -3645,20 +3656,20 @@ function MatchCard({
                         size="sm"
                         variant="outline"
                         className="h-8 text-xs gap-1.5"
-                        onClick={() => postFileInputRef.current?.click()}
+                        disabled={postFilesLoading} onClick={() => postFileInputRef.current?.click()}
                       >
                         <Upload className="w-3.5 h-3.5" />
-                        Carica note (immagine o PDF)
+                        Carica da dispositivo
                       </Button>
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
                         className="h-8 text-xs gap-1.5"
-                        onClick={() => postCameraInputRef.current?.click()}
+                        disabled={postFilesLoading} onClick={() => postCameraInputRef.current?.click()}
                       >
                         <Camera className="w-3.5 h-3.5" />
-                        Carica da fotocamera
+                        Scatta foto
                       </Button>
                       <input
                         ref={postFileInputRef}
@@ -3667,7 +3678,7 @@ function MatchCard({
                         multiple
                         className="hidden"
                         onChange={(e) => {
-                          addPostAttachmentsFromFileList(e.target.files);
+                          void addPostAttachmentsFromFileList(Array.from(e.target.files ?? []));
                           e.target.value = "";
                         }}
                       />
@@ -3678,19 +3689,21 @@ function MatchCard({
                         capture="environment"
                         className="hidden"
                         onChange={(e) => {
-                          addPostAttachmentsFromFileList(e.target.files);
+                          void addPostAttachmentsFromFileList(Array.from(e.target.files ?? []));
                           e.target.value = "";
                         }}
                       />
                     </div>
                     {postAttachments.length > 0 && (
                       <div className="rounded-md border border-border/60 bg-muted/20 p-2">
-                        <p className="text-[11px] font-medium text-muted-foreground mb-1">File note caricati</p>
+                        <p className="text-[11px] font-medium text-muted-foreground mb-1">Allegati da salvare</p>
                         <div className="flex flex-wrap gap-1.5">
-                          {postAttachments.map((name) => (
-                            <Badge key={name} variant="outline" className="text-[10px] max-w-[150px] truncate">
-                              {name}
-                            </Badge>
+                          {postAttachments.map((attachment, index) => (
+                            <div key={index} className="flex min-w-0 items-center gap-1">
+                              <span className="break-all text-xs">{attachment.fileName}</span>
+                              <Button type="button" variant="ghost" size="sm" disabled={postFilesLoading}
+                                onClick={() => setPostAttachments(items => items.filter((_, i) => i !== index))}>Rimuovi</Button>
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -3855,10 +3868,10 @@ function MatchCard({
                       />
                     </div>
                     <div className="flex justify-end gap-2">
-                      <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setPostMenuOpen(false)}>
+                      <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" disabled={postFilesLoading} onClick={() => setPostMenuOpen(false)}>
                         Annulla
                       </Button>
-                      <Button type="button" size="sm" className="h-8 text-xs gap-1.5" disabled={patch.isPending || pendingReportLineup} onClick={savePostNotes}>
+                      <Button type="button" size="sm" className="h-8 text-xs gap-1.5" disabled={patch.isPending || pendingReportLineup || postFilesLoading} onClick={savePostNotes}>
                         <CheckCircle className="w-3.5 h-3.5" />
                         {workspace ? "Salva resoconto" : "Salva"}
                       </Button>
@@ -3879,9 +3892,15 @@ function MatchCard({
               <p className="text-xs text-muted-foreground italic">Nessuna nota inserita.</p>
             )}
             {postView.attachments.length > 0 && (
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Allegati: {postView.attachments.join(", ")}
-              </p>
+              <ul className="mt-2 space-y-1" aria-label="Allegati del resoconto">
+                {postView.attachments.map((attachment, index) => <li key={index} className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="break-all">{attachment.fileName}</span>
+                  {attachment.fileData ? <Button type="button" size="sm" variant="outline" onClick={() => {
+                    try { downloadDocument(attachment.fileData!, attachment.fileName); }
+                    catch (error) { toast({ title: "Impossibile scaricare l’allegato", description: (error as Error).message, variant: "destructive" }); }
+                  }}>Scarica</Button> : <span className="text-muted-foreground">File non disponibile</span>}
+                </li>)}
+              </ul>
             )}
             {canViewMatchPlan && savedReport.success && (
               <div className="mt-2 rounded-md border p-3"><MatchReportSummary report={savedReport.data}
