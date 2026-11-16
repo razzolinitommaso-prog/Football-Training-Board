@@ -63,12 +63,15 @@ export function estimateKitPotential(
     if (request.rowKey === REPRESENTATION_SET) suitParts.forEach(slot => covered.add(slot));
     else covered.add(request.rowKey);
   }
-  // A standalone kit movement has no article IDs, so its uncovered pieces cannot be inferred safely.
+  const catalogById = new Map(catalog.map(item => [item.id, item]));
+  // Each linked article can cover a single known slot. Ambiguous and legacy receipts still need review.
   const booked = new Map<number, number>();
   for (const row of payments) {
-    if (row.amount > 0 && paymentCategory(row) === "kit") {
-      booked.set(row.playerId, (booked.get(row.playerId) ?? 0) + Math.round(row.amount * 100));
-    }
+    if (row.amount <= 0 || paymentCategory(row) !== "kit") continue;
+    const item = row.kitArticle && catalogById.get(row.kitArticle.id);
+    const slots = item ? item.kitSlots ?? suggestKitSlots(item) : [];
+    if (slots.length === 1) coveredFor(row.playerId).add(slots[0]);
+    else booked.set(row.playerId, (booked.get(row.playerId) ?? 0) + Math.round(row.amount * 100));
   }
   const result = { withoutKit: 0, partialKit: 0, cents: 0, unpricedItems: 0, toVerify: 0 };
   for (const id of playerIds) {

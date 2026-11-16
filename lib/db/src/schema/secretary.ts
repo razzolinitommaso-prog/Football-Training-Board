@@ -49,6 +49,11 @@ export const playerPaymentsTable = pgTable("player_payments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const playerPaymentKitItemsTable = pgTable("player_payment_kit_items", {
+  paymentId: integer("payment_id").primaryKey().references(() => playerPaymentsTable.id, { onDelete: "cascade" }),
+  article: jsonb("article").$type<{ id: number; name: string; code: string; size: string | null }>().notNull(),
+});
+
 export const playerDocumentsTable = pgTable("player_documents", {
   id: serial("id").primaryKey(),
   clubId: integer("club_id").notNull().references(() => clubsTable.id, { onDelete: "cascade" }),

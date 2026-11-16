@@ -7,3 +7,5 @@ La scheda giocatore ha un solo pannello Kit, con Allenamento, Gara, Rappresentan
 **Richiedi a Magazzino** registra la richiesta. La disponibilità viene riservata e la quantità mancante va in **Da ordinare**. Dalle **Richieste kit giocatori** la Segreteria registra ordine, arrivo e consegna. L'arrivo incrementa la giacenza e la riserva. La consegna consuma entrambe. Annullare una riserva libera i pezzi. L'area genitori mostra lo stato del kit del proprio figlio.
 
 Salvare un collegamento o un pagamento non apre richieste. Il badge **Da riordinare** del catalogo indica scorte sotto soglia. Le transizioni e le scorte sono aggiornate in transazione e separate per società. L'API inizializza lo schema in modo idempotente al primo utilizzo.
+
+In **Pagamenti → Incassi giocatori**, una nuova voce **Kit** richiede un articolo e una taglia dal Magazzino. Il prezzo di listino è proposto e può essere modificato. Il movimento appare anche nella sezione **Kit** della scheda giocatore. **Collega articolo** completa una voce Kit già registrata conservandone importo, data e metodo. La registrazione aggiorna il registro senza generare un ordine o una consegna.

@@ -4,6 +4,12 @@ export const paymentCategories = { kit: "Kit", quotes: "Quote", shuttle: "Pulmin
 export type PaymentCategory = keyof typeof paymentCategories;
 export const paymentStatuses = { paid: "Incassato", pending: "Da incassare", overdue: "Scaduto" } as const;
 export type PaymentStatus = keyof typeof paymentStatuses;
+export const paymentStatusTone: Record<PaymentStatus, string> = {
+  paid: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200",
+  pending: "border-orange-300 bg-orange-50 text-orange-800 dark:border-orange-700 dark:bg-orange-950 dark:text-orange-200",
+  overdue: "border-red-300 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950 dark:text-red-200",
+};
+export type PaymentKitArticle = { id: number; name: string; code: string; size: string | null };
 export const receiptMethods = { cash: "Contanti", card: "Carta / Bancomat (POS)", bank_transfer: "Bonifico" } as const;
 export const depositPurposes = ["Generale", "Iscrizione", "Quota annuale", "Assicurazione", "Kit", "Pulmino", "Extra Time"] as const;
 export type ReceiptMethod = keyof typeof receiptMethods;
@@ -18,6 +24,7 @@ export function receiptMethodLabel(value?: string | null) {
 
 export type PaymentEntry = {
   paymentType?: string | null;
+  kitArticle?: PaymentKitArticle | null;
   description?: string | null;
   status: string;
   dueDate?: string | null;
@@ -36,6 +43,7 @@ export function paymentCategory(payment: PaymentEntry): PaymentCategory {
       if (purpose === "Extra Time") return "extra_time";
       return purpose === "Iscrizione" || purpose === "Quota annuale" || purpose === "Assicurazione" ? "quotes" : "other";
     }
+    case "kit_article":
     case "kit_payment": return "kit";
     case "shuttle_monthly": return "shuttle";
     case "registration_fee":

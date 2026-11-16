@@ -4,6 +4,7 @@ import {
   db,
   registrationsTable,
   playerPaymentsTable,
+  playerPaymentKitItemsTable,
   playerDocumentsTable,
   equipmentAssignmentsTable,
   playersTable,
@@ -230,6 +231,35 @@ router.delete("/registrations/:id", requireAuth, async (req, res): Promise<void>
   res.sendStatus(204);
 });
 
+let paymentKitSchema: Promise<unknown> | undefined;
+function ensurePaymentKitSchema() {
+  paymentKitSchema ??= db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(73319822)`);
+    await tx.execute(sql`
+      CREATE TABLE IF NOT EXISTS player_payment_kit_items (
+        payment_id INTEGER PRIMARY KEY REFERENCES player_payments(id) ON DELETE CASCADE,
+        article JSONB NOT NULL
+      )
+    `);
+  }).catch(error => {
+    paymentKitSchema = undefined;
+    throw error;
+  });
+  return paymentKitSchema;
+}
+
+async function paymentKitArticle(clubId: number, itemId: number) {
+  const [article] = await db.select({
+    id: warehouseItemsTable.id, name: warehouseItemsTable.name,
+    code: warehouseItemsTable.code, size: warehouseItemsTable.size,
+  }).from(warehouseItemsTable).where(and(
+    eq(warehouseItemsTable.clubId, clubId), eq(warehouseItemsTable.id, itemId),
+    eq(warehouseItemsTable.section, "apparel"), eq(warehouseItemsTable.isActive, 1),
+    sql`${warehouseItemsTable.itemType} NOT IN ('annual_fee', 'registration_fee', 'insurance_fee', 'shuttle_fee')`,
+  ));
+  return article;
+}
+
 router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
   if (!canViewFinancials(req.session.role)) {
     res.status(403).json({ error: "Non autorizzato a vedere i pagamenti" });
@@ -244,13 +274,16 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
       ? and(eq(playerPaymentsTable.clubId, clubId), inArray(playerPaymentsTable.playerId, ids))
       : and(eq(playerPaymentsTable.clubId, clubId), sql`false`);
   }
+  await ensurePaymentKitSchema();
   const records = await db.select({
     ...getTableColumns(playerPaymentsTable),
+    kitArticle: playerPaymentKitItemsTable.article,
     playerName: sql<string | null>`${playersTable.firstName} || ' ' || ${playersTable.lastName}`,
     teamId: teamsTable.id,
     teamName: teamsTable.name,
     teamSeason: seasonsTable.name,
   }).from(playerPaymentsTable)
+    .leftJoin(playerPaymentKitItemsTable, eq(playerPaymentKitItemsTable.paymentId, playerPaymentsTable.id))
     .leftJoin(playersTable, and(eq(playersTable.id, playerPaymentsTable.playerId), eq(playersTable.clubId, playerPaymentsTable.clubId)))
     .leftJoin(teamsTable, and(eq(teamsTable.id, playersTable.teamId), eq(teamsTable.clubId, playerPaymentsTable.clubId)))
     .leftJoin(seasonsTable, and(eq(seasonsTable.id, teamsTable.seasonId), eq(seasonsTable.clubId, playerPaymentsTable.clubId)))
@@ -269,7 +302,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });
     return;
   }
-  const { playerId, amount, dueDate, status, paymentDate, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod } = req.body;
+  const { playerId, amount, dueDate, status, paymentDate, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod, kitItemId } = req.body;
   if (!playerId || amount == null) { res.status(400).json({ error: "playerId and amount required" }); return; }
   if (status === "paid" && !validReceiptMethod(paymentMethod)) {
     res.status(400).json({ error: "Indica il metodo di incasso." });
@@ -284,19 +317,62 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     res.status(400).json({ error: "Data di incasso non valida." });
     return;
   }
-  const [record] = await db.insert(playerPaymentsTable).values({
+  if (paymentType === "kit_article" || (kitItemId !== undefined && (paymentType !== "kit_payment" || !validKitId(kitItemId) ||
+      !(paymentPlanCents(amount) > 0) || (status !== "paid" && (status !== "pending" || !isPaymentPlanDate(dueDate)))))) {
+    res.status(400).json({ error: "Controlla articolo, importo, stato e scadenza del kit." }); return;
+  }
+  const scope = kitItemId !== undefined ? await getScopedPlayerIds(req, clubId) : null;
+  if (scope && !scope.includes(player.id)) { res.status(404).json({ error: "Giocatore non trovato." }); return; }
+  const article = kitItemId !== undefined ? await paymentKitArticle(clubId, kitItemId) : undefined;
+  if (kitItemId !== undefined && !article) { res.status(404).json({ error: "Articolo kit non più disponibile." }); return; }
+  const kitDescription = article ? ["Kit", article.name, article.size, typeof description === "string" ? description.trim() : ""].filter(Boolean).join(" · ") : null;
+  const values = {
     clubId, playerId: player.id, amount: Number(amount),
-    dueDate: dueDate ?? null, status: status ?? "pending", description: description ?? null,
+    dueDate: dueDate ?? null, status: status ?? "pending", description: kitDescription ?? description ?? null,
     paymentDate: paidDate,
-    paymentType: paymentType ?? "annual_fee_installment",
+    paymentType: article ? "kit_article" : paymentType ?? "annual_fee_installment",
     installmentNumber: installmentNumber ? Number(installmentNumber) : null,
     totalInstallments: totalInstallments ? Number(totalInstallments) : null,
     annualFeeTotal: annualFeeTotal != null ? Number(annualFeeTotal) : null,
     availabilityBlocking: availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1,
     paymentMethod: status === "paid" ? paymentMethod : null,
-  }).returning();
+  };
+  if (article) await ensurePaymentKitSchema();
+  const record = article ? await db.transaction(async tx => {
+    const [payment] = await tx.insert(playerPaymentsTable).values(values).returning();
+    await tx.insert(playerPaymentKitItemsTable).values({ paymentId: payment.id, article });
+    return { ...payment, kitArticle: article };
+  }) : (await db.insert(playerPaymentsTable).values(values).returning())[0];
   await reconcilePaymentAvailability(clubId, player.id, undefined, status === "paid");
   res.status(201).json(record);
+});
+
+router.patch("/player-payments/:id/kit-item", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditFinancials(req.session.role)) { res.status(403).json({ error: "Solo la Segreteria può collegare l’articolo." }); return; }
+  const id = Number(req.params.id);
+  const itemId = req.body?.kitItemId;
+  if (!validKitId(id) || !validKitId(itemId)) { res.status(400).json({ error: "Seleziona un articolo del kit." }); return; }
+  const clubId = req.session.clubId!;
+  const scope = await getScopedPlayerIds(req, clubId);
+  const article = await paymentKitArticle(clubId, itemId);
+  if (!article) { res.status(404).json({ error: "Articolo kit non più disponibile." }); return; }
+  await ensurePaymentKitSchema();
+  const record = await db.transaction(async tx => {
+    const [payment] = await tx.select().from(playerPaymentsTable).where(and(
+      eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId),
+      eq(playerPaymentsTable.paymentType, "kit_payment"), sql`${playerPaymentsTable.installmentNumber} IS NULL`,
+    )).for("update");
+    if (!payment || (scope && !scope.includes(payment.playerId))) return null;
+    const title = `Kit · ${article.name}${article.size ? " · " + article.size : ""}`;
+    const note = payment.description?.trim();
+    const description = note && !["kit", "kit giocatore"].includes(note.toLocaleLowerCase("it")) ? title + " · " + note : title;
+    const [updated] = await tx.update(playerPaymentsTable).set({ paymentType: "kit_article", description })
+      .where(eq(playerPaymentsTable.id, id)).returning();
+    await tx.insert(playerPaymentKitItemsTable).values({ paymentId: id, article });
+    return { ...updated, kitArticle: article };
+  });
+  if (!record) { res.status(404).json({ error: "Movimento kit non collegabile o già collegato." }); return; }
+  res.json(record);
 });
 
 const paymentPlanTypes = new Set([
@@ -617,6 +693,7 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   if (amount !== undefined) updates.amount = Number(amount);
   if (description !== undefined) updates.description = description;
   if (dueDate !== undefined) updates.dueDate = dueDate;
+  if (paymentType === "kit_article") { res.status(400).json({ error: "Usa il collegamento articolo Kit." }); return; }
   if (paymentType !== undefined) updates.paymentType = paymentType;
   if (installmentNumber !== undefined) updates.installmentNumber = installmentNumber != null ? Number(installmentNumber) : null;
   if (totalInstallments !== undefined) updates.totalInstallments = totalInstallments != null ? Number(totalInstallments) : null;
@@ -624,7 +701,8 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   if (availabilityBlocking !== undefined) updates.availabilityBlocking = availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1;
   if (status !== undefined) updates.paymentMethod = status === "paid" ? paymentMethod : null;
   const [record] = await db.update(playerPaymentsTable).set(updates)
-    .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!))).returning();
+    .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!),
+      paymentType === undefined ? undefined : sql`${playerPaymentsTable.paymentType} <> 'kit_article'`)).returning();
   if (!record) { res.status(404).json({ error: "Not found" }); return; }
   await reconcilePaymentAvailability(req.session.clubId!, record.playerId, undefined, status === "paid");
   res.json(record);

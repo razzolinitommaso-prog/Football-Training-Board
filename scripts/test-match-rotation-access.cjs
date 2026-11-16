@@ -226,6 +226,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       return;
     }
     if (process.argv.includes("--payment-desk")) {
+      await pg.exec("DROP TABLE player_payment_kit_items");
       await pg.exec(`UPDATE players SET status='active', available=true, registered=true,
         medical_certificate_expiry='2099-01-01', availability_override_active=false WHERE id IN (101,102,201);
         UPDATE players SET available=false, unavailability_reason='other' WHERE id=102`);
@@ -263,6 +264,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       assert.equal((await collect(101, [first.id])).status, 204);
       assert.deepEqual(await availability(101), { available: true, unavailability_reason: null });
       const ledger = await call("/player-payments", { "x-role": "presidente" });
+      assert.equal(ledger.status, 200, JSON.stringify(ledger.data));
       assert.equal(ledger.data.find(row => row.id === second.id).paymentMethod, "cash");
       assert.equal(ledger.data.find(row => row.id === first.id).dueDate, newDate.dueDate);
       await pg.exec("INSERT INTO players(id,club_id,team_id,first_name,last_name) VALUES(103,1,11,'New','Player')");
@@ -283,7 +285,35 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       assert.equal(enrollment.dueDate, "2098-01-01");
       assert.equal(enrollment.status, "pending");
       assert.equal(planned.filter(row => row.status !== "paid").reduce((sum, row) => sum + row.amount, 0), 285);
-      console.log("PASS payment desk: scope, restricted rescheduling, settlement, ledger and availability.");
+      await pg.exec(`UPDATE players SET club_section='scuola_calcio' WHERE id=101;
+        INSERT INTO warehouse_items(id,club_id,section,code,name,item_type,price,size,is_active)
+        VALUES (6101,1,'apparel','K-XS','Maglia allenamento','inventory',10,'XS',1),
+          (6102,2,'apparel','K-OUT','Altra società','inventory',10,'XS',1),
+          (6103,1,'apparel','ANNUALE','Quota annuale','annual_fee',10,NULL,1)`);
+      const newKit = { playerId: 101, paymentType: "kit_payment", kitItemId: 6101, amount: 10,
+        status: "paid", paymentDate: "2026-11-16", paymentMethod: "card" };
+      assert.equal((await send("/player-payments", "POST", { ...newKit, kitItemId: 6102 })).status, 404);
+      assert.equal((await send("/player-payments", "POST", { ...newKit, kitItemId: 6103 })).status, 404);
+      const kitResponse = await send("/player-payments", "POST", newKit);
+      assert.equal(kitResponse.status, 201);
+      const kit = await kitResponse.json();
+      assert.equal(kit.paymentType, "kit_article");
+      assert.deepEqual(kit.kitArticle, { id: 6101, name: "Maglia allenamento", code: "K-XS", size: "XS" });
+      const legacyKit = await add(101, "2098-02-01", "kit_payment", 8);
+      const linkPath = `/player-payments/${legacyKit.id}/kit-item`;
+      assert.equal((await send(linkPath, "PATCH", { kitItemId: 6101 }, "admin")).status, 403);
+      assert.equal((await send(linkPath, "PATCH", { kitItemId: 6101 })).status, 200);
+      assert.equal((await send(linkPath, "PATCH", { kitItemId: 6101 })).status, 404);
+      const refreshedKit = (await call("/player-payments", { "x-role": "presidente" })).data;
+      const linked = refreshedKit.find(row => row.id === legacyKit.id);
+      assert.equal(linked.amount, 8);
+      assert.equal(linked.status, "pending");
+      assert.equal(linked.dueDate, "2098-02-01");
+      assert.deepEqual(linked.kitArticle, kit.kitArticle);
+      assert.equal(refreshedKit.find(row => row.id === kit.id).paymentMethod, "card");
+      assert.equal((await send(`/player-payments/${kit.id}`, "DELETE", undefined)).status, 204);
+      assert.equal((await pg.query("SELECT payment_id FROM player_payment_kit_items WHERE payment_id=$1", [kit.id])).rows.length, 0);
+      console.log("PASS payment desk: scope, rescheduling, settlement, availability and kit article linkage.");
       return;
     }
     if (process.argv.includes("--extra-time")) {

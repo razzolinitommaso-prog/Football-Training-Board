@@ -16,7 +16,7 @@ import { ReceiptMethodSelect } from "@/components/receipt-method-select";
 import { withApi } from "@/lib/api-base";
 import { estimateKitPotential, type KitPotentialEquipment, type KitPotentialItem } from "@/lib/kit-potential";
 import type { KitRequestLine } from "@/lib/player-kit-catalog";
-import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, paymentStatuses, receiptMethodLabel, receiptMethods, type PaymentEntry, type PaymentStatus } from "@/lib/payment-summary";
+import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, paymentStatuses, paymentStatusTone, receiptMethodLabel, receiptMethods, type PaymentEntry, type PaymentStatus } from "@/lib/payment-summary";
 
 type Payment = PaymentEntry & {
   id: number;
@@ -56,7 +56,6 @@ function chartScale(maxAmount: number) {
   return ([1, 2, 5, 10].find(step => step * magnitude >= maxAmount) ?? 10) * magnitude;
 }
 type ChartPeriod = "annual" | "quarterly" | "custom";
-const statusVariant = { paid: "default", pending: "secondary", overdue: "destructive" } as const;
 const searchKey = (value: string) => value.toLocaleLowerCase("it").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const displayDate = (date: string) => date.split("-").reverse().join("/");
 
@@ -418,7 +417,7 @@ export default function PaymentsPage() {
               </p>
             </div>
             <span className="text-sm tabular-nums">{money.format(payment.amount)}</span>
-            <Badge variant={statusVariant[effectiveStatus]}>{ledgerStatusLabels[effectiveStatus]}</Badge>
+            <Badge variant="outline" className={paymentStatusTone[effectiveStatus]}>{ledgerStatusLabels[effectiveStatus]}</Badge>
             {canEdit && <div className="flex items-center gap-1">
               <ScrollableSelect aria-label="Aggiorna stato pagamento" value={payment.status} disabled={save.isPending} onValueChange={value => {
                 if (value === "paid") setReceipt({ id: payment.id, date: today, method: "" });

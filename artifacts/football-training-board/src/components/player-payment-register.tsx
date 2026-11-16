@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { Link } from "wouter";
 import { trainingLocalDate } from "@workspace/api-zod";
+import { Badge } from "@/components/ui/badge";
+import { describeKitVariant, type KitCatalogItem } from "@/lib/player-kit-catalog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -11,13 +13,13 @@ import { ReceiptMethodSelect } from "@/components/receipt-method-select";
 import { useAuth } from "@/hooks/use-auth";
 import { withApi } from "@/lib/api-base";
 import { listFeesForType, MAX_PLAYER_PAYMENT_AMOUNT, type FeeItem, type FeeType } from "@/lib/fee-list";
-import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, paymentStatuses, receiptMethodLabel, type PaymentEntry } from "@/lib/payment-summary";
+import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, paymentStatuses, paymentStatusTone, receiptMethodLabel, type PaymentEntry } from "@/lib/payment-summary";
 
-export type PlayerLedgerPayment = PaymentEntry & { id: number; amount: number; paymentDate?: string | null };
+export type PlayerLedgerPayment = PaymentEntry & { id: number; amount: number; paymentDate?: string | null; installmentNumber?: number | null };
 type LedgerPayment = PlayerLedgerPayment & { playerId: number };
 type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; clubSection?: string };
 type Team = { id: number; name: string; clubSection: string };
-type Editor = { action: "due" | "settle" | "add"; ids: number[]; date: string; method: string; amount?: string; tariffId?: string; paymentType: string; status: "paid" | "pending"; description: string };
+type Editor = { action: "due" | "settle" | "add" | "kit-link"; ids: number[]; date: string; method: string; amount?: string; tariffId?: string; kitItemId?: string; paymentType: string; status: "paid" | "pending"; description: string };
 const paymentTypes = { registration_fee: "Iscrizione · prima rata", annual_fee_installment: "Quota annuale", insurance_fee: "Assicurazione", kit_payment: "Kit", shuttle_monthly: "Pulmino", other: "Altro" };
 const tariffTypes: Partial<Record<string, FeeType>> = {
   annual_fee_installment: "annual_fee", registration_fee: "registration_fee", insurance_fee: "insurance_fee",
@@ -49,11 +51,21 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
     queryFn: () => request<{ items: FeeItem[] }>("/api/fee-list"),
     enabled: canCollect && tariffType !== undefined,
   });
+  const needsKitArticle = editor?.action === "kit-link" || (editor?.action === "add" && editor.paymentType === "kit_payment");
+  const kitCatalog = useQuery({
+    queryKey: ["/api/warehouse-items", "payment-kit", club?.id, user?.id, role],
+    queryFn: () => request<(KitCatalogItem & { price?: number | null; isActive: number; itemType: string })[]>("/api/warehouse-items?section=apparel"),
+    enabled: canCollect && needsKitArticle,
+  });
+  const kitItems = (kitCatalog.data ?? []).filter(item => item.isActive === 1 &&
+    !["registration_fee", "annual_fee", "insurance_fee", "shuttle_fee"].includes(item.itemType));
+  const kitItem = kitItems.find(item => String(item.id) === editor?.kitItemId);
   const activeFees = (feeList.data?.items ?? []).filter(item => item.isActive === 1 && item.price != null);
   const tariffs = tariffType ? listFeesForType(activeFees, tariffType) : [];
   const tariffId = editor?.tariffId ?? (tariffs.length === 1 ? String(tariffs[0].id) : "");
   const tariff = tariffs.find(item => String(item.id) === tariffId);
-  const amount = editor?.amount ?? (tariff?.price == null ? "" : String(tariff.price));
+  const suggestedPrice = needsKitArticle ? kitItem?.price : tariff?.price;
+  const amount = editor?.amount ?? (suggestedPrice == null ? "" : String(suggestedPrice));
   const today = trainingLocalDate();
   const openPayments = payments.filter(payment => payment.status !== "paid" && payment.amount > 0);
   const overdue = openPayments.filter(payment => paymentStatus(payment, today) === "overdue");
@@ -71,8 +83,16 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
       method: "", paymentType: "annual_fee_installment", status: "paid", description: "" });
   }
   const requiresMethod = editor?.action === "settle" || (editor?.action === "add" && editor.status === "paid");
-  const invalid = !editor?.date || (requiresMethod && !isReceiptMethod(editor.method)) ||
+  const invalid = !editor || (needsKitArticle && (!kitItem || kitCatalog.isError)) ||
+    (editor.action !== "kit-link" && !editor.date) || (requiresMethod && !isReceiptMethod(editor.method)) ||
     (editor.action === "add" && !(Number(amount) >= 0.01 && Number(amount) <= MAX_PLAYER_PAYMENT_AMOUNT));
+  const kitPicker = editor && needsKitArticle && <label className="block text-sm">Articolo kit
+    <ScrollableSelect aria-label="Articolo kit" className="mt-1 w-full" value={editor.kitItemId ?? ""}
+      onValueChange={kitItemId => setEditor({ ...editor, kitItemId, amount: undefined })}>
+      <option value="">{kitCatalog.isPending ? "Caricamento articoli…" : "Seleziona articolo e taglia"}</option>
+      {kitItems.map(item => <option key={item.id} value={String(item.id)}>{describeKitVariant(item)}</option>)}
+    </ScrollableSelect>
+  </label>;
   return <div className="space-y-3">
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       {[["Totale registrato", sum(payments)], ["Incassato", sum(payments.filter(payment => payment.status === "paid"))],
@@ -85,21 +105,28 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
     </div>}
     <div className="divide-y rounded-lg border bg-card">
       {payments.length === 0 && <p className="p-3 text-sm text-muted-foreground">Nessun pagamento registrato.</p>}
-      {payments.map(payment => <div key={payment.id} className="flex flex-wrap items-center gap-2 p-3 text-sm">
-        <div className="min-w-32 flex-1">
-          <p>{payment.description || paymentCategories[paymentCategory(payment)]}</p>
-          <p className="text-xs text-muted-foreground">{paymentStatuses[paymentStatus(payment, today)]} · {displayDate(payment.status === "paid" ? payment.paymentDate : payment.dueDate)}
-            {payment.status === "paid" && ` · ${receiptMethodLabel(payment.paymentMethod)}`}</p>
-        </div>
-        <strong className="tabular-nums">{money.format(payment.amount)}</strong>
-        {payment.status !== "paid" && canReschedule && <Button type="button" size="sm" variant="outline" onClick={() => open("due", [payment])}>Modifica scadenza</Button>}
-        {payment.status !== "paid" && canCollect && payment.amount > 0 && <Button type="button" size="sm" onClick={() => open("settle", [payment])}>Incassa rata</Button>}
-        {canCollect && onDelete && <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => onDelete(payment.id)}>Elimina</Button>}
-      </div>)}
+      {payments.map(payment => {
+        const state = paymentStatus(payment, today);
+        return <div key={payment.id} className="flex flex-wrap items-center gap-2 p-3 text-sm">
+          <div className="min-w-32 flex-1">
+            <p>{payment.description || paymentCategories[paymentCategory(payment)]}</p>
+            <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              <Badge variant="outline" className={paymentStatusTone[state]}>{paymentStatuses[state]}</Badge>
+              {displayDate(payment.status === "paid" ? payment.paymentDate : payment.dueDate)}
+              {payment.status === "paid" && ` · ${receiptMethodLabel(payment.paymentMethod)}`}</p>
+          </div>
+          <strong className="tabular-nums">{money.format(payment.amount)}</strong>
+          {payment.status !== "paid" && canReschedule && <Button type="button" size="sm" variant="outline" onClick={() => open("due", [payment])}>Modifica scadenza</Button>}
+          {payment.status !== "paid" && canCollect && payment.amount > 0 && <Button type="button" size="sm" onClick={() => open("settle", [payment])}>Incassa rata</Button>}
+          {canCollect && payment.paymentType === "kit_payment" && payment.installmentNumber == null &&
+            <Button type="button" size="sm" variant="outline" onClick={() => open("kit-link", [payment])}>Collega articolo</Button>}
+          {canCollect && onDelete && <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => onDelete(payment.id)}>Elimina</Button>}
+        </div>;
+      })}
     </div>
     <Dialog open={!!editor} onOpenChange={value => { if (!value && !save.isPending) setEditor(undefined); }}>
       <DialogContent>
-        <DialogHeader><DialogTitle>{editor?.action === "due" ? "Modifica scadenza" : editor?.action === "settle" ? "Registra incasso" : "Aggiungi voce"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{editor?.action === "kit-link" ? "Collega articolo kit" : editor?.action === "due" ? "Modifica scadenza" : editor?.action === "settle" ? "Registra incasso" : "Aggiungi voce"}</DialogTitle></DialogHeader>
         {editor && <form className="space-y-3" onSubmit={event => {
           event.preventDefault();
           event.stopPropagation();
@@ -109,10 +136,13 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
             save.mutate({ path: `/api/player-payments/${editor.ids[0]}/due-date`, method: "PATCH", body: { dueDate: editor.date } });
           } else if (editor.action === "settle") {
             save.mutate({ path: "/api/player-payments/settle", method: "POST", body: { playerId, ids: editor.ids, paymentDate: editor.date, paymentMethod: editor.method } });
+          } else if (editor.action === "kit-link") {
+            save.mutate({ path: `/api/player-payments/${editor.ids[0]}/kit-item`, method: "PATCH", body: { kitItemId: kitItem?.id } });
           } else {
             save.mutate({ path: "/api/player-payments", method: "POST", body: {
               playerId, amount: Number(amount), status: editor.status, paymentType: editor.paymentType,
-              description: editor.description.trim() || tariff?.name || paymentTypes[editor.paymentType as keyof typeof paymentTypes],
+              kitItemId: kitItem?.id,
+              description: kitItem ? editor.description.trim() : editor.description.trim() || tariff?.name || paymentTypes[editor.paymentType as keyof typeof paymentTypes],
               dueDate: editor.status === "pending" ? editor.date : null,
               paymentDate: editor.status === "paid" ? editor.date : null, paymentMethod: editor.status === "paid" ? editor.method : null,
             } });
@@ -120,7 +150,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
         }}>
           {editor.action === "settle" && <p className="text-sm">Importo da incassare <strong>{money.format(sum(payments.filter(payment => editor.ids.includes(payment.id))))}</strong></p>}
           {editor.action === "add" && <div className="grid gap-2 sm:grid-cols-2">
-            <label className="block text-sm">Voce<ScrollableSelect aria-label="Voce" className="mt-1 w-full" value={editor.paymentType} onValueChange={paymentType => setEditor({ ...editor, paymentType, tariffId: undefined, amount: undefined })}>
+            <label className="block text-sm">Voce<ScrollableSelect aria-label="Voce" className="mt-1 w-full" value={editor.paymentType} onValueChange={paymentType => setEditor({ ...editor, paymentType, kitItemId: undefined, tariffId: undefined, amount: undefined })}>
               {Object.entries(paymentTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </ScrollableSelect></label>
             {tariffType && <label className="block text-sm">Tariffa di listino
@@ -129,25 +159,55 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
                 {tariffs.map(item => <option key={item.id} value={String(item.id)}>{item.name} · {money.format(item.price ?? 0)}</option>)}
               </ScrollableSelect>
             </label>}
+            {kitPicker}
             <label className="block text-sm">Importo (€)<Input type="number" min="0.01" max={MAX_PLAYER_PAYMENT_AMOUNT} step="0.01" value={amount} onChange={event => setEditor({ ...editor, amount: event.target.value })} /></label>
             <label className="block text-sm">Stato<ScrollableSelect aria-label="Stato nuova voce" className="mt-1 w-full" value={editor.status} onValueChange={value => setEditor({ ...editor, status: value === "pending" ? "pending" : "paid", date: value === "pending" ? "" : today })}>
               <option value="paid">Incassato subito</option><option value="pending">Da incassare</option>
             </ScrollableSelect></label>
             <label className="block text-sm">Descrizione<Input value={editor.description} onChange={event => setEditor({ ...editor, description: event.target.value })} /></label>
           </div>}
+          {editor.action === "kit-link" && kitPicker}
+          {needsKitArticle && kitCatalog.isError && <p role="alert" className="text-sm text-destructive">
+            Impossibile caricare gli articoli del kit. <button type="button" className="underline" onClick={() => void kitCatalog.refetch()}>Riprova</button>
+          </p>}
+          {needsKitArticle && kitCatalog.isSuccess && kitItems.length === 0 && <p className="text-sm text-muted-foreground">Nessun articolo attivo in Magazzino → Abbigliamento.</p>}
           {editor.action === "add" && (tariffType === "annual_fee" || tariffType === "registration_fee") && (
             <p className="text-xs text-muted-foreground">L’iscrizione è la prima rata della quota annuale. Per ripartire la quota tra acconto e rate, usa il piano quote nella scheda giocatore.</p>
           )}
-          <label className="block text-sm">{editor.action === "due" ? "Nuova scadenza" : requiresMethod ? "Data d’incasso" : "Scadenza"}
+          {editor.action !== "kit-link" && <label className="block text-sm">{editor.action === "due" ? "Nuova scadenza" : requiresMethod ? "Data d’incasso" : "Scadenza"}
             <Input type="date" required value={editor.date} onChange={event => setEditor({ ...editor, date: event.target.value })} />
-          </label>
+          </label>}
           {requiresMethod && <ReceiptMethodSelect value={editor.method} onChange={method => setEditor({ ...editor, method })} />}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" disabled={invalid || save.isPending}>{editor.action === "due" ? "Salva scadenza" : editor.action === "add" ? "Registra voce" : "Salva incasso"}</Button>
+          <Button type="submit" disabled={invalid || save.isPending}>{editor.action === "kit-link" ? "Collega articolo" : editor.action === "due" ? "Salva scadenza" : editor.action === "add" ? "Registra voce" : "Salva incasso"}</Button>
         </form>}
       </DialogContent>
     </Dialog>
   </div>;
+}
+
+export function RegisteredKitPayments({ payments, today }: { payments: PlayerLedgerPayment[]; today: string }) {
+  if (!payments.length) return null;
+  return <section className="space-y-2" aria-label="Articoli registrati nei pagamenti">
+    <h4 className="text-sm font-semibold">Articoli registrati nei pagamenti</h4>
+    <ul className="divide-y rounded-lg border bg-card">
+      {payments.map(payment => {
+        const article = payment.kitArticle;
+        if (!article) return null;
+        const state = paymentStatus(payment, today);
+        return <li key={payment.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
+          <div className="min-w-0">
+            <p className="break-words font-medium">{article.name}</p>
+            <p className="text-xs text-muted-foreground">{[article.size && "Taglia " + article.size, article.code].filter(Boolean).join(" · ")}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className={paymentStatusTone[state]}>{paymentStatuses[state]}</Badge>
+            <span className="tabular-nums">{money.format(payment.amount)}</span>
+          </div>
+        </li>;
+      })}
+    </ul>
+  </section>;
 }
 
 export function PlayerPaymentWorkspace({ payments, focusSearch = false }: { payments: LedgerPayment[]; focusSearch?: boolean }) {

@@ -1,6 +1,6 @@
 import { DocumentFilePicker } from "@/components/document-file-picker";
 import { downloadDocument, readDocumentFile } from "@/lib/document-files";
-import { PlayerPaymentRegister } from "@/components/player-payment-register";
+import { PlayerPaymentRegister, RegisteredKitPayments } from "@/components/player-payment-register";
 import { PlayerKitEditor } from "./player-kit-editor";
 import { ParentFamilyLinks } from "@/components/parent-family-links";
 import { PLAYER_KIT_ROWS, kitRowHasContent, kitRowItemIds, kitRowNeedsLink, KIT_REQUEST_STATUS, savedKitSelections, type KitRequestLine, type KitRow } from "@/lib/player-kit-catalog";
@@ -32,7 +32,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
 import { Link, useLocation } from "wouter";
 import { listFeesForType, MAX_PLAYER_PAYMENT_AMOUNT } from "@/lib/fee-list";
-import { depositPurposes, isReceiptMethod, paymentStatus, playerEconomicBalance, quotePaymentStatus, receiptMethodLabel } from "@/lib/payment-summary";
+import { depositPurposes, isReceiptMethod, paymentStatus, playerEconomicBalance, quotePaymentStatus, receiptMethodLabel, type PaymentKitArticle } from "@/lib/payment-summary";
 import { ExtraTime } from "@/components/extra-time";
 import { ReceiptMethodSelect } from "@/components/receipt-method-select";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
@@ -263,6 +263,7 @@ type PlayerDocument = {
 };
 
 type PlayerPayment = {
+  kitArticle?: PaymentKitArticle | null;
   id: number;
   playerId: number;
   amount: number;
@@ -1729,6 +1730,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     : undefined;
   const displayedKitRows = editingPlayerEquipment ? parseKitRows(editingPlayerEquipment.trainingKit) : kitRows;
   const kitTotal = displayedKitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
+  const registeredKitPayments = editingPlayerPayments.filter(payment => !!payment.kitArticle);
   const editingKitPayments = editingPlayerPayments.filter((payment) => payment.paymentType === "kit_payment");
   const editingKitPayment = editingKitPayments[0];
   const editingShuttlePayments = editingPlayerPayments.filter((payment) => payment.paymentType === "shuttle_monthly");
@@ -1831,7 +1833,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const currentKitRequests = playerKitRequests.filter((line) => !line.archived);
   const kitSectionStatus = (() => {
     const activeRows = displayedKitRows.filter(kitRowHasContent);
-    if (activeRows.length === 0) return { tone: "red" as const, label: "Non registrato" };
+    if (activeRows.length === 0) return registeredKitPayments.length
+      ? { tone: "neutral" as const, label: "Registrato" } : { tone: "red" as const, label: "Non registrato" };
     if (currentKitRequests.some((line) => line.status === "pending")) return { tone: "yellow" as const, label: "Da ordinare" };
     const activeIds = priceListPending || priceListError ? undefined : new Set(kitListItems.map((item) => String(item.id)));
     if (activeRows.some((row) => kitRowNeedsLink(row, activeIds))) {
@@ -4130,7 +4133,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   <div className="mt-3 space-y-2 text-sm">
                     <div className="space-y-2">
                       {displayedKitRows.filter(kitRowHasContent).length === 0 ? (
-                        <p className="text-muted-foreground">Nessun kit registrato.</p>
+                        registeredKitPayments.length === 0 && <p className="text-muted-foreground">Nessun kit registrato.</p>
                       ) : displayedKitRows.filter(kitRowHasContent).map((row) => (
                         <div key={row.key} className="flex flex-col gap-1 rounded-md border bg-background px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                           <div>
@@ -4150,6 +4153,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                         </div>
                       ))}
                     </div>
+                    <RegisteredKitPayments payments={registeredKitPayments} today={paymentToday} />
                   </div>
                 </details>
               )}
@@ -5143,6 +5147,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                 <details data-player-kit-editor className="group rounded-lg border border-border/60 bg-muted/10 p-3">
                   <CollapsibleSectionSummary title="Kit" icon={<Package className="h-4 w-4" />} status={kitSectionStatus} />
                   <div className="mt-3 space-y-3">
+                    <RegisteredKitPayments payments={registeredKitPayments} today={paymentToday} />
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm">Totale <strong className="font-medium">€ {formatEuro(plannedKitTotal)}</strong></p>
                       <Button type="button" size="sm" variant="outline" disabled={isSavingKit}
