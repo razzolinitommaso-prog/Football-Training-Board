@@ -95,3 +95,5 @@ il resoconto la segnala e propone la durata del piano.
 Salvare gli schieramenti conserva il resoconto già registrato. Se cambia il
 numero di tempi, il piano adegua solo la struttura del resoconto. La durata
 e i cambi effettivi si correggono in **Resoconto**.
+La conferma è accessibile dall’area Dirigenti al dirigente assegnato alla
+squadra e si applica alla versione del resoconto che ha verificato.

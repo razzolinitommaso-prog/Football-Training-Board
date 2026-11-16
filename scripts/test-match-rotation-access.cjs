@@ -410,6 +410,26 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       [101, 102],
     );
     assert.equal(manager.data.matches[0].matchPlan, undefined);
+    const confirmationMatch = manager.data.matches[0];
+    const confirmationRequest = async (url, method, body, headers) => {
+      const response = await fetch(base + url, { method, body: JSON.stringify(body),
+        headers: { "content-type": "application/json", ...headers } });
+      return { status: response.status, data: await response.json() };
+    };
+    const submitConfirmation = (headers, report = confirmationMatch.report) =>
+      confirmationRequest(`/matches/${confirmationMatch.id}/report-confirmation`, "POST", { report }, headers);
+    const managerSession = { "x-role": "team_manager" };
+    assert.equal((await submitConfirmation({ ...managerSession, "x-user": "2" })).status, 403);
+    assert.equal((await submitConfirmation(managerSession, { ...confirmationMatch.report, goals: [{ id: "stale", playerId: 101, period: 0, minute: 1 }] })).status, 409);
+    assert.equal((await confirmationRequest(`/matches/${confirmationMatch.id}`, "PATCH", { result: "9-0" }, managerSession)).status, 403);
+    const confirmed = await submitConfirmation(managerSession);
+    assert.equal(confirmed.status, 200, JSON.stringify(confirmed.data));
+    const approved = await call("/dirigenti/overview?teamId=11", managerSession);
+    assert.equal(approved.data.matches[0].rotation.reportConfirmed, true);
+    if (process.argv.includes("--manager-confirmation")) {
+      console.log("PASS manager report confirmation: assigned team, stale reports and blocked unrelated writes.");
+      return;
+    }
     assert.equal(
       (
         await call("/dirigenti/overview?teamId=12", {
