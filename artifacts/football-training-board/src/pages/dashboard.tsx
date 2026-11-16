@@ -2700,6 +2700,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         role={nr}
         teamCount={dashboardTeams.length}
         players={allPlayers}
+        playersPath={dashboardPlayersPath}
         sessions={trainingSessionsForDash}
         sessionsLoading={sessionsLoading}
         sessionsError={sessionsError}

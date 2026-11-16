@@ -41,3 +41,7 @@ L'introduzione di `/partite` aveva riaperto `SectionMatchCalendars` anche per la
 La consultazione di Settore Giovanile e Prima Squadra riusa ora `TechnicalChampionshipsPage` / `SectionChampionshipsPage` dentro lo stesso layout comune, con gli stessi selettori e permessi. Il vecchio editor non viene montato nella consultazione; resta soltanto nella sezione amministrativa richiudibile della Programmazione gare, per i ruoli già autorizzati. La Scuola Calcio conserva il proprio percorso. Nessuna modifica ai dati, alle classifiche, ai salvataggi o alla logica delle schede partita.
 
 Verifica di regressione da ripetere dopo cambi alla navigazione: aprire **Partite → girone popolato → calendario giornata**, a 430px e desktop; controllare assenza degli editor Casa/Trasf./Salva nella consultazione, presenza di ultimi risultati/classifica/prossima giornata/calendario, apertura della scheda della gara del club e mantenimento dell'annata. Verificare separatamente il percorso Segreteria → Programmazione gare → PDF federale. Collaudo eseguito sulla build con cinque incontri, tre giornate e classifica, per otto ruoli di consultazione e Segreteria, senza scritture.
+
+Nel pannello **Situazione amministrativa**, **Apri giocatori** apre i soli
+atleti segnalati nell’ambito selezionato. I contatori aprono il filtro
+corrispondente e ogni riga apre direttamente la scheda del giocatore.

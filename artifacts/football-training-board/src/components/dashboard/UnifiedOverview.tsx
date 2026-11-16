@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import {
   CalendarDays,
@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { supervisionState } from "@/components/training/TrainingSupervision";
@@ -33,6 +34,9 @@ export type OverviewSession = {
   preparation?: { exerciseCount: number; phases: string[]; complete: boolean };
 };
 type Player = {
+  id: number;
+  firstName: string;
+  lastName: string;
   registered?: boolean | null;
   medicalCertificateExpiry?: string | null;
 };
@@ -63,12 +67,14 @@ function Panel({
   icon: Icon,
   href,
   link,
+  action,
   children,
 }: {
   title: string;
   icon: typeof CalendarDays;
-  href: string;
-  link: string;
+  href?: string;
+  link?: string;
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -79,13 +85,13 @@ function Panel({
             <Icon className="h-4 w-4 shrink-0 text-primary" />
             {title}
           </h2>
-          <Link
+          {action ?? (href && <Link
             href={href}
             className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-primary"
           >
             {link}
             <ArrowUpRight className="h-3 w-3" />
-          </Link>
+          </Link>)}
         </div>
         {children}
       </CardContent>
@@ -143,6 +149,7 @@ export function UnifiedOverview({
   tournamentCount,
   memberCount,
   scopeLabel,
+  playersPath,
   dataState,
   children,
 }: {
@@ -157,8 +164,10 @@ export function UnifiedOverview({
   tournamentCount: number;
   memberCount: number;
   scopeLabel: string;
+  playersPath: string;
   children?: ReactNode;
 }) {
+  const [alertFilter, setAlertFilter] = useState<"all" | "registration" | "certificate" | null>(null);
   const technical = [
     "admin",
     "director",
@@ -188,12 +197,17 @@ export function UnifiedOverview({
       String(now.getMonth() + 1).padStart(2, "0"),
       String(now.getDate()).padStart(2, "0"),
     ].join("-");
-  const registrations = players.filter((p) => p.registered !== true).length;
-  const certificates = players.filter(
-    (p) =>
-      !p.medicalCertificateExpiry ||
-      p.medicalCertificateExpiry.slice(0, 10) < day,
-  ).length;
+  const alerts = administrative && dataState.players === "ready" ? players.map(player => ({
+    player,
+    registration: player.registered !== true,
+    certificate: !player.medicalCertificateExpiry ? "Certificato mancante"
+      : player.medicalCertificateExpiry.slice(0, 10) < day ? "Certificato scaduto" : null,
+  })).filter(item => item.registration || item.certificate) : [];
+  const registrations = alerts.filter(item => item.registration).length;
+  const certificates = alerts.filter(item => item.certificate).length;
+  const visibleAlerts = alertFilter === null ? [] : alerts
+    .filter(item => alertFilter === "all" || (alertFilter === "registration" ? item.registration : item.certificate))
+    .sort((a, b) => a.player.lastName.localeCompare(b.player.lastName, "it") || a.player.firstName.localeCompare(b.player.firstName, "it"));
   const programPath =
     role === "secretary" ? "/programmazione-gare" : "/partite";
   const stats = [
@@ -473,11 +487,14 @@ export function UnifiedOverview({
             </Link>
           </Panel>
         ) : administrative ? (
+          <>
           <Panel
             title="Situazione amministrativa"
             icon={FileText}
-            href="/players"
-            link="Apri giocatori"
+            action={<Button type="button" variant="ghost" size="sm" className="h-auto shrink-0 px-1 py-1 text-xs text-muted-foreground"
+              disabled={dataState.players !== "ready"} onClick={() => setAlertFilter("all")}>
+              Apri giocatori <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+            </Button>}
           >
             {dataState.players !== "ready" ? (
               <p
@@ -490,21 +507,50 @@ export function UnifiedOverview({
               </p>
             ) : (
               <>
-                <div className="flex justify-between gap-2 border-b py-3 text-sm">
-                  <span>Tesseramento da verificare</span>
-                  <strong className="tabular-nums">{registrations}</strong>
-                </div>
-                <div className="flex justify-between gap-2 pt-3 text-sm">
-                  <span>Certificati scaduti o mancanti</span>
-                  <strong className="tabular-nums">{certificates}</strong>
-                </div>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Riepilogo della rosa selezionata. Dettagli nelle schede
-                  giocatore.
-                </p>
+                <button type="button" onClick={() => setAlertFilter("registration")}
+                  className="flex w-full justify-between gap-2 border-b py-3 text-left text-sm hover:text-primary">
+                  <span>Tesseramento da verificare</span><strong className="tabular-nums">{registrations}</strong>
+                </button>
+                <button type="button" onClick={() => setAlertFilter("certificate")}
+                  className="flex w-full justify-between gap-2 pt-3 text-left text-sm hover:text-primary">
+                  <span>Certificati scaduti o mancanti</span><strong className="tabular-nums">{certificates}</strong>
+                </button>
               </>
             )}
           </Panel>
+          <Dialog open={alertFilter !== null} onOpenChange={open => { if (!open) setAlertFilter(null); }}>
+            <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Giocatori con segnalazioni</DialogTitle>
+                <DialogDescription>{scopeLabel}</DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Filtra per segnalazione">
+                {([
+                  ["all", "Tutte", alerts.length],
+                  ["registration", "Tesseramento", registrations],
+                  ["certificate", "Certificati", certificates],
+                ] as const).map(([filter, label, count]) => <Button key={filter} type="button" size="sm"
+                  variant={alertFilter === filter ? "secondary" : "outline"} aria-pressed={alertFilter === filter}
+                  onClick={() => setAlertFilter(filter)}>{label} · {count}</Button>)}
+              </div>
+              {visibleAlerts.length ? <ul className="divide-y rounded-lg border">
+                {visibleAlerts.map(({ player, registration, certificate }) => <li key={player.id}>
+                  <Link href={`${playersPath}?openPlayerId=${player.id}`}
+                    className="flex min-w-0 items-center justify-between gap-2 rounded-md p-3 hover:bg-muted/50">
+                    <span className="min-w-0 space-y-1">
+                      <span className="block break-words text-sm font-semibold">{player.lastName} {player.firstName}</span>
+                      <span className="flex flex-wrap gap-1">
+                        {registration && <Badge variant="outline">Tesseramento da verificare</Badge>}
+                        {certificate && <Badge variant="outline">{certificate}</Badge>}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1 text-xs text-primary">Apri scheda <ArrowUpRight className="h-3 w-3" aria-hidden="true" /></span>
+                  </Link>
+                </li>)}
+              </ul> : <p className="text-sm text-muted-foreground">Nessun giocatore per questo filtro.</p>}
+            </DialogContent>
+          </Dialog>
+          </>
         ) : (
           <Panel
             title="Partite e convocazioni"
