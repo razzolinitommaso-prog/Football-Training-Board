@@ -10,6 +10,7 @@ Il collaudo HTTP usa un account fittizio DS con email maiuscola. Verifica access
 
 - Presidente: omette Sedute Allenamento e Stazioni dai menu di settore; conserva Convocazioni e le altre voci.
 - Segreteria: omette Squadre, Partite, Presenze e Campionati dai menu di settore; conserva Giocatori e Stagioni. La voce Programmazione gare porta alla gestione esistente dei calendari FTB per annata, inclusi tornei e amichevoli.
+- In Transizione stagionale, i filtri Cerca giocatore e Annata si combinano nelle liste dei settori e in In osservazione. Le card riepilogative mantengono i totali della stagione.
 - La card Campionato del cruscotto della segreteria apre Programmazione gare. DT/DS mantengono la pagina LND.
 - Campionati presenta ai ruoli gestionali il collegamento Calendario FTB / Importa PDF: con annata selezionata apre direttamente il calendario e i suoi strumenti di importazione, altrimenti apre la selezione delle annate.
 

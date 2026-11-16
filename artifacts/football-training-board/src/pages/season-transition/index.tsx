@@ -546,6 +546,9 @@ function ObservedPlayerDialog({ player, seasonId, open, onClose }: {
   );
 }
 
+const playerBirthYear = (date: string | null) => /^(\d{4})(?:-|$)/.exec(date ?? "")?.[1] ?? "";
+const normalizePlayerSearch = (value: string) => value.toLocaleLowerCase("it").normalize("NFD").replace(/\p{M}/gu, "").trim();
+
 const CLUB_SECTIONS = [
   { key: "scuola_calcio",     label: "Scuola Calcio" },
   { key: "settore_giovanile", label: "Settore Giovanile" },
@@ -562,6 +565,8 @@ export default function SeasonTransitionPage() {
   const [editPlayer, setEditPlayer] = useState<PlayerStatus | null>(null);
   const [editObserved, setEditObserved] = useState<ObservedPlayer | null | "new">(null);
   const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [birthYearFilter, setBirthYearFilter] = useState("all");
 
   const { data: seasons = [] } = useQuery<Season[]>({
     queryKey: ["/api/seasons"],
@@ -617,6 +622,17 @@ export default function SeasonTransitionPage() {
     onError: () => toast({ title: "Errore", variant: "destructive" }),
   });
 
+  const birthYears = [...new Set([...playerStatuses, ...observedPlayers]
+    .map(player => playerBirthYear(player.dateOfBirth)).filter(Boolean))].sort((a, b) => Number(b) - Number(a));
+  const searchTerms = normalizePlayerSearch(playerSearch).split(/\s+/).filter(Boolean);
+  const hasFilters = birthYearFilter !== "all" || searchTerms.length > 0;
+  const matchesFilters = (player: Pick<PlayerStatus, "dateOfBirth" | "firstName" | "lastName">) => {
+    const year = playerBirthYear(player.dateOfBirth);
+    const searchText = normalizePlayerSearch([player.firstName, player.lastName, year].join(" "));
+    return (birthYearFilter === "all" || year === birthYearFilter) && searchTerms.every(term => searchText.includes(term));
+  };
+  const visibleObservedPlayers = observedPlayers.filter(matchesFilters);
+
   const playersBySection = useMemo(() => {
     const map: Record<string, PlayerStatus[]> = {};
     for (const s of CLUB_SECTIONS) map[s.key] = [];
@@ -661,7 +677,7 @@ export default function SeasonTransitionPage() {
       <div className="flex flex-wrap items-center gap-3 bg-muted/40 border rounded-xl p-4">
         <div className="flex items-center gap-2">
           <Label className="text-sm font-medium whitespace-nowrap">Stagione di partenza:</Label>
-          <Select value={fromSeasonId?.toString() ?? ""} onValueChange={v => setFromSeasonId(Number(v))}>
+          <Select value={fromSeasonId?.toString() ?? ""} onValueChange={v => { setFromSeasonId(Number(v)); setBirthYearFilter("all"); }}>
             <SelectTrigger className="w-[150px] h-8 text-sm"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
             <SelectContent>
               {seasons.map(s => (
@@ -733,22 +749,41 @@ export default function SeasonTransitionPage() {
             </TabsTrigger>
           </TabsList>
 
-          {CLUB_SECTIONS.map(s => (
-            <TabsContent key={s.key} value={s.key} className="mt-4">
+          <div className="mt-4 grid gap-3 rounded-xl border bg-card p-3 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,12rem)]">
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor="season-player-search">Cerca giocatore</Label>
+              <Input id="season-player-search" type="search" placeholder="Nome, cognome o anno di nascita"
+                value={playerSearch} onChange={event => setPlayerSearch(event.target.value)} />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor="season-player-year">Annata</Label>
+              <Select value={birthYearFilter} onValueChange={setBirthYearFilter}>
+                <SelectTrigger id="season-player-year"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tutte le annate</SelectItem>
+                  {birthYears.map(year => <SelectItem key={year} value={year}>{year}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {CLUB_SECTIONS.map(s => {
+            const visiblePlayers = playersBySection[s.key].filter(matchesFilters);
+            return <TabsContent key={s.key} value={s.key} className="mt-4">
               <Card>
                 <CardHeader className="py-3 px-4 border-b">
                   <CardTitle className="text-sm font-semibold flex items-center gap-2">
                     <Users className="w-4 h-4 text-primary" />
-                    {s.label} — {playersBySection[s.key]?.length ?? 0} giocatori
+                    {s.label} — {visiblePlayers.length} giocatori
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
                   {loadingStatuses ? (
                     <div className="py-12 text-center text-muted-foreground text-sm">Caricamento...</div>
-                  ) : playersBySection[s.key]?.length === 0 ? (
-                    <div className="py-12 text-center text-muted-foreground text-sm">Nessun giocatore in questa sezione.</div>
+                  ) : visiblePlayers.length === 0 ? (
+                    <div className="py-12 text-center text-muted-foreground text-sm">{hasFilters ? "Nessun giocatore corrisponde ai filtri." : "Nessun giocatore in questa sezione."}</div>
                   ) : (
-                    playersBySection[s.key].map(p => (
+                    visiblePlayers.map(p => (
                       <PlayerRow
                         key={p.playerId}
                         player={p}
@@ -759,8 +794,8 @@ export default function SeasonTransitionPage() {
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
-          ))}
+            </TabsContent>;
+          })}
 
           {/* Observed players tab */}
           <TabsContent value="osservazione" className="mt-4">
@@ -769,7 +804,7 @@ export default function SeasonTransitionPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-semibold flex items-center gap-2">
                     <Eye className="w-4 h-4 text-amber-600" />
-                    Giocatori in osservazione — {observedPlayers.length}
+                    Giocatori in osservazione — {visibleObservedPlayers.length}
                   </CardTitle>
                   {canManageTransition && (
                     <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setEditObserved("new")}>
@@ -782,6 +817,8 @@ export default function SeasonTransitionPage() {
               <CardContent className="p-0">
                 {loadingObserved ? (
                   <div className="py-12 text-center text-muted-foreground text-sm">Caricamento...</div>
+                ) : hasFilters && !visibleObservedPlayers.length ? (
+                  <div className="py-12 text-center text-muted-foreground text-sm">Nessun giocatore corrisponde ai filtri.</div>
                 ) : observedPlayers.length === 0 ? (
                   <div className="py-16 text-center">
                     <Eye className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
@@ -793,7 +830,7 @@ export default function SeasonTransitionPage() {
                     )}
                   </div>
                 ) : (
-                  observedPlayers.map(p => (
+                  visibleObservedPlayers.map(p => (
                     <ObservedRow
                       key={p.id} player={p}
                       onEdit={canManageTransition ? setEditObserved : undefined}
