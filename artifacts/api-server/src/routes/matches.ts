@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { Router, type IRouter } from "express";
 import {
   db,
@@ -285,7 +286,7 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
     const before = matchReportSchema.safeParse(old?.postMatchReport);
     const after = matchReportSchema.safeParse(next.postMatchReport);
     if (confirmation && before.success && after.success &&
-        JSON.stringify(before.data) === JSON.stringify(after.data)) {
+        isDeepStrictEqual(before.data, after.data)) {
       next.postMatchConfirmation = confirmation;
     }
   }
@@ -744,7 +745,7 @@ router.post("/matches/:id/report-confirmation", requireAuth, async (req, res): P
     const endsAt = date.getTime() + report.periods.reduce((sum, period) => sum + period.minutes, 0) * 60_000;
     if (endsAt > Date.now()) return { status: 400, error: "Il resoconto si conferma a partita conclusa." };
     const expected = matchReportSchema.safeParse(req.body?.report);
-    if (!expected.success || JSON.stringify(expected.data) !== JSON.stringify(report)) {
+    if (!expected.success || !isDeepStrictEqual(expected.data, report)) {
       return { status: 409, error: "Il resoconto è cambiato. Ricarica la gara e verifica i nuovi dati." };
     }
     const periods = (plan.periods as Record<string, unknown>[]);
@@ -754,9 +755,32 @@ router.post("/matches/:id/report-confirmation", requireAuth, async (req, res): P
     if (analysis.errors.length || report.periods.some(period => !period.starters.length)) {
       return { status: 400, error: analysis.errors[0] ?? "Indica lo schieramento effettivo di ogni tempo." };
     }
-    if (normalizeMatchPlan(match.matchPlan?.postMatchConfirmation)?.confirmedAt) return { status: 200 };
+    const notes = typeof req.body?.notes === "string" ? req.body.notes.trim() : "";
+    if (notes.length > 2000) return { status: 400, error: "La nota del dirigente può contenere al massimo 2000 caratteri." };
+    let managerReport: typeof report | undefined;
+    if (req.body?.managerReport !== undefined) {
+      const review = matchReportSchema.safeParse(req.body.managerReport);
+      if (!review.success || review.data.periods.length !== report.periods.length ||
+          !isDeepStrictEqual(review.data.goals, report.goals)) {
+        return { status: 400, error: "Controlla i tempi della verifica. I marcatori restano quelli del mister." };
+      }
+      const reviewAnalysis = analyseMatchReport({ ...review.data, goals: [] }, called.map(row => row.playerId),
+        periods.map(period => rotationSummaryCapacity(period, fallback)));
+      if (reviewAnalysis.errors.length || review.data.periods.some(period => !period.starters.length)) {
+        return { status: 400, error: reviewAnalysis.errors[0] ?? "Indica lo schieramento effettivo di ogni tempo." };
+      }
+      const reviewedEndsAt = date.getTime() + review.data.periods.reduce((sum, period) => sum + period.minutes, 0) * 60_000;
+      if (reviewedEndsAt > Date.now()) return { status: 400, error: "Il resoconto si conferma a partita conclusa." };
+      if (!isDeepStrictEqual(review.data, report)) managerReport = review.data;
+    }
+    const existingConfirmation = normalizeMatchPlan(plan.postMatchConfirmation);
+    if (existingConfirmation?.confirmedAt) {
+      return isDeepStrictEqual(existingConfirmation.report, managerReport) &&
+        (existingConfirmation.notes ?? "") === notes ? { status: 200 }
+        : { status: 409, error: "Il resoconto è già stato avallato. Ricarica la gara per vedere la verifica registrata." };
+    }
     const [updated] = await tx.update(matchesTable)
-      .set({ matchPlan: { ...plan, postMatchConfirmation: { confirmedAt: new Date().toISOString(), confirmedBy: userId } } })
+      .set({ matchPlan: { ...plan, postMatchConfirmation: { confirmedAt: new Date().toISOString(), confirmedBy: userId, ...(managerReport ? { report: managerReport } : {}), ...(notes ? { notes } : {}) } } })
       .where(and(eq(matchesTable.id, id), eq(matchesTable.clubId, clubId),
         sql`${matchesTable.matchPlan} IS NOT DISTINCT FROM ${match.matchPlan ? JSON.stringify(match.matchPlan) : null}::jsonb`))
       .returning({ id: matchesTable.id });

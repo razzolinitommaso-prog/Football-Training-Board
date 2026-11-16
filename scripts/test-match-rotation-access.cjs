@@ -455,8 +455,8 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         headers: { "content-type": "application/json", ...headers } });
       return { status: response.status, data: await response.json() };
     };
-    const submitConfirmation = (headers, report = confirmationMatch.report) =>
-      confirmationRequest(`/matches/${confirmationMatch.id}/report-confirmation`, "POST", { report }, headers);
+    const submitConfirmation = (headers, report = confirmationMatch.report, review = {}) =>
+      confirmationRequest(`/matches/${confirmationMatch.id}/report-confirmation`, "POST", { report, ...review }, headers);
     const secretarySession = { "x-role": "secretary" };
     const matchPath = `/matches/${confirmationMatch.id}`;
     assert.equal((await confirmationRequest(matchPath, "PATCH", { postMatchNotes: "Nota post-partita" }, secretarySession)).status, 403);
@@ -467,14 +467,36 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     assert.equal((await submitConfirmation({ ...managerSession, "x-user": "2" })).status, 403);
     assert.equal((await submitConfirmation(managerSession, { ...confirmationMatch.report, goals: [{ id: "stale", playerId: 101, period: 0, minute: 1 }] })).status, 409);
     assert.equal((await confirmationRequest(`/matches/${confirmationMatch.id}`, "PATCH", { result: "9-0" }, managerSession)).status, 403);
+    if (process.argv.includes("--manager-confirmation")) {
+      const coachReport = confirmationMatch.report;
+      const correction = {
+        ...coachReport,
+        substitutions: coachReport.substitutions.map(change => ({ ...change, minute: 8 })),
+      };
+      const invalid = { ...correction, substitutions: [{ ...correction.substitutions[0], inPlayerId: 999 }] };
+      assert.equal((await submitConfirmation(managerSession, coachReport, { managerReport: invalid })).status, 400);
+      const review = { managerReport: correction, notes: "Cambio al minuto 8 del terzo tempo." };
+      const reviewed = await submitConfirmation(managerSession, coachReport, review);
+      assert.equal(reviewed.status, 200, JSON.stringify(reviewed.data));
+      assert.equal((await submitConfirmation(managerSession, coachReport, review)).status, 200);
+      assert.equal((await submitConfirmation(managerSession, coachReport)).status, 409);
+      const refreshed = await call("/dirigenti/overview?teamId=11", managerSession);
+      const reviewedMatch = refreshed.data.matches[0];
+      assert.deepEqual(reviewedMatch.report, coachReport);
+      assert.deepEqual(reviewedMatch.review.report, correction);
+      assert.equal(reviewedMatch.review.notes, review.notes);
+      assert.equal(reviewedMatch.rotation.reportConfirmed, true);
+      assert.equal(reviewedMatch.rotation.rows[0].actualMinutes, 20);
+      assert.equal(reviewedMatch.rotation.rows[0].cells.find(cell => cell.key === "t3-second").actualMinutes, 2);
+      const parentRefresh = await call("/parent/matches");
+      assert.ok(!JSON.stringify(parentRefresh.data).includes(review.notes));
+      console.log("PASS manager review: assigned team, stale reports, separate correction and notes, updated third fraction, parent privacy.");
+      return;
+    }
     const confirmed = await submitConfirmation(managerSession);
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.data));
     const approved = await call("/dirigenti/overview?teamId=11", managerSession);
     assert.equal(approved.data.matches[0].rotation.reportConfirmed, true);
-    if (process.argv.includes("--manager-confirmation")) {
-      console.log("PASS manager report confirmation: assigned team, stale reports and blocked unrelated writes.");
-      return;
-    }
     assert.equal(
       (
         await call("/dirigenti/overview?teamId=12", {

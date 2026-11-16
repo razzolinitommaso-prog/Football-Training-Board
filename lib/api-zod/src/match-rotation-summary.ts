@@ -206,7 +206,9 @@ export function buildMatchRotationSummary(
       start += minutes;
     });
   });
-  const parsed = matchReportSchema.safeParse(plan.postMatchReport);
+  const confirmed = typeof plan.postMatchConfirmation?.confirmedAt === "string";
+  const reviewedReport = confirmed && plan.postMatchConfirmation.report;
+  const parsed = matchReportSchema.safeParse(reviewedReport || plan.postMatchReport);
   let report: MatchReport | null = null;
   if (parsed.success && parsed.data.periods.length === periods.length) {
     const data = parsed.data,
@@ -220,7 +222,7 @@ export function buildMatchRotationSummary(
         ]),
       ]);
     if (data.periods.every(period => period.starters.length > 0) &&
-        !analyseMatchReport(data, [...ids], periods.map(period => rotationSummaryCapacity(period, fallback))).errors.length) report = data;
+        !analyseMatchReport(reviewedReport ? { ...data, goals: [] } : data, [...ids], periods.map(period => rotationSummaryCapacity(period, fallback))).errors.length) report = data;
   }
   const rows = players.map((player) => {
       let plannedMinutes = 0,
@@ -295,7 +297,7 @@ export function buildMatchRotationSummary(
     sum + unit.minutes * rotationSummaryCapacity(sources[index], fallback), 0);
   return {
     units, rows, hasReport: !!report,
-    reportConfirmed: !!report && typeof plan.postMatchConfirmation?.confirmedAt === "string",
+    reportConfirmed: !!report && confirmed,
     equitableMinutes: fullRoster && players.length && units.length
       ? Math.min(totalMinutes, capacityMinutes / players.length) : null,
     unassignedActualMinutes: fullRoster && report ? Math.max(0,

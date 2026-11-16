@@ -89,15 +89,17 @@ function Timing({ period, minute, periods, onChange: change }: {
 
 type ReportUnit = Pick<RotationSummaryUnit, "key" | "periodIndex" | "start" | "minutes" | "label">;
 
-function ReportLineupLists({ players, rotation, unit, actual, onToggle }: {
+function ReportLineupLists({ players, rotation, unit, actual, onToggle, coachReport }: {
   players: ReportPlayer[];
   rotation?: MatchRotationSummary;
   unit: ReportUnit;
   actual: number[];
   onToggle?: (id: number, checked: boolean) => void;
+  coachReport?: MatchReport;
 }) {
-  const status = new Map(rotation?.rows.map(row => [row.playerId,
-    row.cells.find(cell => cell.key === unit.key)?.status ?? "—"]));
+  const coachLineup = coachReport ? new Set(reportLineupAt(coachReport, unit.periodIndex, unit.start)) : null;
+  const status = coachLineup ? new Map(players.map(({ id }) => [id, coachLineup.has(id) ? "T" : "P"]))
+    : new Map(rotation?.rows.map(row => [row.playerId, row.cells.find(cell => cell.key === unit.key)?.status ?? "—"]));
   const rank = (id: number) => status.get(id) === "T" ? 0 : status.get(id) === "P" ? 1 : 2;
   const ordered = [...players].sort((first, second) => rank(first.id) - rank(second.id));
   const plannedCount = ordered.filter(player => status.get(player.id) === "T").length;
@@ -106,8 +108,8 @@ function ReportLineupLists({ players, rotation, unit, actual, onToggle }: {
     && (status.get(player.id) === "T") !== actual.includes(player.id)).length;
   return <div className="rounded-lg border text-sm">
     <div className="grid grid-cols-2 gap-px border-b bg-border text-xs font-semibold sm:text-sm">
-      <span className="bg-muted p-2 sm:p-3">Formazione del mister</span>
-      <span className="bg-muted p-2 sm:p-3">Formazione effettiva</span>
+      <span className="bg-muted p-2 sm:p-3">{coachReport ? "Resoconto del mister" : "Formazione del mister"}</span>
+      <span className="bg-muted p-2 sm:p-3">{coachReport ? "Verifica del dirigente" : "Formazione effettiva"}</span>
     </div>
     <ul className="divide-y">{ordered.map(player => {
       const planned = status.get(player.id);
@@ -158,9 +160,10 @@ function ReportUnitPicker({ units, active, onSelect, disabled }: {
   </nav>;
 }
 
-export function MatchReportLineups({ rotation, report, players }: {
+export function MatchReportLineups({ rotation, report, players, coachReport }: {
   rotation: MatchRotationSummary;
   report?: MatchReport;
+  coachReport?: MatchReport;
   players: ReportPlayer[];
 }) {
   const [selected, setSelected] = useState("");
@@ -172,7 +175,7 @@ export function MatchReportLineups({ rotation, report, players }: {
   return <section className="space-y-2" aria-label="Verifica formazione">
     <h4 className="text-base font-semibold">Verifica formazione</h4>
     <ReportUnitPicker units={units} active={unit} onSelect={setSelected} />
-    {played ? <ReportLineupLists players={players} rotation={rotation} unit={unit} actual={reportLineupAt(report, unit.periodIndex, unit.start)} />
+    {played ? <ReportLineupLists players={players} rotation={rotation} unit={unit} coachReport={coachReport} actual={reportLineupAt(report, unit.periodIndex, unit.start)} />
       : <p className="text-sm text-amber-700 dark:text-amber-300">Questa frazione è fuori dalla durata registrata.</p>}
   </section>;
 }
@@ -183,7 +186,82 @@ const minuteLabel = (minute: number) => {
   return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
 };
 
-export function MatchReportEditor({ value, onChange, players, limit, rotation, planned, boundaries, onPendingLineupChange }: {
+export function MatchReportReviewSummary({ report, reviewed, players, limit, rotation, notes }: {
+  report: MatchReport; reviewed: MatchReport; players: ReportPlayer[];
+  limit: number | number[]; rotation?: MatchRotationSummary; notes?: string;
+}) {
+  const ids = players.map(player => player.id);
+  const coach = analyseMatchReport(report, ids, limit);
+  const manager = analyseMatchReport({ ...reviewed, goals: [] }, ids, limit);
+  const valid = !coach.errors.length && !manager.errors.length && reviewed.periods.every(period => period.starters.length > 0);
+  const names = new Map(players.map(player => [player.id, player.name]));
+  const name = (id: number) => names.get(id) ?? "Giocatore #" + id;
+  const changeKey = ({ period, minute, outPlayerId, inPlayerId, notes }: Substitution) =>
+    JSON.stringify([period, minute, outPlayerId, inPlayerId, notes]);
+  const differences = (from: MatchReport, to: MatchReport) => {
+    const otherKeys = new Set(to.substitutions.map(changeKey));
+    return from.substitutions.filter(change => !otherKeys.has(changeKey(change)))
+      .sort((a, b) => a.period - b.period || a.minute - b.minute);
+  };
+  const coachChanges = differences(report, reviewed);
+  const managerChanges = differences(reviewed, report);
+  const units = reportUnits(report, rotation);
+  const renderChange = (change: Substitution) => {
+    const unit = units.filter(item => item.periodIndex === change.period && item.start <= change.minute).at(-1);
+    const label = unit ? unit.label + " · " + minuteLabel(change.minute - unit.start) : (change.period + 1) + "° tempo · " + minuteLabel(change.minute);
+    return <li key={change.id} className="break-words"><strong>{label}</strong> · Esce {name(change.outPlayerId)}
+      {change.inPlayerId ? " · Entra " + name(change.inPlayerId) : " · Senza ingresso"}{change.notes && " · " + change.notes}</li>;
+  };
+  return <section className="min-w-0 space-y-2 rounded-lg border p-2 sm:p-3" aria-label="Riepilogo finale">
+    <h4 className="font-semibold">Riepilogo finale</h4>
+    <p className="text-xs text-muted-foreground">Minuti effettivi complessivi</p>
+    <table className="w-full table-fixed text-left text-xs sm:text-sm">
+      <thead className="bg-muted/50"><tr>
+        <th scope="col" className="w-[36%] break-words p-1.5">Giocatore</th>
+        <th scope="col" className="break-words p-1.5 text-right">Mister</th>
+        <th scope="col" className="break-words p-1.5 text-right">Dirigente</th>
+        <th scope="col" className="break-words p-1.5 text-right">Scarto</th>
+      </tr></thead>
+      <tbody>{players.map(player => {
+        const first = coach.minutes[player.id] ?? 0;
+        const second = manager.minutes[player.id] ?? 0;
+        const delta = Math.round((second - first) * 60) / 60;
+        return <tr className="border-b" key={player.id}>
+          <th scope="row" className="break-words p-1.5 font-medium">{player.name}</th>
+          <td className="p-1.5 text-right">{matchMinutesLabel(first, true)}</td>
+          <td className="p-1.5 text-right">{valid ? matchMinutesLabel(second, true) : "—"}</td>
+          <td className="p-1.5 text-right font-medium">{!valid ? "—" : delta === 0 ? "0′" :
+            (delta > 0 ? "+" : "−") + matchMinutesLabel(Math.abs(delta), true)}</td>
+        </tr>;
+      })}</tbody>
+    </table>
+    {report.periods.map((period, index) => {
+      const actual = reviewed.periods[index];
+      if (!actual || (actual.minutes === period.minutes && actual.intervalNotes === period.intervalNotes)) return null;
+      return <p key={index} className="break-words text-xs"><strong>{index + 1}° tempo</strong> · Mister {matchMinutesLabel(period.minutes, true)}
+        {period.intervalNotes && " (" + period.intervalNotes + ")"} · Dirigente {matchMinutesLabel(actual.minutes, true)}
+        {actual.intervalNotes && " (" + actual.intervalNotes + ")"}</p>;
+    })}
+    {units.map(unit => {
+      const first = unit.start < report.periods[unit.periodIndex].minutes ? reportLineupAt(report, unit.periodIndex, unit.start) : [];
+      const second = unit.start < reviewed.periods[unit.periodIndex].minutes ? reportLineupAt(reviewed, unit.periodIndex, unit.start) : [];
+      const coachOnly = first.filter(id => !second.includes(id));
+      const managerOnly = second.filter(id => !first.includes(id));
+      return (coachOnly.length > 0 || managerOnly.length > 0) && <p key={unit.key} className="break-words text-xs">
+        <strong>{unit.label} · Titolari diversi</strong> · Mister {coachOnly.map(name).join(", ") || "—"} · Dirigente {managerOnly.map(name).join(", ") || "—"}
+      </p>;
+    })}
+    {(coachChanges.length > 0 || managerChanges.length > 0) && <div className="space-y-1 text-xs">
+      <h5 className="font-semibold">Sostituzioni con differenze</h5>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="min-w-0"><p className="font-medium">Mister</p>{coachChanges.length ? <ul className="space-y-1">{coachChanges.map(renderChange)}</ul> : "—"}</div>
+        <div className="min-w-0"><p className="font-medium">Dirigente</p>{managerChanges.length ? <ul className="space-y-1">{managerChanges.map(renderChange)}</ul> : "—"}</div>
+      </div>
+    </div>}
+    {notes && <p className="whitespace-pre-wrap break-words text-xs"><strong>Nota dirigente</strong> · {notes}</p>}
+  </section>;
+}
+export function MatchReportEditor({ value, onChange, players, limit, rotation, planned, boundaries, onPendingLineupChange, coachReport }: {
   value: MatchReport;
   onChange: (report: MatchReport) => void;
   players: ReportPlayer[];
@@ -192,12 +270,13 @@ export function MatchReportEditor({ value, onChange, players, limit, rotation, p
   planned: MatchReport | null;
   boundaries: ReportFractionBoundary[];
   onPendingLineupChange: (pending: boolean) => void;
+  coachReport?: MatchReport;
 }) {
   const [selectedUnit, setSelectedUnit] = useState("");
   const [draftStarters, setDraftStarters] = useState<number[] | null>(null);
   const [expandedChange, setExpandedChange] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState("");
-  const analysis = analyseMatchReport(value, players.map(player => player.id), limit);
+  const analysis = analyseMatchReport(coachReport ? { ...value, goals: [] } : value, players.map(player => player.id), limit);
   const name = (id: number) => players.find(player => player.id === id)?.name ?? (id ? "Giocatore #" + id : "Da scegliere");
   const units = reportUnits(value, rotation);
   const unit = units.find(item => item.key === selectedUnit) ?? units[0];
@@ -273,9 +352,9 @@ export function MatchReportEditor({ value, onChange, players, limit, rotation, p
     {unit && period && <>
       <h4 className="font-semibold">Verifica formazione</h4>
       <ReportUnitPicker units={units} active={unit} onSelect={setSelectedUnit} disabled={draftStarters !== null} />
-      <p className="text-sm text-muted-foreground">Spunta a destra chi è partito in campo. Le rotazioni del mister sono già precompilate.</p>
+      <p className="text-sm text-muted-foreground">{coachReport ? "Spunta a destra chi è partito in campo secondo il dirigente." : "Spunta a destra chi è partito in campo. Le rotazioni del mister sono già precompilate."}</p>
       {unit.start < period.minutes ? <ReportLineupLists players={players} rotation={rotation} unit={unit}
-        actual={draftStarters ?? actual} onToggle={canEditLineup ? (id, checked) => {
+        coachReport={coachReport} actual={draftStarters ?? actual} onToggle={canEditLineup ? (id, checked) => {
           const next = new Set(draftStarters ?? actual);
           if (checked) next.add(id); else next.delete(id);
           const starters = [...next];
@@ -319,15 +398,17 @@ export function MatchReportEditor({ value, onChange, players, limit, rotation, p
         onClick={() => unit && addChange(unit.periodIndex, unit.start)}>Registra sostituzione</Button>
     </div>
     {substitutions.map(renderChange)}
-    <div className="space-y-2"><h5 className="text-sm font-semibold">Marcatori · {value.goals.length} gol</h5>
+    {!coachReport && <div className="space-y-2"><h5 className="text-sm font-semibold">Marcatori · {value.goals.length} gol</h5>
       {value.goals.map(goal => <div key={goal.id} className="space-y-2 rounded border p-2">
         <PlayerSelect label="Marcatore" value={goal.playerId} players={players} onChange={playerId => apply({ ...value, goals: value.goals.map(g => g.id === goal.id ? { ...g, playerId } : g) })} />
         <Timing {...goal} periods={value.periods} onChange={timing => apply({ ...value, goals: value.goals.map(g => g.id === goal.id ? { ...g, ...timing } : g) })} />
         <Button type="button" variant="ghost" size="sm" onClick={() => apply({ ...value, goals: value.goals.filter(g => g.id !== goal.id) })}>Rimuovi gol</Button>
       </div>)}
       <Button type="button" variant="outline" size="sm" disabled={!players.length} onClick={() => apply({ ...value, goals: [...value.goals, { id: eventId(), playerId: 0, period: 0, minute: 0 }] })}>Aggiungi gol</Button>
-    </div>
+    </div>}
     {(updateError || analysis.errors.length > 0) && <p role="alert" className="text-sm text-destructive">{updateError || analysis.errors.join(" ")}</p>}
-    <MatchReportSummary report={value} players={players} limit={limit} rotation={rotation} showChanges={false} />
+    {coachReport
+      ? <MatchReportReviewSummary report={coachReport} reviewed={value} players={players} limit={limit} rotation={rotation} />
+      : <MatchReportSummary report={value} players={players} limit={limit} rotation={rotation} showChanges={false} />}
   </section>;
 }

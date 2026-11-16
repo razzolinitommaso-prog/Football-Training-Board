@@ -76,7 +76,7 @@ const actual = extract(
 const backend = extract(
   path.join(root, "artifacts/api-server/src/routes/matches.ts"),
   ["normalizeMatchPlan", "preserveMatchReport"],
-  { matchReportSchema: load(path.join(root, "lib/api-zod/src/match-report.ts")).matchReportSchema },
+  { matchReportSchema: load(path.join(root, "lib/api-zod/src/match-report.ts")).matchReportSchema, isDeepStrictEqual: require("node:util").isDeepStrictEqual },
 );
 const zodReq = createRequire(path.join(root, "lib/api-zod/package.json"));
 const reportFile = path.join(root, "lib/api-zod/src/match-report.ts");

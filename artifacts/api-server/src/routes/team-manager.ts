@@ -80,9 +80,15 @@ router.get("/dirigenti/overview", requireAuth, async (req, res): Promise<void> =
     const matchPlan = savedPlan ?? (legacy && typeof legacy === "object" && !Array.isArray(legacy) ? legacy as Record<string, unknown> : null);
     const report = matchReportSchema.safeParse(matchPlan?.postMatchReport);
     const matchCallups = uniqueCallups.filter(callup => callup.matchId === match.id);
+    const confirmation = matchPlan?.postMatchConfirmation as { confirmedAt?: unknown; report?: unknown; notes?: unknown } | undefined;
+    const managerReport = matchReportSchema.safeParse(confirmation?.report);
     return {
       ...match,
       ...(report.success ? { report: report.data } : {}),
+      ...(typeof confirmation?.confirmedAt === "string" ? {
+        review: { confirmedAt: confirmation.confirmedAt, ...(managerReport.success ? { report: managerReport.data } : {}),
+          ...(typeof confirmation.notes === "string" ? { notes: confirmation.notes } : {}) },
+      } : {}),
       preparationStatus: matchPreparationStatus(matchPlan, capacity),
       rotation: buildMatchRotationSummary(matchPlan, matchCallups, capacity, true, true),
       convocationAt: typeof matchPlan?.convocationAt === "string" ? matchPlan.convocationAt : null,

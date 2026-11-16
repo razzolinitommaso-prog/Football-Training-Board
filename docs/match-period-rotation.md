@@ -98,10 +98,19 @@ e i cambi effettivi si correggono in **Resoconto**.
 La conferma è accessibile dall’area Dirigenti al dirigente assegnato alla
 squadra e si applica alla versione del resoconto che ha verificato.
 
-Nell’area Dirigenti, la conferma usa la stessa vista di verifica delle
-formazioni del resoconto, in sola lettura, anche su telefono. Il registro
-presenze mostra i giocatori in una tabella compatta e segnala le gare con
-minutaggio disponibile quando la copertura è parziale.
+In **Dirigente → Convocazioni → Resoconto**, a gara conclusa il dirigente
+può avallare il resoconto del mister o partire da una copia per registrare
+le proprie correzioni. La vista affiancata mostra titolari e riserve per
+ogni tempo o frazione, incluse 3B e le frazioni del quarto tempo. Il
+dirigente può correggere formazione, durata e sostituzioni e aggiungere
+una nota. I marcatori restano quelli registrati dal mister.
+
+Il riepilogo finale conserva le due versioni e mostra minutaggi, scarti,
+formazioni diverse e sostituzioni diverse. Dopo l’avallo, i riepiloghi
+delle presenze e delle famiglie usano il minutaggio verificato. Una
+successiva modifica al resoconto del mister richiede un nuovo avallo.
+Il registro presenze segnala le gare con minutaggio disponibile quando
+la copertura è parziale.
 
 La lavagna dell’area Dirigenti usa per ogni frazione le coordinate salvate,
 il modulo, l’ordine della formazione e il portiere scelto dal mister. Dove

@@ -51,7 +51,7 @@ import {
 import { downloadGeneratedPdf, serverCallupPdfUrls } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { analyseMatchReport, matchReportSchema, type MatchReport } from "@workspace/api-zod";
-import { MatchReportEditor, MatchReportLineups, MatchReportSummary, type ReportPlayer } from "./MatchReportEditor";
+import { MatchReportEditor, MatchReportLineups, MatchReportReviewSummary, MatchReportSummary, type ReportPlayer } from "./MatchReportEditor";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
   EMPTY_SCHEDULE_FILTER,
@@ -363,6 +363,7 @@ type MatchDisciplineCard = {
 };
 type MatchPlanData = {
   postMatchReport?: MatchReport;
+  postMatchConfirmation?: { confirmedAt: string; report?: MatchReport; notes?: string };
   boardLink?: string;
   fourthTime?: boolean;
   matchGoalkeeperId?: number | null;
@@ -3576,6 +3577,8 @@ function MatchCard({
   </>;
 
   function renderNotes() {
+    const review = savedReportPlan.postMatchConfirmation;
+    const reviewedReport = matchReportSchema.safeParse(review?.report);
     const reportRotation = canViewMatchPlan ? buildMatchRotationSummary(
       savedReportPlan,
       reportPlayers.map(player => {
@@ -3873,7 +3876,7 @@ function MatchCard({
                       </Button>
                       <Button type="button" size="sm" className="h-8 text-xs gap-1.5" disabled={patch.isPending || pendingReportLineup || postFilesLoading} onClick={savePostNotes}>
                         <CheckCircle className="w-3.5 h-3.5" />
-                        {workspace ? "Salva resoconto" : "Salva"}
+                        {workspace ? "Salva e conferma resoconto" : "Salva"}
                       </Button>
                     </div>
               </MatchReportEditFrame>}
@@ -3881,7 +3884,7 @@ function MatchCard({
             {workspace && !postMenuOpen && match.result && <p className="my-3 text-right text-sm">Risultato finale <strong>{match.result}</strong></p>}
             {workspace && reportRotation && !postMenuOpen && <MatchReportLineups rotation={reportRotation} report={savedReport.success ? savedReport.data : undefined} players={reportPlayers} />}
             {workspace && reportRotation && !postMenuOpen && <p className="my-2 text-sm text-muted-foreground">
-              {reportRotation.reportConfirmed ? "Effettivi confermati dal dirigente."
+              {reportRotation.reportConfirmed ? reviewedReport.success ? "Effettivi avallati con correzioni del dirigente." : "Effettivi confermati dal dirigente."
                 : reportRotation.hasReport ? "In attesa della verifica del dirigente." : "Minuti effettivi da registrare."}
             </p>}
             {postView.note ? (
@@ -3903,8 +3906,13 @@ function MatchCard({
               </ul>
             )}
             {canViewMatchPlan && savedReport.success && (
-              <div className="mt-2 rounded-md border p-3"><MatchReportSummary report={savedReport.data}
-                players={reportPlayers} limit={reportPlayerLimits} rotation={workspace ? reportRotation : undefined} manualChangesOnly={!!workspace} /></div>
+              <div className="mt-2 space-y-3 rounded-md border p-3">
+                <MatchReportSummary report={savedReport.data} players={reportPlayers} limit={reportPlayerLimits}
+                  rotation={workspace ? reportRotation : undefined} manualChangesOnly={!!workspace} />
+                {review?.confirmedAt && (reviewedReport.success || review.notes) && <MatchReportReviewSummary
+                  report={savedReport.data} reviewed={reviewedReport.success ? reviewedReport.data : savedReport.data}
+                  players={reportPlayers} limit={reportPlayerLimits} rotation={reportRotation} notes={review.notes} />}
+              </div>
             )}
           </div>
         )}

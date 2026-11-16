@@ -144,6 +144,20 @@ assert.equal(
   "Recovery minutes counted for unsplit third",
 );
 assert.equal(summary(full, [own], 5).units.length, 4);
+const reviewedFourth = {
+  ...full,
+  postMatchConfirmation: {
+    confirmedAt: "2026-11-06T16:00:00Z",
+    report: {
+      ...full.postMatchReport,
+      substitutions: [{ id: "fourth", period: 3, minute: 4, outPlayerId: 101, inPlayerId: 102, notes: "" }],
+    },
+  },
+};
+assert.equal(summary(reviewedFourth, [own], 5).rows[0].actualMinutes, 30);
+assert.equal(summary(reviewedFourth, [own], 5).rows[0].cells.at(-1).actualMinutes, 4);
+assert.equal(summary(reviewedFourth, [own], 5).reportConfirmed, true);
+assert.equal(reviewedFourth.postMatchReport.substitutions.length, 0);
 const publicMatch = parentPublicMatch({
   id: 1,
   opponent: "Public club",
