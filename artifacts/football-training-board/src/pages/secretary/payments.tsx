@@ -36,12 +36,13 @@ const monthLabel = new Intl.DateTimeFormat("it-IT", { month: "short", year: "num
 const shortMonthLabel = new Intl.DateTimeFormat("it-IT", { month: "short", timeZone: "UTC" });
 const monthKey = (year: string, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 const monthDate = (key: string) => new Date(key + "-01T00:00:00Z");
+const ledgerStatusLabels = { ...paymentStatuses, pending: "Da incassare · non scaduti" };
 const chartSeries = [
   { key: "cash", label: "Contanti", color: "#059669", stack: "incassato" },
   { key: "card", label: "Carta / Bancomat", color: "#2563eb", stack: "incassato" },
   { key: "bank_transfer", label: "Bonifico", color: "#7c3aed", stack: "incassato" },
   { key: "otherMethod", label: "Altro o senza metodo", color: "#64748b", stack: "incassato" },
-  { key: "pending", label: "Da incassare", color: "#d97706", stack: "da-incassare" },
+  { key: "pending", label: ledgerStatusLabels.pending, color: "#d97706", stack: "da-incassare" },
   { key: "overdue", label: "Scaduto", color: "#dc2626", stack: "da-incassare" },
 ] as const;
 const emptyMonth = { cash: 0, card: 0, bank_transfer: 0, otherMethod: 0, pending: 0, overdue: 0 };
@@ -168,14 +169,16 @@ export default function PaymentsPage() {
     if (effectiveStatus === "paid" && !payment.paymentDate) undatedInSummary += amount;
   }
   const forecastYear = today.slice(0, 4);
-  let annualForecast = 0;
-  const yearsWithMovements = new Set([year, forecastYear]);
+  const nextForecastYear = String(Number(forecastYear) + 1);
+  const annualForecasts = new Map([[forecastYear, 0], [nextForecastYear, 0]]);
+  const yearsWithMovements = new Set([year, ...annualForecasts.keys()]);
   for (const payment of byCategoryAndName) {
     const date = payment.status === "paid" ? payment.paymentDate : payment.dueDate;
     if (!date) continue;
     const movementYear = date.slice(0, 4);
     yearsWithMovements.add(movementYear);
-    if (movementYear === forecastYear) annualForecast += Math.round(payment.amount * 100);
+    const forecast = annualForecasts.get(movementYear);
+    if (forecast !== undefined) annualForecasts.set(movementYear, forecast + Math.round(payment.amount * 100));
   }
   const years = [...yearsWithMovements].sort().reverse();
   const startMonth = period === "custom" ? fromMonth : monthKey(year, period === "annual" ? 1 : quarter * 3 - 2);
@@ -254,7 +257,7 @@ export default function PaymentsPage() {
       <label className="min-w-0 space-y-1 text-xs font-medium">Stato
         <ScrollableSelect aria-label="Filtra per stato" className="w-full" value={status} onValueChange={setStatus}>
           <option value="">Tutti</option>
-          {Object.entries(paymentStatuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          {Object.entries(ledgerStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </ScrollableSelect>
       </label>
       <label className="min-w-0 space-y-1 text-xs font-medium">Mese del riepilogo
@@ -275,14 +278,21 @@ export default function PaymentsPage() {
       </div>
     ) : view === "players" ? <PlayerPaymentWorkspace payments={payments} focusSearch={focusPlayerSearch} /> : <>
       <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2 lg:grid-cols-4">
-        {(Object.keys(paymentStatuses) as PaymentStatus[]).map(key => <Card key={key}><CardContent className="p-3">
-          <p className="text-xs text-muted-foreground">{paymentStatuses[key]}</p>
+        {(Object.keys(ledgerStatusLabels) as PaymentStatus[]).map(key => <Card key={key}><CardContent className="p-3">
+          <p className="text-xs text-muted-foreground">{ledgerStatusLabels[key]}</p>
           <p className="mt-1 text-lg font-medium tabular-nums">{money.format(sums[key] / 100)}</p>
           {key === "paid" && undatedInSummary > 0 && <p className="mt-1 text-xs text-muted-foreground">Di cui senza data di incasso: {money.format(undatedInSummary / 100)}</p>}
         </CardContent></Card>)}
         <Card><CardContent className="p-3">
-          <p className="text-xs text-muted-foreground">Previsione annuale · {forecastYear}</p>
-          <p className="mt-1 text-lg font-medium tabular-nums">{money.format(annualForecast / 100)}</p>
+          <p className="text-xs text-muted-foreground">Previsione annuale</p>
+          <dl className="mt-1 divide-y">
+            {[...annualForecasts].map(([forecastYearLabel, amount]) => (
+              <div key={forecastYearLabel} className="flex flex-wrap items-baseline justify-between gap-x-2 py-1">
+                <dt className="text-xs font-medium">{forecastYearLabel}</dt>
+                <dd className="text-base font-medium tabular-nums">{money.format(amount / 100)}</dd>
+              </div>
+            ))}
+          </dl>
           <p className="mt-1 text-xs text-muted-foreground">Incassato + da riscuotere con scadenza nell’anno</p>
         </CardContent></Card>
       </div>
@@ -408,7 +418,7 @@ export default function PaymentsPage() {
               </p>
             </div>
             <span className="text-sm tabular-nums">{money.format(payment.amount)}</span>
-            <Badge variant={statusVariant[effectiveStatus]}>{paymentStatuses[effectiveStatus]}</Badge>
+            <Badge variant={statusVariant[effectiveStatus]}>{ledgerStatusLabels[effectiveStatus]}</Badge>
             {canEdit && <div className="flex items-center gap-1">
               <ScrollableSelect aria-label="Aggiorna stato pagamento" value={payment.status} disabled={save.isPending} onValueChange={value => {
                 if (value === "paid") setReceipt({ id: payment.id, date: today, method: "" });

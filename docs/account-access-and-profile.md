@@ -12,7 +12,7 @@ La pagina pubblica della società offre un accesso diretto per genitori e uno pe
 
 ## Profilo
 
-Dal proprio avatar si raggiungono i dati personali, il cambio password, le sessioni registrate sul server e le preferenze di tema e caratteri sul dispositivo. Per i genitori c’è un collegamento ai pagamenti dei figli abilitati. I movimenti amministrativi della società restano nell’area autorizzata. Le password degli accessi a codice esistenti si gestiscono dal collegamento alla chiave personale.
+Dal proprio avatar si raggiungono i dati personali, il cambio password, le sessioni registrate sul server e le preferenze di tema e caratteri sul dispositivo. Per i genitori c’è un collegamento ai pagamenti dei figli abilitati. I movimenti amministrativi della società restano nell’area autorizzata. In Pagamenti, la previsione mostra separatamente l’anno solare corrente e il successivo. Gli incassi seguono la data di versamento, mentre i saldi aperti seguono la scadenza e si distinguono tra non scaduti e scaduti. Le password degli accessi a codice esistenti si gestiscono dal collegamento alla chiave personale.
 
 ## Anteprima del menu per ruolo
 
