@@ -457,6 +457,27 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     };
     const submitConfirmation = (headers, report = confirmationMatch.report, review = {}) =>
       confirmationRequest(`/matches/${confirmationMatch.id}/report-confirmation`, "POST", { report, ...review }, headers);
+    if (process.argv.includes("--match-meeting")) {
+      const matchId = confirmationMatch.id;
+      await pg.exec("INSERT INTO users(id,first_name,last_name) VALUES(3,'Coach','Test'); INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(3,1,3,11,'coach');");
+      await pg.query("DELETE FROM call_ups WHERE match_id=$1 AND player_id=102", [matchId]);
+      const coachSession = { "x-role": "coach", "x-user": "3" };
+      const meetingPath = `/matches/${matchId}/meeting`;
+      const meeting = { convocationAt: "2026-10-10T12:00:00.000Z", convocationPlace: " Novoli " };
+      assert.equal((await confirmationRequest(`/matches/${matchId}/plan`, "PUT", { playerIds: [101], matchPlan: plan }, coachSession)).status, 400);
+      assert.equal((await confirmationRequest(meetingPath, "PATCH", meeting, { "x-role": "secretary" })).status, 403);
+      assert.equal((await confirmationRequest(meetingPath, "PATCH", meeting, { "x-role": "coach", "x-user": "2" })).status, 403);
+      assert.equal((await confirmationRequest(meetingPath, "PATCH", { ...meeting, convocationAt: "data errata" }, coachSession)).status, 400);
+      const saved = await fetch(base + meetingPath, { method: "PATCH",
+        headers: { "content-type": "application/json", ...coachSession }, body: JSON.stringify(meeting) });
+      assert.equal(saved.status, 204, await saved.text());
+      const persisted = (await pg.query("SELECT match_plan FROM matches WHERE id=$1", [matchId])).rows[0].match_plan;
+      assert.deepEqual(persisted, { ...plan, convocationAt: meeting.convocationAt, convocationPlace: "Novoli" });
+      const called = await pg.query("SELECT DISTINCT player_id FROM call_ups WHERE match_id=$1 ORDER BY player_id", [matchId]);
+      assert.deepEqual(called.rows.map(row => row.player_id), [101]);
+      console.log("PASS match meeting: historical callup mismatch, scoped permission and independent save.");
+      return;
+    }
     const secretarySession = { "x-role": "secretary" };
     const matchPath = `/matches/${confirmationMatch.id}`;
     assert.equal((await confirmationRequest(matchPath, "PATCH", { postMatchNotes: "Nota post-partita" }, secretarySession)).status, 403);

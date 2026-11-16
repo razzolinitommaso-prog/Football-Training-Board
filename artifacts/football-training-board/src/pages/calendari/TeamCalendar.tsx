@@ -1893,6 +1893,7 @@ function MatchCard({
   }, [match.id, onOpenMatch, startExpanded, workspace]);
   const cardRef = useRef<HTMLDivElement>(null);
   const [planOpen, setPlanOpen] = useState(shouldOpenPlanFromQuery);
+  const [savingMeeting, setSavingMeeting] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(shouldOpenPlanFromQuery);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [previewBoard, setPreviewBoard] = useState<MatchPlanPeriodRuntime | null>(null);
@@ -2566,6 +2567,23 @@ function MatchCard({
     });
   }, [selectionReady, selectedPlayersOrdered, selectedPlayerIds, autoReserveRuleEnabled, matchFormat]);
 
+  async function saveMatchMeeting() {
+    if (!canManageMatchPlan || savingMeeting) return;
+    setSavingMeeting(true);
+    try {
+      await apiFetch(`/api/matches/${match.id}/meeting`, {
+        method: "PATCH",
+        body: JSON.stringify({ convocationAt: planDraft.convocationAt, convocationPlace: planDraft.convocationPlace }),
+      });
+      void qc.invalidateQueries({ queryKey: ["/api/matches"] });
+      toast({ title: "Ritrovo salvato" });
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : "Impossibile salvare il ritrovo.", variant: "destructive" });
+    } finally {
+      setSavingMeeting(false);
+    }
+  }
+
   async function saveMatchPlanAndCallups() {
     if (!canManageMatchPlan) return false;
     try {
@@ -3032,7 +3050,9 @@ function MatchCard({
                   </a>
                 )}
 
-                {workspace && <div className="flex justify-end"><Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button></div>}
+                {workspace && <div className="flex justify-end"><Button type="button" disabled={savingMeeting} onClick={saveMatchMeeting}>
+                  {savingMeeting ? "Salvataggio…" : "Salva ritrovo"}
+                </Button></div>}
                 </section>
                 </MatchWorkspacePanel>
                 <MatchWorkspacePanel active={activePanel("schieramenti")}>

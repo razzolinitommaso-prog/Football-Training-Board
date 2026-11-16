@@ -984,6 +984,40 @@ router.delete("/callups/:id", requireAuth, async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+router.patch("/matches/:id/meeting", requireAuth, async (req, res): Promise<void> => {
+  const id = parseRouteIdParam(req.params.id);
+  const { clubId, userId, role } = req.session;
+  if (!id) { res.status(400).json({ error: "Partita non valida." }); return; }
+  if (!clubId || !userId) { res.sendStatus(403); return; }
+  const [match] = await db.select().from(matchesTable)
+    .where(and(eq(matchesTable.id, id), eq(matchesTable.clubId, clubId)));
+  if (!match) { res.status(404).json({ error: "Partita non trovata." }); return; }
+  if (!await userCanManageAssignedTeamMatch(userId, clubId, role ?? "", match.teamId)) {
+    res.status(403).json({ error: "Non autorizzato a modificare il ritrovo di questa squadra." }); return;
+  }
+
+  const { convocationAt, convocationPlace: place } = req.body ?? {};
+  const convocationPlace = typeof place === "string" ? place.trim() : "";
+  if (typeof convocationAt !== "string" || !Number.isFinite(Date.parse(convocationAt)) || !convocationPlace) {
+    res.status(400).json({ error: "Indica data, orario e luogo del ritrovo." }); return;
+  }
+
+  const legacy = splitPublicNotesAndPlan(match.notes);
+  const plan = normalizeMatchPlan(match.matchPlan) ?? normalizeMatchPlan(legacy.plan);
+  const [updated] = await db.update(matchesTable).set({
+    matchPlan: { ...plan, convocationAt: new Date(convocationAt).toISOString(), convocationPlace },
+    ...(legacy.plan && !match.matchPlan ? { notes: legacy.publicNotes } : {}),
+  }).where(and(eq(matchesTable.id, id), eq(matchesTable.clubId, clubId),
+    sql`${matchesTable.teamId} IS NOT DISTINCT FROM ${match.teamId}`,
+    sql`${matchesTable.matchPlan} IS NOT DISTINCT FROM ${match.matchPlan ? JSON.stringify(match.matchPlan) : null}::jsonb`,
+    sql`${matchesTable.notes} IS NOT DISTINCT FROM ${match.notes}`))
+    .returning({ id: matchesTable.id });
+  if (!updated) {
+    res.status(409).json({ error: "La scheda partita è cambiata. Riprova a salvare il ritrovo." }); return;
+  }
+  res.sendStatus(204);
+});
+
 router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => {
   const matchId = parseRouteIdParam(req.params.id);
   if (isNaN(matchId)) { res.status(400).json({ error: "Invalid id" }); return; }
