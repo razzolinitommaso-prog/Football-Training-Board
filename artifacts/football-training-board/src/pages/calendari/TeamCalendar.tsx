@@ -50,7 +50,7 @@ import {
 } from "@/lib/match-calendar-pdf";
 import { downloadGeneratedPdf, serverCallupPdfUrls } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
-import { analyseMatchReport, matchReportSchema, type MatchReport } from "@workspace/api-zod";
+import { analyseMatchReport, matchReportPlayerIds, matchReportSchema, type MatchReport } from "@workspace/api-zod";
 import { MatchReportEditor, MatchReportLineups, MatchReportReviewSummary, MatchReportSummary, type ReportPlayer } from "./MatchReportEditor";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
@@ -2117,11 +2117,15 @@ function MatchCard({
   }
 
   const homeLabel = isHome ? clubLabel : match.opponent;
-  const reportPlayers: ReportPlayer[] = [...new Map(callups.map(callup => [callup.playerId, callup])).values()].map(callup => {
-    const player = sortedTeamPlayers.find(player => player.id === callup.playerId);
-    return { id: callup.playerId, name: player ? `${player.lastName} ${player.firstName}` : callup.playerName || `Giocatore #${callup.playerId}` };
-  });
   const savedReport = matchReportSchema.safeParse(match.matchPlan?.postMatchReport);
+  const approvedReport = matchReportSchema.safeParse(match.matchPlan?.postMatchConfirmation?.report);
+  const reportCallups = new Map(callups.map(callup => [callup.playerId, callup]));
+  const reportPlayers: ReportPlayer[] = [...new Set([
+    ...reportCallups.keys(), ...matchReportPlayerIds(savedReport.data), ...matchReportPlayerIds(approvedReport.data),
+  ])].map(id => {
+    const player = sortedTeamPlayers.find(player => player.id === id);
+    return { id, name: player ? [player.lastName, player.firstName].join(" ") : reportCallups.get(id)?.playerName || "Giocatore #" + id };
+  });
   const savedReportPlan = match.matchPlan?.periods?.length ? match.matchPlan
     : ensurePlanPeriods(match.matchPlan, defaultPeriodsForTeam(matchSection, teamName, teamCategory));
   const reportPeriods = savedReportPlan.periods;

@@ -22,6 +22,16 @@ export const matchReportSchema = z.object({
 });
 export type MatchReport = z.infer<typeof matchReportSchema>;
 
+/** Players explicitly recorded in a saved report, independent of the current call-up list. */
+export function matchReportPlayerIds(report?: MatchReport | null): number[] {
+  if (!report) return [];
+  return [...new Set([
+    ...report.periods.flatMap(period => period.starters),
+    ...report.goals.map(goal => goal.playerId),
+    ...report.substitutions.flatMap(change => change.inPlayerId === null ? [change.outPlayerId] : [change.outPlayerId, change.inPlayerId]),
+  ])];
+}
+
 /** Each period starts with its actual lineup. Minutes are relative to that period,
  * including recovery time in its effective duration; re-entries are supported. */
 export function analyseMatchReport(report: MatchReport, calledPlayerIds: number[], limit: number | number[] = 11) {

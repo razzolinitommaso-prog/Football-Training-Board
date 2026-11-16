@@ -17,7 +17,7 @@ import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-sc
 import { composeNotesWithPlan, publicMatchNotesInput, splitPublicNotesAndPlan } from "../lib/match-plan-notes";
 import { requireAuth } from "../lib/auth";
 import { sendParentNotificationEmail } from "../lib/parent-email";
-import { analyseMatchReport, defaultRotationCapacity, matchReportSchema, rotationSummaryCapacity } from "@workspace/api-zod";
+import { analyseMatchReport, defaultRotationCapacity, matchReportPlayerIds, matchReportSchema, rotationSummaryCapacity } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -678,7 +678,8 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
     if (nextPlan?.postMatchReport !== undefined) {
       const called = (await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, id)))
         .filter(row => !["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(row.status).toLowerCase()));
-      const error = validateMatchReport(nextPlan, called.map(row => row.playerId));
+      const previous = matchReportSchema.safeParse(normalizeMatchPlan(existing.matchPlan ?? parsed.plan)?.postMatchReport);
+      const error = validateMatchReport(nextPlan, [...called.map(row => row.playerId), ...matchReportPlayerIds(previous.data)]);
       if (error) { res.status(400).json({ error }); return; }
       const scores = String(result !== undefined ? result ?? "" : existing.result ?? "").match(/^(\d+)\s*[-:]\s*(\d+)$/);
       const report = matchReportSchema.parse(nextPlan.postMatchReport);
@@ -739,39 +740,42 @@ router.post("/matches/:id/report-confirmation", requireAuth, async (req, res): P
     const plan = normalizeMatchPlan(match.matchPlan ?? splitPublicNotesAndPlan(match.notes ?? null).plan);
     if (!plan?.postMatchReport) return { status: 400, error: "Salva prima il resoconto con schieramenti e cambi effettivi." };
     const called = uniqueCoachCallups(await tx.select().from(callUpsTable).where(eq(callUpsTable.matchId, id)));
-    const error = validateMatchReport(plan, called.map(row => row.playerId));
+    const report = matchReportSchema.safeParse(plan.postMatchReport);
+    const approved = matchReportSchema.safeParse(normalizeMatchPlan(plan.postMatchConfirmation)?.report);
+    const reportRoster = [...new Set([...called.map(row => row.playerId), ...matchReportPlayerIds(report.data), ...matchReportPlayerIds(approved.data)])];
+    const error = validateMatchReport(plan, reportRoster);
     if (error) return { status: 400, error };
-    const report = matchReportSchema.parse(plan.postMatchReport);
-    const endsAt = date.getTime() + report.periods.reduce((sum, period) => sum + period.minutes, 0) * 60_000;
+    const savedReport = matchReportSchema.parse(plan.postMatchReport);
+    const endsAt = date.getTime() + savedReport.periods.reduce((sum, period) => sum + period.minutes, 0) * 60_000;
     if (endsAt > Date.now()) return { status: 400, error: "Il resoconto si conferma a partita conclusa." };
     const expected = matchReportSchema.safeParse(req.body?.report);
-    if (!expected.success || !isDeepStrictEqual(expected.data, report)) {
+    if (!expected.success || !isDeepStrictEqual(expected.data, savedReport)) {
       return { status: 409, error: "Il resoconto è cambiato. Ricarica la gara e verifica i nuovi dati." };
     }
     const periods = (plan.periods as Record<string, unknown>[]);
     const fallback = defaultRotationCapacity(team.name, team.category, team.clubSection);
-    const analysis = analyseMatchReport(report, called.map(row => row.playerId),
+    const analysis = analyseMatchReport(savedReport, reportRoster,
       periods.map(period => rotationSummaryCapacity(period, fallback)));
-    if (analysis.errors.length || report.periods.some(period => !period.starters.length)) {
+    if (analysis.errors.length || savedReport.periods.some(period => !period.starters.length)) {
       return { status: 400, error: analysis.errors[0] ?? "Indica lo schieramento effettivo di ogni tempo." };
     }
     const notes = typeof req.body?.notes === "string" ? req.body.notes.trim() : "";
     if (notes.length > 2000) return { status: 400, error: "La nota del dirigente può contenere al massimo 2000 caratteri." };
-    let managerReport: typeof report | undefined;
+    let managerReport: typeof savedReport | undefined;
     if (req.body?.managerReport !== undefined) {
       const review = matchReportSchema.safeParse(req.body.managerReport);
-      if (!review.success || review.data.periods.length !== report.periods.length ||
-          !isDeepStrictEqual(review.data.goals, report.goals)) {
+      if (!review.success || review.data.periods.length !== savedReport.periods.length ||
+          !isDeepStrictEqual(review.data.goals, savedReport.goals)) {
         return { status: 400, error: "Controlla i tempi della verifica. I marcatori restano quelli del mister." };
       }
-      const reviewAnalysis = analyseMatchReport({ ...review.data, goals: [] }, called.map(row => row.playerId),
+      const reviewAnalysis = analyseMatchReport({ ...review.data, goals: [] }, reportRoster,
         periods.map(period => rotationSummaryCapacity(period, fallback)));
       if (reviewAnalysis.errors.length || review.data.periods.some(period => !period.starters.length)) {
         return { status: 400, error: reviewAnalysis.errors[0] ?? "Indica lo schieramento effettivo di ogni tempo." };
       }
       const reviewedEndsAt = date.getTime() + review.data.periods.reduce((sum, period) => sum + period.minutes, 0) * 60_000;
       if (reviewedEndsAt > Date.now()) return { status: 400, error: "Il resoconto si conferma a partita conclusa." };
-      if (!isDeepStrictEqual(review.data, report)) managerReport = review.data;
+      if (!isDeepStrictEqual(review.data, savedReport)) managerReport = review.data;
     }
     const existingConfirmation = normalizeMatchPlan(plan.postMatchConfirmation);
     if (existingConfirmation?.confirmedAt) {
@@ -1046,7 +1050,8 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
   }
 
   preserveMatchReport(matchPlan, existingMatch.matchPlan ?? splitPublicNotesAndPlan(existingMatch.notes ?? null).plan, existingMatch.matchPlan?.postMatchConfirmation, true);
-  const reportError = validateMatchReport(matchPlan, desiredPlayerIds);
+  const historical = matchReportSchema.safeParse(normalizeMatchPlan(existingMatch.matchPlan ?? splitPublicNotesAndPlan(existingMatch.notes).plan)?.postMatchReport);
+  const reportError = validateMatchReport(matchPlan, [...desiredPlayerIds, ...matchReportPlayerIds(historical.data)]);
   if (reportError) { res.status(400).json({ error: reportError }); return; }
 
   if (await parentUnavailableForMatch(matchId, desiredPlayerIds)) {

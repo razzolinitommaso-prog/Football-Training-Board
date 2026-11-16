@@ -23,7 +23,7 @@ import { reportLineupAt } from "@/lib/match-period-rotation";
 
 type Player = ManagerPlayer & { teamName?: string };
 type Team = {id:number;name:string;category:string|null;clubSection:string};
-type Match = {preparationStatus?:"empty"|"partial"|"complete";rotation?:MatchRotationSummary;report?:MatchReport;review?:{confirmedAt:string;report?:MatchReport;notes?:string};id:number;opponent:string;date:string;location:string|null;competition:string|null;homeAway:string;result:string|null;convocationAt:string|null;convocationPlace:string|null;isPostponed:boolean;rescheduleDate:string|null;rescheduleTbd:boolean;callups:Pick<Player,"id"|"firstName"|"lastName">[]};
+type Match = {preparationStatus?:"empty"|"partial"|"complete";rotation?:MatchRotationSummary;reportRotation?:MatchRotationSummary;reportPlayers?:Pick<Player,"id"|"firstName"|"lastName">[];report?:MatchReport;review?:{confirmedAt:string;report?:MatchReport;notes?:string};id:number;opponent:string;date:string;location:string|null;competition:string|null;homeAway:string;result:string|null;convocationAt:string|null;convocationPlace:string|null;isPostponed:boolean;rescheduleDate:string|null;rescheduleTbd:boolean;callups:Pick<Player,"id"|"firstName"|"lastName">[]};
 type Training = {id:number;title:string;scheduledAt:string;location:string|null;durationMinutes:number|null;status:string};
 type Overview = {teams:Team[];selectedTeamId:number|null;players:Player[];rosterTeams?:{ id:number; name:string }[];matches:Match[];training:Training[];trainingCalendar?:ManagerTrainingCalendar|null};
 const when = (value:string|null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("it-IT",{weekday:"short",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}) : "Da definire";
@@ -52,8 +52,8 @@ function ReportConfirmation({ match, onConfirmed }: { match: Match; onConfirmed:
   });
   const date = matchDate(match);
   const report = match.report;
-  const rotation = match.rotation;
-  const players = match.callups.map(player => ({ id: player.id, name: `${player.lastName} ${player.firstName}` }));
+  const rotation = match.reportRotation ?? match.rotation;
+  const players = (match.reportPlayers ?? match.callups).map(player => ({ id: player.id, name: `${player.lastName} ${player.firstName}`.trim() }));
   const limits = report?.periods.map((_, index) => rotation?.units.find(unit => unit.periodIndex === index)?.formation?.capacity ?? 11) ?? [];
   const errors = report ? analyseMatchReport(report, players.map(player => player.id), limits).errors : [];
   const ready = report && !errors.length && report.periods.every(period => period.starters.length > 0) && rotation?.hasReport;

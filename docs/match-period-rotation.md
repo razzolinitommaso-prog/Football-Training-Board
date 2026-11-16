@@ -92,7 +92,7 @@ ricalcolano e sotto si registrano le sole sostituzioni durante il gioco.
 La durata riportata è quella dell’intero tempo. Se esclude una frazione,
 il resoconto la segnala e propone la durata del piano.
 
-Salvare gli schieramenti conserva il resoconto già registrato. Se cambia il
+Salvare convocati o schieramenti conserva il resoconto già registrato. Gli atleti già presenti nel resoconto restano nel dettaglio storico anche se vengono rimossi dalle convocazioni. Se cambia il
 numero di tempi, il piano adegua solo la struttura del resoconto. La durata
 e i cambi effettivi si correggono in **Resoconto**.
 La conferma è accessibile dall’area Dirigenti al dirigente assegnato alla

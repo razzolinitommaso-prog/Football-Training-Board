@@ -1,4 +1,4 @@
-import {buildMatchRotationSummary,defaultRotationCapacity,matchPreparationStatus,matchReportSchema,trainingLocalDate} from "@workspace/api-zod";
+import {buildMatchRotationSummary,defaultRotationCapacity,matchPreparationStatus,matchReportPlayerIds,matchReportSchema,trainingLocalDate} from "@workspace/api-zod";
 import { activeTrainingGroup } from "../lib/joint-training-program";
 import { sessionTeamScope } from "../lib/session-team-scope";
 import { Router } from "express";
@@ -75,14 +75,32 @@ router.get("/dirigenti/overview", requireAuth, async (req, res): Promise<void> =
   }
   const selectedTeam = teams.find(team => team.id === selectedTeamId);
   const capacity = defaultRotationCapacity(selectedTeam?.name, selectedTeam?.category, selectedTeam?.clubSection);
-  const matches = matchRows.map(({ matchPlan: savedPlan, notes, ...match }) => {
+  const reports = matchRows.map(({ matchPlan: savedPlan, notes, ...match }) => {
     const legacy = splitPublicNotesAndPlan(notes).plan;
     const matchPlan = savedPlan ?? (legacy && typeof legacy === "object" && !Array.isArray(legacy) ? legacy as Record<string, unknown> : null);
     const report = matchReportSchema.safeParse(matchPlan?.postMatchReport);
     const matchCallups = uniqueCallups.filter(callup => callup.matchId === match.id);
     const confirmation = matchPlan?.postMatchConfirmation as { confirmedAt?: unknown; report?: unknown; notes?: unknown } | undefined;
     const managerReport = matchReportSchema.safeParse(confirmation?.report);
+    const calledIds = new Set(matchCallups.map(player => player.id));
+    const historicalIds = [...new Set([...matchReportPlayerIds(report.data), ...matchReportPlayerIds(managerReport.data)])]
+      .filter(id => !calledIds.has(id));
+    return { match, matchPlan, report, matchCallups, confirmation, managerReport, historicalIds };
+  });
+  const historicalIds = [...new Set(reports.flatMap(item => item.historicalIds))];
+  const historicalPlayers = historicalIds.length ? await db.select({
+    id: playersTable.id, firstName: playersTable.firstName, lastName: playersTable.lastName,
+    jerseyNumber: playersTable.jerseyNumber, position: playersTable.position,
+  }).from(playersTable).where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, historicalIds))) : [];
+  const historicalById = new Map(historicalPlayers.map(player => [player.id, player]));
+  const matches = reports.map(({ match, matchPlan, report, matchCallups, confirmation, managerReport, historicalIds }) => {
+    const reportRoster = [...matchCallups, ...historicalIds.map(id => historicalById.get(id) ??
+      { id, firstName: "", lastName: "Giocatore #" + id })];
     return {
+      ...(historicalIds.length ? {
+        reportPlayers: reportRoster.map(({ id, firstName, lastName }) => ({ id, firstName, lastName })),
+        reportRotation: buildMatchRotationSummary(matchPlan, reportRoster, capacity, true, true),
+      } : {}),
       ...match,
       ...(report.success ? { report: report.data } : {}),
       ...(typeof confirmation?.confirmedAt === "string" ? {

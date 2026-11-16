@@ -490,11 +490,11 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     if (process.argv.includes("--match-meeting")) {
       const matchId = confirmationMatch.id;
       await pg.exec("INSERT INTO users(id,first_name,last_name) VALUES(3,'Coach','Test'); INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(3,1,3,11,'coach');");
-      await pg.query("DELETE FROM call_ups WHERE match_id=$1 AND player_id=102", [matchId]);
       const coachSession = { "x-role": "coach", "x-user": "3" };
       const meetingPath = `/matches/${matchId}/meeting`;
       const meeting = { convocationAt: "2026-10-10T12:00:00.000Z", convocationPlace: " Novoli " };
-      assert.equal((await confirmationRequest(`/matches/${matchId}/plan`, "PUT", { playerIds: [101], matchPlan: plan }, coachSession)).status, 400);
+      const lineupSaved = await confirmationRequest(`/matches/${matchId}/plan`, "PUT", { playerIds: [101], matchPlan: plan }, coachSession);
+      assert.equal(lineupSaved.status, 200, JSON.stringify(lineupSaved.data));
       assert.equal((await confirmationRequest(meetingPath, "PATCH", meeting, { "x-role": "secretary" })).status, 403);
       assert.equal((await confirmationRequest(meetingPath, "PATCH", meeting, { "x-role": "coach", "x-user": "2" })).status, 403);
       assert.equal((await confirmationRequest(meetingPath, "PATCH", { ...meeting, convocationAt: "data errata" }, coachSession)).status, 400);
@@ -505,7 +505,18 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       assert.deepEqual(persisted, { ...plan, convocationAt: meeting.convocationAt, convocationPlace: "Novoli" });
       const called = await pg.query("SELECT DISTINCT player_id FROM call_ups WHERE match_id=$1 ORDER BY player_id", [matchId]);
       assert.deepEqual(called.rows.map(row => row.player_id), [101]);
-      console.log("PASS match meeting: historical callup mismatch, scoped permission and independent save.");
+      const managerSession = { "x-role": "team_manager" };
+      const refreshed = (await call("/dirigenti/overview?teamId=11", managerSession)).data.matches[0];
+      assert.deepEqual(refreshed.callups.map(row => row.id), [101]);
+      assert.deepEqual(refreshed.reportPlayers.map(row => row.id), [101, 102]);
+      assert.equal(refreshed.reportRotation.rows.find(row => row.playerId === 102).actualMinutes, 30);
+      assert.equal((await submitConfirmation(managerSession)).status, 200);
+      const invalid = { ...plan.postMatchReport, periods: plan.postMatchReport.periods.map((period, index) =>
+        index === 0 ? { ...period, starters: [201] } : period) };
+      assert.equal((await confirmationRequest(`/matches/${matchId}`, "PATCH", {
+        matchPlan: { ...persisted, postMatchReport: invalid },
+      }, coachSession)).status, 400);
+      console.log("PASS match meeting and roster: removal, historical report and approval, no new outside player.");
       return;
     }
     const secretarySession = { "x-role": "secretary" };
