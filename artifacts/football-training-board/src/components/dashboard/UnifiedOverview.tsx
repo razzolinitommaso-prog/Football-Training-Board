@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import {
   CalendarDays,
@@ -9,11 +9,13 @@ import {
   FileText,
   ShieldCheck,
   ArrowUpRight,
+  Search,
   type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { supervisionState } from "@/components/training/TrainingSupervision";
@@ -37,9 +39,15 @@ type Player = {
   id: number;
   firstName: string;
   lastName: string;
+  dateOfBirth?: string | null;
+  teamName?: string | null;
+  supplementalTeamName?: string | null;
   registered?: boolean | null;
   medicalCertificateExpiry?: string | null;
 };
+const normalizeAlertSearch = (value: string) =>
+  value.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("it").trim();
+
 const preparation = (session: OverviewSession) =>
   supervisionState({
     ...session,
@@ -168,6 +176,8 @@ export function UnifiedOverview({
   children?: ReactNode;
 }) {
   const [alertFilter, setAlertFilter] = useState<"all" | "registration" | "certificate" | null>(null);
+  const [alertSearch, setAlertSearch] = useState("");
+  const alertsTitle = useRef<HTMLHeadingElement>(null);
   const technical = [
     "admin",
     "director",
@@ -199,14 +209,22 @@ export function UnifiedOverview({
     ].join("-");
   const alerts = administrative && dataState.players === "ready" ? players.map(player => ({
     player,
+    birthYear: /^(\d{4})(?:-|$)/.exec(player.dateOfBirth ?? "")?.[1],
+    teamName: player.teamName?.trim() || undefined,
+    supplementalTeamName: player.supplementalTeamName?.trim(),
     registration: player.registered !== true,
     certificate: !player.medicalCertificateExpiry ? "Certificato mancante"
       : player.medicalCertificateExpiry.slice(0, 10) < day ? "Certificato scaduto" : null,
   })).filter(item => item.registration || item.certificate) : [];
   const registrations = alerts.filter(item => item.registration).length;
   const certificates = alerts.filter(item => item.certificate).length;
+  const searchTerms = normalizeAlertSearch(alertSearch).split(/\s+/).filter(Boolean);
   const visibleAlerts = alertFilter === null ? [] : alerts
     .filter(item => alertFilter === "all" || (alertFilter === "registration" ? item.registration : item.certificate))
+    .filter(({ player, birthYear, teamName, supplementalTeamName }) => {
+      const searchText = normalizeAlertSearch([player.firstName, player.lastName, birthYear, teamName, supplementalTeamName].join(" "));
+      return searchTerms.every(term => searchText.includes(term));
+    })
     .sort((a, b) => a.player.lastName.localeCompare(b.player.lastName, "it") || a.player.firstName.localeCompare(b.player.firstName, "it"));
   const programPath =
     role === "secretary" ? "/programmazione-gare" : "/partite";
@@ -518,12 +536,26 @@ export function UnifiedOverview({
               </>
             )}
           </Panel>
-          <Dialog open={alertFilter !== null} onOpenChange={open => { if (!open) setAlertFilter(null); }}>
-            <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+          <Dialog open={alertFilter !== null} onOpenChange={open => {
+            if (!open) {
+              setAlertFilter(null);
+              setAlertSearch("");
+            }
+          }}>
+            <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl" onOpenAutoFocus={event => {
+              event.preventDefault();
+              alertsTitle.current?.focus();
+            }}>
               <DialogHeader>
-                <DialogTitle>Giocatori con segnalazioni</DialogTitle>
+                <DialogTitle ref={alertsTitle} tabIndex={-1}>Giocatori con segnalazioni</DialogTitle>
                 <DialogDescription>{scopeLabel}</DialogDescription>
               </DialogHeader>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <Input type="search" aria-label="Cerca giocatore, annata o squadra"
+                  placeholder="Cerca giocatore, annata o squadra" className="pl-9"
+                  value={alertSearch} onChange={event => setAlertSearch(event.target.value)} />
+              </div>
               <div className="flex flex-wrap gap-2" role="group" aria-label="Filtra per segnalazione">
                 {([
                   ["all", "Tutte", alerts.length],
@@ -534,11 +566,17 @@ export function UnifiedOverview({
                   onClick={() => setAlertFilter(filter)}>{label} · {count}</Button>)}
               </div>
               {visibleAlerts.length ? <ul className="divide-y rounded-lg border">
-                {visibleAlerts.map(({ player, registration, certificate }) => <li key={player.id}>
+                {visibleAlerts.map(({ player, birthYear, teamName, supplementalTeamName, registration, certificate }) => <li key={player.id}>
                   <Link href={`${playersPath}?openPlayerId=${player.id}`}
                     className="flex min-w-0 items-center justify-between gap-2 rounded-md p-3 hover:bg-muted/50">
                     <span className="min-w-0 space-y-1">
                       <span className="block break-words text-sm font-semibold">{player.lastName} {player.firstName}</span>
+                      <span className="block break-words text-xs text-muted-foreground">
+                        Annata {birthYear ?? "non indicata"} · {teamName ?? "Squadra non assegnata"}
+                        {supplementalTeamName && supplementalTeamName !== teamName && (
+                          <span className="block">Anche in {supplementalTeamName}</span>
+                        )}
+                      </span>
                       <span className="flex flex-wrap gap-1">
                         {registration && <Badge variant="outline">Tesseramento da verificare</Badge>}
                         {certificate && <Badge variant="outline">{certificate}</Badge>}
@@ -547,7 +585,7 @@ export function UnifiedOverview({
                     <span className="flex shrink-0 items-center gap-1 text-xs text-primary">Apri scheda <ArrowUpRight className="h-3 w-3" aria-hidden="true" /></span>
                   </Link>
                 </li>)}
-              </ul> : <p className="text-sm text-muted-foreground">Nessun giocatore per questo filtro.</p>}
+              </ul> : <p className="text-sm text-muted-foreground">{searchTerms.length ? "Nessun giocatore corrisponde alla ricerca." : "Nessun giocatore per questo filtro."}</p>}
             </DialogContent>
           </Dialog>
           </>

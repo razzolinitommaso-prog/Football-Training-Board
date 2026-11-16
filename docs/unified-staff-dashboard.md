@@ -44,4 +44,6 @@ Verifica di regressione da ripetere dopo cambi alla navigazione: aprire **Partit
 
 Nel pannello **Situazione amministrativa**, **Apri giocatori** apre i soli
 atleti segnalati nell’ambito selezionato. I contatori aprono il filtro
-corrispondente e ogni riga apre direttamente la scheda del giocatore.
+corrispondente. La ricerca per nome, cognome, anno di nascita o squadra si
+combina con il tipo di segnalazione. Ogni riga mostra annata e squadra e
+apre direttamente la scheda del giocatore.
