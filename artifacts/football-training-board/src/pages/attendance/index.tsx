@@ -201,7 +201,7 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
   const { data: players = [] } = useQuery<Player[]>({
     queryKey: ["/api/players", section || "all", "attendance", sharedSession?.id],
     queryFn: () => apiFetch(sharedSession
-      ? "/api/training-sessions/" + sharedSession.id + "/roster"
+      ? "/api/training-sessions/" + sharedSession.id + "/roster?includeRecorded=1"
       : section ? "/api/players?section=" + encodeURIComponent(section) : "/api/players"),
   });
   const { data: trialPlayers = [] } = useQuery<Player[]>({
@@ -421,16 +421,18 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
   }, [selectedSession]);
 
   const filteredPlayers = useMemo(() => {
-    if (!selectedSession) return players;
+    const recorded = new Set(attendance.filter(isStaffAttendance).map(row => row.playerId));
+    const roster = players.filter(player => player.status !== "withdrawn" || recorded.has(player.id));
+    if (!selectedSession) return roster;
     if (selectedSession.teamId != null) {
       const teamIds = sessionTeamIds(selectedSession.teamId, selectedSession.notes);
-      return [...players.filter(player => teamIds.includes(player.teamId ?? 0) || teamIds.includes(player.supplementalTeamId ?? 0)), ...(sharedSession ? [] : trialPlayers)];
+      return [...roster.filter(player => teamIds.includes(player.teamId ?? 0) || teamIds.includes(player.supplementalTeamId ?? 0)), ...(sharedSession ? [] : trialPlayers)];
     }
     if (sessionAnnata) {
-      return players.filter((p) => (p.teamName ?? "").toLowerCase().includes(sessionAnnata));
+      return roster.filter((p) => (p.teamName ?? "").toLowerCase().includes(sessionAnnata));
     }
-    return players;
-  }, [players, selectedSession, sessionAnnata, sharedSession, trialPlayers]);
+    return roster;
+  }, [players, attendance, selectedSession, sessionAnnata, sharedSession, trialPlayers]);
   const sortedFilteredPlayers = useMemo(() => {
     const collator = new Intl.Collator("it", { sensitivity: "base", numeric: true });
     return [...filteredPlayers].sort((a, b) => {

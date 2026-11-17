@@ -49,6 +49,7 @@ interface ObservedPlayer {
 const STATUS_OPTIONS = [
   { value: "pending",         label: "In attesa",              color: "bg-gray-100 text-gray-700 border-gray-200",       icon: "⏳" },
   { value: "confirmed",       label: "Riconfermato",           color: "bg-green-100 text-green-700 border-green-200",    icon: "✓" },
+  { value: "withdrawn", label: "Ritirato", color: "bg-slate-100 text-slate-800 border-slate-200", icon: "–" },
   { value: "not_confirmed",   label: "Non confermato",         color: "bg-red-100 text-red-700 border-red-200",          icon: "✗" },
   { value: "transfer_free",   label: "Trasf. gratuito",        color: "bg-blue-100 text-blue-700 border-blue-200",       icon: "→" },
   { value: "transfer_paid",   label: "Trasf. oneroso",         color: "bg-purple-100 text-purple-700 border-purple-200", icon: "€" },
@@ -225,6 +226,9 @@ function EditPlayerDialog({ player, seasonId, open, onClose, teams }: {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/seasons", seasonId, "player-status"] });
+      for (const key of ["/api/players", "/api/teams", "/api/training-rosters", "/api/dirigenti", "/api/dashboard"]) {
+        void qc.invalidateQueries({ queryKey: [key] });
+      }
       toast({ title: "Stato aggiornato" });
       onClose();
     },
@@ -265,6 +269,8 @@ function EditPlayerDialog({ player, seasonId, open, onClose, teams }: {
               ))}
             </div>
           </div>
+
+          {status === "withdrawn" && <p className="text-xs text-muted-foreground">Il giocatore resta nell’anagrafica. Nella stagione attiva viene escluso dalle rose operative. Scegli Riconfermato per registrare il rientro.</p>}
 
           {needsAmount && (
             <div>

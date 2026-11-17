@@ -1,3 +1,4 @@
+import { WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { activationContact, activationScope, activations, deliverActivation, ensureAccountActivations, issueActivation } from "../lib/account-activation";
 import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { sessionTeamScope } from "../lib/session-team-scope";
@@ -789,7 +790,7 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect, role: unkn
     shuttleService: player.shuttleService ?? false,
     shuttleRoute: (player as typeof player & { shuttleRoute?: string | null }).shuttleRoute ?? null,
     shuttleDirection: (player as typeof player & { shuttleDirection?: string | null }).shuttleDirection ?? null,
-    available: player.available ?? true,
+    available: player.status !== WITHDRAWN_PLAYER_STATUS && (player.available ?? true),
     unavailabilityReason: player.unavailabilityReason ?? null,
     expectedReturn: player.expectedReturn ?? null,
     availabilityOverrideActive: availabilityOverride.availabilityOverrideActive ?? false,
@@ -860,6 +861,7 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
       : and(...conditions);
   const players = await db.select().from(playersTable).where(playerWhere);
   const filtered = players.filter((player) => {
+    if (player.status === WITHDRAWN_PLAYER_STATUS && req.query.activeRoster === "1") return false;
     const supplementalTeamId = extractSupplementalTeamId(player.notes);
     if (requestedTeamId) {
       return player.teamId === requestedTeamId || supplementalTeamId === requestedTeamId;
@@ -1431,6 +1433,11 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     updateData.expectedReturn = null;
   }
 
+  if (existingPlayer.status === WITHDRAWN_PLAYER_STATUS || updateData.status === WITHDRAWN_PLAYER_STATUS) {
+    for (const key of ["status", "available", "unavailabilityReason", "expectedReturn", "availabilityOverrideActive",
+      "availabilityOverrideFrom", "availabilityOverrideUntil", "availabilityOverrideReason"]) delete updateData[key];
+  }
+
   if (Object.keys(updateData).length === 0) {
     const enrichedNoop = await enrichPlayer(existingPlayer, req.session.role);
     res.json(UpdatePlayerResponse.parse(enrichedNoop));
@@ -1450,7 +1457,8 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
   const clubId = req.session.clubId!;
-  const playerScope = and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, clubId));
+  const playerScope = and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, clubId),
+    Object.hasOwn(updateData, "status") ? sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}` : undefined);
   const affectsProfile = ["height", "weight", "position", "jerseyNumber"].some(field => Object.hasOwn(updateData, field));
   const [player] = affectsProfile ? await db.transaction(async (tx) => {
     const [current] = await tx.select().from(playersTable).where(playerScope).for("update");

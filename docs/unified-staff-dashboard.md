@@ -56,3 +56,8 @@ per DT, DS, DG, allenatori e collaboratori nei settori e nelle annate
 autorizzati. **Vedi tutti i risultati** apre la consultazione filtrata.
 I preparatori autorizzati inseriscono e modificano le rilevazioni da
 **Area atletica → Performance Giocatori**.
+
+Nella Situazione amministrativa, i ruoli abilitati ai pagamenti vedono
+il rapporto fra iscritti con almeno un movimento scaduto e iscritti
+nell’ambito selezionato. Il filtro Pagamenti scaduti elenca ciascun
+giocatore una sola volta e mostra il motivo della segnalazione.

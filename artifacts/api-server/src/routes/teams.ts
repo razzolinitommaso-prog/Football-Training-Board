@@ -1,3 +1,4 @@
+import { WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { TrainingProgramBody } from "@workspace/api-zod";
 import { lockTrainingPrograms, setTrainingProgram, reconcileProgramSessions, TrainingProgramError } from "../lib/joint-training-program";
 import { ensureSessionPlans } from "../lib/training-session-planning";
@@ -192,7 +193,7 @@ async function getTeamsWithCounts(clubId: number, filterTeamIds?: number[], sect
       const playerCountResult = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(playersTable)
-        .where(eq(playersTable.teamId, team.id));
+        .where(and(eq(playersTable.teamId, team.id), sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}`));
 
       let coachName: string | null = null;
       if (team.coachId) {
@@ -339,7 +340,7 @@ router.get("/teams/:id", requireAuth, async (req, res): Promise<void> => {
   const playerCountResult = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(playersTable)
-    .where(eq(playersTable.teamId, team.id));
+    .where(and(eq(playersTable.teamId, team.id), sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}`));
 
   let coachName: string | null = null;
   if (team.coachId) {
@@ -453,7 +454,7 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
   const playerCountResult = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(playersTable)
-    .where(eq(playersTable.teamId, team.id));
+    .where(and(eq(playersTable.teamId, team.id), sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}`));
 
   let coachName: string | null = null;
   if (team.coachId) {
@@ -527,7 +528,7 @@ router.get("/teams/:id/members", requireAuth, async (req, res): Promise<void> =>
       available: playersTable.available,
     })
     .from(playersTable)
-    .where(eq(playersTable.clubId, req.session.clubId!));
+    .where(and(eq(playersTable.clubId, req.session.clubId!), sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}`));
 
   const teamPlayers = players
     .map((p) => ({ ...p, isSupplemental: p.teamId !== teamId && extractSupplementalTeamId(p.notes) === teamId }))

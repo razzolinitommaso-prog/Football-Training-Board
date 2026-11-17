@@ -1,3 +1,4 @@
+import { paymentViewRoles } from "@/lib/payment-summary";
 import { PlayerTestsDashboard } from "@/components/dashboard/PlayerTestsDashboard";
 import { useTechnicalScope, technicalSections } from "@/components/technical-scope";
 import { OverviewCard, UnifiedOverview, type OverviewSession } from "@/components/dashboard/UnifiedOverview";
@@ -761,6 +762,12 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   const activeSeason = seasons.find(s => s.isActive) ?? seasons[seasons.length - 1] ?? null;
   const [selectedSeasonId, setSelectedSeasonId] = useState<number | null>(null);
   const viewedSeason = seasons.find(s => s.id === (selectedSeasonId ?? activeSeason?.id)) ?? activeSeason;
+  const overduePlayers = useQuery({
+    queryKey: ["/api/player-payments", "overdue-players", clubIdNum, user?.id, nr, viewedSeason?.id],
+    queryFn: () => fetchJsonOrThrow<{ enrolledIds: number[]; overdueIds: number[] }>(
+      "/api/player-payments/overdue-players" + (viewedSeason ? "?seasonId=" + viewedSeason.id : "")),
+    enabled: !!user && paymentViewRoles.includes(nr),
+  });
 
   const now = new Date();
   const isTransitionWindow = now.getMonth() >= 6 && now.getMonth() <= 7;
@@ -1814,7 +1821,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   const dashboardPlayerSummary = useMemo(() => {
     const players = (allPlayers as any[] | undefined) ?? [];
     const hasPlayerList = players.length > 0;
-    const isActivePlayer = (player: any) => player.status !== "inactive";
+    const isActivePlayer = (player: any) => !["inactive", "withdrawn"].includes(player.status);
     const total = hasPlayerList
       ? players.length
       : dashboardPlayerCount;
@@ -1822,7 +1829,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       ? players.filter(isActivePlayer).length
       : dashboardPlayerCount;
     const inactive = hasPlayerList
-      ? players.filter((player) => player.status === "inactive").length
+      ? players.filter((player) => !isActivePlayer(player)).length
       : 0;
     const available = hasPlayerList
       ? players.filter((player) => isActivePlayer(player) && player.available !== false).length
@@ -2187,7 +2194,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   );
 
   const unavailablePlayers = (allPlayers as any[] | undefined)?.filter(
-    (p: any) => p.status !== "inactive" && p.available === false
+    (p: any) => !["inactive", "withdrawn"].includes(p.status) && p.available === false
   ) ?? [];
 
   const unavailablePlayersByAnnata = useMemo(() => {
@@ -2710,6 +2717,8 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         role={nr}
         teamCount={dashboardTeams.length}
         players={allPlayers}
+        overduePlayers={overduePlayers.data}
+        overduePlayersState={paymentViewRoles.includes(nr) ? overduePlayers.status : undefined}
         playersPath={dashboardPlayersPath}
         sessions={trainingSessionsForDash}
         sessionsLoading={sessionsLoading}

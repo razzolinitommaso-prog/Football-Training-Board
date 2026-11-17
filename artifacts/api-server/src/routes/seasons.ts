@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, seasonsTable, teamsTable, playersTable, matchesTable, playerSeasonStatusTable, observedPlayersTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { WITHDRAWN_PLAYER_STATUS, playerStatusAfterWithdrawal } from "@workspace/api-zod";
+import { eq, and, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 
 const router: IRouter = Router();
@@ -43,10 +44,6 @@ router.patch("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const { name, startDate, endDate, isActive, isArchived } = req.body;
 
-  if (isActive) {
-    await db.update(seasonsTable).set({ isActive: false }).where(eq(seasonsTable.clubId, req.session.clubId!));
-  }
-
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   if (startDate !== undefined) updates.startDate = startDate;
@@ -54,8 +51,29 @@ router.patch("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
   if (isActive !== undefined) updates.isActive = isActive;
   if (isArchived !== undefined) updates.isArchived = isArchived;
 
-  const [season] = await db.update(seasonsTable).set(updates)
-    .where(and(eq(seasonsTable.id, id), eq(seasonsTable.clubId, req.session.clubId!))).returning();
+  const clubId = req.session.clubId!;
+  const season = await db.transaction(async tx => {
+    if (isActive) await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('season-roster'), ${clubId})`);
+    const [existing] = await tx.select({ id: seasonsTable.id }).from(seasonsTable)
+      .where(and(eq(seasonsTable.id, id), eq(seasonsTable.clubId, clubId)));
+    if (!existing) return null;
+    if (isActive) await tx.update(seasonsTable).set({ isActive: false }).where(eq(seasonsTable.clubId, clubId));
+    const [updated] = await tx.update(seasonsTable).set(updates)
+      .where(and(eq(seasonsTable.id, id), eq(seasonsTable.clubId, clubId))).returning();
+    if (isActive) {
+      const statuses = await tx.select({ status: playerSeasonStatusTable.status, player: playersTable })
+        .from(playerSeasonStatusTable).innerJoin(playersTable, and(eq(playersTable.clubId, clubId), eq(playersTable.id, playerSeasonStatusTable.playerId)))
+        .where(and(eq(playerSeasonStatusTable.seasonId, id), eq(playerSeasonStatusTable.clubId, clubId)));
+      for (const { status, player } of statuses) {
+        if (status === WITHDRAWN_PLAYER_STATUS || (status === "confirmed" && player.status === WITHDRAWN_PLAYER_STATUS)) {
+          await tx.update(playersTable).set({
+            status: status === WITHDRAWN_PLAYER_STATUS ? WITHDRAWN_PLAYER_STATUS : playerStatusAfterWithdrawal(player),
+          }).where(and(eq(playersTable.id, player.id), eq(playersTable.clubId, clubId)));
+        }
+      }
+    }
+    return updated;
+  });
   if (!season) { res.status(404).json({ error: "Season not found" }); return; }
   res.json(season);
 });

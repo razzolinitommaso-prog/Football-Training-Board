@@ -1,3 +1,4 @@
+import { WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { isDeepStrictEqual } from "node:util";
 import { Router, type IRouter } from "express";
 import {
@@ -929,8 +930,9 @@ router.post("/matches/:id/callups", requireAuth, async (req, res): Promise<void>
   if (!match) { res.status(404).json({ error: "Match not found" }); return; }
   const canManage = await userCanManageAssignedTeamMatch(req.session.userId!, req.session.clubId!, req.session.role ?? "", match.teamId ?? null);
   if (!canManage) { res.status(403).json({ error: "Non autorizzato a modificare le convocazioni" }); return; }
-  const [player] = await db.select({ id: playersTable.id }).from(playersTable).where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!)));
+  const [player] = await db.select({ id: playersTable.id, status: playersTable.status }).from(playersTable).where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!)));
   if (!player) { res.status(400).json({ error: "Giocatore non valido per questa societa" }); return; }
+  if (player.status === WITHDRAWN_PLAYER_STATUS) { res.status(409).json({ error: "Il giocatore è ritirato." }); return; }
   if (await parentUnavailableForMatch(matchId, [Number(playerId)])) {
     res.status(409).json({ error: "Il genitore ha indicato il giocatore come non disponibile per questa partita" });
     return;
@@ -1062,12 +1064,15 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
 
   if (desiredPlayerIds.length > 0) {
     const validPlayers = await db
-      .select({ id: playersTable.id })
+      .select({ id: playersTable.id, status: playersTable.status })
       .from(playersTable)
       .where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, desiredPlayerIds)));
     if (validPlayers.length !== desiredPlayerIds.length) {
       res.status(400).json({ error: "Uno o piu giocatori non appartengono a questa societa" });
       return;
+    }
+    if (validPlayers.some(player => player.status === WITHDRAWN_PLAYER_STATUS)) {
+      res.status(409).json({ error: "Rimuovi dalla convocazione i giocatori ritirati." }); return;
     }
     const conflicts = await sameDayCallupConflicts(clubId, existingMatch, desiredPlayerIds);
     if (conflicts.length > 0) {

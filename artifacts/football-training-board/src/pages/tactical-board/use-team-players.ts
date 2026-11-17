@@ -66,7 +66,7 @@ export function useTeamPlayers(teamId: number | null, matchId?: number | null, t
       setIsLoading(true);
       try {
         const [playersRes, membersRes] = await Promise.all([
-          fetch(withApi(programSessionId ? `/api/training-sessions/${programSessionId}/roster` : training && !matchId ? `/api/training-rosters/${teamId}?scope=shared` : `/api/players?teamId=${teamId}${matchId ? `&matchId=${matchId}` : ""}`), { credentials: "include" }),
+          fetch(withApi(programSessionId ? `/api/training-sessions/${programSessionId}/roster` : training && !matchId ? `/api/training-rosters/${teamId}?scope=shared` : `/api/players?teamId=${teamId}&activeRoster=1${matchId ? `&matchId=${matchId}` : ""}`), { credentials: "include" }),
           programSessionId || training && !matchId ? Promise.resolve(null) : fetch(withApi(`/api/teams/${teamId}/members`), { credentials: "include" }),
         ]);
 

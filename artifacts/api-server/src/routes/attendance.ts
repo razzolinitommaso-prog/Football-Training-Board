@@ -1,3 +1,4 @@
+import { WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { activeTrainingGroup } from "../lib/joint-training-program";
 import { splitPublicNotesAndPlan } from "../lib/match-plan-notes";
 import { listTrainingTrials, trainingTrialsForSession, trialIncludesDate, TRAINING_TRIAL_STATUS } from "../lib/training-trials";
@@ -91,6 +92,12 @@ async function playerIsValidForSession(playerId: number, clubId: number, session
     .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)))
     .limit(1);
   if (!player) return false;
+  if (player.status === WITHDRAWN_PLAYER_STATUS) {
+    const [record] = await db.select({ id: trainingAttendancesTable.id }).from(trainingAttendancesTable)
+      .where(and(eq(trainingAttendancesTable.clubId, clubId), eq(trainingAttendancesTable.trainingSessionId, sessionId),
+        eq(trainingAttendancesTable.playerId, playerId), staffAttendance));
+    return !!record;
+  }
   if (player.status === TRAINING_TRIAL_STATUS) {
     return (await trainingTrialsForSession(session)).some(trial => trial.playerId === playerId);
   }
@@ -169,6 +176,7 @@ router.get("/attendance-register", requireAuth, async (req, res) => {
     firstName: playersTable.firstName,
     lastName: playersTable.lastName,
     notes: playersTable.notes,
+    status: playersTable.status,
   };
   const own = parent && parentPlayerId
     ? await db.select(rosterFields).from(playersTable).where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, parentPlayerId)))

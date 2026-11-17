@@ -1867,7 +1867,7 @@ function SessionDetailsDialog({
   });
   const selectablePlayersQuery = useQuery<PlayerOption[]>({
     queryKey: ["training-rosters", "training-session-exercise-selection", session.id, exerciseForm.teamId || "all",session.notes],
-    queryFn: async () => {if(session.sessionKind !== "tipo" && session.teamId)return apiFetch(`/api/training-sessions/${session.id}/roster`);const ids=sessionTeamIds(session.teamId,session.notes);if(!ids.length)return apiFetch("/api/players");const lists=await Promise.all(ids.map(id=>apiFetch(`/api/training-rosters/${id}?scope=team`)));return [...new Map(lists.flatMap(list=>list.players as PlayerOption[]).map(player=>[player.id,player])).values()];},
+    queryFn: async () => {if(session.sessionKind !== "tipo" && session.teamId)return apiFetch(`/api/training-sessions/${session.id}/roster`);const ids=sessionTeamIds(session.teamId,session.notes);if(!ids.length)return apiFetch("/api/players?activeRoster=1");const lists=await Promise.all(ids.map(id=>apiFetch(`/api/training-rosters/${id}?scope=team`)));return [...new Map(lists.flatMap(list=>list.players as PlayerOption[]).map(player=>[player.id,player])).values()];},
     enabled: exerciseFormOpen || stationSetupPhase !== null,
   });
 

@@ -31,3 +31,9 @@ Il cassetto FTB riporta quanti risultati sono integrati e quanti discordanti. Il
 - Browser isolato sulla build reale con dati fittizi: menu Presidente/Segreteria, Stagioni conservate, percorso Programmazione gare → calendario → PDF, collegamento DT da Campionati, layout a 430 px. Nessun inserimento o importazione di dati di produzione.
 
 Commit locale, push e deploy sono operazioni distinte. Nessun push automatico previsto in questa modifica.
+
+In **Transizione stagionale**, **Ritirato** conserva la scheda, gli appelli
+e i resoconti preesistenti. Nella stagione attiva esclude il giocatore
+dalle rose operative. **Riconfermato** lo riporta nella rosa attuale
+oppure ne programma il rientro nella stagione di destinazione. I blocchi
+amministrativi e sportivi continuano ad applicarsi.

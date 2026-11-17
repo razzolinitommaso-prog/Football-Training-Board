@@ -35,7 +35,7 @@ export type OverviewSession = {
   creatorName?: string | null;
   preparation?: { exerciseCount: number; phases: string[]; complete: boolean };
 };
-type AlertFilter = "all" | "registration" | "certificate";
+type AlertFilter = "all" | "registration" | "certificate" | "overdue";
 type AlertListState = { filter: AlertFilter; search: string; scrollTop: number };
 
 type Player = {
@@ -46,6 +46,7 @@ type Player = {
   teamName?: string | null;
   supplementalTeamName?: string | null;
   registered?: boolean | null;
+  status?: string | null;
   medicalCertificateExpiry?: string | null;
 };
 const normalizeAlertSearch = (value: string) =>
@@ -153,6 +154,8 @@ export function UnifiedOverview({
   role,
   teamCount,
   players,
+  overduePlayers,
+  overduePlayersState,
   sessions,
   sessionsLoading,
   sessionsError,
@@ -168,6 +171,8 @@ export function UnifiedOverview({
   role: string;
   teamCount: number;
   players: Player[];
+  overduePlayers?: { enrolledIds: number[]; overdueIds: number[] };
+  overduePlayersState?: "pending" | "success" | "error";
   sessions: OverviewSession[];
   sessionsLoading: boolean;
   sessionsError: boolean;
@@ -223,20 +228,26 @@ export function UnifiedOverview({
       String(now.getMonth() + 1).padStart(2, "0"),
       String(now.getDate()).padStart(2, "0"),
     ].join("-");
-  const alerts = administrative && dataState.players === "ready" ? players.map(player => ({
+  const roster = players.filter(player => player.status !== "withdrawn");
+  const enrolledIds = new Set(overduePlayers?.enrolledIds);
+  const overdueIds = new Set(overduePlayers?.overdueIds);
+  const enrolledCount = roster.filter(player => enrolledIds.has(player.id)).length;
+  const alerts = administrative && dataState.players === "ready" ? roster.map(player => ({
     player,
     birthYear: /^(\d{4})(?:-|$)/.exec(player.dateOfBirth ?? "")?.[1],
     teamName: player.teamName?.trim() || undefined,
     supplementalTeamName: player.supplementalTeamName?.trim(),
     registration: player.registered !== true,
+    overdue: overdueIds.has(player.id),
     certificate: !player.medicalCertificateExpiry ? "Certificato mancante"
       : player.medicalCertificateExpiry.slice(0, 10) < day ? "Certificato scaduto" : null,
-  })).filter(item => item.registration || item.certificate) : [];
+  })).filter(item => item.registration || item.certificate || item.overdue) : [];
   const registrations = alerts.filter(item => item.registration).length;
+  const overdueCount = alerts.filter(item => item.overdue).length;
   const certificates = alerts.filter(item => item.certificate).length;
   const searchTerms = normalizeAlertSearch(alertSearch).split(/\s+/).filter(Boolean);
   const visibleAlerts = alertFilter === null ? [] : alerts
-    .filter(item => alertFilter === "all" || (alertFilter === "registration" ? item.registration : item.certificate))
+    .filter(item => alertFilter === "all" || (alertFilter === "registration" ? item.registration : alertFilter === "certificate" ? item.certificate : item.overdue))
     .filter(({ player, birthYear, teamName, supplementalTeamName }) => {
       const searchText = normalizeAlertSearch([player.firstName, player.lastName, birthYear, teamName, supplementalTeamName].join(" "));
       return searchTerms.every(term => searchText.includes(term));
@@ -256,7 +267,7 @@ export function UnifiedOverview({
       title: "Giocatori",
       value:
         dataState.players === "ready"
-          ? players.length
+          ? roster.length
           : dataState.players === "loading"
             ? "…"
             : "—",
@@ -549,6 +560,13 @@ export function UnifiedOverview({
                   className="flex w-full justify-between gap-2 pt-3 text-left text-sm hover:text-primary">
                   <span>Certificati scaduti o mancanti</span><strong className="tabular-nums">{certificates}</strong>
                 </button>
+                {overduePlayersState && <button type="button" onClick={() => setAlertFilter("overdue")}
+                  disabled={overduePlayersState !== "success"}
+                  className="flex w-full items-center justify-between gap-2 border-t py-3 text-left text-sm hover:text-primary">
+                  <span>Iscritti con pagamenti scaduti</span>
+                  <strong className="shrink-0 tabular-nums">{overduePlayersState === "success" ? overdueCount + "/" + enrolledCount : "—"}</strong>
+                </button>}
+                {overduePlayersState === "error" && <p className="text-xs text-muted-foreground" role="status">Dati sui pagamenti scaduti non disponibili.</p>}
               </>
             )}
           </Panel>
@@ -579,12 +597,13 @@ export function UnifiedOverview({
                   ["all", "Tutte", alerts.length],
                   ["registration", "Tesseramento", registrations],
                   ["certificate", "Certificati", certificates],
+                  ...(overduePlayersState === "success" ? [["overdue", "Pagamenti scaduti", overdueCount] as const] : []),
                 ] as const).map(([filter, label, count]) => <Button key={filter} type="button" size="sm"
                   variant={alertFilter === filter ? "secondary" : "outline"} aria-pressed={alertFilter === filter}
                   onClick={() => setAlertFilter(filter)}>{label} · {count}</Button>)}
               </div>
               {visibleAlerts.length ? <ul className="divide-y rounded-lg border">
-                {visibleAlerts.map(({ player, birthYear, teamName, supplementalTeamName, registration, certificate }) => <li key={player.id}>
+                {visibleAlerts.map(({ player, birthYear, teamName, supplementalTeamName, registration, certificate, overdue }) => <li key={player.id}>
                   <Link href={`${playersPath}?openPlayerId=${player.id}${role === "secretary" ? "&mode=edit" : ""}`}
                     state={{ fromPlayerAlerts: true }}
                     onClick={() => {
@@ -607,6 +626,7 @@ export function UnifiedOverview({
                       <span className="flex flex-wrap gap-1">
                         {registration && <Badge variant="outline">Tesseramento da verificare</Badge>}
                         {certificate && <Badge variant="outline">{certificate}</Badge>}
+                        {overdue && <Badge variant="outline" className="border-red-300 text-red-700 dark:text-red-300">Pagamento scaduto</Badge>}
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1 text-xs text-primary">Apri scheda <ArrowUpRight className="h-3 w-3" aria-hidden="true" /></span>

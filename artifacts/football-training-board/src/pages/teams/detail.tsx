@@ -318,7 +318,8 @@ export default function TeamDetail() {
   const locale = language === "it" ? itLocale : undefined;
 
   const { data: team, isLoading: teamLoading } = useGetTeam(teamId);
-  const { data: players, isLoading: playersLoading } = useListPlayers({ teamId });
+  const { data: teamPlayers, isLoading: playersLoading } = useListPlayers({ teamId });
+  const players = teamPlayers?.filter(player => player.status !== "withdrawn");
 
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [playerDialogMode, setPlayerDialogMode] = useState<"view" | "edit">("view");

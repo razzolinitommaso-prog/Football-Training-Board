@@ -38,11 +38,14 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
-    if (process.argv.includes("--extra-time") || process.argv.includes("--payment-desk") || process.argv.includes("--document-files")) {
+    if (process.argv.includes("--extra-time") || process.argv.includes("--payment-desk") || process.argv.includes("--withdrawals") || process.argv.includes("--document-files")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as secretary} from '../../artifacts/api-server/src/routes/secretary';");
     }
     if (process.argv.includes("--fitness-results")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as fitness} from '../../artifacts/api-server/src/routes/fitness';");
+    }
+    if (process.argv.includes("--withdrawals")) {
+      fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as seasons} from '../../artifacts/api-server/src/routes/seasons';export {default as seasonStatus} from '../../artifacts/api-server/src/routes/player-season-status';");
     }
     await esbuild.build({
       entryPoints: [path.join(dir, "entry.ts")],
@@ -181,6 +184,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     app.use("/api", routes.restrictTeamManagerApi, routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
     if (routes.secretary) app.use("/api", routes.secretary);
     if (routes.fitness) app.use("/api", routes.fitness);
+    if (routes.seasons) app.use("/api", routes.seasons, routes.seasonStatus);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -232,6 +236,49 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       assert.equal((await send("fitness_coach", "PATCH", "/player-fitness-data/701", { speed: 86 })).status, 403);
       assert.equal((await call("/player-fitness-data?view=tests", collaborator)).status, 200);
       console.log("PASS fitness results: role, club, team and section scope; reads and writes; note privacy.");
+      return;
+    }
+    if (process.argv.includes("--withdrawals")) {
+      await pg.exec(`UPDATE players SET club_section='scuola_calcio', status='active', available=true, registered=true, created_at=now() WHERE id IN (101,102);
+        INSERT INTO seasons(id,club_id,name,start_date,end_date,is_active) VALUES
+          (12001,1,'2026/27','2026-07-01','2027-06-30',true), (12002,1,'2027/28','2027-07-01','2028-06-30',false);
+        UPDATE teams SET season_id=12001 WHERE id=11;
+        INSERT INTO player_payments(id,club_id,player_id,amount,status,due_date)
+          VALUES (6001,1,101,20,'pending','2020-01-01'), (6002,1,101,30,'overdue','2020-01-01'), (6003,1,102,70,'paid','2020-01-01');`);
+      const admin = { "x-role": "admin" };
+      const ledger = "/player-payments/overdue-players?seasonId=12001";
+      assert.equal((await call(ledger, { "x-role": "coach" })).status, 403);
+      const before = await call(ledger, admin);
+      assert.equal(before.status, 200, JSON.stringify(before.data));
+      assert.deepEqual(before.data.overdueIds, [101]);
+      assert.deepEqual(before.data.enrolledIds.sort(), [101,102]);
+      const send = async (url, method, body, headers = admin) => fetch(base + url, {
+        method, headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
+      });
+      const transition = (season, status) => send("/seasons/" + season + "/player-status", "POST", { playerId: 101, status });
+      assert.equal((await transition(12001, "withdrawn")).status, 201);
+      const directory = await call("/players?teamId=11", admin);
+      assert.equal(directory.status, 200, JSON.stringify(directory.data));
+      assert.equal(directory.data.find(row => row.id === 101).status, "withdrawn");
+      assert.equal(directory.data.find(row => row.id === 101).available, false);
+      assert.ok(!(await call("/players?teamId=11&activeRoster=1", admin)).data.some(row => row.id === 101));
+      assert.ok(!(await call("/teams/11/members", admin)).data.some(row => row.id === 101));
+      assert.equal((await call("/dirigenti/overview?teamId=11", { "x-role": "team_manager" })).data.players.length, 1);
+      assert.equal((await call("/matches/501/callups", admin)).data.length, 2);
+      assert.deepEqual((await call(ledger, admin)).data, { enrolledIds: [102], overdueIds: [] });
+      assert.equal((await transition(12001, "confirmed")).status, 200);
+      assert.ok((await call("/players?teamId=11&activeRoster=1", admin)).data.some(row => row.id === 101));
+      assert.equal((await transition(12001, "withdrawn")).status, 200);
+      assert.equal((await transition(12002, "confirmed")).status, 201);
+      assert.ok(!(await call("/players?teamId=11&activeRoster=1", admin)).data.some(row => row.id === 101));
+      assert.equal((await send("/seasons/12002", "PATCH", { isActive: true })).status, 200);
+      assert.ok((await call("/players?teamId=11&activeRoster=1", admin)).data.some(row => row.id === 101));
+      const promote = await send("/seasons/12001/promote", "POST", { toSeasonId: 12002 });
+      assert.equal(promote.status, 200);
+      assert.equal((await promote.json()).promoted[0].playersPromoted, 1);
+      const team = (await pg.query("SELECT t.season_id FROM players p JOIN teams t ON t.id=p.team_id WHERE p.id=101")).rows[0];
+      assert.equal(team.season_id, 12002);
+      console.log("PASS withdrawals and payment alerts: unique overdue players, scope, active rosters, historical callups and return in either season.");
       return;
     }
     if (process.argv.includes("--document-files")) {

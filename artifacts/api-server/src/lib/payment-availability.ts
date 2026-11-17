@@ -1,5 +1,5 @@
 import type { RequestHandler } from "express";
-import { trainingLocalDate } from "@workspace/api-zod";
+import { trainingLocalDate, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
@@ -38,7 +38,7 @@ export async function reconcilePaymentAvailability(clubId: number, playerId?: nu
           WHEN ${canRestore} THEN NULL
           ELSE 'other'
         END
-    WHERE p.club_id = ${clubId} ${targetScope}
+    WHERE p.club_id = ${clubId} ${targetScope} AND p.status IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}
       AND (
         (p.available AND (p.unavailability_reason IS NULL OR p.unavailability_reason = 'regular')
           AND EXISTS (SELECT 1 FROM overdue WHERE player_id = p.id)

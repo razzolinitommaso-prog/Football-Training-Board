@@ -20,7 +20,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, gte, lte, asc, getTableColumns, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
-import { extraTimeCatalog, extraTimeShareCents } from "@workspace/api-zod";
+import { extraTimeCatalog, extraTimeShareCents, trainingLocalDate, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { ensureExtraTimeStorage } from "../lib/extra-time-storage";
 import { reconcilePaymentAvailability } from "../lib/payment-availability";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
@@ -259,6 +259,35 @@ async function paymentKitArticle(clubId: number, itemId: number) {
   ));
   return article;
 }
+
+router.get("/player-payments/overdue-players", requireAuth, async (req, res): Promise<void> => {
+  if (!canViewFinancials(req.session.role) || !req.session.clubId) { res.sendStatus(403); return; }
+  const clubId = req.session.clubId;
+  const seasonId = req.query.seasonId === undefined ? undefined : Number(req.query.seasonId);
+  if (seasonId !== undefined && (!Number.isSafeInteger(seasonId) || seasonId <= 0)) {
+    res.status(400).json({ error: "Stagione non valida." }); return;
+  }
+  const scope = await getScopedPlayerIds(req, clubId);
+  if (scope && !scope.length) { res.json({ enrolledIds: [], overdueIds: [] }); return; }
+  const enrolled = await db.select({ id: playersTable.id }).from(playersTable).where(and(
+    eq(playersTable.clubId, clubId),
+    scope ? inArray(playersTable.id, scope) : undefined,
+    sql`${playersTable.status} NOT IN (${WITHDRAWN_PLAYER_STATUS}, 'training_trial')`,
+    sql`(${playersTable.registered} IS TRUE OR EXISTS (
+      SELECT 1 FROM ${registrationsTable} r
+      WHERE r.club_id = ${clubId} AND r.player_id = ${playersTable.id} AND r.status = 'approved'
+        ${seasonId === undefined ? sql`AND r.season_id IS NULL` : sql`AND (r.season_id IS NULL OR r.season_id = ${seasonId})`}
+    ))`,
+  ));
+  const enrolledIds = enrolled.map(player => player.id);
+  const overdue = enrolledIds.length ? await db.selectDistinct({ playerId: playerPaymentsTable.playerId })
+    .from(playerPaymentsTable).where(and(
+      eq(playerPaymentsTable.clubId, clubId), inArray(playerPaymentsTable.playerId, enrolledIds),
+      sql`${playerPaymentsTable.status} <> 'paid' AND ${playerPaymentsTable.amount} > 0
+        AND (${playerPaymentsTable.status} = 'overdue' OR ${playerPaymentsTable.dueDate} < ${trainingLocalDate()}::date)`,
+    )) : [];
+  res.json({ enrolledIds, overdueIds: overdue.map(row => row.playerId) });
+});
 
 router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
   if (!canViewFinancials(req.session.role)) {

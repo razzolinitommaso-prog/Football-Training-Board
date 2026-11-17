@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, playerSeasonStatusTable, playersTable, teamsTable, seasonsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { WITHDRAWN_PLAYER_STATUS, playerStatusAfterWithdrawal } from "@workspace/api-zod";
+import { eq, and, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
 import { normalizeSessionRole } from "../lib/club-scope";
 
@@ -69,7 +70,7 @@ router.get("/seasons/:id/player-status", requireAuth, async (req, res): Promise<
       position: p.position,
       dateOfBirth: p.dateOfBirth,
       statusId: s?.id ?? null,
-      status: s?.status ?? "pending",
+      status: s?.status ?? (p.status === WITHDRAWN_PLAYER_STATUS ? WITHDRAWN_PLAYER_STATUS : "pending"),
       transferAmount: s?.transferAmount ?? null,
       swapPlayerData: s?.swapPlayerData ?? null,
       notes: s?.notes ?? null,
@@ -90,37 +91,34 @@ router.post("/seasons/:id/player-status", requireAuth, async (req, res): Promise
 
   const { playerId, status, transferAmount, swapPlayerData, notes } = req.body;
   if (!playerId || !status) { res.status(400).json({ error: "playerId and status required" }); return; }
-  const [player] = await db.select().from(playersTable).where(
-    and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!))
-  ).limit(1);
-  if (!player) { res.status(404).json({ error: "Giocatore non trovato" }); return; }
-  if (!canManagePlayerSection(req.session.role, req.session.section ?? null, player.clubSection)) {
-    res.status(403).json({ error: "La segreteria puo modificare solo i giocatori della propria sezione" });
+  const clubId = req.session.clubId!;
+  const result = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('season-roster'), ${clubId})`);
+    const [season] = await tx.select().from(seasonsTable)
+      .where(and(eq(seasonsTable.clubId, clubId), eq(seasonsTable.id, seasonId)));
+    if (!season) return { error: 404, message: "Stagione non trovata" };
+    const [player] = await tx.select().from(playersTable)
+      .where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, clubId))).for("update");
+    if (!player) return { error: 404 };
+    if (!canManagePlayerSection(req.session.role, req.session.section, player.clubSection)) return { error: 403 };
+    const [existing] = await tx.select().from(playerSeasonStatusTable).where(and(
+      eq(playerSeasonStatusTable.playerId, player.id), eq(playerSeasonStatusTable.seasonId, seasonId), eq(playerSeasonStatusTable.clubId, clubId)));
+    const values = { status, transferAmount: transferAmount ?? null, swapPlayerData: swapPlayerData ?? null, notes: notes ?? null };
+    const [record] = existing
+      ? await tx.update(playerSeasonStatusTable).set(values).where(eq(playerSeasonStatusTable.id, existing.id)).returning()
+      : await tx.insert(playerSeasonStatusTable).values({ ...values, playerId: player.id, seasonId, clubId }).returning();
+    if (season.isActive && (status === WITHDRAWN_PLAYER_STATUS || (status === "confirmed" && player.status === WITHDRAWN_PLAYER_STATUS))) {
+      await tx.update(playersTable).set({
+        status: status === WITHDRAWN_PLAYER_STATUS ? WITHDRAWN_PLAYER_STATUS : playerStatusAfterWithdrawal(player),
+      }).where(and(eq(playersTable.id, player.id), eq(playersTable.clubId, clubId)));
+    }
+    return { record, created: !existing };
+  });
+  if (result.error) {
+    res.status(result.error).json({ error: result.message ?? (result.error === 404 ? "Giocatore non trovato" : "La Segreteria può modificare solo i giocatori della propria sezione") });
     return;
   }
-
-  const existing = await db.select().from(playerSeasonStatusTable).where(
-    and(
-      eq(playerSeasonStatusTable.playerId, playerId),
-      eq(playerSeasonStatusTable.seasonId, seasonId),
-      eq(playerSeasonStatusTable.clubId, req.session.clubId!),
-    )
-  );
-
-  if (existing.length > 0) {
-    const [updated] = await db.update(playerSeasonStatusTable).set({
-      status, transferAmount: transferAmount ?? null,
-      swapPlayerData: swapPlayerData ?? null, notes: notes ?? null,
-    }).where(eq(playerSeasonStatusTable.id, existing[0].id)).returning();
-    res.json(updated);
-  } else {
-    const [created] = await db.insert(playerSeasonStatusTable).values({
-      clubId: req.session.clubId!, playerId, seasonId, status,
-      transferAmount: transferAmount ?? null,
-      swapPlayerData: swapPlayerData ?? null, notes: notes ?? null,
-    }).returning();
-    res.status(201).json(created);
-  }
+  res.status(result.created ? 201 : 200).json(result.record);
 });
 
 router.post("/seasons/:id/promote", requireAuth, async (req, res): Promise<void> => {
@@ -157,6 +155,13 @@ router.post("/seasons/:id/promote", requireAuth, async (req, res): Promise<void>
   const confirmedPlayerIds = new Set(
     confirmedStatuses.filter(s => s.status === "confirmed").map(s => s.playerId)
   );
+  const withdrawnAtSource = new Set(confirmedStatuses.filter(row => row.status === WITHDRAWN_PLAYER_STATUS).map(row => row.playerId));
+  const [destination] = await db.select().from(seasonsTable).where(and(
+    eq(seasonsTable.id, Number(toSeasonId)), eq(seasonsTable.clubId, clubId)));
+  if (!destination) { res.status(404).json({ error: "Stagione di destinazione non trovata." }); return; }
+  const destinationStatuses = await db.select().from(playerSeasonStatusTable).where(and(
+    eq(playerSeasonStatusTable.seasonId, destination.id), eq(playerSeasonStatusTable.clubId, clubId)));
+  const destinationStatus = new Map(destinationStatuses.map(row => [row.playerId, row.status]));
 
   const results: { oldTeam: string; newTeam: string; playersPromoted: number }[] = [];
 
@@ -184,10 +189,14 @@ router.post("/seasons/:id/promote", requireAuth, async (req, res): Promise<void>
 
     let promoted = 0;
     for (const player of oldPlayers) {
-      if (confirmedPlayerIds.has(player.id)) {
+      const wasWithdrawn = player.status === WITHDRAWN_PLAYER_STATUS;
+      const returns = destinationStatus.get(player.id) === "confirmed";
+      const returning = returns && (wasWithdrawn || withdrawnAtSource.has(player.id));
+      if (destinationStatus.get(player.id) !== WITHDRAWN_PLAYER_STATUS && (returning || (!wasWithdrawn && confirmedPlayerIds.has(player.id)))) {
         await db.update(playersTable).set({
           teamId: newTeam.id,
           clubSection: nextSeason as string,
+          ...(wasWithdrawn && returns && destination.isActive ? { status: playerStatusAfterWithdrawal(player) } : {}),
         }).where(eq(playersTable.id, player.id));
         promoted++;
       }

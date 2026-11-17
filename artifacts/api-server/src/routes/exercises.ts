@@ -13,7 +13,7 @@ import {
   clubMembershipsTable,
 } from "@workspace/db";
 import { eq, and, desc, asc, inArray, isNull, or, lt, sql } from "drizzle-orm";
-import { mergeBoardMaterials, attendanceExerciseView,boardPlayerIds,sessionTeamIds, assignStationPlayers, firstStationAssignment, reconcileStationOrganization, stationAllocationProposal, stationSources, TRAINING_ROTATION_PHASES, type RotationPhase } from "@workspace/api-zod";
+import { WITHDRAWN_PLAYER_STATUS, mergeBoardMaterials, attendanceExerciseView,boardPlayerIds,sessionTeamIds, assignStationPlayers, firstStationAssignment, reconcileStationOrganization, stationAllocationProposal, stationSources, TRAINING_ROTATION_PHASES, type RotationPhase } from "@workspace/api-zod";
 import {rosterMembers} from "../lib/training-roster-policy";
 import { ensureTrainingTrials, TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
@@ -371,7 +371,7 @@ router.post("/exercises", requireAuth, async (req, res): Promise<void> => {
       const exercises = await planningExercises(sessionId, clubId, tx);
       const eligibility = await readSessionEligibility(clubId, session, tx);
       if (planningVersion(plan, eligibility.blockedPlayerIds, exercises) !== allocation.version) return null;
-      const players = await tx.select({ id: playersTable.id, teamId: playersTable.teamId, notes: playersTable.notes })
+      const players = await tx.select({ id: playersTable.id, teamId: playersTable.teamId, notes: playersTable.notes, status: playersTable.status })
         .from(playersTable).where(eq(playersTable.clubId, clubId));
       const availableIds = [...rosterMembers(players, sessionTeamIds(session.teamId, session.notes)).map(player => player.id),
         ...eligibility.guestPlayerIds].filter(id => !eligibility.blockedPlayerIds.includes(id));
@@ -515,7 +515,7 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
           const [session]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),eq(trainingSessionsTable.id,Number(req.body.programSessionId))));
           if(session)teamIds=sessionTeamIds(session.teamId,session.notes);
         }
-        const regular = (teamIds.length ? rosterMembers(candidates, teamIds) : candidates).filter(player => player.status !== TRAINING_TRIAL_STATUS);
+        const regular = (teamIds.length ? rosterMembers(candidates, teamIds) : candidates).filter(player => player.status !== TRAINING_TRIAL_STATUS && player.status !== WITHDRAWN_PLAYER_STATUS);
         const allowed = new Set([...regular.map(player => player.id), ...allowedBoardGuests]);
         const ids = boardIds.filter(id => allowed.has(id));
         updates.selectedPlayerIdsJson=JSON.stringify(ids);updates.playersRequired=ids.length;updates.scegliGiocatori=true;updates.caricaRosaIntera=false;

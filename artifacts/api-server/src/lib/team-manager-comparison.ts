@@ -8,7 +8,7 @@ import { rosterMembers } from "./training-roster-policy";
 // Called only after the overview route has checked membership, section,
 // assigned team and ownership of the selected match.
 export async function managerMatchComparison(clubId: number, teamId: number, matchDate: Date | null, calledIds: number[]) {
-  const clubPlayers = await db.select({id:playersTable.id,firstName:playersTable.firstName,lastName:playersTable.lastName,teamId:playersTable.teamId,notes:playersTable.notes})
+  const clubPlayers = await db.select({id:playersTable.id,firstName:playersTable.firstName,lastName:playersTable.lastName,teamId:playersTable.teamId,notes:playersTable.notes,status:playersTable.status})
     .from(playersTable).where(eq(playersTable.clubId,clubId)).orderBy(asc(playersTable.lastName),asc(playersTable.firstName));
   const roster = new Set(rosterMembers(clubPlayers,[teamId]).map(player=>player.id));
   const called = new Set(calledIds);

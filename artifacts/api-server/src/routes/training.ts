@@ -1,10 +1,10 @@
 import { stationSources, TRAINING_METHOD_GUIDES } from "@workspace/api-zod";
 import { programParticipants, PROGRAM_MARKER } from "../lib/joint-training-program";
-import { trainingLocalDate, trainingProgramLeader } from "@workspace/api-zod";
+import { trainingLocalDate, trainingProgramLeader, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { assignedTrainingProgram } from "../lib/training-program-access";
 import { ensureParentTrainingAvailabilityTable } from "../lib/training-availability";
 import { ensureTrainingTrials, listTrainingTrials, trainingTrialsForSession, TRAINING_TRIAL_STATUS, validTrainingTrialDate } from "../lib/training-trials";
-import { readSessionEligibility } from "../lib/training-session-attendance";
+import { readSessionAttendance, readSessionEligibility } from "../lib/training-session-attendance";
 import { excludeTrainingPlayers, restrictTrainingRotationPlayers, validateTrainingRotations, type TrainingRotations } from "@workspace/api-zod";
 import { rosterMembers, playerBirthYear } from "../lib/training-roster-policy";
 import { planningActivities, planningExercises, resolvedStationRotations, recalculateRotationPlan, planningVersion, rotationTimings } from "../lib/training-session-planning";
@@ -556,7 +556,7 @@ router.patch("/training-sessions/:id", requireAuth, async (req, res): Promise<vo
     const targetKind=String(updateData.sessionKind??existing.sessionKind);
     const nextTeamIds=sessionTeamIds(targetTeam,(updateData.notes===undefined?existing.notes:updateData.notes) as string|null);
     if(targetTeam&&sessionTeamIds(existing.teamId,existing.notes).some(id=>!nextTeamIds.includes(id))){
-      const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,clubId));
+      const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes,status:playersTable.status}).from(playersTable).where(eq(playersTable.clubId,clubId));
       const allowed=new Set(rosterMembers(players,nextTeamIds).map(player=>player.id));
       const recorded=resultRows<{playerId:number}>(await tx.execute(sql`SELECT player_id AS "playerId" FROM training_attendances WHERE club_id=${clubId} AND training_session_id=${existing.id}`));
       const plansExist=resultRows<{present:boolean}>(await tx.execute(sql`SELECT to_regclass('training_session_plans') IS NOT NULL AS present`))[0]?.present;
@@ -705,6 +705,10 @@ router.get("/training-sessions/:id/roster",requireAuth,async(req,res):Promise<vo
  const guests = new Map((await trainingTrialsForSession(session)).map(trial => [trial.playerId, trial.teamId]));
  const roster = rosterMembers(players, sessionTeamIds(session.teamId, session.notes));
  roster.push(...players.filter(player => guests.has(player.id)));
+ if (req.query.includeRecorded === "1") {
+   const recorded = new Set((await readSessionAttendance(session.clubId, session.id)).recordedPlayerIds);
+   roster.push(...players.filter(player => player.status === WITHDRAWN_PLAYER_STATUS && recorded.has(player.id)));
+ }
  if(req.query.groups==="1"){
    const ids=sessionTeamIds(session.teamId,session.notes);
    const exists=resultRows<{present:boolean}>(await db.execute(sql`SELECT to_regclass('training_roster_groups') IS NOT NULL AND to_regclass('training_roster_group_players') IS NOT NULL AS present`))[0]?.present;
@@ -717,7 +721,7 @@ router.get("/training-sessions/:id/roster",requireAuth,async(req,res):Promise<vo
 router.get("/training-sessions/:id/participants",requireAuth,async(req,res):Promise<void>=>{
  const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0){res.status(400).json({error:"Seduta non valida"});return;}
  const session=await planningAccess(req,id,false);if(!session){res.status(403).json({error:"Seduta non accessibile"});return;}
- const players=await db.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
+ const players=await db.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes,status:playersTable.status}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
  const ids=new Set(rosterMembers(players,sessionTeamIds(session.teamId,session.notes)).map(player=>player.id));
  const state=await readSessionEligibility(session.clubId,session);
  for (const guestId of state.guestPlayerIds) ids.add(guestId);
@@ -766,7 +770,7 @@ router.put("/training-sessions/:id/planning",requireAuth,async(req,res):Promise<
       const eligibility = await readSessionEligibility(session.clubId,current,tx);
       attendanceIds = eligibility.blockedPlayerIds;
       if(req.body.version!==undefined&&req.body.version!==planningVersion(old,attendanceIds,exercises))throw Error("CONFLICT:La pianificazione è cambiata. Riapri la seduta prima di salvare le stazioni.");
-      const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
+      const players=await tx.select({id:playersTable.id,teamId:playersTable.teamId,notes:playersTable.notes,status:playersTable.status}).from(playersTable).where(eq(playersTable.clubId,session.clubId));
       const allowed = [...rosterMembers(players, sessionTeamIds(current.teamId, current.notes)).map(player => player.id), ...eligibility.guestPlayerIds].filter(id => !attendanceIds.includes(id));
       const rotations: TrainingRotations = req.body.rotations === undefined
         ? restrictTrainingRotationPlayers(resolvedStationRotations(old, exercises, attendanceIds), allowed)

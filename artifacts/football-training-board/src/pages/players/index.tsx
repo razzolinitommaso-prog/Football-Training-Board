@@ -3361,6 +3361,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     if (status === "active") return t.active;
     if (status === "injured") return t.injured;
     if (status === "inactive") return t.inactive;
+    if (status === "withdrawn") return "Ritirato";
     if (status === "suspended") return "Sospeso";
     if (status === "pending_transfer") return "In attesa trasferimento";
     return status;
@@ -3389,7 +3390,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     return player.registered === true ? directoryTag(t.registered,toneClasses.badge.green) : player.registered === false ? directoryTag("Non tesserato",toneClasses.badge.orange) : directoryTag("Non indicato",neutralTag);
   }
   function renderStateTag(player: Player) {
-    return directoryTag(player.status === "pending_transfer" ? "Trasferimento" : statusLabel(player.status),player.status === "inactive" ? neutralTag : toneClasses.badge[playerHealthTone(player)]);
+    return directoryTag(player.status === "pending_transfer" ? "Trasferimento" : statusLabel(player.status),["inactive", "withdrawn"].includes(player.status) ? neutralTag : toneClasses.badge[playerHealthTone(player)]);
   }
   function renderDirectoryPhoto(player: Player, imageUrl: string | null) {
     return imageUrl ? <img src={imageUrl} alt={playerName(player,nameOrder)} className="player-directory-photo border" /> : <span className="player-directory-photo flex items-center justify-center border bg-muted/30 text-muted-foreground"><User aria-hidden="true" className="h-4 w-4" /></span>;
@@ -5798,7 +5799,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           {/* Status */}
           <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border bg-card px-2 py-1">
             <span className="shrink-0 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Stato</span>
-            {[{ v: "all", l: "Tutti" }, { v: "active", l: t.active }, { v: "injured", l: t.injured }, { v: "inactive", l: t.inactive }].map(o => (
+            {[{ v: "all", l: "Tutti" }, { v: "active", l: t.active }, { v: "injured", l: t.injured }, { v: "inactive", l: t.inactive }, { v: "withdrawn", l: "Ritirato" }].map(o => (
               <button key={o.v} type="button" onClick={() => setStatusFilter(o.v)}
                 className={`shrink-0 px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${statusFilter === o.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
                 {o.l}
