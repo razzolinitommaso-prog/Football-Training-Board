@@ -5,7 +5,8 @@ import { useTechnicalScope } from "@/components/technical-scope";
 import { mergeBoardMaterials, readMaterialSelection, writeMaterialSelection, materialNotes, writeMaterialNotes } from "@/lib/board-materials";
 import { parseStationDescription, composeStationDescription } from "@/lib/station-description";
 import { StationVariants, StationVariantsView } from "@/components/training/StationVariants";
-import { prepareReusedBoard } from "@/lib/reuse-training-station";
+import { StationBoardPreview } from "@/components/training/StationBoardPreview";
+import { prepareReusedBoard, stationBoardPreview } from "@/lib/reuse-training-station";
 import { useSessionParticipants } from "@/hooks/use-session-participants";
 import { attendanceExerciseView } from "@workspace/api-zod";
 import { StationAllocationDialog } from "@/components/training/StationAllocationDialog";
@@ -2038,15 +2039,12 @@ function SessionDetailsDialog({
   function reuseExercise(source: LinkedExercise) {
     const form = formFromLinkedExercise({ id: 0, trainingSessionId: session.id, exerciseId: source.id, order: 0, exercise: source });
     const defaults = emptyExerciseFormFromSession(session, linkedExercises.length);
-    const sameTeam = source.teamId != null && source.teamId === session.teamId;
-    const preview = sameTeam || !source.statoLavagnaJson
-      ? attendanceExerciseView(source, blockedPlayerIds)
-      : null;
+    const graphic = stationBoardPreview(source.statoLavagnaJson, source.drawingData);
     startNewStation({ ...form, teamId: defaults.teamId, trainingDay: defaults.trainingDay, trainingSession: defaults.trainingSession,
       trainingPhase: reuseTargetPhase, playersRequiredMode: "manual", selectedPlayerIdsJson: "", notes: "",
-      statoLavagnaJson: prepareReusedBoard(preview?.statoLavagnaJson ?? source.statoLavagnaJson, session.teamId),
-      drawingData: preview?.drawingData ?? "",
-      drawingElementsJson: source.statoLavagnaJson ? "" : preview?.drawingElementsJson ?? "",
+      statoLavagnaJson: prepareReusedBoard(source.statoLavagnaJson, session.teamId, graphic?.src),
+      drawingData: source.statoLavagnaJson ? "" : source.drawingData ?? "",
+      drawingElementsJson: source.statoLavagnaJson ? "" : source.drawingElementsJson ?? "",
       isDraft: false }, source.sourceExerciseId ?? source.id);
     setReusePhase(null);
   }
@@ -2218,18 +2216,28 @@ function SessionDetailsDialog({
         </DialogHeader>
 
         <Dialog open={reusePhase !== null} onOpenChange={open => { if (!open) setReusePhase(null); }}>
-          <DialogContent className="max-h-[85dvh] w-[calc(100%-1rem)] max-w-xl overflow-hidden p-4 flex flex-col">
+          <DialogContent className="max-h-[92dvh] w-[calc(100%-1rem)] max-w-5xl overflow-hidden p-4 sm:p-6 flex flex-col">
             <DialogHeader><DialogTitle>Cerca stazioni nelle sedute precedenti</DialogTitle></DialogHeader>
             <p className="text-xs text-muted-foreground">La copia è indipendente. Rosa e appello saranno quelli della seduta attuale.</p>
             <Select value={reusePhase || "tutte"} onValueChange={value => setReusePhase(value === "tutte" ? "" : value)}><SelectTrigger aria-label="Fase da cercare"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tutte">Tutte le fasi</SelectItem><SelectItem value="iniziale">Fase iniziale</SelectItem><SelectItem value="centrale">Fase centrale</SelectItem><SelectItem value="finale">Fase finale</SelectItem></SelectContent></Select>
-            <Input aria-label="Cerca stazione per titolo o principio" placeholder="Cerca titolo o principio…" value={reuseSearch} onChange={e => setReuseSearch(e.target.value)} />
+            <Input aria-label="Cerca stazione per titolo, descrizione o principio" placeholder="Cerca titolo, descrizione o principio…" value={reuseSearch} onChange={e => setReuseSearch(e.target.value)} />
             <div className="min-h-0 overflow-y-auto overscroll-contain space-y-2 pr-1">
               {reuseQuery.isLoading ? <p role="status">Caricamento stazioni…</p> : reuseQuery.isError ? <div role="alert"><p>Archivio non disponibile.</p><Button type="button" onClick={() => void reuseQuery.refetch()}>Riprova</Button></div> : (() => {
-                const matches = (reuseQuery.data ?? []).filter(ex => (!reusePhase || ex.trainingPhase === reusePhase) && [ex.title, ex.principio ? principioLabel(ex.principio) : "", ex.sessionTitle].join(" ").toLocaleLowerCase("it").includes(reuseSearch.toLocaleLowerCase("it")));
-                return matches.length ? matches.map(ex => <article key={ex.id} className="flex items-center gap-3 rounded-lg border p-2">
-                  {ex.drawingData && <img src={ex.drawingData} alt="Anteprima stazione" className="h-20 w-16 shrink-0 object-contain"/>}
-                  <div className="min-w-0 flex-1 text-sm"><p className="break-words font-medium">{ex.title}</p><p className="text-xs text-muted-foreground">{format(new Date(ex.usedAt), "dd/MM/yyyy")} · {ex.sessionTitle}</p><p className="text-xs">{ex.trainingPhase || "Fase non indicata"}{ex.durationMinutes ? ` · ${ex.durationMinutes} min` : ""}</p><Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => reuseExercise(ex)}>Usa una copia</Button></div>
-                </article>) : <p className="py-4 text-sm text-muted-foreground">Nessuna stazione trovata per questi filtri.</p>;
+                const matches = (reuseQuery.data ?? []).filter(ex => (!reusePhase || ex.trainingPhase === reusePhase) && [ex.title, splitExerciseDescriptionAndStations(ex.description ?? "").description, ex.principio ? principioLabel(ex.principio) : "", ex.sessionTitle].join(" ").toLocaleLowerCase("it").includes(reuseSearch.toLocaleLowerCase("it")));
+                return matches.length ? matches.map(ex => {
+                  const content = splitExerciseDescriptionAndStations(ex.description ?? "");
+                  return <article key={ex.id} className="grid gap-4 rounded-xl border bg-card p-4 md:grid-cols-[minmax(240px,2fr)_3fr]">
+                    <StationBoardPreview board={ex.statoLavagnaJson} image={ex.drawingData} title={ex.title} />
+                    <div className="min-w-0 space-y-3"><h3 className="break-words text-base font-semibold">{ex.title}</h3><p className="text-sm text-muted-foreground">{format(new Date(ex.usedAt), "dd/MM/yyyy")} · {ex.sessionTitle}</p><p className="text-sm">{ex.trainingPhase || "Fase non indicata"}{ex.durationMinutes ? ` · ${ex.durationMinutes} min` : ""}</p>
+                      {ex.principio && <p className="text-sm font-medium text-primary">{principioLabel(ex.principio)}</p>}
+                      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{content.description || "Descrizione non inserita."}</p>
+                      {!!content.stations.length && <details className="rounded-lg border p-3 text-sm"><summary className="cursor-pointer font-medium">Esercitazioni · {content.stations.length}</summary><div className="mt-3 space-y-3">{content.stations.map(item => <div key={item.id}><strong>{item.title}</strong><p className="whitespace-pre-wrap">{item.exercise}</p>{item.objective && <p>Obiettivo: {item.objective}</p>}{item.equipment && <p>Materiali: {formatEquipmentLabel(item.equipment)}</p>}</div>)}</div></details>}
+                      <StationVariantsView value={content.variants} />
+                      {ex.equipment && <p className="whitespace-pre-wrap text-sm text-muted-foreground">Materiali: {formatEquipmentLabel(ex.equipment)}</p>}
+                      <Button type="button" className="w-full sm:w-auto" onClick={() => reuseExercise(ex)}>Usa una copia</Button>
+                    </div>
+                  </article>;
+                }) : <p className="py-4 text-sm text-muted-foreground">Nessuna stazione trovata per questi filtri.</p>;
               })()}
             </div>
           </DialogContent>
@@ -2266,7 +2274,8 @@ function SessionDetailsDialog({
             title: link.exercise?.title ?? "Stazione non trovata",
             phase: link.exercise?.trainingPhase ?? null,
             duration: (firstStationAssignment(visibleRotations,link.id)?.seconds??Math.round(effectiveDuration(link)*60))/60,
-            preview: stationView(link).exercise?.drawingData ?? null,
+            preview: stationBoardPreview(stationView(link).exercise?.statoLavagnaJson, stationView(link).exercise?.drawingData)?.src ?? null,
+            previewIsReference: stationBoardPreview(stationView(link).exercise?.statoLavagnaJson, stationView(link).exercise?.drawingData)?.reference,
             attendanceAdjusted:stationView(link).exercise?.attendanceAdjusted,
             principle: link.exercise?.principio ? principioLabel(link.exercise.principio) : null,
             players: firstStationAssignment(visibleRotations,link.id)?.playerIds.length ?? link.exercise?.playersRequired ?? null,
@@ -2392,10 +2401,10 @@ function SessionDetailsDialog({
                   <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">{viewingLink.notes}</p>
                 </div>
               )}
-              {viewingLink.exercise.drawingData && (
+              {stationBoardPreview(viewingLink.exercise.statoLavagnaJson, viewingLink.exercise.drawingData) && (
                 <div className="space-y-1">
                   <Label>Lavagna</Label>
-                  <img src={viewingLink.exercise.drawingData} alt="Disegno stazione" className="max-h-[360px] w-full rounded-md border object-contain" />
+                  <StationBoardPreview board={viewingLink.exercise.statoLavagnaJson} image={viewingLink.exercise.drawingData} title={viewingLink.exercise.title} />
                 </div>
               )}
               {viewingLink.exercise.voiceNoteData && (
@@ -2838,7 +2847,7 @@ function SessionDetailsDialog({
                     </div>
                     <ExerciseTacticalBoard equipment={exerciseForm.equipment} allowedPlayerIds={confirmedAllocation?.ids ?? selectablePlayers.map(player=>player.id)} rosterPlayers={confirmedAllocation ? selectablePlayers.filter(player => confirmedAllocation.ids.includes(player.id)) : selectablePlayers} disabled={participants.isLoading || participants.isError} programSessionId={session.sessionKind !== "tipo" ? session.id : undefined} title={exerciseForm.title || "Stazione"} teamId={exerciseForm.teamId || session.teamId} value={exerciseForm.statoLavagnaJson} rosterPlayerIds={exerciseForm.playersRequiredMode === "selected" ? selectedPlayerIds.filter(id=>!blockedPlayerIds.includes(id)) : exerciseForm.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setExerciseForm(prev => {const safe=attendanceExerciseView(result,blockedPlayerIds);return {...prev,...result,equipment:mergeBoardMaterials(prev.equipment,result.statoLavagnaJson),statoLavagnaJson:safe.statoLavagnaJson??"",drawingData:safe.drawingData??"",drawingElementsJson:safe.drawingElementsJson??""};})} />
                   </div>
-                  {exerciseForm.statoLavagnaJson && exerciseForm.drawingData ? <img src={exerciseForm.drawingData} alt="Anteprima lavagna stazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
+                  {exerciseForm.statoLavagnaJson ? <StationBoardPreview board={exerciseForm.statoLavagnaJson} image={exerciseForm.drawingData} title={exerciseForm.title} /> : <ExerciseDrawingBoard
                     value={exerciseForm.drawingData || null}
                     onChange={(data) => setExerciseForm((prev) => ({ ...prev, drawingData: data ?? "" }))}
                     onChangeElements={(els) => setExerciseForm((prev) => ({ ...prev, drawingElementsJson: els ? JSON.stringify(els) : "" }))}

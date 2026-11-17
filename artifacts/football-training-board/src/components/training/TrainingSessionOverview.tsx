@@ -11,6 +11,7 @@ export type SessionOverviewExercise = {
   phase: string | null;
   duration: number | null;
   preview: string | null;
+  previewIsReference?: boolean;
   attendanceAdjusted?:boolean;
   principle: string | null;
   players: number | null;
@@ -86,7 +87,7 @@ export function TrainingSessionOverview(props: Props) {
                     <div className="flex h-24 items-center justify-center border-b bg-muted/20 p-1 sm:h-32">
                       {exercise.preview ? <img src={exercise.preview} alt={`Lavagna: ${exercise.title}`} className="h-full w-full object-contain"/> : <span className="flex flex-col items-center gap-2 p-2 text-center text-[11px] text-muted-foreground"><ImageIcon aria-hidden="true" className="h-6 w-6 opacity-50"/>{exercise.attendanceAdjusted?"Anteprima da aggiornare alla rosa attuale":"Anteprima non disponibile"}</span>}
                     </div>
-                    <div className="space-y-1 p-2 sm:p-3"><h4 className="break-words text-xs font-semibold leading-snug sm:text-sm"><span className="mr-1 text-[10px] font-normal text-muted-foreground">#{props.exercises.indexOf(exercise) + 1}</span>{exercise.title}</h4><p className="text-[11px] text-muted-foreground">{exercise.duration !== null ? durationLabel(exercise.duration) : "Durata da indicare"}{exercise.players !== null ? ` · ${exercise.players} giocatori` : ""}</p>{exercise.principle && <p className="break-words text-[10px] text-primary">{exercise.principle}</p>}</div>
+                    <div className="space-y-1 p-2 sm:p-3"><h4 className="break-words text-xs font-semibold leading-snug sm:text-sm"><span className="mr-1 text-[10px] font-normal text-muted-foreground">#{props.exercises.indexOf(exercise) + 1}</span>{exercise.title}</h4>{exercise.previewIsReference && <p className="text-[10px] text-muted-foreground">Schema originale · rosa da aggiornare in lavagna</p>}<p className="text-[11px] text-muted-foreground">{exercise.duration !== null ? durationLabel(exercise.duration) : "Durata da indicare"}{exercise.players !== null ? ` · ${exercise.players} giocatori` : ""}</p>{exercise.principle && <p className="break-words text-[10px] text-primary">{exercise.principle}</p>}</div>
                   </button>
                   {props.stationControls?.[exercise.id]}
                   <div className="flex items-center justify-between gap-1 border-t p-1.5">

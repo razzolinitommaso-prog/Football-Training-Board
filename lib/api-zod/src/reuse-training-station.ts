@@ -1,5 +1,5 @@
 /** Keep the layout but detach the saved board and all previous player identities. */
-export function prepareReusedBoard(raw?: string | null, teamId?: number | null): string {
+export function prepareReusedBoard(raw?: string | null, teamId?: number | null, preview?: string | null): string {
   if (!raw) return "";
   try {
     const board = JSON.parse(raw);
@@ -16,6 +16,6 @@ export function prepareReusedBoard(raw?: string | null, teamId?: number | null):
     const result = clean(board) as Record<string, unknown>;
     if (Array.isArray(result)) return JSON.stringify(result);
     if (result.data && typeof result.data === "object") result.data = { ...result.data, teamId: teamId ?? null };
-    return JSON.stringify({ ...result, boardId: null });
+    return JSON.stringify({ ...result, boardId: null, ...(preview ? { reusedPreview: preview } : {}) });
   } catch { return ""; }
 }

@@ -1,3 +1,5 @@
+import { StationBoardPreview } from "@/components/training/StationBoardPreview";
+import { stationBoardPreview } from "@/lib/reuse-training-station";
 import { useTechnicalScope, technicalSections } from "@/components/technical-scope";
 import { mergeBoardMaterials, readMaterialSelection, writeMaterialSelection, materialNotes, writeMaterialNotes } from "@/lib/board-materials";
 import { parseStationDescription, composeStationDescription } from "@/lib/station-description";
@@ -822,7 +824,7 @@ export default function ExercisesPage() {
                       </div>
                       {/* Indicators + action buttons */}
                       <div className="flex items-center gap-1 shrink-0">
-                        {ex.drawingData && <span title="Ha disegno tattico"><PenLine className="w-3.5 h-3.5 text-primary/60" /></span>}
+                        {stationBoardPreview(ex.statoLavagnaJson, ex.drawingData) && <span title="Ha disegno tattico"><PenLine className="w-3.5 h-3.5 text-primary/60" /></span>}
                         {ex.voiceNoteData && <span title="Ha nota vocale"><Mic className="w-3.5 h-3.5 text-primary/60" /></span>}
                         {ex.videoNoteData && <span title="Ha nota video"><Video className="w-3.5 h-3.5 text-primary/60" /></span>}
                         {isExerciseReadOnly ? (
@@ -867,9 +869,9 @@ export default function ExercisesPage() {
                       </div>
                     )}
                     {/* Preview of drawing if exists */}
-                    {ex.drawingData && (
+                    {stationBoardPreview(ex.statoLavagnaJson, ex.drawingData) && (
                       <div className="mt-1 rounded overflow-hidden border" style={{ maxHeight: 90 }}>
-                        <img src={ex.drawingData} alt="Disegno tattico" className="w-full object-cover" />
+                        <img src={stationBoardPreview(ex.statoLavagnaJson, ex.drawingData)!.src} alt="Disegno tattico" className="w-full object-contain" />
                       </div>
                     )}
                   </CardContent>
@@ -975,10 +977,10 @@ export default function ExercisesPage() {
                 {viewingEx.teamId && <div><span className="text-muted-foreground">Squadra: </span>{myTeams.find((tm) => tm.id === viewingEx.teamId)?.name ?? `Team #${viewingEx.teamId}`}</div>}
                 {formatEquipmentLabel(viewingEx.equipment) && <div><span className="text-muted-foreground">Materiale: </span>{formatEquipmentLabel(viewingEx.equipment)}</div>}
               </div>
-              {viewingEx.drawingData && (
+              {stationBoardPreview(viewingEx.statoLavagnaJson, viewingEx.drawingData) && (
                 <div className="space-y-1">
                   <Label>Lavagna</Label>
-                  <img src={viewingEx.drawingData} alt="Disegno tattico" className="max-h-[360px] w-full rounded-md border object-contain" />
+                  <StationBoardPreview board={viewingEx.statoLavagnaJson} image={viewingEx.drawingData} title={viewingEx.title} />
                 </div>
               )}
               {viewingEx.voiceNoteData && <audio controls src={viewingEx.voiceNoteData} className="w-full" />}
@@ -1165,7 +1167,7 @@ export default function ExercisesPage() {
                       <ExerciseTacticalBoard equipment={form.equipment} allowedPlayerIds={selectablePlayers.map(player=>player.id)} rosterPlayers={selectablePlayers} title={form.title || "Stazione"} teamId={form.teamId} value={form.statoLavagnaJson} rosterPlayerIds={form.playersRequiredMode === "selected" ? selectedPlayerIds : form.playersRequiredMode === "all" ? selectablePlayers.map(player => player.id) : undefined} onSave={result => setForm(prev => ({ ...prev, ...result, equipment: mergeBoardMaterials(prev.equipment, result.statoLavagnaJson) }))} />
                     </div>
                   </div>
-                  {form.statoLavagnaJson && form.drawingData ? <img src={form.drawingData} alt="Anteprima lavagna stazione" className="max-h-[420px] w-full rounded-md border object-contain" /> : <ExerciseDrawingBoard
+                  {form.statoLavagnaJson ? <StationBoardPreview board={form.statoLavagnaJson} image={form.drawingData} title={form.title} /> : <ExerciseDrawingBoard
                     value={form.drawingData}
                     onChange={data => setForm(f => ({ ...f, drawingData: data }))}
                     onChangeElements={els => setForm(f => ({ ...f, drawingElementsJson: els ? JSON.stringify(els) : null }))}

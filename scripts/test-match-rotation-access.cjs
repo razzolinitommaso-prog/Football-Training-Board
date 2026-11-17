@@ -47,6 +47,9 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     if (process.argv.includes("--withdrawals")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as seasons} from '../../artifacts/api-server/src/routes/seasons';export {default as seasonStatus} from '../../artifacts/api-server/src/routes/player-season-status';");
     }
+    if (process.argv.includes("--station-reuse-graphics")) {
+      fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {prepareReusedBoard,syncExerciseBoardRoster,attendanceExerciseView} from '../../lib/api-zod/src/index';");
+    }
     await esbuild.build({
       entryPoints: [path.join(dir, "entry.ts")],
       outfile: bundle,
@@ -197,6 +200,47 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
 
+
+    if (process.argv.includes("--station-reuse-graphics")) {
+      await pg.exec("INSERT INTO users(id,first_name,last_name) VALUES(3,'Coach','Test'); INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(3,1,3,11,'coach')");
+      const picture = "data:image/png;base64,AA==";
+      const sourceBoard = { boardId: 7, data: { teamId:11, elements:[
+        {id:"actor",type:"player",playerId:"101",name:"Old name",x:25,y:40},
+        {id:"cone",type:"cone",x:60,y:20}, {id:"line",type:"arrow",points:[{x:20,y:30},{x:70,y:50}]}],
+        animation:{frames:[{elements:[{id:"actor",type:"player",playerId:"101",x:40,y:45}]}]} } };
+      const original = JSON.stringify(sourceBoard);
+      const reused = routes.prepareReusedBoard(original, 12, picture);
+      const board = JSON.parse(reused);
+      assert.equal(board.boardId,null);
+      assert.equal(board.data.teamId,12);
+      assert.equal(board.data.elements.length,3);
+      assert.equal(board.data.elements[0].playerId,undefined);
+      assert.equal(board.data.elements[0].name,undefined);
+      assert.equal(board.data.elements[0].x,25);
+      assert.equal(board.data.animation.frames[0].elements[0].x,40);
+      assert.equal(board.reusedPreview,picture);
+      assert.equal(JSON.stringify(sourceBoard),original);
+      const assigned = routes.syncExerciseBoardRoster(reused,[102],[{id:102,firstName:"Current",lastName:"Child"}]);
+      assert.equal(JSON.parse(assigned).reusedPreview,picture);
+      const safe = routes.attendanceExerciseView({statoLavagnaJson:assigned,drawingData:null},[102]);
+      assert.equal(JSON.parse(safe.statoLavagnaJson).reusedPreview,picture);
+      await pg.query("INSERT INTO exercises(id,club_id,team_id,created_by_user_id,title,description,stato_lavagna_json,drawing_data) VALUES(700,1,11,3,'Schema precedente','Descrizione completa',$1,$2)",[original,picture]);
+      await pg.exec("INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,status,session_kind) VALUES(700,1,11,'Vecchia seduta','2026-11-10T16:30:00Z','scheduled','regular'),(701,1,11,'Seduta attuale','2026-11-17T16:30:00Z','scheduled','regular'); INSERT INTO training_session_exercises(id,training_session_id,exercise_id,\"order\") VALUES(700,700,700,0)");
+      const headers={"x-role":"coach","x-user":"3","content-type":"application/json"};
+      const archive=await call("/exercises?reuseForSessionId=701",headers);
+      assert.equal(archive.status,200,JSON.stringify(archive.data));
+      assert.equal(archive.data.find(row=>row.id===700).drawingData,picture);
+      const response=await fetch(base+"/exercises",{method:"POST",headers,body:JSON.stringify({title:"Copia indipendente",teamId:11,sourceExerciseId:700,statoLavagnaJson:safe.statoLavagnaJson})});
+      const saved=await response.json();
+      assert.equal(response.status,201,JSON.stringify(saved));
+      const reloaded=await call("/exercises/"+saved.id,headers);
+      assert.equal(reloaded.status,200);
+      assert.equal(JSON.parse(reloaded.data.statoLavagnaJson).reusedPreview,picture);
+      assert.equal(JSON.parse(reloaded.data.statoLavagnaJson).data.elements.find(row=>row.id==="cone").x,60);
+      assert.equal((await pg.query("SELECT stato_lavagna_json FROM exercises WHERE id=700")).rows[0].stato_lavagna_json,original);
+      console.log("PASS station reuse: archive description/image, detached layout and animation, current roster/attendance, saved/reloaded preview, source unchanged");
+      return;
+    }
     if (process.argv.includes("--fitness-match-readonly")) {
       await pg.exec("INSERT INTO users(id,first_name,last_name) VALUES(3,'Staff','Assigned'); INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(3,1,3,11,'coach')");
       const before = await pg.query("SELECT match_plan FROM matches WHERE id=501");
