@@ -47,7 +47,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
     mutationFn: (data: MotorTestSession) => customFetch<MotorTestSession>("/api/motor-tests/" + data.id, { method: "PUT", body: JSON.stringify(data) }),
     onSuccess: saved => {
       setDraft(saved);
-      setNotice("Sessione salvata.");
+      setNotice(saved.stationId ? "Sessione salvata. La stazione Test motori è presente nella seduta del mister." : "Sessione salvata. Il programma è pronto da inserire nella seduta del mister.");
       void cache.invalidateQueries({ queryKey: ["/api/motor-tests"] });
       void cache.invalidateQueries({ queryKey: ["/api/training-sessions"] });
       void cache.invalidateQueries({ queryKey: ["/api/exercises"] });
@@ -97,7 +97,10 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
     {collection.isPending && <p className="text-sm text-muted-foreground">Caricamento sessioni…</p>}
     {!draft && !collection.isPending && !collection.isError && (sessions.length ? <ul className="divide-y rounded-lg border px-3">
       {sessions.map(session => <li className="flex flex-wrap items-center justify-between gap-2 py-3" key={session.id}>
-        <div><strong>{names.get(session.teamId)} · {dateLabel(session.date)}</strong><p className="text-xs text-muted-foreground">{motorTestCycles[session.cycle]} · {session.tests.length} prove</p></div>
+        <div><strong>{names.get(session.teamId)} · {dateLabel(session.date)}</strong><p className="text-xs text-muted-foreground">{motorTestCycles[session.cycle]} · {session.tests.length} prove</p>
+<p className={"mt-1 text-xs " + (session.stationId ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300")}>
+{session.stationId ? "Stazione inserita nella seduta" : Object.keys(session.exerciseIds).length ? "Prove singole inserite nella seduta" : "Programma da inserire nella seduta"}
+</p></div>
         <Button type="button" variant="outline" size="sm" onClick={() => open(session)}>{canEdit ? "Apri sessione" : "Consulta"}</Button>
       </li>)}
     </ul> : <p className="text-sm text-muted-foreground">Nessuna sessione di test motori nell’ambito selezionato.</p>)}
@@ -109,10 +112,25 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
         </div>
         {context.isSuccess && <MotorTestExport session={draft} roster={roster} team={names.get(draft.teamId) ?? "Annata"} />}
       </div>
-      {!!effectiveSession && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 p-3 text-sm">
-        <span>Seduta collegata · {context.data?.sessions.find(session => session.id === effectiveSession)?.time ?? ""} · <strong>{context.data?.presentCount ?? "…"} presenti del mister</strong></span>
-        <Link className="text-primary underline" href={"/training?sessionId=" + effectiveSession}>Apri seduta</Link>
-      </div>}
+      <div className="space-y-3 rounded-lg border p-3 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><p className="text-xs text-muted-foreground">Appello del mister</p>
+          <p>{effectiveSession ? <>Seduta delle {context.data?.sessions.find(session => session.id === effectiveSession)?.time ?? ""} · <strong>{context.data?.presentCount ?? "…"} presenti</strong></> : "Scegli una seduta del giorno per collegare le presenze."}</p></div>
+          {!!effectiveSession && <Link className="text-primary underline" href={"/training?sessionId=" + effectiveSession}>Apri seduta</Link>}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+          <div><p className="text-xs text-muted-foreground">Programma nella seduta</p>
+          <strong className={draft.stationId ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}>
+            {draft.stationId ? "Stazione Test motori inserita" : legacyLinks ? "Prove singole inserite" : "Programma ancora da inserire"}
+          </strong></div>
+          {canEdit && !draft.stationId && !legacyLinks && <Button type="button" size="sm"
+            disabled={readOnly || !effectiveSession || !canSave || context.isFetching || context.isError}
+            onClick={() => { setNotice(""); save.mutate({ ...draft, trainingSessionId: effectiveSession ?? null, linkProgram: true, programPhase: draft.programPhase ?? "centrale" }); }}>
+            {save.isPending ? "Inserimento…" : "Inserisci programma nella seduta"}
+          </Button>}
+        </div>
+        {!canEdit && !draft.stationId && !legacyLinks && <p className="text-xs text-muted-foreground">Il preparatore può inserire il programma dalla sessione test.</p>}
+      </div>
       {stage === "session" ? <>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">Annata<ScrollableSelect aria-label="Annata della sessione" value={String(draft.teamId)} disabled={readOnly || draft.revision > 0 || !!Object.keys(draft.results).length}

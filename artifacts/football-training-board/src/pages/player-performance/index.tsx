@@ -409,8 +409,8 @@ export default function PlayerPerformance() {
         <Card>
           <CardContent className="py-16 text-center">
             <Activity className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-            <p className="font-medium">{t.noPerformanceData}</p>
-            {canEdit && <p className="text-sm text-muted-foreground mt-1">{t.addFirstTest}</p>}
+            <p className="font-medium">Nessuna rilevazione singola registrata.</p>
+            {canEdit && <p className="text-sm text-muted-foreground mt-1">Le sessioni di test motori sono consultabili nella sezione qui sopra.</p>}
           </CardContent>
         </Card>
       ) : (
