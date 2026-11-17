@@ -118,6 +118,11 @@ const cardTones = {
   sky: { border: "border-sky-200 dark:border-sky-800/60", icon: "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300" },
 };
 
+export function overviewMetric(value: number, state: "loading" | "error" | "ready") {
+  if (state === "loading") return "…";
+  return state === "error" ? "—" : value;
+}
+
 type OverviewCardProps = {
   title: string;
   value: number | string;
@@ -167,7 +172,7 @@ export function UnifiedOverview({
   dataState,
   children,
 }: {
-  dataState: { players: string; matches: string; members: string };
+  dataState: { players: string; matches: "loading" | "error" | "ready"; members: string };
   role: string;
   teamCount: number;
   players: Player[];
@@ -278,7 +283,7 @@ export function UnifiedOverview({
     ...(technical
       ? [
           {
-            title: "Sedute del mister",
+            title: "Sedute in calendario",
             value: sessionsLoading
               ? "…"
               : sessionsError
@@ -286,7 +291,7 @@ export function UnifiedOverview({
                 : operational.length,
             description: sessionsError
               ? "Dati non disponibili"
-              : `${counts.complete} complete · ${counts.pending} da completare`,
+              : sessionsLoading ? "Caricamento sedute…" : `${counts.complete} complete · ${counts.pending} da completare · ${counts.unstarted} da impostare`,
             icon: CalendarDays,
             href: "/training",
           },
@@ -294,12 +299,7 @@ export function UnifiedOverview({
       : [
           {
             title: "Gare in calendario",
-            value:
-              dataState.matches === "ready"
-                ? matchCount
-                : dataState.matches === "loading"
-                  ? "…"
-                  : "—",
+            value: overviewMetric(matchCount, dataState.matches),
             description: "Impegni delle annate selezionate",
             icon: Trophy,
             href: programPath,
@@ -316,12 +316,7 @@ export function UnifiedOverview({
       : role === "secretary"
         ? {
             title: "Tornei e amichevoli",
-            value:
-              dataState.matches === "ready"
-                ? tournamentCount
-                : dataState.matches === "loading"
-                  ? "…"
-                  : "—",
+            value: overviewMetric(tournamentCount, dataState.matches),
             description: "Programmi selezionati",
             icon: Trophy,
             href: programPath,
@@ -329,7 +324,7 @@ export function UnifiedOverview({
         : technical
           ? {
               title: "Partite",
-              value: matchCount,
+              value: overviewMetric(matchCount, dataState.matches),
               description: "Impegni in calendario",
               icon: Trophy,
               href: programPath,
@@ -369,12 +364,7 @@ export function UnifiedOverview({
                 stats[3],
                 {
                   title: "Partite",
-                  value:
-                    dataState.matches === "ready"
-                      ? matchCount
-                      : dataState.matches === "loading"
-                        ? "…"
-                        : "—",
+                  value: overviewMetric(matchCount, dataState.matches),
                   description: "Impegni in calendario",
                   icon: Trophy,
                   href: "/partite",

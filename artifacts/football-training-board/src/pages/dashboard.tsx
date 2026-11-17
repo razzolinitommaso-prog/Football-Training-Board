@@ -2,7 +2,7 @@ import { CallupRulesCard } from "@/components/dashboard/CallupRulesCard";
 import { paymentViewRoles } from "@/lib/payment-summary";
 import { PlayerTestsDashboard } from "@/components/dashboard/PlayerTestsDashboard";
 import { useTechnicalScope, technicalSections } from "@/components/technical-scope";
-import { OverviewCard, UnifiedOverview, type OverviewSession } from "@/components/dashboard/UnifiedOverview";
+import { overviewMetric, OverviewCard, UnifiedOverview, type OverviewSession } from "@/components/dashboard/UnifiedOverview";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { trainingSlotOnDate, sessionTeamIds } from "@workspace/api-zod";
 import { championshipMatchPath } from "@/lib/championship-match-links";
@@ -786,9 +786,9 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   const isClubWideTechnicalRole = nr === "technical_director" || nr === "director";
 
   const { data: trainingSessionsData = [], isPending: sessionsLoading, isError: sessionsError } = useQuery<DashboardTrainingSession[]>({
-    queryKey: ["/api/training-sessions", clubIdNum, nr, "dashboard-tiles"],
+    queryKey: ["/api/training-sessions", clubIdNum, user?.id, nr, "dashboard-preparation"],
     queryFn: () =>
-      fetchJsonOrThrow<DashboardTrainingSession[]>("/api/training-sessions"),
+      fetchJsonOrThrow<DashboardTrainingSession[]>("/api/training-sessions?includePreparation=1"),
     enabled: Boolean(user),
   });
 
@@ -807,6 +807,8 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
     },
     enabled: Boolean(user),
   });
+
+  const matchDataState = matchesError ? "error" : matchesPending ? "loading" : "ready";
 
   const trainingSessionsForDash = useMemo(()=>trainingSessionsData.filter(session=>!workScope.enabled||sessionTeamIds(session.teamId,session.notes).some(id=>scopedTeamIds.has(id))),[trainingSessionsData,workScope.enabled,scopedTeamIds]);
   const dashboardMatches = useMemo(()=>dashboardMatchesData.filter(match=>!workScope.enabled||scopedTeamIds.has(Number(match.teamId))),[dashboardMatchesData,workScope.enabled,scopedTeamIds]);
@@ -2713,7 +2715,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       <UnifiedOverview
         dataState={{
           players: playersError ? "error" : playersPending ? "loading" : "ready",
-          matches: matchesError ? "error" : matchesPending ? "loading" : "ready",
+          matches: matchDataState,
           members: membersError ? "error" : membersPending ? "loading" : "ready",
         }}
         role={nr}
@@ -2736,7 +2738,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           <>
             <OverviewCard
               title="Fase autunnale"
-              value={dashboardMatchSummary.autunnale}
+              value={overviewMetric(dashboardMatchSummary.autunnale, matchDataState)}
               description="partite (ago-gen)"
               icon={Leaf}
               tone="amber"
@@ -2744,7 +2746,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
             />
             <OverviewCard
               title="Fase primaverile"
-              value={dashboardMatchSummary.primaverile}
+              value={overviewMetric(dashboardMatchSummary.primaverile, matchDataState)}
               description="partite (feb-lug)"
               icon={Grape}
               tone="pink"
@@ -2756,7 +2758,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           <>
             <OverviewCard
               title={nr === "secretary" ? "Calendario campionato" : dashboardSingleSection === "settore_giovanile" ? "Campionato e classifica" : "Campionato"}
-              value={dashboardChampionshipMatchCount}
+              value={overviewMetric(dashboardChampionshipMatchCount, matchDataState)}
               description="gare andata/ritorno"
               icon={Trophy}
               tone="amber"
@@ -2774,7 +2776,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         )}
         <OverviewCard
           title="Tornei"
-          value={dashboardMatchSummary.tornei}
+          value={overviewMetric(dashboardMatchSummary.tornei, matchDataState)}
           description="tornei registrati"
           icon={Trophy}
           tone="violet"
@@ -2782,7 +2784,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         />
         <OverviewCard
           title="Amichevoli"
-          value={dashboardMatchSummary.amichevoli}
+          value={overviewMetric(dashboardMatchSummary.amichevoli, matchDataState)}
           description="partite non ufficiali"
           icon={Handshake}
           tone="sky"

@@ -196,6 +196,29 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+    if (process.argv.includes("--dashboard-preparation")) {
+      await pg.exec(`
+        INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,status,session_kind,notes) VALUES
+          (900,1,11,'Allenamento da preparare','2026-11-16T16:00:00Z','scheduled','regular','[FTB_AUTO_TRAINING]'),
+          (901,1,11,'Piano parziale','2026-11-17T16:00:00Z','scheduled','regular',NULL),
+          (902,1,11,'Piano completo','2026-11-18T16:00:00Z','scheduled','regular',NULL),
+          (903,2,22,'Altro club','2026-11-18T16:00:00Z','scheduled','regular',NULL);
+        INSERT INTO exercises(id,club_id,title,training_phase) VALUES
+          (910,1,'Riscaldamento','iniziale'),(911,1,'Possesso','centrale'),(912,1,'Partitella','finale');
+        INSERT INTO training_session_exercises(id,training_session_id,exercise_id,"order") VALUES
+          (910,901,910,0),(911,902,910,0),(912,902,911,1),(913,902,912,2);
+      `);
+      const result = await call("/training-sessions?includePreparation=1", { "x-role": "admin" });
+      assert.equal(result.status, 200, JSON.stringify(result.data));
+      const byId = new Map(result.data.map(session => [session.id, session.preparation]));
+      assert.deepEqual(byId.get(900), { exerciseCount: 0, phases: [], complete: false });
+      assert.deepEqual(byId.get(901), { exerciseCount: 1, phases: ["iniziale"], complete: false });
+      assert.equal(byId.get(902).complete, true);
+      assert.deepEqual(byId.get(902).phases.sort(), ["centrale", "finale", "iniziale"]);
+      assert.equal(byId.has(903), false);
+      console.log("PASS dashboard preparation: unstarted, partial, complete and club scope");
+      return;
+    }
     if (process.argv.includes("--callup-rules")) {
       const now = new Date();
       const kickoff = new Date(now.getTime() + 300_000);
