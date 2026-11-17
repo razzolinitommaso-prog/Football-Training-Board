@@ -187,7 +187,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
             }
             return <li key={test.id} className="grid items-end gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_6rem_auto]">
               <div><strong className="text-sm">{definition.title}</strong><p className="text-xs text-muted-foreground">{definition.principle}</p>
-                <details className="mt-1 text-xs"><summary className="cursor-pointer">Modalità di esecuzione</summary><p>{definition.instructions}</p><p className="mt-1"><strong>Materiali</strong> · {definition.materials}</p></details>
+                <p className="mt-2 text-xs"><strong>Esecuzione</strong> · {definition.instructions}</p><p className="mt-1 text-xs"><strong>Materiali</strong> · {definition.materials}</p>
               </div>
               <label className="text-xs">Minuti<Input className="mt-1" type="number" min={1} max={180} value={test.minutes || ""} disabled={readOnly || alreadyLinked || !!draft.stationId} onChange={event => update({ minutes: Number(event.target.value) })} /></label>
               {!readOnly && !alreadyLinked && !draft.stationId && !hasResults && <Button type="button" size="sm" variant="ghost" onClick={() => setDraft({ ...draft, tests: draft.tests.filter(row => row.id !== test.id) })}>Rimuovi</Button>}
@@ -224,6 +224,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
                     <label className="text-xs">Voto 1–10<Input className="mt-1" type="number" min={1} max={10} value={value.score ?? ""} disabled={assessmentReadOnly} onChange={event => updateTest(test.id, { score: numberValue(event.target.value) })} /></label>
                   </>}
                 </div>
+                <div className="space-y-1 rounded-md bg-muted/30 p-2 text-xs"><p><strong>Esecuzione</strong> · {definition.instructions}</p><p><strong>Materiali</strong> · {definition.materials}</p></div>
                 <label className="text-xs">Note sulla prova<Textarea rows={2} maxLength={1000} className="mt-1" value={value.notes} disabled={assessmentReadOnly} onChange={event => updateTest(test.id, { notes: event.target.value })} /></label>
               </li>;
             })}
