@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import { useSearch } from "wouter";
+import { FITNESS_RESULTS_WRITE_ROLES } from "@workspace/api-zod";
+import { useAuth } from "@/hooks/use-auth";
+import { normalizeSessionRole } from "@/lib/session-role";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,14 +12,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Plus, Trash2, Activity, Heart, Zap, Timer, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, Activity, Heart, Zap, Timer, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/i18n";
 import { customFetch } from "@workspace/api-client-react/custom-fetch";
 import { useListPlayers, useListTeams } from "@workspace/api-client-react";
 import { useForm, Controller } from "react-hook-form";
 import { format } from "date-fns";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface FitnessEntry {
   id: number;
@@ -50,6 +54,11 @@ interface FormValues {
   notes: string;
   parentNote: string;
 }
+
+const newFitnessForm = (): FormValues => ({
+  targetMode: "single", teamId: "", playerId: "", date: new Date().toISOString().slice(0, 10),
+  activityType: "test_atletico", endurance: "", strength: "", speed: "", notes: "", parentNote: "",
+});
 
 const observedRoles = [
   { value: "GK", label: "Portiere" },
@@ -88,29 +97,25 @@ export default function PlayerPerformance() {
   const { t } = useLanguage();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [entries, setEntries] = useState<FitnessEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { role, club, user } = useAuth();
+  const search = new URLSearchParams(useSearch());
+  const testsOnly = search.get("view") === "tests";
+  const section = search.get("section");
+  const capability = useQuery({
+    queryKey: ["/api/player-fitness-data/capabilities", club?.id, user?.id, role],
+    queryFn: () => customFetch<{ canEdit: boolean }>("/api/player-fitness-data/capabilities"),
+    enabled: !testsOnly && !!user && FITNESS_RESULTS_WRITE_ROLES.includes(normalizeSessionRole(role)),
+  });
+  const canEdit = !testsOnly && capability.data?.canEdit === true;
+  const [editing, setEditing] = useState<FitnessEntry | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [filterTeam, setFilterTeam] = useState<string>("all");
+  const [filterTeam, setFilterTeam] = useState<string>(() => search.get("teamId") ?? "all");
   const [filterPlayer, setFilterPlayer] = useState<string>("all");
   const { data: players } = useListPlayers();
   const { data: teams } = useListTeams();
 
-  const form = useForm<FormValues>({
-    defaultValues: {
-      targetMode: "single",
-      teamId: "",
-      playerId: "",
-      date: new Date().toISOString().slice(0, 10),
-      activityType: "test_atletico",
-      endurance: "",
-      strength: "",
-      speed: "",
-      notes: "",
-      parentNote: "",
-    },
-  });
+  const form = useForm<FormValues>({ defaultValues: newFitnessForm() });
   const targetMode = form.watch("targetMode");
   const selectedTeamId = form.watch("teamId");
   const playersInSelectedTeam = (players ?? []).filter((player) => Number(player.teamId ?? 0) === Number(selectedTeamId));
@@ -118,33 +123,38 @@ export default function PlayerPerformance() {
     if (filterTeam !== "all" && Number(player.teamId ?? 0) !== Number(filterTeam)) return false;
     return true;
   });
-  const displayedEntries = entries.filter((entry) => {
-    if (filterTeam !== "all" && Number(entry.teamId ?? 0) !== Number(filterTeam)) return false;
-    if (filterPlayer !== "all" && Number(entry.playerId) !== Number(filterPlayer)) return false;
-    return true;
+  const params = new URLSearchParams();
+  if (!canEdit) params.set("view", "tests");
+  if (section) params.set("section", section);
+  if (filterTeam !== "all") params.set("teamId", filterTeam);
+  if (filterPlayer !== "all") params.set("playerId", filterPlayer);
+  const filters = params.toString();
+  const results = useQuery({
+    queryKey: ["/api/player-fitness-data", "performance", club?.id, user?.id, role, filters],
+    queryFn: () => customFetch<FitnessEntry[]>("/api/player-fitness-data" + (filters ? "?" + filters : "")),
+    enabled: !!user,
   });
+  const entries = results.data ?? [];
 
-  const loadEntries = () => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (filterTeam !== "all") params.set("teamId", filterTeam);
-    if (filterPlayer !== "all") params.set("playerId", filterPlayer);
-    const query = params.toString();
-    const url = query ? `/api/player-fitness-data?${query}` : "/api/player-fitness-data";
-    customFetch<FitnessEntry[]>(url, { method: "GET" })
-      .then(setEntries)
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(loadEntries, [filterTeam, filterPlayer]);
+  function editTest(entry: FitnessEntry) {
+    setEditing(entry);
+    form.reset({
+      targetMode: "single", teamId: "", playerId: entry.playerId,
+      date: entry.date, activityType: entry.activityType ?? "test_atletico",
+      endurance: entry.endurance ?? "", strength: entry.strength ?? "", speed: entry.speed ?? "",
+      heightCm: entry.heightCm?.toString() ?? "", weightKg: entry.weightKg?.toString() ?? "",
+      observedRole: entry.observedRole ?? "", notes: entry.notes ?? "", parentNote: entry.parentNote ?? "",
+    });
+    setIsOpen(true);
+  }
 
   const onSubmit = async (values: FormValues) => {
-    if (values.targetMode === "single" && !values.playerId) return;
+    if (!canEdit || (values.targetMode === "single" && !values.playerId)) return;
     if (values.targetMode === "team" && (!values.teamId || playersInSelectedTeam.length === 0)) return;
     setSaving(true);
     try {
-      await customFetch("/api/player-fitness-data", {
-        method: "POST",
+      await customFetch(editing ? "/api/player-fitness-data/" + editing.id : "/api/player-fitness-data", {
+        method: editing ? "PATCH" : "POST",
         body: JSON.stringify({
           playerId: values.targetMode === "single" ? Number(values.playerId) : undefined,
           playerIds: values.targetMode === "team" ? playersInSelectedTeam.map((player) => player.id) : undefined,
@@ -162,9 +172,11 @@ export default function PlayerPerformance() {
       });
       toast({ title: t.saved });
       setIsOpen(false);
-      form.reset({ targetMode: "single", teamId: "", date: new Date().toISOString().slice(0, 10), activityType: "test_atletico", playerId: "", endurance: "", strength: "", speed: "", notes: "", parentNote: "" });
-      void queryClient.invalidateQueries({ queryKey: ["/api/players", Number(values.playerId), "activity-summary"] });
-      loadEntries();
+      form.reset(newFitnessForm());
+      const changedIds = values.targetMode === "team" ? playersInSelectedTeam.map(player => player.id) : [Number(values.playerId)];
+      for (const playerId of changedIds) void queryClient.invalidateQueries({ queryKey: ["/api/players", playerId, "activity-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/player-fitness-data"] });
+      setEditing(null);
     } catch {
       toast({ title: "Error", variant: "destructive" });
     } finally {
@@ -177,7 +189,7 @@ export default function PlayerPerformance() {
       await customFetch(`/api/player-fitness-data/${id}`, { method: "DELETE" });
       const playerId = entries.find(entry => entry.id === id)?.playerId;
       if (playerId != null) void queryClient.invalidateQueries({ queryKey: ["/api/players", playerId, "activity-summary"] });
-      setEntries(e => e.filter(x => x.id !== id));
+      void queryClient.invalidateQueries({ queryKey: ["/api/player-fitness-data"] });
       toast({ title: t.saved });
     } catch {
       toast({ title: "Error", variant: "destructive" });
@@ -188,18 +200,19 @@ export default function PlayerPerformance() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">{t.playerPerformance}</h1>
-          <p className="text-muted-foreground mt-1">{t.playerPerformanceDesc}</p>
+          <h1 className="text-2xl font-bold">{testsOnly ? "Test giocatori" : t.playerPerformance}</h1>
+          <p className="text-muted-foreground mt-1">{canEdit ? t.playerPerformanceDesc : "Risultati dei test atletici · Sola lettura"}</p>
         </div>
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        {canEdit && <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="w-4 h-4 mr-2" />{t.addTestResult}</Button>
+            <Button onClick={() => { setEditing(null); form.reset(newFitnessForm()); }}><Plus className="w-4 h-4 mr-2" />{t.addTestResult}</Button>
           </DialogTrigger>
           <DialogContent className="max-h-[90dvh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{t.recordPerformance}</DialogTitle>
+              <DialogTitle>{editing ? "Modifica rilevazione" : t.recordPerformance}</DialogTitle>
             </DialogHeader>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              {editing ? <p className="text-sm font-medium">{editing.playerName}</p> : <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Tipo inserimento</Label>
@@ -279,6 +292,7 @@ export default function PlayerPerformance() {
                 />
               </div>
               )}
+              </>}
               <div className="space-y-2">
                 <Label>{t.testDate} *</Label>
                 <Input type="date" {...form.register("date", { required: true })} />
@@ -340,12 +354,12 @@ export default function PlayerPerformance() {
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={saving}>
-                  {saving ? t.saving : t.addTestResult}
+                  {saving ? t.saving : editing ? "Salva modifiche" : t.addTestResult}
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -383,21 +397,22 @@ export default function PlayerPerformance() {
         </div>
       </div>
 
-      {loading ? (
+      {results.isError ? <p role="alert" className="text-sm">Impossibile caricare i risultati.{" "}
+        <button type="button" className="underline" onClick={() => void results.refetch()}>Riprova</button></p> : results.isPending ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
         </div>
-      ) : displayedEntries.length === 0 ? (
+      ) : entries.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center">
             <Activity className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
             <p className="font-medium">{t.noPerformanceData}</p>
-            <p className="text-sm text-muted-foreground mt-1">{t.addFirstTest}</p>
+            {canEdit && <p className="text-sm text-muted-foreground mt-1">{t.addFirstTest}</p>}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {displayedEntries.map(entry => (
+          {entries.map(entry => (
             <Card key={entry.id}>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-start justify-between gap-4">
@@ -443,6 +458,8 @@ export default function PlayerPerformance() {
                       <p className="text-xs text-muted-foreground mt-1">Famiglia: {entry.parentNote}</p>
                     )}
                   </div>
+                  {canEdit && <div className="flex shrink-0 flex-wrap gap-1">
+                    <Button type="button" size="sm" variant="ghost" aria-label="Modifica rilevazione" onClick={() => editTest(entry)}><Pencil className="h-4 w-4" /></Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive shrink-0">
@@ -464,6 +481,7 @@ export default function PlayerPerformance() {
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
+                  </div>}
                 </div>
               </CardContent>
             </Card>

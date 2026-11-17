@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight, Copy, KeyRound, Clock, ClipboardCheck, Trophy, Activity, ShieldAlert, Phone } from "lucide-react";
+import { Plus, Search, UserMinus, Pencil, Filter, AlertTriangle, FileDown, User, ImagePlus, X, Eye, Upload, FileText, Trash2, Banknote, Package, ChevronRight, Copy, KeyRound, Clock, ClipboardCheck, Trophy, Activity, ShieldAlert, Phone, Bus, UsersRound, MessageSquare, Calculator, ClipboardList, type LucideIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -794,6 +794,7 @@ function PlayerActivitySummaryPanel({ player, isYouthSection, summary }: {
   return (
     <details className="group rounded-lg border p-3" open>
       <DisclosureSummary className="flex cursor-pointer list-none items-center justify-between gap-3" indicator={false}>
+        <Activity className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="flex-1 text-sm font-semibold">Storico sportivo automatico</span>
         <span className="text-xs text-muted-foreground">Sola lettura</span>
         <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
@@ -1874,18 +1875,32 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   function CollapsibleSectionSummary({
     title,
     status,
-    icon,
     tone = "muted",
   }: {
     title: string;
     status?: SectionStatus;
-    icon?: React.ReactNode;
     tone?: "muted" | "success";
   }) {
+    const sectionIcons: Record<string, LucideIcon> = {
+      "Dati giocatore": User,
+      "Comunicazioni": MessageSquare,
+      "Quote": Banknote,
+      "Extra Time": Clock,
+      "Squadra assegnata": UsersRound,
+      "Tesseramento e certificato": ClipboardCheck,
+      "Pulmino": Bus,
+      "Contatti": Phone,
+      "Documenti giocatore": FileText,
+      "Disponibilita": ShieldAlert,
+      "Kit": Package,
+      "Utenti collegati App Genitori": KeyRound,
+      "Totale economico giocatore": Calculator,
+    };
+    const Icon = sectionIcons[title] ?? ClipboardList;
     const textClass = tone === "success" ? "text-emerald-800" : "text-muted-foreground";
     return (
       <DisclosureSummary className={`flex cursor-pointer list-none items-center justify-start gap-2 text-xs font-semibold uppercase tracking-wide ${textClass} [&::-webkit-details-marker]:hidden`} indicator={false}>
-        {icon && <span className="flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>}
+        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">{title}</span>
         {status && <SectionStatusBadge status={status} />}
         <ChevronRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 transition-transform duration-200 group-open:rotate-90" />
@@ -4027,7 +4042,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
               {canViewFinancials && editingPlayer && (
                 <details data-player-quotes className="group rounded-lg border p-3">
-                  <CollapsibleSectionSummary title="Quote" icon={<Banknote className="h-4 w-4" />} status={paymentSectionStatus} />
+                  <CollapsibleSectionSummary title="Quote" status={paymentSectionStatus} />
                   <div className="mt-3">
                     <PlayerPaymentRegister key={editingPlayer.id} playerId={editingPlayer.id} payments={editingPlayerPayments} allowSecretaryEdit={false} />
                   </div>
@@ -4036,7 +4051,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
               {canViewExtraTime && (
                 <details data-player-extra-time className="group rounded-lg border p-3">
-                  <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} />
+                  <CollapsibleSectionSummary title="Extra Time" />
                   <div className="mt-3">
                     {canViewFinancials && editingPlayer && <ExtraTime key={editingPlayer.id} playerId={editingPlayer.id} readOnly />}
                     {(!canViewFinancials || displayedExtraTimeRows.some(extraTimeRowHasContent)) && <ExtraTimeSummary rows={displayedExtraTimeRows} />}
@@ -4099,7 +4114,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               </details>
 
               <details className="group rounded-lg border p-3">
-                <CollapsibleSectionSummary title="Documenti giocatore" icon={<FileText className="h-4 w-4" />} status={documentSectionStatus} />
+                <CollapsibleSectionSummary title="Documenti giocatore" status={documentSectionStatus} />
                 <div className="mt-2 space-y-1 text-sm">
                   {playerDocumentsError && <p role="alert">Impossibile aggiornare l’elenco dei documenti.</p>}
                   {editingPlayerDocuments.length ? editingPlayerDocuments.map(doc => (
@@ -4672,7 +4687,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               </details>
 
               <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                <CollapsibleSectionSummary title="Documenti giocatore" icon={<FileText className="h-4 w-4" />} status={documentSectionStatus} />
+                <CollapsibleSectionSummary title="Documenti giocatore" status={documentSectionStatus} />
                 <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {PLAYER_DOCUMENT_TYPES.map((docType) => {
@@ -4951,7 +4966,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
               {canViewFinancials && (
                 <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                  <CollapsibleSectionSummary title="Quote" icon={<Banknote className="h-4 w-4" />} status={paymentSectionStatus} />
+                  <CollapsibleSectionSummary title="Quote" status={paymentSectionStatus} />
                   <div className="mt-3 space-y-3">
                   {overduePlayerPayments.length > 0 && (
                     <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -5135,7 +5150,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
               {!canEditFinancials && canViewExtraTime && (
                 <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                  <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} />
+                  <CollapsibleSectionSummary title="Extra Time" />
                   <div className="mt-3">
                     {canViewFinancials && editingPlayer && <ExtraTime key={editingPlayer.id} playerId={editingPlayer.id} readOnly />}
                     {(!canViewFinancials || displayedExtraTimeRows.some(extraTimeRowHasContent)) && <ExtraTimeSummary rows={displayedExtraTimeRows} />}
@@ -5145,7 +5160,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
               {canEditFinancials && (
                 <details data-player-kit-editor className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                  <CollapsibleSectionSummary title="Kit" icon={<Package className="h-4 w-4" />} status={kitSectionStatus} />
+                  <CollapsibleSectionSummary title="Kit" status={kitSectionStatus} />
                   <div className="mt-3 space-y-3">
                     <RegisteredKitPayments payments={registeredKitPayments} today={paymentToday} />
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -5198,7 +5213,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
               {canEditFinancials && editingPlayer && (
                 <details className="group rounded-lg border border-border/60 bg-muted/10 p-3">
-                  <CollapsibleSectionSummary title="Extra Time" icon={<Clock className="h-4 w-4" />} />
+                  <CollapsibleSectionSummary title="Extra Time" />
                   <div className="mt-3 space-y-3">
                     <ExtraTime key={editingPlayer.id} playerId={editingPlayer.id} />
                     {displayedExtraTimeRows.some(extraTimeRowHasContent) && <>

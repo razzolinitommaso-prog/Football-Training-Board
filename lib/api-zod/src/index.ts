@@ -32,3 +32,5 @@ export * from "./parent-access-code";
 
 export * from "./training-method-guides";
 export * from "./extra-time-catalog";
+
+export * from "./fitness-access";

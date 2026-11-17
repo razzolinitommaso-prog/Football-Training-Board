@@ -1,3 +1,4 @@
+import { PlayerTestsDashboard } from "@/components/dashboard/PlayerTestsDashboard";
 import { useTechnicalScope, technicalSections } from "@/components/technical-scope";
 import { OverviewCard, UnifiedOverview, type OverviewSession } from "@/components/dashboard/UnifiedOverview";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
@@ -2690,6 +2691,15 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           )}
         </DialogContent>
       </Dialog>
+
+      <PlayerTestsDashboard
+        role={nr}
+        scopeLabel={workScope.teamId
+          ? workScope.teams.find(team => team.id === workScope.teamId)?.name ?? "Annata"
+          : workScope.section ? technicalSections[workScope.section] : sectionOverride ? technicalSections[sectionOverride] : "Tutti i settori autorizzati"}
+        section={workScope.section || sectionOverride}
+        teamId={workScope.teamId}
+      />
 
       <UnifiedOverview
         dataState={{

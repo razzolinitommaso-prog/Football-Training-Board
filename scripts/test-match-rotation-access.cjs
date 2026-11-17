@@ -41,6 +41,9 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     if (process.argv.includes("--extra-time") || process.argv.includes("--payment-desk") || process.argv.includes("--document-files")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as secretary} from '../../artifacts/api-server/src/routes/secretary';");
     }
+    if (process.argv.includes("--fitness-results")) {
+      fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as fitness} from '../../artifacts/api-server/src/routes/fitness';");
+    }
     await esbuild.build({
       entryPoints: [path.join(dir, "entry.ts")],
       outfile: bundle,
@@ -177,6 +180,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     });
     app.use("/api", routes.restrictTeamManagerApi, routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
     if (routes.secretary) app.use("/api", routes.secretary);
+    if (routes.fitness) app.use("/api", routes.fitness);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
     );
@@ -188,6 +192,48 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+    if (process.argv.includes("--fitness-results")) {
+      await pg.exec(`UPDATE players SET club_section='scuola_calcio' WHERE id IN (101,201);
+        UPDATE players SET team_id=12, club_section='settore_giovanile' WHERE id=102;
+        UPDATE teams SET coach_id=3 WHERE id=11;
+        INSERT INTO users(id,first_name,last_name) VALUES(3,'Assigned','Coach');
+        INSERT INTO player_fitness_data(id,club_id,player_id,date,activity_type,speed,notes)
+          VALUES(701,1,101,'2026-11-12','test_atletico',72,'Riservato'),
+            (702,1,102,'2026-11-13','test_atletico',79,'Secondo settore'),
+            (703,2,201,'2026-11-14','test_atletico',90,'Altro club'),
+            (704,1,101,'2026-11-15','recupero_infortunio',50,'Riservato');`);
+      for (const role of ["director", "sporting_director", "technical_director"]) {
+        const result = await call("/player-fitness-data?view=dashboard&section=scuola_calcio", { "x-role": role });
+        assert.equal(result.status, 200, JSON.stringify(result.data));
+        assert.equal(result.data.total, 1);
+        assert.deepEqual(result.data.entries.map(entry => entry.id), [701]);
+        assert.ok(!JSON.stringify(result.data).includes("Riservato"));
+      }
+      const headers = { "x-role": "coach", "x-user": "3" };
+      const own = await call("/player-fitness-data?view=dashboard", headers);
+      assert.deepEqual(own.data.entries.map(entry => entry.id), [701]);
+      assert.deepEqual((await call("/player-fitness-data?view=dashboard&teamId=12", headers)).data, { total: 0, entries: [] });
+      const send = (role, method, path, body) => fetch(base + path, {
+        method, headers: { "x-role": role, "x-user": "3", "content-type": "application/json" }, body: JSON.stringify(body),
+      });
+      const payload = { playerId: 101, date: "2026-11-16", activityType: "test_atletico", speed: 80 };
+      assert.equal((await send("technical_director", "POST", "/player-fitness-data", payload)).status, 403);
+      assert.equal((await send("coach", "PATCH", "/player-fitness-data/701", { speed: 85 })).status, 403);
+      assert.equal((await send("fitness_coach", "POST", "/player-fitness-data", { ...payload, playerId: 102 })).status, 403);
+      assert.equal((await send("fitness_coach", "POST", "/player-fitness-data", { ...payload, playerId: 102, playerIds: [] })).status, 400);
+      const created = await send("fitness_coach", "POST", "/player-fitness-data", payload);
+      const createdEntry = await created.json();
+      assert.equal(created.status, 201, JSON.stringify(createdEntry));
+      assert.equal((await send("fitness_coach", "PATCH", "/player-fitness-data/" + createdEntry.id, { speed: 85 })).status, 200);
+      assert.equal((await call("/player-fitness-data?view=dashboard", headers)).data.entries[0].speed, 85);
+      await pg.exec("INSERT INTO club_memberships(id,club_id,user_id,role,staff_role,club_section) VALUES(3,1,3,'fitness_coach','collaboratore','{scuola_calcio}')");
+      const collaborator = { "x-role": "fitness_coach", "x-user": "3" };
+      assert.deepEqual((await call("/player-fitness-data/capabilities", collaborator)).data, { canEdit: false });
+      assert.equal((await send("fitness_coach", "PATCH", "/player-fitness-data/701", { speed: 86 })).status, 403);
+      assert.equal((await call("/player-fitness-data?view=tests", collaborator)).status, 200);
+      console.log("PASS fitness results: role, club, team and section scope; reads and writes; note privacy.");
+      return;
+    }
     if (process.argv.includes("--document-files")) {
       await pg.exec("UPDATE players SET club_section='scuola_calcio' WHERE id IN (101, 102); UPDATE teams SET coach_id=3 WHERE id=11");
       const fileData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ZkAAAAASUVORK5CYII=";
@@ -497,7 +543,9 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       assert.equal(lineupSaved.status, 200, JSON.stringify(lineupSaved.data));
       assert.equal((await confirmationRequest(meetingPath, "PATCH", meeting, { "x-role": "secretary" })).status, 403);
       assert.equal((await confirmationRequest(meetingPath, "PATCH", meeting, { "x-role": "coach", "x-user": "2" })).status, 403);
-      assert.equal((await confirmationRequest(meetingPath, "PATCH", { ...meeting, convocationAt: "data errata" }, coachSession)).status, 400);
+      const invalidDate = await confirmationRequest(meetingPath, "PATCH", { ...meeting, convocationAt: "+020226-10-17T12:00:00.000Z" }, coachSession);
+      assert.equal(invalidDate.status, 400);
+      assert.match(invalidDate.data.error, /quattro cifre/);
       const saved = await fetch(base + meetingPath, { method: "PATCH",
         headers: { "content-type": "application/json", ...coachSession }, body: JSON.stringify(meeting) });
       assert.equal(saved.status, 204, await saved.text());

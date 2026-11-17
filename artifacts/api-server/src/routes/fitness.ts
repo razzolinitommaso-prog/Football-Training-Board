@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
-import { db, fitnessProgramsTable, playerFitnessDataTable, playersTable, teamsTable } from "@workspace/db";
+import { db, fitnessProgramsTable, playerFitnessDataTable, playersTable, teamsTable, clubMembershipsTable } from "@workspace/db";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
-import { getPlayerMeasurementTeamScope, canAccessPlayerMeasurements } from "../lib/club-scope";
+import { FITNESS_DASHBOARD_ROLES, FITNESS_RESULTS_ROLES, FITNESS_RESULTS_WRITE_ROLES } from "@workspace/api-zod";
+import { getPlayerMeasurementTeamScope, canAccessPlayerMeasurements, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import type { Request } from "express";
 
@@ -261,40 +262,78 @@ router.delete("/fitness-programs/:id", requireAuth, async (req, res): Promise<vo
   res.sendStatus(204);
 });
 
+async function canManageFitnessResults(req: Request) {
+  const role = normalizeSessionRole(req.session.role);
+  if (!FITNESS_RESULTS_WRITE_ROLES.includes(role) || !req.session.clubId || !req.session.userId) return false;
+  const memberships = await db.select({ staffRole: clubMembershipsTable.staffRole, role: clubMembershipsTable.role })
+    .from(clubMembershipsTable)
+    .where(and(eq(clubMembershipsTable.clubId, req.session.clubId), eq(clubMembershipsTable.userId, req.session.userId)));
+  return !memberships.some(member => normalizeSessionRole(member.role) === role &&
+    ["collaboratore", "stagista"].includes(normalizeSessionRole(member.staffRole)));
+}
+
+router.get("/player-fitness-data/capabilities", requireAuth, async (req, res): Promise<void> => {
+  res.json({ canEdit: await canManageFitnessResults(req) });
+});
+
 router.get("/player-fitness-data", requireAuth, async (req, res): Promise<void> => {
+  const role = normalizeSessionRole(req.session.role);
+  const overview = req.query.view === "dashboard";
+  if (!req.session.clubId || (!FITNESS_RESULTS_ROLES.includes(role) && !canViewFitness(role)) ||
+      (overview && !FITNESS_DASHBOARD_ROLES.includes(role))) {
+    res.status(403).json({ error: "Non autorizzato a visualizzare i test atletici." }); return;
+  }
   await ensureFitnessSchema();
-  if (!canViewFitness(req.session.role)) {
-    res.status(403).json({ error: "Non autorizzato a visualizzare dati atletici" });
+  const clubId = req.session.clubId;
+  const section = typeof req.query.section === "string" ? req.query.section : undefined;
+  const [sections, scope] = await Promise.all([resolveAllowedClubSections(req, section), getPlayerMeasurementTeamScope(req)]);
+  const playerId = req.query.playerId === undefined ? undefined : Number(req.query.playerId);
+  const teamId = req.query.teamId === undefined ? undefined : Number(req.query.teamId);
+  if ((playerId !== undefined && (!Number.isSafeInteger(playerId) || playerId <= 0)) ||
+      (teamId !== undefined && (!Number.isSafeInteger(teamId) || teamId <= 0))) {
+    res.status(400).json({ error: "Squadra o giocatore non validi." }); return;
+  }
+  const players = await db.select({
+    id: playersTable.id, firstName: playersTable.firstName, lastName: playersTable.lastName,
+    dateOfBirth: playersTable.dateOfBirth, teamId: playersTable.teamId, notes: playersTable.notes,
+  }).from(playersTable).where(and(
+    eq(playersTable.clubId, clubId),
+    playerId === undefined ? undefined : eq(playersTable.id, playerId),
+    sections ? (sections.length ? inArray(playersTable.clubSection, sections) : sql`false`) : undefined,
+  ));
+  const allowed = new Map(players.filter(player => {
+    const assigned = player.teamId ?? supplementalTrainingTeam(player.notes);
+    return canAccessPlayerMeasurements(scope, assigned) && (teamId === undefined || teamId === assigned);
+  }).map(player => [player.id, player]));
+  if (!allowed.size) { res.json(overview ? { total: 0, entries: [] } : []); return; }
+  const publicResults = overview || req.query.view === "tests" || !canViewFitness(role);
+  const conditions = and(eq(playerFitnessDataTable.clubId, clubId), inArray(playerFitnessDataTable.playerId, [...allowed.keys()]),
+    publicResults ? eq(playerFitnessDataTable.activityType, "test_atletico") : undefined);
+  const ordering = [desc(playerFitnessDataTable.date), desc(playerFitnessDataTable.id)] as const;
+  if (publicResults) {
+    const query = db.select({
+      id: playerFitnessDataTable.id, playerId: playerFitnessDataTable.playerId, date: playerFitnessDataTable.date,
+      endurance: playerFitnessDataTable.endurance, strength: playerFitnessDataTable.strength, speed: playerFitnessDataTable.speed,
+    }).from(playerFitnessDataTable).where(conditions).orderBy(...ordering);
+    const [rows, total] = await Promise.all([
+      overview ? query.limit(3) : query,
+      overview ? db.$count(playerFitnessDataTable, conditions) : Promise.resolve(0),
+    ]);
+    const entries = rows.map(row => {
+      const player = allowed.get(row.playerId)!;
+      return { ...row, playerName: [player.firstName, player.lastName].join(" "), teamId: player.teamId ?? supplementalTrainingTeam(player.notes),
+        birthYear: /^\d{4}/.exec(player.dateOfBirth ?? "")?.[0], activityType: "test_atletico", notes: null };
+    });
+    res.json(overview ? { total, entries } : entries);
     return;
   }
-  const playerId = req.query.playerId ? parseInt(req.query.playerId as string) : null;
-  const teamId = req.query.teamId ? parseInt(req.query.teamId as string) : null;
-
-  const conditions = [eq(playerFitnessDataTable.clubId, req.session.clubId!)];
-  if (playerId && !isNaN(playerId)) conditions.push(eq(playerFitnessDataTable.playerId, playerId));
-  if (teamId && !isNaN(teamId)) {
-    const teamPlayers = await db
-      .select({ id: playersTable.id })
-      .from(playersTable)
-      .where(and(eq(playersTable.clubId, req.session.clubId!), eq(playersTable.teamId, teamId)));
-    const teamPlayerIds = teamPlayers.map((player) => player.id);
-    conditions.push(teamPlayerIds.length > 0 ? inArray(playerFitnessDataTable.playerId, teamPlayerIds) : sql`false` as any);
-  }
-
-  const data = await db
-    .select()
-    .from(playerFitnessDataTable)
-    .where(and(...conditions))
-    .orderBy(desc(playerFitnessDataTable.date));
-
-  const scope = await getPlayerMeasurementTeamScope(req);
-  const enriched = await Promise.all(data.map(row => enrichFitnessData(row, scope)));
-  res.json(enriched);
+  const rows = await db.select().from(playerFitnessDataTable).where(conditions).orderBy(...ordering);
+  res.json(await Promise.all(rows.map(row => enrichFitnessData(row, scope))));
 });
 
 router.post("/player-fitness-data", requireAuth, async (req, res): Promise<void> => {
   await ensureFitnessSchema();
-  if (!canManageFitness(req.session.role)) {
+  if (!await canManageFitnessResults(req)) {
     res.status(403).json({ error: "Non autorizzato a gestire dati atletici" });
     return;
   }
@@ -304,6 +343,7 @@ router.post("/player-fitness-data", requireAuth, async (req, res): Promise<void>
     res.status(400).json({ error: "Altezza, peso e ruolo osservato vanno registrati per un singolo giocatore." });
     return;
   }
+  if (Array.isArray(playerIds) && playerIds.length === 0) { res.status(400).json({ error: "Seleziona almeno un giocatore." }); return; }
   const targetPlayerIds = Array.isArray(playerIds) ? await playersBelongToClub(playerIds, req.session.clubId!) : [];
   if ((!playerId && targetPlayerIds.length === 0) || !date) {
     res.status(400).json({ error: "playerId/playerIds and date are required" });
@@ -314,9 +354,10 @@ router.post("/player-fitness-data", requireAuth, async (req, res): Promise<void>
     return;
   }
 
-  if (Object.values(measurements).some(value => value != null) && !(await canWriteMeasurements(req, Number(playerId)))) {
-    res.status(403).json({ error: "Giocatore fuori dalle squadre assegnate." });
-    return;
+  const requestedIds = Array.isArray(playerIds) ? [...new Set(playerIds.map(Number))] : [Number(playerId)];
+  if ((Array.isArray(playerIds) && requestedIds.length !== targetPlayerIds.length) ||
+      !(await Promise.all(requestedIds.map(id => canWriteMeasurements(req, id)))).every(Boolean)) {
+    res.status(403).json({ error: "Giocatore fuori dalle squadre assegnate." }); return;
   }
 
   const insertRows = (targetPlayerIds.length > 0 ? targetPlayerIds : [Number(playerId)]).map((targetPlayerId) => ({
@@ -345,7 +386,7 @@ router.post("/player-fitness-data", requireAuth, async (req, res): Promise<void>
 
 router.patch("/player-fitness-data/:id", requireAuth, async (req, res): Promise<void> => {
   await ensureFitnessSchema();
-  if (!canManageFitness(req.session.role)) {
+  if (!await canManageFitnessResults(req)) {
     res.status(403).json({ error: "Non autorizzato a gestire dati atletici" });
     return;
   }
@@ -368,15 +409,10 @@ router.patch("/player-fitness-data/:id", requireAuth, async (req, res): Promise<
   if (parentNote !== undefined) updates.parentNote = parentNote;
   if (notes !== undefined) updates.notes = notes;
 
-  if (Object.keys(updates).some(key => ["heightCm", "weightKg", "observedRole", "date"].includes(key))) {
-    const [existing] = await db.select().from(playerFitnessDataTable)
-      .where(and(eq(playerFitnessDataTable.id, id), eq(playerFitnessDataTable.clubId, req.session.clubId!))).limit(1);
-    if (existing && (Object.keys(measurements).some(key => updates[key] !== undefined) ||
-      [existing.heightCm, existing.weightKg, existing.observedRole].some(value => value != null)) &&
-      !(await canWriteMeasurements(req, existing.playerId))) {
-      res.status(403).json({ error: "Giocatore fuori dalle squadre assegnate." });
-      return;
-    }
+  const [existing] = await db.select({ playerId: playerFitnessDataTable.playerId }).from(playerFitnessDataTable)
+    .where(and(eq(playerFitnessDataTable.id, id), eq(playerFitnessDataTable.clubId, req.session.clubId!))).limit(1);
+  if (existing && !(await canWriteMeasurements(req, existing.playerId))) {
+    res.status(403).json({ error: "Giocatore fuori dalle squadre assegnate." }); return;
   }
 
   const [entry] = await db
@@ -391,7 +427,7 @@ router.patch("/player-fitness-data/:id", requireAuth, async (req, res): Promise<
 });
 
 router.delete("/player-fitness-data/:id", requireAuth, async (req, res): Promise<void> => {
-  if (!canManageFitness(req.session.role)) {
+  if (!await canManageFitnessResults(req)) {
     res.status(403).json({ error: "Non autorizzato a gestire dati atletici" });
     return;
   }
@@ -400,8 +436,7 @@ router.delete("/player-fitness-data/:id", requireAuth, async (req, res): Promise
 
   const [existing] = await db.select().from(playerFitnessDataTable)
     .where(and(eq(playerFitnessDataTable.id, id), eq(playerFitnessDataTable.clubId, req.session.clubId!))).limit(1);
-  if (existing && [existing.heightCm, existing.weightKg, existing.observedRole].some(value => value != null) &&
-    !(await canWriteMeasurements(req, existing.playerId))) {
+  if (existing && !(await canWriteMeasurements(req, existing.playerId))) {
     res.status(403).json({ error: "Giocatore fuori dalle squadre assegnate." });
     return;
   }

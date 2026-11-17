@@ -1002,9 +1002,10 @@ router.patch("/matches/:id/meeting", requireAuth, async (req, res): Promise<void
 
   const { convocationAt, convocationPlace: place } = req.body ?? {};
   const convocationPlace = typeof place === "string" ? place.trim() : "";
-  if (typeof convocationAt !== "string" || !Number.isFinite(Date.parse(convocationAt)) || !convocationPlace) {
-    res.status(400).json({ error: "Indica data, orario e luogo del ritrovo." }); return;
+  if (typeof convocationAt !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(convocationAt) || !Number.isFinite(Date.parse(convocationAt))) {
+    res.status(400).json({ error: "Controlla la data e l’orario del ritrovo. L’anno deve avere quattro cifre." }); return;
   }
+  if (!convocationPlace) { res.status(400).json({ error: "Indica il luogo del ritrovo." }); return; }
 
   const legacy = splitPublicNotesAndPlan(match.notes);
   const plan = normalizeMatchPlan(match.matchPlan) ?? normalizeMatchPlan(legacy.plan);

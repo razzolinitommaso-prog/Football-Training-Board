@@ -572,6 +572,7 @@ function combineDateAndTimeToIso(dateValue: string, timeValue: string): string |
   if (italianDate) {
     normalizedDate = `${italianDate[3]}-${String(italianDate[2]).padStart(2, "0")}-${String(italianDate[1]).padStart(2, "0")}`;
   }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) return null;
   const parsed = new Date(`${normalizedDate}T${normalized}:00`);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
@@ -2573,11 +2574,23 @@ function MatchCard({
 
   async function saveMatchMeeting() {
     if (!canManageMatchPlan || savingMeeting) return;
+    const convocationAt = combineDateAndTimeToIso(convocationDateInput, convocationTimeInput);
+    if (!convocationAt) {
+      const title = !/^\d{4}-\d{2}-\d{2}$/.test(convocationDateInput)
+        ? "Controlla la data del ritrovo: l’anno deve avere quattro cifre."
+        : "Controlla data e orario del ritrovo.";
+      toast({ title, variant: "destructive" });
+      return;
+    }
+    if (!planDraft.convocationPlace?.trim()) {
+      toast({ title: "Indica il luogo del ritrovo.", variant: "destructive" });
+      return;
+    }
     setSavingMeeting(true);
     try {
       await apiFetch(`/api/matches/${match.id}/meeting`, {
         method: "PATCH",
-        body: JSON.stringify({ convocationAt: planDraft.convocationAt, convocationPlace: planDraft.convocationPlace }),
+        body: JSON.stringify({ convocationAt, convocationPlace: planDraft.convocationPlace }),
       });
       void qc.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Ritrovo salvato" });
@@ -3002,6 +3015,9 @@ function MatchCard({
                       <Input
                         className="h-8 text-xs"
                         type="date"
+                        max="9999-12-31"
+                        aria-label="Data del ritrovo"
+                        aria-invalid={!!convocationDateInput && !/^\d{4}-\d{2}-\d{2}$/.test(convocationDateInput)}
                         value={convocationDateInput}
                         onChange={(e) => {
                           const nextDate = e.target.value;

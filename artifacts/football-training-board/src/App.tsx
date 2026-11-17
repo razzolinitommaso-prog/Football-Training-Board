@@ -1,3 +1,4 @@
+import { FITNESS_RESULTS_ROLES } from "@workspace/api-zod";
 import { AttendanceRegister } from "@/components/training/AttendanceRegister";
 import { Redirect, Switch, Route, useLocation } from "wouter";
 import TeamManagerArea from "@/pages/team-manager";
@@ -77,7 +78,6 @@ const coachingRoles = ["admin", "coach", "technical_director", "director", "fitn
 const secretaryRoles = ["admin", "secretary", "sporting_director"];
 const shuttleRoles = ["admin", "presidente", "director", "secretary", "sporting_director"];
 const fitnessRoles = ["admin", "director", "technical_director", "fitness_coach", "athletic_director"];
-const playerPerformanceRoles = ["admin", "presidente", "director", "technical_director", "fitness_coach", "athletic_director"];
 const sectionAttendanceRoles = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 const trainingEditRoles = ["admin", "presidente", "director", "technical_director", "coach", "fitness_coach", "athletic_director"];
 const trainingCalendarRoles = ["admin", "presidente", "director", "secretary", "sporting_director", "technical_director", "coach", "fitness_coach", "athletic_director"];
@@ -153,7 +153,7 @@ function ProtectedAppRoutes() {
           <ProtectedRoute allowedRoles={fitnessRoles}><FitnessPrograms /></ProtectedRoute>
         </Route>
         <Route path="/player-performance">
-          <ProtectedRoute allowedRoles={playerPerformanceRoles}><PlayerPerformance /></ProtectedRoute>
+          <ProtectedRoute allowedRoles={FITNESS_RESULTS_ROLES}><PlayerPerformance /></ProtectedRoute>
         </Route>
         <Route path="/seasons">
           <ProtectedRoute allowedRoles={["admin", "presidente", "director", "secretary", "sporting_director", "technical_director"]}><SeasonsPage /></ProtectedRoute>

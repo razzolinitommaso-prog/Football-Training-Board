@@ -50,3 +50,9 @@ apre direttamente la scheda del giocatore. Per la Segreteria la scheda si
 apre in modalità modifica. Chiudendo o salvando una scheda aperta dalla
 lista si torna alle segnalazioni con ricerca, filtro e posizione di
 scorrimento ripristinati.
+
+La card **Test giocatori** mostra il totale e gli ultimi tre test atletici
+per DT, DS, DG, allenatori e collaboratori nei settori e nelle annate
+autorizzati. **Vedi tutti i risultati** apre la consultazione filtrata.
+I preparatori autorizzati inseriscono e modificano le rilevazioni da
+**Area atletica → Performance Giocatori**.
