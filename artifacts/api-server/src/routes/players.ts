@@ -1241,7 +1241,7 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
 
   const measurementScope = await getPlayerMeasurementTeamScope(req);
   const showProfile = measurementScope === null || teamIds.some(id => canAccessPlayerMeasurements(measurementScope, id));
-  const motorTests = showProfile ? await motorTestHistory(clubId, player.id) : [];
+  const motorTests = showProfile ? await motorTestHistory(clubId, player.id, teamIds) : [];
   const lastHeight = fitnessData.find(entry => entry.heightCm != null);
   const lastWeight = fitnessData.find(entry => entry.weightKg != null);
   const lastObservedRole = fitnessData.find(entry => entry.observedRole != null);

@@ -38,7 +38,7 @@ export type MotorTestId = (typeof ids)[number];
 export type MotorTestResult = z.infer<typeof result>;
 export type MotorPlayerResult = MotorTestInput["results"][string];
 export type MotorTestSession = MotorTestInput & { id: string; stationId?: number; exerciseIds: Partial<Record<MotorTestId, number>> };
-export type MotorTestHistory = { id: string; date: string; cycle: MotorTestInput["cycle"]; result: MotorPlayerResult };
+export type MotorTestHistory = { id: string; date: string; cycle: MotorTestInput["cycle"]; result: MotorPlayerResult; tests?: MotorTestInput["tests"]; trainingSessionId?: number | null };
 
 export function summarizeMotorTests(history: MotorTestHistory[]) {
   const scored = (entry: MotorTestHistory) => Object.entries(entry.result.tests).filter(([id, value]) => id !== "anthropometry" && value?.score != null);
@@ -53,3 +53,16 @@ export function summarizeMotorTests(history: MotorTestHistory[]) {
   });
   return { index, growth: deltas.length ? Math.round(10 * deltas.reduce((a,b) => a+b,0) / deltas.length) : null, comparable: deltas.length };
 }
+
+export function motorTestCompletion(tests: MotorTestInput["tests"], result?: MotorPlayerResult) {
+  let complete = 0, started = 0;
+  for (const test of tests) {
+    const row = result?.tests[test.id];
+    const anthropometry = test.id === "anthropometry";
+    const measured = anthropometry ? result?.height != null && result.weight != null : row?.measurement != null && row.score != null;
+    if (measured) complete++;
+    if (measured || row?.measurement != null || row?.score != null || (anthropometry && (result?.height != null || result?.weight != null))) started++;
+  }
+  return { completed: complete, total: tests.length, status: tests.length > 0 && complete === tests.length ? "complete" as const : started > 0 ? "partial" as const : "not-started" as const };
+}
+export const motorCompletionLabels = { complete: "Test completato", partial: "Test parziale", "not-started": "Test da eseguire" };

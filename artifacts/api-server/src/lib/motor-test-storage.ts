@@ -1,3 +1,4 @@
+import { trainingLocalDate } from "@workspace/api-zod";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import type { MotorTestHistory } from "@workspace/api-zod";
@@ -23,12 +24,15 @@ export function motorRows<T>(result: unknown): T[] {
   return (Array.isArray(result) ? result : (result as { rows: T[] }).rows) as T[];
 }
 
-export async function motorTestHistory(clubId: number, playerId: number): Promise<MotorTestHistory[]> {
+export async function motorTestHistory(clubId: number, playerId: number, teamIds: number[] = []): Promise<MotorTestHistory[]> {
   await ensureMotorTestStorage();
   const key = String(playerId);
   return motorRows<MotorTestHistory>(await db.execute(sql`
-    SELECT id, test_date::text AS date, data->>'cycle' AS cycle, data->'results'->${key}::text AS result
-    FROM motor_test_sessions WHERE club_id=${clubId} AND (data->'results') ? ${key}
+    SELECT id, test_date::text AS date, data->>'cycle' AS cycle, coalesce(data->'results'->${key}::text, '{"height":null,"weight":null,"tests":{}}'::jsonb) AS result,
+      data->'tests' AS tests, (data->>'trainingSessionId')::integer AS "trainingSessionId"
+    FROM motor_test_sessions WHERE club_id=${clubId} AND (
+      (data->'results') ? ${key} OR (${teamIds.length ? sql`team_id IN (${sql.join(teamIds.map(id => sql`${id}`), sql`,`)})` : sql`false`} AND test_date <= ${trainingLocalDate()}::date
+        AND test_date >= ${String(Number(trainingLocalDate().slice(0,4)) - (Number(trainingLocalDate().slice(5,7)) < 7 ? 1 : 0)) + "-07-01"}::date))
     ORDER BY test_date DESC, id DESC
   `));
 }

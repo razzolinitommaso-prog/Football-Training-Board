@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { motorTestCatalog, motorTestCycles, summarizeMotorTests, type MotorTestSession } from "@workspace/api-zod";
+import { motorTestCatalog, motorTestCycles, motorTestCompletion, motorCompletionLabels, summarizeMotorTests, type MotorTestSession } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
 import { exportMultiSheet } from "@/lib/excel-export";
 
@@ -32,11 +32,12 @@ function reportSheets(draft: MotorTestSession, roster: ExportPlayer[], team: str
     { name: "Risultati", rows: players.flatMap(player => {
       const results = draft.results[player.id];
       const index = results ? summarizeMotorTests([{ id: draft.id, date: draft.date, cycle: draft.cycle, result: results }]).index : null;
+      const completion = motorTestCompletion(draft.tests, results);
       return items.map(item => {
         const value = results?.tests[item.id];
         const jump = item.id === "high-jump" || item.id === "long-jump";
         return {
-          Giocatore: player.name, Prova: item.info.title,
+          Giocatore: player.name, "Stato test": motorCompletionLabels[completion.status], "Prove complete": completion.completed + "/" + completion.total, Prova: item.info.title,
           "Statura (cm)": item.id === "anthropometry" ? results?.height ?? "" : "",
           "Peso (kg)": item.id === "anthropometry" ? results?.weight ?? "" : "",
           Misura: value?.measurement ?? "", "Unità": item.info.unit,

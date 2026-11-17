@@ -55,14 +55,17 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
     ]);
     const roster = rosterMembers(players, [teamId]).filter(player => player.status !== "training_trial");
     const sessions = clubSessions.filter(session => eligibleSession(session, teamId, date));
-    const selected = sessions.find(session => session.id === linked);
+    const selected = linked ? sessions.find(session => session.id === linked) : sessions.length === 1 ? sessions[0] : undefined;
+    if (linked && !selected) { res.status(400).json({ error: "La seduta collegata non appartiene al giorno o all’annata." }); return; }
     const slot = selected && trainingLocalSlot(selected.scheduledAt);
     const [family, coach] = selected && slot ? await Promise.all([
       trainingAvailability(clubId, teamId, date, slot.start, [teamId], [teamId], selected.durationMinutes ?? undefined),
       db.select({ id: trainingAttendancesTable.playerId, status: trainingAttendancesTable.status }).from(trainingAttendancesTable)
-        .where(and(eq(trainingAttendancesTable.clubId, clubId), eq(trainingAttendancesTable.trainingSessionId, selected.id), staffAttendance)),
+        .where(and(eq(trainingAttendancesTable.clubId, clubId), eq(trainingAttendancesTable.trainingSessionId, selected.id), staffAttendance)).orderBy(asc(trainingAttendancesTable.id)),
     ]) : [null, [] as { id: number; status: string }[]] as const;
     res.json({
+      trainingSessionId: selected?.id ?? null,
+      presentCount: roster.filter(player => coach.find(row => row.id === player.id)?.status === "present").length,
       sessions: sessions.map(session => ({ id: session.id, title: session.title, time: trainingLocalSlot(session.scheduledAt).start })),
       players: roster.map(player => ({ id: player.id, name: player.lastName + " " + player.firstName,
         family: family?.records.find(item => item.playerId === player.id)?.status ?? null,
@@ -110,6 +113,13 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
         Object.keys(exerciseIds).some(key => !input.tests.some(test => test.id === key && test.link)))) {
         return { status: 409, error: "Le prove già inserite nella seduta vanno gestite dalla pagina Sedute." };
       }
+      if (!input.trainingSessionId) {
+        const sameDay = (await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId, clubId),
+          sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date = ${input.date}::date`)))
+          .filter(session => eligibleSession(session, input.teamId, input.date));
+        if (sameDay.length === 1) input.trainingSessionId = sameDay[0].id;
+        else if (sameDay.length > 1 && Object.keys(input.results).length) return { status: 400, error: "Seleziona la seduta del mister per usare l’appello corretto." };
+      }
       const playerIds = Object.keys(input.results).map(Number).sort((a,b) => a-b);
       const players = playerIds.length ? await tx.select().from(playersTable).where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, playerIds)))
         .orderBy(asc(playersTable.id)).for("update") : [];
@@ -128,6 +138,14 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
         const [session] = await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId, clubId),
           eq(trainingSessionsTable.id, input.trainingSessionId))).for("update");
         if (!session || !eligibleSession(session, input.teamId, input.date)) return { status: 400, error: "La seduta deve appartenere all’annata e al giorno selezionati." };
+        const recorded = await tx.select({ playerId: trainingAttendancesTable.playerId, status: trainingAttendancesTable.status })
+          .from(trainingAttendancesTable).where(and(eq(trainingAttendancesTable.clubId, clubId),
+            eq(trainingAttendancesTable.trainingSessionId, session.id), staffAttendance)).orderBy(asc(trainingAttendancesTable.id));
+        const staffByPlayer = new Map([...recorded].reverse().map(row => [row.playerId, row.status]));
+        const present = new Set([...staffByPlayer].filter(([, status]) => status === "present").map(([playerId]) => playerId));
+        if (playerIds.some(playerId => !present.has(playerId) && !isDeepStrictEqual(input.results[playerId], knownResults[playerId]))) {
+          return { status: 409, error: "Puoi valutare solo i presenti nell’appello della seduta. Aggiorna le presenze con il mister." };
+        }
         const pending = input.linkProgram ? [] : input.tests.filter(test => test.link && !exerciseIds[test.id]);
         if (pending.length || (input.linkProgram && !stationId)) {
           const [last] = await tx.select({ order: sql<number>`coalesce(max(${trainingSessionExercisesTable.order}), -1)::integer` })
