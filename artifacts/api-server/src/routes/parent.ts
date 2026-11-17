@@ -1,3 +1,6 @@
+import { motorTestHistory } from "../lib/motor-test-storage";
+import { supplementalTrainingTeam } from "../lib/training-roster-policy";
+import { staffAttendance } from "../lib/attendance-notifications";
 import { childNotificationScope, ensureCallupRulesStorage } from "../lib/callup-rule-storage";
 import { parseDocumentUpload } from "../lib/document-upload";
 import { parentKitRows } from "../lib/warehouse-kit";
@@ -989,11 +992,12 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
     : [null];
 
   const now = new Date();
-  const trainingSessions = player.teamId
+  const teamIds = [...new Set([player.teamId, supplementalTrainingTeam(player.notes)].filter((id): id is number => id != null))];
+  const trainingSessions = teamIds.length
     ? (await db
         .select()
         .from(trainingSessionsTable)
-        .where(and(eq(trainingSessionsTable.clubId, clubId), sessionTeamScope(player.teamId)))
+        .where(and(eq(trainingSessionsTable.clubId, clubId), or(...teamIds.map(id => sessionTeamScope(id)))))
         .orderBy(desc(trainingSessionsTable.scheduledAt)))
         .filter((session) => new Date(session.scheduledAt).getTime() <= now.getTime() && session.status !== "cancelled" && session.sessionKind !== "tipo")
     : [];
@@ -1006,15 +1010,20 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
           eq(trainingAttendancesTable.clubId, clubId),
           eq(trainingAttendancesTable.playerId, player.id),
           inArray(trainingAttendancesTable.trainingSessionId, trainingSessionIds),
+          staffAttendance,
         ))
     : [];
   const presentTraining = trainingAttendanceRows.filter((row) => row.status === "present").length;
   const absentTraining = trainingAttendanceRows.filter((row) => row.status === "absent").length;
-  const conductCounts = trainingAttendanceRows.reduce<Record<string, number>>((acc, row) => {
-    const conduct = parseAttendanceConduct(row.notes);
-    if (conduct) acc[conduct] = (acc[conduct] ?? 0) + 1;
-    return acc;
-  }, {});
+  await ensureCallupRulesStorage();
+  const reviews = trainingSessionIds.length ? sqlRows<{ sessionId: number; conduct: string }>(await db.execute(sql`
+    SELECT session_id AS "sessionId", conduct FROM training_conduct_reviews WHERE club_id = ${clubId}
+      AND player_id = ${player.id} AND session_id IN (${sql.join(trainingSessionIds.map(id => sql`${id}`), sql`,`)})
+  `)) : [];
+  const conductBySession = new Map(trainingAttendanceRows.map(row => [row.trainingSessionId, parseAttendanceConduct(row.notes)]));
+  for (const review of reviews) conductBySession.set(review.sessionId, review.conduct as "ottima" | "buona" | "insufficiente");
+  const conductCounts: Record<string, number> = {};
+  for (const conduct of conductBySession.values()) if (conduct) conductCounts[conduct] = (conductCounts[conduct] ?? 0) + 1;
   const trainingTotal = trainingSessions.length;
   const trainingRecorded = trainingAttendanceRows.length;
 
@@ -1056,6 +1065,8 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
     .where(and(eq(playerFitnessDataTable.clubId, clubId), eq(playerFitnessDataTable.playerId, player.id)))
     .orderBy(desc(playerFitnessDataTable.date));
 
+  const motorTests = await motorTestHistory(clubId, player.id, teamIds);
+
   res.json({
     id: player.id,
     firstName: player.firstName,
@@ -1096,6 +1107,7 @@ router.get("/parent/player-card", requireParentSession, async (req, res): Promis
         appearances: matchAppearances,
         percentage: recordedMinutes.length > 0 ? Math.round((matchAppearances / recordedMinutes.length) * 100) : null,
       },
+      motorTests,
       fitnessTests: fitnessData.slice(0, 5).map((entry) => ({
         id: entry.id,
         date: entry.date,

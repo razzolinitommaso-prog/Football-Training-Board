@@ -1,3 +1,4 @@
+import { MotorTestResults } from "@/components/training/MotorTestResults";
 import { Link } from "wouter";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useEffect, useState } from "react";
@@ -53,6 +54,7 @@ function ParentActivitySummary({ data, isYouthSection }: { data: any; isYouthSec
             <Activity className="h-4 w-4 text-primary" />
             Risultati test
           </div>
+          {!!data.motorTests?.length && <MotorTestResults tests={data.motorTests} />}
           {Array.isArray(data.fitnessTests) && data.fitnessTests.length > 0 ? (
             <div className="mt-2 space-y-1.5">
               {data.fitnessTests.map((test: any) => (
@@ -66,7 +68,7 @@ function ParentActivitySummary({ data, isYouthSection }: { data: any; isYouthSec
               ))}
             </div>
           ) : (
-            <p className="mt-2 text-sm text-muted-foreground">Nessun test registrato.</p>
+            data.motorTests?.length ? null : <p className="mt-2 text-sm text-muted-foreground">Nessun test registrato.</p>
           )}
         </div>
 
