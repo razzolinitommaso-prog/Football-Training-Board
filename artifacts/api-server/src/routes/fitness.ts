@@ -1,3 +1,4 @@
+import { motorTestsRouter } from "./motor-tests";
 import { Router, type IRouter } from "express";
 import { db, fitnessProgramsTable, playerFitnessDataTable, playersTable, teamsTable, clubMembershipsTable } from "@workspace/db";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
@@ -451,4 +452,5 @@ router.delete("/player-fitness-data/:id", requireAuth, async (req, res): Promise
   res.sendStatus(204);
 });
 
+router.use(motorTestsRouter(canManageFitnessResults));
 export default router;

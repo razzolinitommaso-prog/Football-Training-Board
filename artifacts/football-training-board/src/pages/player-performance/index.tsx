@@ -1,3 +1,4 @@
+import { MotorTestSessions } from "@/components/training/MotorTestSessions";
 import { useSearch } from "wouter";
 import { FITNESS_RESULTS_WRITE_ROLES } from "@workspace/api-zod";
 import { useAuth } from "@/hooks/use-auth";
@@ -398,6 +399,7 @@ export default function PlayerPerformance() {
         </div>
       </div>
 
+      <MotorTestSessions canEdit={canEdit} scopedTeam={filterTeam === "all" ? undefined : Number(filterTeam)} />
       {results.isError ? <p role="alert" className="text-sm">Impossibile caricare i risultati.{" "}
         <button type="button" className="underline" onClick={() => void results.refetch()}>Riprova</button></p> : results.isPending ? (
         <div className="space-y-3">

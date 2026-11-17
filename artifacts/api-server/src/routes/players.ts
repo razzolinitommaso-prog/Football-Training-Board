@@ -4,6 +4,7 @@ import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { sessionTeamScope } from "../lib/session-team-scope";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import { playerMatchAttendance } from "../lib/player-match-attendance";
+import { motorTestHistory } from "../lib/motor-test-storage";
 import { Router, type IRouter } from "express";
 import { randomInt, randomUUID } from "node:crypto";
 import { ensureParentDelegateSecurityColumns, ensureParentFamilyLinks } from "../lib/parent-delegate-access";
@@ -1239,7 +1240,8 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
     .orderBy(desc(playerFitnessDataTable.date), desc(playerFitnessDataTable.id));
 
   const measurementScope = await getPlayerMeasurementTeamScope(req);
-  const showProfile = canAccessPlayerMeasurements(measurementScope, player.teamId ?? supplementalTrainingTeam(player.notes));
+  const showProfile = measurementScope === null || teamIds.some(id => canAccessPlayerMeasurements(measurementScope, id));
+  const motorTests = showProfile ? await motorTestHistory(clubId, player.id) : [];
   const lastHeight = fitnessData.find(entry => entry.heightCm != null);
   const lastWeight = fitnessData.find(entry => entry.weightKg != null);
   const lastObservedRole = fitnessData.find(entry => entry.observedRole != null);
@@ -1267,6 +1269,7 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
       percentage: trainingTotal > 0 ? Math.round((presentTraining / trainingTotal) * 100) : null,
     },
     matchAttendance,
+    motorTests,
     fitnessTests: fitnessData.slice(0, 5).map((entry) => ({
       id: entry.id,
       date: entry.date,

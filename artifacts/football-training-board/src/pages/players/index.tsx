@@ -1,3 +1,4 @@
+import { motorTestCatalog, motorTestCycles, summarizeMotorTests, type MotorTestHistory } from "@workspace/api-zod";
 import { DocumentFilePicker } from "@/components/document-file-picker";
 import { downloadDocument, readDocumentFile } from "@/lib/document-files";
 import { PlayerPaymentRegister, RegisteredKitPayments } from "@/components/player-payment-register";
@@ -360,6 +361,7 @@ type PlayerActivitySummary = {
     minutes?: number | null;
     percentage: number | null;
   };
+  motorTests?: MotorTestHistory[];
   fitnessTests: Array<{
     id: number;
     date: string;
@@ -865,8 +867,30 @@ function PlayerActivitySummaryPanel({ player, isYouthSection, summary }: {
               <Activity className="h-4 w-4 text-primary" />
               Risultati test
             </div>
+            {!!data.motorTests?.length && <div className="mt-2 space-y-2">
+              {(() => {
+                const summary = summarizeMotorTests(data.motorTests);
+                return <p className="text-sm">Indice attuale <strong>{summary.index == null ? "—" : summary.index + "%"}</strong>{summary.growth != null && <> · Crescita <strong>{summary.growth > 0 ? "+" : ""}{summary.growth} p.p.</strong> su {summary.comparable} prove</>}</p>;
+              })()}
+              {data.motorTests.slice(0, 5).map(test => <details key={test.id} className="rounded-lg border bg-background p-2 text-sm">
+                <summary className="cursor-pointer font-medium">{test.date.split("-").reverse().join("/")} · {motorTestCycles[test.cycle]}</summary>
+                <p className="mt-2 text-xs text-muted-foreground">Statura {test.result.height ?? "—"} cm · Peso rilevato {test.result.weight ?? "—"} kg</p>
+                <ul className="mt-2 divide-y text-xs">
+                  {motorTestCatalog.map(proof => {
+                    const value = test.result.tests[proof.id];
+                    if (!value) return null;
+                    const ratio = (proof.id === "high-jump" || proof.id === "long-jump") && value.measurement != null && test.result.height
+                      ? (100 * value.measurement / test.result.height).toLocaleString("it-IT", { maximumFractionDigits: 1 }) + "% della statura" : null;
+                    return <li key={proof.id} className="space-y-1 py-2"><strong>{proof.title}</strong><p className="text-muted-foreground">{[
+                      value.measurement != null ? value.measurement + " " + proof.unit : null,
+                      value.score != null ? value.score + "/10" : null, ratio,
+                    ].filter(Boolean).join(" · ")}</p>{value.notes && <p className="break-words">{value.notes}</p>}</li>;
+                  })}
+                </ul>
+              </details>)}
+            </div>}
             {data.fitnessTests.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">Nessun test registrato.</p>
+              data.motorTests?.length ? null : <p className="mt-2 text-sm text-muted-foreground">Nessun test registrato.</p>
             ) : (
               <div className="mt-2 space-y-1.5">
                 {data.fitnessTests.map((test) => (

@@ -41,7 +41,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     if (process.argv.includes("--extra-time") || process.argv.includes("--payment-desk") || process.argv.includes("--withdrawals") || process.argv.includes("--document-files")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as secretary} from '../../artifacts/api-server/src/routes/secretary';");
     }
-    if (process.argv.includes("--fitness-results")) {
+    if (process.argv.includes("--fitness-results") || process.argv.includes("--motor-tests")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as fitness} from '../../artifacts/api-server/src/routes/fitness';");
     }
     if (process.argv.includes("--withdrawals")) {
@@ -267,6 +267,50 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       assert.deepEqual(firstChild.data.map(item => item.type).sort(), ["match_callup", "training_conduct", "training_conduct"]);
       assert.deepEqual(sibling.data, []);
       console.log("Callup permissions, weekly attendance, separate conduct, publication deduplication and sibling scope OK");
+      return;
+    }
+    if (process.argv.includes("--motor-tests")) {
+      await pg.exec(`UPDATE teams SET coach_id=3 WHERE id=11;
+        INSERT INTO users(id,first_name,last_name) VALUES(3,'Coach','Test');
+        UPDATE players SET club_section='scuola_calcio',status='active',height=130 WHERE id=101;
+        UPDATE players SET club_section='scuola_calcio',status='active' WHERE id=102;
+        INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,duration_minutes,status,session_kind,created_by_user_id)
+          VALUES(900,1,11,'Seduta test','2026-11-17T16:30:00Z',75,'scheduled','regular',3);
+        INSERT INTO training_attendances(id,club_id,training_session_id,player_id,status) VALUES(900,1,900,101,'present');`);
+      const staff = { "x-role": "fitness_coach", "x-user": "3" };
+      const endpoint = "/motor-tests/12121212-1212-1212-1212-121212121212";
+      const save = (data, headers = staff, path = endpoint) => fetch(base + path, { method: "PUT", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(data) });
+      const test = { revision: 0, teamId: 11, date: "2026-11-17", cycle: "start", trainingSessionId: 900, tests: [
+        { id: "anthropometry", minutes: 5, phase: "iniziale", link: false },
+        { id: "high-jump", minutes: 8, phase: "centrale", link: true },
+        { id: "long-jump", minutes: 8, phase: "centrale", link: false },
+      ], results: { "101": { height: 135, weight: 28.4, tests: { "high-jump": { measurement: 27.5, score: 8, notes: "Atterraggio stabile" },
+        "long-jump": { measurement: 121, score: 7, notes: "Spinta" } } } } };
+      const context = await call("/motor-tests/context?teamId=11&date=2026-11-17&trainingSessionId=900", staff);
+      assert.equal(context.status, 200, JSON.stringify(context.data));
+      assert.equal(context.data.players.find(player => player.id === 101).coach, "present");
+      assert.equal((await save(test, { "x-role": "coach", "x-user": "3" })).status, 403);
+      assert.equal((await save({ ...test, teamId: 12 })).status, 403);
+      assert.equal((await save({ ...test, date: "2026-11-18" })).status, 400);
+      const saved = await save(test);
+      const body = await saved.json();
+      assert.equal(saved.status, 200, JSON.stringify(body));
+      assert.equal(body.results[101].tests["high-jump"].measurement, 27.5);
+      assert.equal(body.results[101].tests["long-jump"].notes, "Spinta");
+      assert.equal((await save(test)).status, 409);
+      const updated = await save({ ...test, revision: 1, results: { ...test.results, "101": { ...test.results[101], weight: 40 } } });
+      assert.equal(updated.status, 200, await updated.text());
+      const [profile] = (await pg.query("SELECT height,weight,profile_history FROM players WHERE id=101")).rows;
+      assert.equal(profile.height, 130);
+      assert.equal(profile.weight, 28);
+      assert.equal(profile.profile_history.entry.weight, 28);
+      assert.equal(profile.profile_history.entry.height, 130);
+      const exercises = (await pg.query("SELECT e.title FROM exercises e JOIN training_session_exercises x ON x.exercise_id=e.id WHERE x.training_session_id=900")).rows;
+      assert.deepEqual(exercises, [{ title: "Salto in alto da fermo" }]);
+      const summary = await call("/players/101/activity-summary", { "x-role": "admin" });
+      assert.equal(summary.status, 200, JSON.stringify(summary.data));
+      assert.equal(summary.data.motorTests[0].result.tests["high-jump"].score, 8);
+      console.log("PASS motor tests: separate results, staff roles, attendance, initial measurements and exercise linkage");
       return;
     }
     if (process.argv.includes("--fitness-results")) {
