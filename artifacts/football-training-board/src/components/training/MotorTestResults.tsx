@@ -31,7 +31,7 @@ export function MotorTestResults({ tests }: { tests: MotorTestHistory[] }) {
             return <li key={proof.id} className="space-y-1 py-2"><strong>{proof.title}</strong><p className="text-muted-foreground">{[
               value.measurement != null ? value.measurement + " " + proof.unit : null,
               value.score != null ? value.score + "/10" : null, ratio,
-              proof.id !== "anthropometry" && missing ? missing + " da inserire" : null,
+              missing ? missing + " da inserire" : null,
             ].filter(Boolean).join(" · ")}</p>{value.notes && <p className="break-words">{value.notes}</p>}</li>;
           })}
         </ul>

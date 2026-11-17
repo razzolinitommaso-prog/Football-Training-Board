@@ -196,6 +196,38 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+
+    if (process.argv.includes("--fitness-match-readonly")) {
+      await pg.exec("INSERT INTO users(id,first_name,last_name) VALUES(3,'Staff','Assigned'); INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(3,1,3,11,'coach')");
+      const before = await pg.query("SELECT match_plan FROM matches WHERE id=501");
+      for (const role of ["fitness_coach", "athletic_director"]) {
+        const headers = { "x-role": role, "x-user": "3", "content-type": "application/json" };
+        assert.equal((await call("/matches/501/callups", headers)).status, 200);
+        for (const [url, method, body] of [
+          ["/matches/501/plan", "PUT", { playerIds: [101,102], matchPlan: plan }],
+          ["/matches/501", "PATCH", { matchPlan: plan }],
+          ["/matches/501/callups", "POST", { playerId: 101 }],
+          ["/callups/1", "PATCH", { status: "confirmed" }],
+          ["/callups/1", "DELETE", {}],
+          ["/matches/501/callups/publish", "POST", {}],
+          ["/matches/501/meeting", "PATCH", { convocationAt: "2026-10-10T14:00:00Z", convocationPlace: "Campo" }],
+          ["/matches/501/report-confirmation", "POST", {}],
+        ]) {
+          const response = await fetch(base+url, { method, headers, body: JSON.stringify(body) });
+          assert.equal(response.status, 403, role+" "+method+" "+url+" "+await response.text());
+        }
+        assert.equal((await call("/matches/502/callups", headers)).status, 403);
+      }
+      assert.equal((await call("/matches/501/callups", {"x-role":"coach","x-user":"3"})).status, 200);
+      const coachMeeting = await fetch(base+"/matches/501/callups", { method:"POST",
+        headers:{"x-role":"coach","x-user":"3","content-type":"application/json"},
+        body: JSON.stringify({playerId:101}) });
+      assert.equal(coachMeeting.status, 200, await coachMeeting.text());
+      assert.deepEqual((await pg.query("SELECT match_plan FROM matches WHERE id=501")).rows, before.rows);
+      assert.equal((await pg.query("SELECT id FROM call_ups WHERE match_id=501")).rows.length, 2);
+      console.log("PASS fitness match readonly: assigned viewing, all callup/lineup writes denied, coach callup preserved");
+      return;
+    }
     if (process.argv.includes("--dashboard-preparation")) {
       await pg.exec(`
         INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,status,session_kind,notes) VALUES

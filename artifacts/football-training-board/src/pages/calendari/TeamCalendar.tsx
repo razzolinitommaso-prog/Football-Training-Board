@@ -4723,8 +4723,8 @@ export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCale
     canImportExport ||
     role === "technical_director" ||
     (["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && isAssignedStaffForTeam);
-  const canManageMatchPlan = ["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && isAssignedStaffForTeam;
-  const canViewMatchPlan = canManageMatchPlan || role === "technical_director";
+  const canManageMatchPlan = role === "coach" && isAssignedStaffForTeam;
+  const canViewMatchPlan = (["coach", "fitness_coach", "athletic_director"].includes(role ?? "") && isAssignedStaffForTeam) || role === "technical_director";
   const inferredTeamSection = inferMatchSectionFromTeam(team?.name, team?.category);
   const currentSection: MatchSection =
     inferredTeamSection ??

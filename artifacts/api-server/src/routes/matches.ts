@@ -82,7 +82,7 @@ const POST_NOTES_ROLES = [
   "athletic_director",
   "technical_director",
 ];
-const MATCH_PLAN_EDIT_ROLES = ["coach", "fitness_coach", "athletic_director"];
+const MATCH_PLAN_EDIT_ROLES = ["coach"];
 const MATCH_PLAN_VIEW_ROLES = ["coach", "fitness_coach", "athletic_director", "technical_director"];
 const MATCH_SECTION_VALUES = new Set(["scuola_calcio", "settore_giovanile", "prima_squadra"]);
 const DISCIPLINE_CARD_TYPES = new Set(["giallo", "doppio_giallo", "rosso"]);
@@ -469,6 +469,11 @@ async function sameDayCallupConflicts(clubId: number, match: typeof matchesTable
 async function userCanManageAssignedTeamMatch(userId: number, clubId: number, role: string, teamId: number | null): Promise<boolean> {
   if (!teamId) return false;
   if (!MATCH_PLAN_EDIT_ROLES.includes(role)) return false;
+  return userIsAssignedToMatchTeam(userId, clubId, teamId);
+}
+
+async function userIsAssignedToMatchTeam(userId: number, clubId: number, teamId: number | null): Promise<boolean> {
+  if (!teamId) return false;
   const [assignment] = await db
     .select({ id: teamStaffAssignmentsTable.id })
     .from(teamStaffAssignmentsTable)
@@ -485,7 +490,7 @@ async function userCanViewMatchPlan(userId: number, clubId: number, role: string
   if (["admin", "presidente", "director", "secretary", "sporting_director"].includes(role)) return true;
   if (role === "technical_director") return true;
   if (!MATCH_PLAN_VIEW_ROLES.includes(role)) return false;
-  return userCanManageAssignedTeamMatch(userId, clubId, role, teamId);
+  return userIsAssignedToMatchTeam(userId, clubId, teamId);
 }
 
 async function enrichMatch(match: typeof matchesTable.$inferSelect) {
