@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { buildTextPdfBlob } from "@/lib/callup-pdf";
 import { motorTestCatalog, motorTestCycles, motorTestCompletion, motorCompletionLabels, summarizeMotorTests, type MotorTestSession } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
 import { exportMultiSheet } from "@/lib/excel-export";
@@ -37,7 +37,7 @@ function reportSheets(draft: MotorTestSession, roster: ExportPlayer[], team: str
         const value = results?.tests[item.id];
         const jump = item.id === "high-jump" || item.id === "long-jump";
         return {
-          Giocatore: player.name, "Stato test": motorCompletionLabels[completion.status], "Prove complete": completion.completed + "/" + completion.total, Prova: item.info.title,
+          Giocatore: player.name, "Stato test": motorCompletionLabels[completion.status], "Prove eseguite": completion.completed + "/" + completion.total, "Valutazioni complete": completion.assessed + "/" + completion.total, Prova: item.info.title,
           "Statura (cm)": item.id === "anthropometry" ? results?.height ?? "" : "",
           "Peso (kg)": item.id === "anthropometry" ? results?.weight ?? "" : "",
           Misura: value?.measurement ?? "", "Unità": item.info.unit,
@@ -50,54 +50,67 @@ function reportSheets(draft: MotorTestSession, roster: ExportPlayer[], team: str
 }
 
 export function MotorTestExport({ session, roster, team }: { session: MotorTestSession; roster: ExportPlayer[]; team: string }) {
-  const [printedSheets, setPrintedSheets] = useState<ReturnType<typeof reportSheets>>();
-  useEffect(() => {
-    const close = () => setPrintedSheets(undefined);
-    window.addEventListener("afterprint", close);
-    return () => window.removeEventListener("afterprint", close);
-  }, []);
-  return <>
+  const [pdfUrl, setPdfUrl] = useState<string>();
+  const [error, setError] = useState("");
+  useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
+  const filename = "test-motori-" + session.date;
+  function exportPdf() {
+    setError("");
+    try {
+      const sheets = reportSheets(session, roster, team);
+      const report = [{ heading: "TEST MOTORI - " + team, lines: [
+        dayLabel(session.date) + " - " + motorTestCycles[session.cycle],
+        session.tests.length + " prove - " + session.tests.reduce((sum, test) => sum + test.minutes, 0) + " minuti complessivi",
+      ] }];
+      for (const row of sheets[1].rows) {
+        const item = row as Record<string, string | number>;
+        report.push({ heading: String(item.Prova), lines: [
+          "Durata: " + item.Minuti + " min - Obiettivo: " + item.Obiettivo,
+          "Materiali: " + item.Materiali,
+          "Esecuzione: " + item["Allestimento ed esecuzione"],
+        ] });
+      }
+      report.push({ heading: "Presenze", lines: sheets[2].rows.map(row => {
+        const item = row as Record<string, string | number>;
+        return item.Giocatore + " - Famiglia: " + (item["Disponibilità famiglia"] || "In attesa") + " - Appello: " + (item["Appello del mister"] || "Da registrare");
+      }) });
+      const byPlayer = new Map<string, Record<string, string | number>[]>();
+      for (const row of sheets[3].rows) {
+        const item = row as Record<string, string | number>;
+        const name = String(item.Giocatore);
+        const rows = byPlayer.get(name) ?? [];
+        rows.push(item); byPlayer.set(name, rows);
+      }
+      for (const [name, rows] of byPlayer) {
+        const anthropometry = rows.find(row => row["Statura (cm)"] !== "" || row["Peso (kg)"] !== "");
+        const lines = [rows[0]["Stato test"] + " - " + rows[0]["Prove eseguite"] + " prove eseguite", "Valutazioni complete: " + rows[0]["Valutazioni complete"]];
+        if (rows[0]["Indice (%)"] !== "") lines.push("Indice attuale: " + rows[0]["Indice (%)"] + "%");
+        if (anthropometry) lines.push("Statura: " + (anthropometry["Statura (cm)"] || "-") + " cm - Peso: " + (anthropometry["Peso (kg)"] || "-") + " kg");
+        for (const row of rows) {
+          if (row.Prova !== "Antropometria") lines.push(String(row.Prova) + " - " + (row.Misura !== "" ? row.Misura + " " + row["Unità"] : "Misura da rilevare") +
+            " - Voto: " + (row["Voto (1–10)"] !== "" ? row["Voto (1–10)"] + "/10" : "-"));
+          if (row["% statura"] !== "") lines.push("Misura relativa: " + row["% statura"] + "% della statura");
+          if (row.Note) lines.push("Note " + row.Prova + ": " + row.Note);
+        }
+        report.push({ heading: "Risultati - " + name, lines });
+      }
+      const url = URL.createObjectURL(buildTextPdfBlob(report));
+      setPdfUrl(url);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename + ".pdf";
+      link.style.display = "none";
+      document.body.append(link);
+      link.click();
+      link.remove();
+    } catch { setError("PDF non generato. Riprova con Esporta PDF."); }
+  }
+  return <div className="space-y-2">
     <div className="flex flex-wrap gap-2">
-      <Button type="button" size="sm" variant="outline" onClick={() => exportMultiSheet(reportSheets(session, roster, team), "test-motori-" + session.date + ".xlsx")}>Esporta Excel</Button>
-      <Button type="button" size="sm" variant="outline" onClick={() => {
-        const sheets = reportSheets(session, roster, team);
-        flushSync(() => setPrintedSheets(sheets));
-        window.print();
-      }}>Stampa / PDF</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => exportMultiSheet(reportSheets(session, roster, team), filename + ".xlsx")}>Esporta Excel</Button>
+      <Button type="button" size="sm" variant="outline" onClick={exportPdf}>Esporta PDF</Button>
+      {pdfUrl && <a className="inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium text-primary" href={pdfUrl} target="_blank" rel="noopener noreferrer">Apri PDF e stampa</a>}
     </div>
-    {printedSheets && createPortal(
-      <div id="motor-test-print">
-        <style>{`
-          #motor-test-print { display: none; }
-          @media print {
-            @page { size: A4 landscape; margin: 12mm; }
-            body > :not(#motor-test-print) { display: none !important; }
-            html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
-            body #motor-test-print { display: block; color: #18242f; font: 10pt/1.4 system-ui, sans-serif; }
-            #motor-test-print h1 { font-size: 18pt; margin: 0 0 3mm; }
-            #motor-test-print h2 { font-size: 12pt; margin: 5mm 0 2mm; break-after: avoid; }
-            #motor-test-print table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
-            #motor-test-print thead { display: table-header-group; }
-            #motor-test-print tr { break-inside: avoid; }
-            #motor-test-print :is(th, td) { text-align: left; vertical-align: top; padding: 1.5mm 2mm; border: .2mm solid #b9c3cd; overflow-wrap: anywhere; }
-            #motor-test-print th { font-weight: 700; }
-          }
-        `}</style>
-        <h1>Test motori · {team}</h1>
-        <p>{dayLabel(session.date)} · {motorTestCycles[session.cycle]}</p>
-        {printedSheets.map(sheet => {
-          const columns = Object.keys(sheet.rows[0] ?? {});
-          return <section key={sheet.name}>
-            <h2>{sheet.name}</h2>
-            {columns.length ? <table>
-              <thead><tr>{columns.map(column => <th scope="col" key={column}>{column}</th>)}</tr></thead>
-              <tbody>{sheet.rows.map((row, index) => <tr key={index}>
-                {columns.map(column => <td key={column}>{String((row as Record<string, string | number>)[column] ?? "") || "—"}</td>)}
-              </tr>)}</tbody>
-            </table> : <p>Nessun dato.</p>}
-          </section>;
-        })}
-      </div>, document.body,
-    )}
-  </>;
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+  </div>;
 }

@@ -1242,16 +1242,24 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
   const measurementScope = await getPlayerMeasurementTeamScope(req);
   const showProfile = measurementScope === null || teamIds.some(id => canAccessPlayerMeasurements(measurementScope, id));
   const motorTests = showProfile ? await motorTestHistory(clubId, player.id, teamIds) : [];
-  const lastHeight = fitnessData.find(entry => entry.heightCm != null);
-  const lastWeight = fitnessData.find(entry => entry.weightKg != null);
+  const legacyHeight = fitnessData.find(entry => entry.heightCm != null);
+  const legacyWeight = fitnessData.find(entry => entry.weightKg != null);
+  const motorHeight = motorTests.find(entry => entry.result.height != null);
+  const motorWeight = motorTests.find(entry => entry.result.weight != null);
+  const height = motorHeight && (!legacyHeight || motorHeight.date >= legacyHeight.date)
+    ? { value: motorHeight.result.height, date: motorHeight.date }
+    : legacyHeight ? { value: legacyHeight.heightCm, date: legacyHeight.date } : null;
+  const weight = motorWeight && (!legacyWeight || motorWeight.date >= legacyWeight.date)
+    ? { value: motorWeight.result.weight, date: motorWeight.date }
+    : legacyWeight ? { value: legacyWeight.weightKg, date: legacyWeight.date } : null;
   const lastObservedRole = fitnessData.find(entry => entry.observedRole != null);
   res.json({
     period: { start, through },
     profile: showProfile ? {
       entry: profileEntryForPlayer(player),
       changes: player.profileHistory?.changes ?? [],
-      height: lastHeight ? { value: lastHeight.heightCm, date: lastHeight.date } : null,
-      weight: lastWeight ? { value: lastWeight.weightKg, date: lastWeight.date } : null,
+      height,
+      weight,
       observedRole: lastObservedRole ? { value: lastObservedRole.observedRole, date: lastObservedRole.date } : null,
     } : undefined,
     conduct: {

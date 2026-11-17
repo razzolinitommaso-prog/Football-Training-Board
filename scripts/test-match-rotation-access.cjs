@@ -316,6 +316,8 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       const summary = await call("/players/101/activity-summary", { "x-role": "admin" });
       assert.equal(summary.status, 200, JSON.stringify(summary.data));
       assert.equal(summary.data.motorTests[0].result.tests["high-jump"].score, 8);
+      assert.deepEqual(summary.data.profile.height, { value: 135, date: "2026-11-17" });
+      assert.deepEqual(summary.data.profile.weight, { value: 40, date: "2026-11-17" });
       assert.equal(summary.data.motorTests[0].tests.length, 3);
       const notTested = await call("/players/102/activity-summary", { "x-role": "admin" });
       assert.equal(notTested.status, 200, JSON.stringify(notTested.data));

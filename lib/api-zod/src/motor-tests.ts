@@ -55,14 +55,15 @@ export function summarizeMotorTests(history: MotorTestHistory[]) {
 }
 
 export function motorTestCompletion(tests: MotorTestInput["tests"], result?: MotorPlayerResult) {
-  let complete = 0, started = 0;
+  let complete = 0, assessed = 0, started = 0;
   for (const test of tests) {
     const row = result?.tests[test.id];
     const anthropometry = test.id === "anthropometry";
-    const measured = anthropometry ? result?.height != null && result.weight != null : row?.measurement != null && row.score != null;
+    const measured = anthropometry ? result?.height != null && result.weight != null : row?.measurement != null;
     if (measured) complete++;
+    if (measured && (anthropometry || row?.score != null)) assessed++;
     if (measured || row?.measurement != null || row?.score != null || (anthropometry && (result?.height != null || result?.weight != null))) started++;
   }
-  return { completed: complete, total: tests.length, status: tests.length > 0 && complete === tests.length ? "complete" as const : started > 0 ? "partial" as const : "not-started" as const };
+  return { completed: complete, assessed, total: tests.length, status: tests.length > 0 && complete === tests.length ? "complete" as const : started > 0 ? "partial" as const : "not-started" as const };
 }
 export const motorCompletionLabels = { complete: "Test completato", partial: "Test parziale", "not-started": "Test da eseguire" };

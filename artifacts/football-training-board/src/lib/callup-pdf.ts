@@ -173,7 +173,24 @@ export function buildCallupPdfBlob(input: {
 }): Blob {
   const { match } = input;
   const players = [...input.players].sort((a, b) => playerLabel(a).localeCompare(playerLabel(b), "it"));
-  const pages = buildCallupPages(match, players);
+  return buildPdfPagesBlob(buildCallupPages(match, players));
+}
+
+export function buildTextPdfBlob(sections: { heading: string; lines: string[] }[]): Blob {
+  const state = { pages: [] as PdfPage[], page: [] as PdfPage, y: 790 };
+  for (const section of sections) {
+    for (const text of wrapText(section.heading, 70)) addFlowLine(state, { text, size: 13, bold: true, gap: 22 });
+    for (const line of section.lines) {
+      for (const text of wrapText(line.replaceAll("€", "EUR"), 86)) addFlowLine(state, { text, size: 10, gap: 14 });
+    }
+  }
+  if (state.page.length) state.pages.push(state.page);
+  if (!state.pages.length) state.pages.push([]);
+  state.pages.forEach((page, index) => page.push({ text: "Pagina " + (index + 1) + " / " + state.pages.length, size: 9, x: 50, y: 30 }));
+  return buildPdfPagesBlob(state.pages);
+}
+
+function buildPdfPagesBlob(pages: PdfPage[]): Blob {
   const pageObjectNumbers = pages.map((_, index) => 3 + index);
   const font1Object = 3 + pages.length;
   const font2Object = 4 + pages.length;
