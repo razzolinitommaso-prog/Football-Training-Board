@@ -1,3 +1,4 @@
+import { eligibilityLabels } from "@/components/dashboard/CallupRulesCard";
 import { useState, type ReactNode } from "react";
 import type {
   MatchRotationSummary,
@@ -24,6 +25,7 @@ type RosterPlayer = {
   called: boolean;
   disabled?: boolean;
   note?: string;
+  state?: keyof typeof eligibilityLabels;
 };
 const number = (n: number) =>
   n.toLocaleString("it-IT", { maximumFractionDigits: 2 });
@@ -118,9 +120,10 @@ export function MatchCallupRoster({ roster, onCallup }: {
   const [search, setSearch] = useState("");
   const [all, setAll] = useState(false);
   const called = roster.filter((p) => p.called);
+  const showChecks = roster.some(p => p.state);
   const rosterVisible = roster.filter(
     (p) =>
-      (all || p.called || !called.length) &&
+      (showChecks || all || p.called || !called.length) &&
       p.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
   );
   return (
@@ -132,7 +135,7 @@ export function MatchCallupRoster({ roster, onCallup }: {
         <h4 className="text-sm font-semibold">
           Convocati · {called.length}
         </h4>
-        <Button
+        {!showChecks && <Button
           type="button"
           size="sm"
           variant="outline"
@@ -141,9 +144,9 @@ export function MatchCallupRoster({ roster, onCallup }: {
           onClick={() => setAll(!all)}
         >
           {all ? "Mostra convocati" : "Modifica convocati"}
-        </Button>
+        </Button>}
       </div>
-      {(all || !called.length) && (
+      {(showChecks || all || !called.length) && (
         <Input
           className="mb-2 h-8 text-xs"
           aria-label="Cerca convocato"
@@ -154,12 +157,18 @@ export function MatchCallupRoster({ roster, onCallup }: {
       )}
       <div
         className={
-          all || !called.length
+          showChecks ? "divide-y" : all || !called.length
             ? "grid gap-x-3 sm:grid-cols-2"
             : "flex flex-wrap gap-1.5"
         }
       >
-        {rosterVisible?.map((p) => (
+        {rosterVisible?.map((p) => showChecks ? (
+          <label key={p.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_8rem_6rem]">
+            <span className="min-w-0 break-words"><strong>{p.name}</strong>{p.note && <span className="block text-xs text-muted-foreground">{p.note}</span>}</span>
+            <span className={"justify-self-start rounded-full px-2 py-1 text-xs " + (p.state === "eligible" ? "bg-emerald-100 text-emerald-800" : p.state === "blocked" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-900")}>{p.state && eligibilityLabels[p.state]}</span>
+            <span className="col-start-2 flex items-center gap-2 justify-self-end text-xs sm:col-start-auto"><Checkbox checked={p.called} disabled={(p.disabled && !p.called) || !onCallup} aria-label={"Convoca " + p.name} onCheckedChange={value => onCallup?.(p.id, value === true)} />Convoca</span>
+          </label>
+        ) : (
           <label
             key={p.id}
             className={
@@ -171,7 +180,7 @@ export function MatchCallupRoster({ roster, onCallup }: {
           >
             <Checkbox
               checked={p.called}
-              disabled={p.disabled || !onCallup}
+              disabled={(p.disabled && !p.called) || !onCallup}
               aria-label={"Convoca " + p.name}
               onCheckedChange={(v) => {
                 if (!called.length) setAll(true);

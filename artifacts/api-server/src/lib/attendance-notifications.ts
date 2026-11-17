@@ -1,11 +1,13 @@
+import { ensureCallupRulesStorage, notifyChild } from "./callup-rule-storage";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { db, trainingAttendancesTable, trainingSessionsTable, playersTable, parentPlayerRelationsTable, parentNotificationsTable } from "@workspace/db";
+import { db, trainingAttendancesTable, trainingSessionsTable, playersTable } from "@workspace/db";
 import { removeAbsentFromSessionPlan } from "./training-session-attendance";
 import { sendParentNotificationEmail } from "./parent-email";
 
 export const staffAttendance = sql`NOT (${trainingAttendancesTable.status} IN ('requested', 'absent') AND COALESCE(${trainingAttendancesTable.notes}, '') LIKE 'Genitore:%')`;
 
 export async function saveAttendanceAndNotify(input:{clubId:number;sessionId:number;playerId:number;id?:number;status?:string;notes?:string|null}) {
+  await ensureCallupRulesStorage();
   const result=await db.transaction(async tx=>{
     // Serialize appello and station planning for the same session.
     await tx.execute(sql`SELECT id FROM training_sessions WHERE id=${input.sessionId} AND club_id=${input.clubId} FOR UPDATE`);
@@ -16,7 +18,10 @@ export async function saveAttendanceAndNotify(input:{clubId:number;sessionId:num
     const status=input.status??existing?.status??"present";
     const legacyParent=Boolean(existing&&["requested","absent"].includes(existing.status)&&(existing.notes??"").startsWith("Genitore:"));
     const incomingNotes=input.notes===undefined?existing?.notes:input.notes;
-    const cleanNotes=(incomingNotes??"").startsWith("Genitore:")?null:incomingNotes;
+    const prefix = "[FTB_ATTENDANCE_META]";
+    const legacyMeta = existing?.notes?.split(/\r?\n/).find(line => line.startsWith(prefix));
+    const userNotes = (incomingNotes ?? "").startsWith("Genitore:") ? [] : (incomingNotes ?? "").split(/\r?\n/).filter(line => !line.startsWith(prefix));
+    const cleanNotes = [...userNotes, legacyMeta].filter(Boolean).join("\n") || null;
     const [record]=existing?await tx.update(trainingAttendancesTable).set({status,notes:cleanNotes}).where(eq(trainingAttendancesTable.id,existing.id)).returning():await tx.insert(trainingAttendancesTable).values({clubId:input.clubId,trainingSessionId:input.sessionId,playerId:input.playerId,status,notes:cleanNotes??null}).returning();
     if(["absent","injured"].includes(status))await removeAbsentFromSessionPlan(tx,input.clubId,input.sessionId,input.playerId);
     const messages:{parentUserId:number;title:string;message:string}[]=[];
@@ -24,11 +29,11 @@ export async function saveAttendanceAndNotify(input:{clubId:number;sessionId:num
       const [player]=await tx.select({firstName:playersTable.firstName,lastName:playersTable.lastName}).from(playersTable).where(and(eq(playersTable.clubId,input.clubId),eq(playersTable.id,input.playerId))).limit(1);
       const [session]=await tx.select({title:trainingSessionsTable.title,scheduledAt:trainingSessionsTable.scheduledAt}).from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,input.clubId),eq(trainingSessionsTable.id,input.sessionId))).limit(1);
       if(!player||!session)throw new Error("Seduta o giocatore non disponibili");
-      const parents=await tx.select({id:parentPlayerRelationsTable.parentUserId}).from(parentPlayerRelationsTable).where(eq(parentPlayerRelationsTable.playerId,input.playerId));
       const correction=!legacyParent&&existing&&(existing.status==="present"||existing.status==="absent");
       const title=correction?"Aggiornamento appello allenamento":"Appello allenamento";
       const message=`${correction?"Rettifica: ":""}${player.firstName} ${player.lastName} risulta ${status==="present"?"presente":"assente"} all'allenamento "${session.title}" del ${session.scheduledAt.toLocaleString("it-IT",{timeZone:"Europe/Rome"})}.`;
-      for(const parentUserId of new Set(parents.map(parent=>parent.id))){await tx.insert(parentNotificationsTable).values({clubId:input.clubId,parentUserId,type:"training_attendance",title,message});messages.push({parentUserId,title,message});}
+      const parents = await notifyChild(tx, { clubId: input.clubId, playerId: input.playerId, type: "training_attendance", title, message });
+      messages.push(...parents.map(parentUserId => ({ parentUserId, title, message })));
     }
     return {record,created:!existing,messages};
   });

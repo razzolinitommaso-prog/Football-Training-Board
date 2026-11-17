@@ -1,3 +1,6 @@
+import { conductLabels, type Conduct } from "../lib/callup-rules";
+import { ensureCallupRulesStorage, notifyChild, sqlRows } from "../lib/callup-rule-storage";
+import { sendParentNotificationEmail } from "../lib/parent-email";
 import { WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { activeTrainingGroup } from "../lib/joint-training-program";
 import { splitPublicNotesAndPlan } from "../lib/match-plan-notes";
@@ -392,6 +395,58 @@ router.get("/attendance-summary", requireAuth, async (req, res): Promise<void> =
   }
 
   res.json(summaries);
+});
+
+router.get("/attendance/conduct/:sessionId", requireAuth, async (req, res): Promise<void> => {
+  const sessionId = Number(req.params.sessionId);
+  const { userId, clubId, role } = req.session;
+  if (!userId || !clubId || !Number.isSafeInteger(sessionId) || !await userCanReadAttendance(userId, clubId, role ?? "", sessionId)) {
+    res.sendStatus(403); return;
+  }
+  await ensureCallupRulesStorage();
+  const reviews = sqlRows<{ playerId: number; conduct: Conduct; note: string }>(await db.execute(sql`
+    SELECT player_id AS "playerId", conduct, note FROM training_conduct_reviews WHERE club_id = ${clubId} AND session_id = ${sessionId}
+  `));
+  res.json(reviews);
+});
+
+router.put("/attendance/conduct/:sessionId", requireAuth, async (req, res): Promise<void> => {
+  const sessionId = Number(req.params.sessionId);
+  const { userId, clubId, role } = req.session;
+  if (!userId || !clubId || role !== "coach" || !Number.isSafeInteger(sessionId) ||
+      !await userCanManageAttendanceForSession(userId, clubId, role, sessionId)) { res.sendStatus(403); return; }
+  const playerId = Number(req.body?.playerId);
+  const conduct = req.body?.conduct as Conduct;
+  const note = typeof req.body?.note === "string" ? req.body.note.trim() : "";
+  if (!Number.isSafeInteger(playerId) || !Object.hasOwn(conductLabels, conduct) || note.length > 2000 || (conduct === "insufficiente" && !note)) {
+    res.status(400).json({ error: "Seleziona la condotta e indica una motivazione per Insufficiente." }); return;
+  }
+  const session = await getSessionForAttendance(sessionId, clubId);
+  if (!session || session.scheduledAt > new Date() || ["cancelled", "canceled"].includes(session.status ?? "") ||
+      !await playerIsValidForSession(playerId, clubId, sessionId)) {
+    res.status(400).json({ error: "La condotta si registra per un giocatore della seduta, durante o dopo l’allenamento." }); return;
+  }
+  await ensureCallupRulesStorage();
+  const message = await db.transaction(async tx => {
+    const updated = sqlRows<{ playerId: number }>(await tx.execute(sql`
+      INSERT INTO training_conduct_reviews (club_id, session_id, player_id, conduct, note)
+      VALUES (${clubId}, ${sessionId}, ${playerId}, ${conduct}, ${note})
+      ON CONFLICT (session_id, player_id) DO UPDATE SET conduct = EXCLUDED.conduct, note = EXCLUDED.note
+      WHERE training_conduct_reviews.conduct IS DISTINCT FROM EXCLUDED.conduct
+         OR training_conduct_reviews.note IS DISTINCT FROM EXCLUDED.note
+      RETURNING player_id AS "playerId"
+    `));
+    if (!updated.length) return null;
+    const [player] = await tx.select({ firstName: playersTable.firstName, lastName: playersTable.lastName }).from(playersTable)
+      .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)));
+    const title = "Condotta allenamento";
+    const text = `${player.firstName} ${player.lastName} · ${trainingLocalDate(session.scheduledAt)} · Condotta: ${conductLabels[conduct]}.${note ? " Motivazione: " + note : ""}`;
+    const parents = await notifyChild(tx, { clubId, playerId, type: "training_conduct", title, message: text });
+    return { title, text, parents };
+  });
+  if (message) await Promise.allSettled(message.parents.slice(0, 1).map(parentUserId =>
+    sendParentNotificationEmail({ parentUserId, clubId, playerId, title: message.title, message: message.text })));
+  res.json({ playerId, conduct, note });
 });
 
 router.post("/attendance", requireAuth, async (req, res): Promise<void> => {

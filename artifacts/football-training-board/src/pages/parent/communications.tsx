@@ -9,6 +9,8 @@ async function apiFetch(path: string) {
   return res.json();
 }
 
+const childMessageLabels: Record<string, string> = { training_attendance: "Appello", training_conduct: "Condotta", match_callup: "Convocazione", match_callup_status: "Convocazione" };
+
 const typeIcons: Record<string, any> = {
   info: Info,
   warning: AlertTriangle,
@@ -73,7 +75,7 @@ export default function ParentCommunications() {
                   </div>
                   <p className="text-sm text-muted-foreground mt-1">{comm.message}</p>
                   {comm.type && (
-                    <Badge variant="outline" className="mt-2 text-xs capitalize">{comm.type}</Badge>
+                    <Badge variant="outline" className="mt-2 text-xs capitalize">{childMessageLabels[comm.type] ?? comm.type}</Badge>
                   )}
                 </div>
               </div>

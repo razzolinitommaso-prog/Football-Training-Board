@@ -553,16 +553,16 @@ export function UnifiedOverview({
             ) : (
               <>
                 <button type="button" onClick={() => setAlertFilter("registration")}
-                  className="flex w-full justify-between gap-2 border-b py-3 text-left text-sm hover:text-primary">
+                  className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b py-3 text-left text-sm hover:text-primary">
                   <span>Tesseramento da verificare</span><strong className="tabular-nums">{registrations}</strong>
                 </button>
                 <button type="button" onClick={() => setAlertFilter("certificate")}
-                  className="flex w-full justify-between gap-2 pt-3 text-left text-sm hover:text-primary">
+                  className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 text-left text-sm hover:text-primary">
                   <span>Certificati scaduti o mancanti</span><strong className="tabular-nums">{certificates}</strong>
                 </button>
                 {overduePlayersState && <button type="button" onClick={() => setAlertFilter("overdue")}
                   disabled={overduePlayersState !== "success"}
-                  className="flex w-full items-center justify-between gap-2 border-t py-3 text-left text-sm hover:text-primary">
+                  className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t py-3 text-left text-sm hover:text-primary">
                   <span>Iscritti con pagamenti scaduti</span>
                   <strong className="shrink-0 tabular-nums">{overduePlayersState === "success" ? overdueCount + "/" + enrolledCount : "—"}</strong>
                 </button>}
@@ -624,9 +624,12 @@ export function UnifiedOverview({
                         )}
                       </span>
                       <span className="flex flex-wrap gap-1">
-                        {registration && <Badge variant="outline">Tesseramento da verificare</Badge>}
-                        {certificate && <Badge variant="outline">{certificate}</Badge>}
-                        {overdue && <Badge variant="outline" className="border-red-300 text-red-700 dark:text-red-300">Pagamento scaduto</Badge>}
+                        {registration && (alertFilter === "all" || alertFilter === "registration") && <Badge variant="outline">Tesseramento da verificare</Badge>}
+                        {certificate && (alertFilter === "all" || alertFilter === "certificate") && <Badge variant="outline">{certificate}</Badge>}
+                        {overdue && (alertFilter === "all" || alertFilter === "overdue") && <Badge variant="outline" className="border-red-300 text-red-700 dark:text-red-300">Pagamento scaduto</Badge>}
+                        {alertFilter !== "all" && [registration, certificate, overdue].filter(Boolean).length > 1 && (
+                          <Badge variant="secondary" aria-label="Altre segnalazioni">+{[registration, certificate, overdue].filter(Boolean).length - 1}</Badge>
+                        )}
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1 text-xs text-primary">Apri scheda <ArrowUpRight className="h-3 w-3" aria-hidden="true" /></span>

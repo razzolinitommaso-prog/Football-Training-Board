@@ -1,3 +1,4 @@
+import { CallupRulesCard } from "@/components/dashboard/CallupRulesCard";
 import { paymentViewRoles } from "@/lib/payment-summary";
 import { PlayerTestsDashboard } from "@/components/dashboard/PlayerTestsDashboard";
 import { useTechnicalScope, technicalSections } from "@/components/technical-scope";
@@ -2699,6 +2700,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
         </DialogContent>
       </Dialog>
 
+      <CallupRulesCard role={nr} teamId={workScope.teamId} section={workScope.section || sectionOverride} />
       <PlayerTestsDashboard
         role={nr}
         scopeLabel={workScope.teamId

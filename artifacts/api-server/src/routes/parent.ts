@@ -1,3 +1,4 @@
+import { childNotificationScope, ensureCallupRulesStorage } from "../lib/callup-rule-storage";
 import { parseDocumentUpload } from "../lib/document-upload";
 import { parentKitRows } from "../lib/warehouse-kit";
 import {buildMatchRotationSummary,parentPublicMatch,defaultRotationCapacity} from "@workspace/api-zod";
@@ -1159,41 +1160,51 @@ router.get("/parent/communications", requireParentSession, async (req, res): Pro
       .where(and(eq(playersTable.clubId, clubId), eq(playersTable.id, childId))).limit(1) : [],
   ]);
 
+  await ensureCallupRulesStorage();
+  const personal = childId ? await db.select().from(parentNotificationsTable).where(and(
+    eq(parentNotificationsTable.clubId, clubId), eq(parentNotificationsTable.parentUserId, req.session.userId!),
+    sql`EXISTS (SELECT 1 FROM scoped_parent_notifications WHERE notification_id = ${parentNotificationsTable.id} AND player_id = ${childId})`
+  )).orderBy(desc(parentNotificationsTable.createdAt)).limit(30) : [];
   const combined = [...clubAnnouncements, ...globalAnnouncements].flatMap(item => {
     if (item.type !== "calendar" || item.source !== "secretary") return [item];
     const message = calendarParentMessage(item.message, children[0]?.teamId ?? null);
     return message === null ? [] : [{ ...item, message }];
-  }).sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime()).slice(0, 30);
+  });
+  const feed = [...combined, ...personal.map(item => ({ id: -item.id, title: item.title, message: item.message, type: item.type, sentAt: item.createdAt }))]
+    .sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime()).slice(0, 30);
 
-  res.json(combined);
+  res.json(feed);
 });
 
 router.get("/parent/notifications", requireParentSession, async (req, res): Promise<void> => {
+  await ensureCallupRulesStorage();
   const rows = await db
     .select()
     .from(parentNotificationsTable)
-    .where(and(eq(parentNotificationsTable.parentUserId, req.session.userId!), eq(parentNotificationsTable.clubId, req.session.clubId!)))
+    .where(and(eq(parentNotificationsTable.parentUserId, req.session.userId!), eq(parentNotificationsTable.clubId, req.session.clubId!), childNotificationScope(getParentPlayerId(req))))
     .orderBy(desc(parentNotificationsTable.createdAt));
   res.json(rows);
 });
 
 router.patch("/parent/notifications/:id/read", requireParentSession, async (req, res): Promise<void> => {
+  await ensureCallupRulesStorage();
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const [row] = await db
     .update(parentNotificationsTable)
     .set({ isRead: true })
-    .where(and(eq(parentNotificationsTable.id, id), eq(parentNotificationsTable.parentUserId, req.session.userId!), eq(parentNotificationsTable.clubId, req.session.clubId!)))
+    .where(and(eq(parentNotificationsTable.id, id), eq(parentNotificationsTable.parentUserId, req.session.userId!), eq(parentNotificationsTable.clubId, req.session.clubId!), childNotificationScope(getParentPlayerId(req))))
     .returning();
   if (!row) { res.status(404).json({ error: "Notification not found" }); return; }
   res.json(row);
 });
 
 router.patch("/parent/notifications/read-all", requireParentSession, async (_req, res): Promise<void> => {
+  await ensureCallupRulesStorage();
   await db
     .update(parentNotificationsTable)
     .set({ isRead: true })
-    .where(and(eq(parentNotificationsTable.parentUserId, _req.session.userId!), eq(parentNotificationsTable.clubId, _req.session.clubId!)));
+    .where(and(eq(parentNotificationsTable.parentUserId, _req.session.userId!), eq(parentNotificationsTable.clubId, _req.session.clubId!), childNotificationScope(getParentPlayerId(_req))));
   res.sendStatus(204);
 });
 

@@ -119,3 +119,11 @@ mancano le coordinate, usa lo stesso modulo della vista dello staff.
 La Segreteria consulta il resoconto e gestisce la logistica e le note
 pre-partita. Il salvataggio del risultato e delle note post-partita segue
 i permessi di compilazione del resoconto.
+
+## Regole convocazioni per annata
+
+- DT, DG e DS salvano la regola dall’omonima card del Cruscotto, nei settori autorizzati. L’anteprima usa la prossima gara. Allenatori, preparatori e dirigenti consultano le regole per le squadre assegnate.
+- Si impostano da 1 a 5 allenamenti settimanali e il numero minimo di presenze. Si utilizzano le ultime sedute regolari valide della settimana della gara, a partire da lunedì, già iniziate prima del calcio d’inizio. Gli appelli incompleti richiedono verifica.
+- In Presenze → Condotta il mister salva una valutazione durante o dopo la seduta. Le note vengono comunicate alla famiglia. Per Insufficiente serve una motivazione. L’appello mostra la condotta in lettura. Per la gara vale l’ultima valutazione disponibile, anche da una settimana precedente.
+- In Convocati sono visibili stato, presenze, condotta e motivi. Le regole si applicano alle nuove convocazioni prima della gara. Rivedi e pubblica mostra i selezionati prima di notificare le famiglie. La pubblicazione ripetuta evita avvisi identici.
+- In Giocatori con segnalazioni, Tutte mostra tutti i motivi. I filtri specifici mostrano il motivo selezionato e il numero delle altre segnalazioni.

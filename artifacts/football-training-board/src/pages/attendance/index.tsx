@@ -70,7 +70,10 @@ type Team = {
 
 async function apiFetch(url: string, options?: RequestInit) {
   const res = await fetch(withApi(url), { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) } });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const problem = await res.json().catch(() => null);
+    throw new Error(problem?.error ?? "Operazione non riuscita. Riprova.");
+  }
   if (res.status === 204) return null;
   return res.json();
 }
@@ -100,16 +103,6 @@ function parseAttendanceMeta(notes?: string | null): { conduct?: TrainingConduct
   } catch {
     return {};
   }
-}
-
-function composeAttendanceNotes(existingNotes: string | null | undefined, meta: { conduct?: TrainingConduct }) {
-  const plain = String(existingNotes ?? "")
-    .split(/\r?\n/)
-    .filter((line) => !line.startsWith(ATTENDANCE_META_PREFIX))
-    .join("\n")
-    .trim();
-  const encoded = `${ATTENDANCE_META_PREFIX}${JSON.stringify(meta)}`;
-  return plain ? `${plain}\n${encoded}` : encoded;
 }
 
 function reasonLabel(reason?: string | null) {
@@ -180,6 +173,8 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
   const [sessionDateFilter, setSessionDateFilter] = useState<"all" | string>(initialDate || "all");
   const [sessionKindFilter, setSessionKindFilter] = useState<"all" | string>("all");
   const [sessionObjectiveFilter, setSessionObjectiveFilter] = useState<"all" | string>("all");
+  const [showConduct, setShowConduct] = useState(false);
+  const [conductDraft, setConductDraft] = useState<{ playerId: number; conduct: TrainingConduct | ""; note: string } | null>(null);
   const attendanceListRef = useRef<HTMLDivElement | null>(null);
 
   const { data: rawSessions = [] } = useQuery<TrainingSession[]>({ queryKey: ["/api/training-sessions"], queryFn: () => apiFetch("/api/training-sessions") });
@@ -315,18 +310,20 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
     }, 80);
   }
 
-  function handleConductChange(playerId: number, conduct: TrainingConduct) {
-    if (!sessionId || readOnly) return;
-    const existing = getPlayerAttendance(playerId);
-    if (!existing?.status) return;
-    markAttendance.mutate({
-      trainingSessionId: sessionId,
-      playerId,
-      status: existing?.status ?? "present",
-      notes: composeAttendanceNotes(existing?.notes, { conduct }),
-    });
-  }
-
+  const conductQuery = useQuery<{ playerId: number; conduct: TrainingConduct; note: string }[]>({
+    queryKey: ["/api/attendance/conduct", sessionId],
+    queryFn: () => apiFetch("/api/attendance/conduct/" + sessionId),
+    enabled: !!sessionId,
+  });
+  useEffect(() => setConductDraft(null), [sessionId]);
+  const conductByPlayer = new Map(conductQuery.data?.map(review => [review.playerId, review]));
+  const conductMutation = useMutation({
+    mutationFn: (draft: NonNullable<typeof conductDraft>) => apiFetch("/api/attendance/conduct/" + sessionId, { method: "PUT", body: JSON.stringify(draft) }),
+    onSuccess: async () => {
+      await Promise.all([conductQuery.refetch(), qc.invalidateQueries({ queryKey: ["/api/matches"] })]);
+      setConductDraft(null);
+    },
+  });
   const teamOptions = useMemo<TeamOption[]>(() => {
     const map = new Map<string, TeamOption>();
     for (const s of sessionsByAnnata) {
@@ -683,14 +680,41 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
           )}
 
           {selectedSession?.teamId&&<TrainingAvailabilityPanel teamId={selectedSession.teamId} teamIds={sessionTeamIds(selectedSession.teamId,selectedSession.notes)} date={availabilityDay} start={availabilityStart} durationMinutes={selectedSession.durationMinutes}/>}
-          {attLoading ? (
+          <div role="group" aria-label="Registro allenamento" className="flex flex-wrap gap-2">
+            <Button size="sm" variant={showConduct ? "outline" : "default"} aria-pressed={!showConduct} onClick={() => setShowConduct(false)}>Appello</Button>
+            <Button size="sm" variant={showConduct ? "default" : "outline"} aria-pressed={showConduct} onClick={() => { setConductDraft(null); setShowConduct(true); }}>Condotta</Button>
+          </div>
+          {showConduct ? <section className="rounded-xl border bg-card p-3">
+            <h3 className="font-semibold">Condotta in allenamento</h3>
+            <p className="mb-2 text-xs text-muted-foreground">Valutazioni durante o dopo la seduta. La valutazione e le note salvate sono comunicate alla famiglia.</p>
+            {conductQuery.isError && <p className="text-sm text-destructive" role="alert">Valutazioni non disponibili.</p>}
+            {conductQuery.isPending && <p role="status" className="text-sm">Caricamento valutazioni…</p>}
+            <ul className="divide-y">{sortedFilteredPlayers.map(player => {
+              const review = conductByPlayer.get(player.id);
+              const current = review?.conduct ?? parseAttendanceMeta(getPlayerAttendance(player.id)?.notes).conduct;
+              const edit = conductDraft?.playerId === player.id ? conductDraft : null;
+              return <li key={player.id} className="space-y-2 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div><p className="text-sm font-medium">{player.lastName} {player.firstName}</p><p className="text-xs text-muted-foreground">{current ? conductLabels[current] : "Da valutare"}</p></div>
+                  {role === "coach" && selectedSession && new Date(selectedSession.scheduledAt).getTime() <= Date.now() && !conductQuery.isError && <Button size="sm" variant="outline" disabled={conductMutation.isPending} onClick={() => { conductMutation.reset(); setConductDraft({ playerId: player.id, conduct: current ?? "", note: review?.note ?? "" }); }}>{current ? "Modifica" : "Valuta"}</Button>}
+                </div>
+                {review?.note && !edit && <p className="break-words text-sm">{review.note}</p>}
+                {edit && <div className="grid gap-2 rounded-lg bg-muted/40 p-2">
+                  <label className="grid gap-1 text-sm">Valutazione<select className="min-h-9 rounded border bg-background px-2" value={edit.conduct} onChange={event => setConductDraft({ ...edit, conduct: event.target.value as TrainingConduct })}><option value="">Scegli…</option>{Object.entries(conductLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                  <label className="grid gap-1 text-sm">{edit.conduct === "insufficiente" ? "Motivazione obbligatoria" : "Note per la famiglia"}<textarea className="min-h-16 rounded border bg-background p-2" maxLength={2000} value={edit.note} onChange={event => setConductDraft({ ...edit, note: event.target.value })} /></label>
+                  {conductMutation.isError && <p role="alert" className="text-sm text-destructive">{conductMutation.error.message}</p>}
+                  <div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="outline" disabled={conductMutation.isPending} onClick={() => setConductDraft(null)}>Annulla</Button><Button size="sm" disabled={conductMutation.isPending || !edit.conduct || (edit.conduct === "insufficiente" && !edit.note.trim())} onClick={() => conductMutation.mutate(edit)}>Salva condotta</Button></div>
+                </div>}
+              </li>;
+            })}</ul>
+          </section> : attLoading ? (
             <div className="text-center py-8 text-muted-foreground">{t.loading}</div>
           ) : (
             <div className="grid gap-2">
               {sortedFilteredPlayers.map((player) => {
                 const status = getPlayerStatus(player.id);
                 const existingAttendance = getPlayerAttendance(player.id);
-                const conduct = parseAttendanceMeta(existingAttendance?.notes).conduct;
+                const conduct = conductByPlayer.get(player.id)?.conduct ?? parseAttendanceMeta(existingAttendance?.notes).conduct;
                 const Icon = status ? statusIcons[status as keyof typeof statusIcons] : Users;
                 const blocked = player.available === false && !hasActiveAvailabilityOverride(player);
                 return (
@@ -700,6 +724,7 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
                         <Icon className={`h-4 w-4 shrink-0 ${status ? statusColors[status as keyof typeof statusColors] : "text-muted-foreground"}`} />
                         <div className="min-w-0">
                           <span className="text-sm font-medium">{player.lastName} {player.firstName}</span>
+                          {readOnly && conduct && <p className="text-xs text-muted-foreground">Condotta: {conductLabels[conduct]}</p>}
                           {blocked && (
                             <p className="text-xs font-medium text-red-700">
                               Non disponibile: {reasonLabel(player.unavailabilityReason || player.status)}
@@ -736,16 +761,7 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
                           ))}
                           </div>
                         </div>
-                        <Select value={conduct ?? ""} onValueChange={(value) => handleConductChange(player.id, value as TrainingConduct)}>
-                          <SelectTrigger disabled={!status || (markAttendance.isPending && markAttendance.variables?.playerId === player.id)} aria-label={`Condotta di ${player.lastName} ${player.firstName}`} className="h-9 w-full min-w-0 px-2 text-xs">
-                            <SelectValue placeholder="Condotta" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(["ottima", "buona", "insufficiente"] as TrainingConduct[]).map((value) => (
-                              <SelectItem key={value} value={value}>{conductLabels[value]}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <span className="text-xs text-muted-foreground">Condotta: {conduct ? conductLabels[conduct] : "Da valutare"}</span>
                         </div>
                       )}
                     </CardContent>

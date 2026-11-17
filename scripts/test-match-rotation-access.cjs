@@ -35,7 +35,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     );
     fs.writeFileSync(
       path.join(dir, "entry.ts"),
-      `export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
+      `export {default as rules} from '../../artifacts/api-server/src/routes/callup-rules';export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
     if (process.argv.includes("--extra-time") || process.argv.includes("--payment-desk") || process.argv.includes("--withdrawals") || process.argv.includes("--document-files")) {
@@ -181,7 +181,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       };
       next();
     });
-    app.use("/api", routes.restrictTeamManagerApi, routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
+    app.use("/api", routes.restrictTeamManagerApi, routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.rules, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
     if (routes.secretary) app.use("/api", routes.secretary);
     if (routes.fitness) app.use("/api", routes.fitness);
     if (routes.seasons) app.use("/api", routes.seasons, routes.seasonStatus);
@@ -196,6 +196,56 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+    if (process.argv.includes("--callup-rules")) {
+      const now = new Date();
+      const kickoff = new Date(now.getTime() + 300_000);
+      const day = new Date(now.getTime() - 60_000);
+      await pg.exec("UPDATE teams SET coach_id=3 WHERE id=11; INSERT INTO users(id,first_name,last_name) VALUES(3,\u0027Assigned\u0027,\u0027Coach\u0027); INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(3,1,3,11,\u0027coach\u0027);");
+      await pg.query("UPDATE matches SET date=$1 WHERE id=501", [kickoff.toISOString()]);
+      await pg.query("INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,session_kind,status) VALUES(900,1,11,\u0027Seduta test\u0027,$1,\u0027regular\u0027,\u0027completed\u0027)", [day.toISOString()]);
+      await pg.exec("INSERT INTO training_attendances(id,club_id,training_session_id,player_id,status) VALUES(905,1,900,101,\u0027present\u0027);");
+      const director = { "x-role": "technical_director" };
+      const coach = { "x-role": "coach", "x-user": "3" };
+      const write = (url, method, headers, data) => fetch(base + url, { method, headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(data) });
+      const path = "/callup-rules/11";
+      assert.equal((await write(path, "PUT", coach, { sessions: 1, minimum: 1 })).status, 403);
+      assert.equal((await write(path, "PUT", director, { sessions: 6, minimum: 1 })).status, 400);
+      assert.equal((await write(path, "PUT", director, { sessions: 2, minimum: 3 })).status, 400);
+      const created = await write(path, "PUT", director, { sessions: 1, minimum: 1 });
+      assert.equal(created.status, 204, await created.text());
+      const manager = await call("/callup-rules?teamId=11", { "x-role": "team_manager" });
+      assert.equal(manager.status, 200);
+      assert.equal(manager.data.canEdit, false);
+      assert.equal(manager.data.teams[0].rule.minimum, 1);
+      await pg.exec("CREATE SEQUENCE callup_test_notifications; ALTER TABLE parent_notifications ALTER COLUMN id SET DEFAULT nextval(\u0027callup_test_notifications\u0027), ALTER COLUMN created_at SET DEFAULT now(); INSERT INTO parent_player_relations(id,parent_user_id,player_id) VALUES (1,1,101),(2,1,102);");
+      const conduct = "/attendance/conduct/900";
+      assert.equal((await write(conduct, "PUT", coach, { playerId: 101, conduct: "insufficiente" })).status, 400);
+      const saved = await write(conduct, "PUT", coach, { playerId: 101, conduct: "insufficiente", note: "Motivazione di prova" });
+      assert.equal(saved.status, 200, await saved.text());
+      const checked = await call("/matches/501/callup-eligibility", coach);
+      assert.equal(checked.status, 200, JSON.stringify(checked.data));
+      assert.equal(checked.data.rows.find(row => row.id === 101).state, "blocked");
+      assert.equal(checked.data.rows.find(row => row.id === 102).state, "pending");
+      assert.equal((await write("/matches/501/callups/publish", "POST", coach, { convocationAt: now.toISOString(), convocationPlace: "Campo" })).status, 409);
+      const corrected = await write(conduct, "PUT", coach, { playerId: 101, conduct: "buona" });
+      assert.equal(corrected.status, 200, await corrected.text());
+      assert.equal((await call("/matches/501/callup-eligibility", coach)).data.rows.find(row => row.id === 101).state, "eligible");
+      await pg.exec("DELETE FROM call_ups WHERE match_id=501 AND player_id=102;");
+      const publish = () => write("/matches/501/callups/publish", "POST", coach, { convocationAt: now.toISOString(), convocationPlace: "Campo" });
+      const published = await publish();
+      const publicResult = await published.json();
+      assert.equal(published.status, 200, JSON.stringify(publicResult));
+      assert.equal(publicResult.notifications, 1);
+      assert.equal((await (await publish()).json()).notifications, 0);
+      const firstChild = await call("/parent/notifications", { "x-child": "101" });
+      const sibling = await call("/parent/notifications", { "x-child": "102" });
+      assert.equal(firstChild.status, 200, JSON.stringify(firstChild.data));
+      assert.equal(sibling.status, 200, JSON.stringify(sibling.data));
+      assert.deepEqual(firstChild.data.map(item => item.type).sort(), ["match_callup", "training_conduct", "training_conduct"]);
+      assert.deepEqual(sibling.data, []);
+      console.log("Callup permissions, weekly attendance, separate conduct, publication deduplication and sibling scope OK");
+      return;
+    }
     if (process.argv.includes("--fitness-results")) {
       await pg.exec(`UPDATE players SET club_section='scuola_calcio' WHERE id IN (101,201);
         UPDATE players SET team_id=12, club_section='settore_giovanile' WHERE id=102;

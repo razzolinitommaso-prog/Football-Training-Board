@@ -2703,25 +2703,33 @@ function MatchCard({
     }));
   }
 
+  const [callupReviewOpen, setCallupReviewOpen] = useState(false);
+  const [publishingCallups, setPublishingCallups] = useState(false);
   async function publishCallupsToParents() {
+    if (publishingCallups) return;
+    setPublishingCallups(true);
     try {
       const payload = {
         convocationAt: planDraft.convocationAt ?? null,
         convocationPlace: planDraft.convocationPlace ?? null,
       };
+      if (!await saveMatchPlanAndCallups()) return;
       const result = await apiFetch(`/api/matches/${match.id}/callups/publish`, {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      if (result?.clipboardText && navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(String(result.clipboardText));
-      }
+      const copied = result?.clipboardText && navigator.clipboard?.writeText
+        ? await navigator.clipboard.writeText(String(result.clipboardText)).then(() => true, () => false)
+        : false;
+      setCallupReviewOpen(false);
       toast({
         title: "Convocazione pubblicata",
-        description: `Notifiche genitori: ${result?.notifications ?? 0}. Testo bacheca copiato negli appunti.`,
+        description: `Notifiche genitori: ${result?.notifications ?? 0}. ${copied ? "Testo bacheca copiato negli appunti." : ""}`,
       });
     } catch (err: any) {
       toast({ title: err?.message ?? "Errore pubblicazione convocazione", variant: "destructive" });
+    } finally {
+      setPublishingCallups(false);
     }
   }
 
@@ -2777,7 +2785,25 @@ function MatchCard({
     return lineupPointFromPortrait(portraitPoint);
   };
 
-  const callupRoster = sortedTeamPlayers.map(p=>({id:p.id,name:(p.jerseyNumber? p.jerseyNumber+' · ':'')+p.lastName+' '+p.firstName,called:selectedPlayerIds.has(p.id),disabled:p.available===false||parentUnavailableCallupsByPlayer.has(p.id),note:parentUnavailableCallupsByPlayer.has(p.id)?'Indisponibile dai genitori':playerUnavailableLabel(p).replace(/^\s*-\s*/,'')}));
+  const callupViewer = useAuth();
+  const eligibility = useQuery<import("@/components/dashboard/CallupRulesCard").Eligibility | null>({
+    queryKey: ["/api/matches", match.id, "callup-eligibility", callupViewer.user?.id, callupViewer.role, callupViewer.section],
+    queryFn: () => apiFetch("/api/matches/" + match.id + "/callup-eligibility"),
+    enabled: canManageMatchPlan,
+    refetchOnMount: "always",
+  });
+  const eligibilityByPlayer = new Map(eligibility.data?.rows.map(row => [row.id, row]));
+  const callupRoster = sortedTeamPlayers.map(p => {
+    const rule = eligibility.data?.rule;
+    const row = eligibilityByPlayer.get(p.id);
+    const unavailability = parentUnavailableCallupsByPlayer.has(p.id) ? "Indisponibile dai genitori" : playerUnavailableLabel(p).replace(/^\s*-\s*/, "");
+    const unavailable = Boolean(unavailability) || p.available === false;
+    const state = rule && unavailable ? "blocked" : row?.state;
+    const evidence = row && rule ? [row.present + "/" + rule.sessions + " presenze", row.conduct && "Condotta " + row.conduct, ...row.reasons] : [];
+    return { id: p.id, name: (p.jerseyNumber ? p.jerseyNumber + " · " : "") + p.lastName + " " + p.firstName,
+      called: selectedPlayerIds.has(p.id), disabled: unavailable || state === "blocked" || state === "pending", state,
+      note: [...evidence, unavailability].filter(Boolean).join(" · ") };
+  });
   const changeCallup = (id: number, called: boolean)=>setSelectedPlayerIds(previous=>{const next=new Set(previous);if(called)next.add(id);else next.delete(id);return next;});
   const cardActions = !workspace && !onOpenMatch;
 
@@ -2977,15 +3003,28 @@ function MatchCard({
               </div>
             </div>
             {workspace && <>
+              {eligibility.data && <details className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                <summary className="cursor-pointer font-medium">Regole convocazioni · {eligibility.data.rule.minimum} su {eligibility.data.rule.sessions}</summary>
+                <p className="mt-2 text-xs text-muted-foreground">Presenze minime sugli allenamenti settimanali a partire da lunedì {eligibility.data.weekStart.split("-").reverse().join("/")}. Vale l’ultima condotta registrata. Buona o Ottima consentono la convocazione. La riga di ciascun giocatore spiega gli eventuali blocchi.</p>
+              </details>}
+              {eligibility.isError && <p role="alert" className="text-sm text-destructive">Impossibile caricare la verifica delle regole di convocazione.</p>}
               <MatchCallupRoster roster={canManageMatchPlan ? callupRoster : callupRoster.filter(player => player.called)}
                 onCallup={canManageMatchPlan ? changeCallup : undefined} />
               {canManageMatchPlan && <div className="flex flex-wrap justify-end gap-2">
                 <Button type="button" variant="outline" disabled={!selectedPlayerIds.size || !planDraft.convocationAt || !planDraft.convocationPlace}
-                  onClick={publishCallupsToParents}>Export bacheca + avviso genitori</Button>
+                  onClick={() => setCallupReviewOpen(true)}>Rivedi e pubblica</Button>
                 <Button type="button" onClick={saveMatchPlanAndCallups}>Salva piano partita</Button>
               </div>}
             </>}
             </MatchWorkspacePanel>
+            <Dialog open={callupReviewOpen} onOpenChange={open => { if (!publishingCallups) setCallupReviewOpen(open); }}>
+              <DialogContent className="max-h-[90dvh] overflow-y-auto">
+                <DialogHeader><DialogTitle>Rivedi convocazione</DialogTitle><DialogDescription>Pubblicando salvi il piano e avvisi le famiglie interessate.</DialogDescription></DialogHeader>
+                <ul className="max-h-60 divide-y overflow-y-auto rounded-lg border px-3 text-sm">{callupRoster.filter(player => player.called).map(player => <li className="py-2" key={player.id}><strong>{player.name}</strong>{player.disabled && <p className="text-xs text-destructive">{player.note || "Indisponibile"}</p>}</li>)}</ul>
+                {callupRoster.some(player => player.called && player.state && player.state !== "eligible") && <p role="alert" className="text-sm text-destructive">Rimuovi i giocatori selezionati che risultano indisponibili o da verificare.</p>}
+                <div className="flex justify-end gap-2"><Button variant="outline" disabled={publishingCallups} onClick={() => setCallupReviewOpen(false)}>Torna alla lista</Button><Button disabled={publishingCallups || eligibility.isPending || eligibility.isError || callupRoster.some(player => player.called && player.state && player.state !== "eligible")} onClick={publishCallupsToParents}>{publishingCallups ? "Pubblicazione…" : "Pubblica"}</Button></div>
+              </DialogContent>
+            </Dialog>
             <MatchWorkspacePanel active={activePanel("schieramenti")}>
             <div className="text-[11px] text-muted-foreground">
               Convocati: {selectedPlayerIds.size} ·
@@ -3599,9 +3638,9 @@ function MatchCard({
                     variant="outline"
                     className="h-8 text-xs"
                     disabled={selectedPlayerIds.size === 0 || !planDraft.convocationAt || !planDraft.convocationPlace}
-                    onClick={publishCallupsToParents}
+                    onClick={() => setCallupReviewOpen(true)}
                   >
-                    Export bacheca + avviso genitori
+                    Rivedi e pubblica
                   </Button>}
                   <Button size="sm" className="h-8 text-xs gap-1.5" onClick={saveMatchPlanAndCallups}>
                     <CheckCircle className="w-3.5 h-3.5" /> Salva piano partita

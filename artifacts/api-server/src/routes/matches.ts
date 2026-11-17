@@ -1,3 +1,5 @@
+import { activeMatchEligibility, callupRuleFailure } from "../lib/callup-rules";
+import { ensureCallupRulesStorage, notifyChild } from "../lib/callup-rule-storage";
 import { WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { isDeepStrictEqual } from "node:util";
 import { Router, type IRouter } from "express";
@@ -10,8 +12,6 @@ import {
   playersTable,
   teamsTable,
   teamStaffAssignmentsTable,
-  parentPlayerRelationsTable,
-  parentNotificationsTable,
 } from "@workspace/db";
 import { eq, and, asc, desc, inArray, sql, notInArray } from "drizzle-orm";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
@@ -807,6 +807,15 @@ router.delete("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+router.get("/matches/:id/callup-eligibility", requireAuth, async (req, res): Promise<void> => {
+  const id = parseRouteIdParam(req.params.id);
+  const { clubId, userId, role } = req.session;
+  if (!id || !clubId || !userId) { res.sendStatus(400); return; }
+  const [match] = await db.select().from(matchesTable).where(and(eq(matchesTable.id, id), eq(matchesTable.clubId, clubId)));
+  if (!match || !await userCanViewMatchPlan(userId, clubId, role ?? "", match.teamId)) { res.sendStatus(403); return; }
+  res.json(await activeMatchEligibility(match));
+});
+
 router.get("/matches/:id/callups", requireAuth, async (req, res): Promise<void> => {
   const matchId = parseRouteIdParam(req.params.id);
   if (isNaN(matchId)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -933,6 +942,8 @@ router.post("/matches/:id/callups", requireAuth, async (req, res): Promise<void>
   const [player] = await db.select({ id: playersTable.id, status: playersTable.status }).from(playersTable).where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!)));
   if (!player) { res.status(400).json({ error: "Giocatore non valido per questa societa" }); return; }
   if (player.status === WITHDRAWN_PLAYER_STATUS) { res.status(409).json({ error: "Il giocatore è ritirato." }); return; }
+  const ruleFailure = callupRuleFailure(await activeMatchEligibility(match), [Number(playerId)]);
+  if (ruleFailure) { res.status(409).json({ error: ruleFailure }); return; }
   if (await parentUnavailableForMatch(matchId, [Number(playerId)])) {
     res.status(409).json({ error: "Il genitore ha indicato il giocatore come non disponibile per questa partita" });
     return;
@@ -1057,6 +1068,8 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
   const reportError = validateMatchReport(matchPlan, [...desiredPlayerIds, ...matchReportPlayerIds(historical.data)]);
   if (reportError) { res.status(400).json({ error: reportError }); return; }
 
+  const ruleFailure = callupRuleFailure(await activeMatchEligibility(existingMatch), desiredPlayerIds);
+  if (ruleFailure) { res.status(409).json({ error: ruleFailure }); return; }
   if (await parentUnavailableForMatch(matchId, desiredPlayerIds)) {
     res.status(409).json({ error: "Uno o piu giocatori risultano non disponibili per questa partita secondo la risposta del genitore. Aggiorna la convocazione." });
     return;
@@ -1175,44 +1188,61 @@ router.post("/matches/:id/callups/publish", requireAuth, async (req, res): Promi
   }
 
   const [team] = match.teamId ? await db.select({ name: teamsTable.name }).from(teamsTable).where(and(eq(teamsTable.id, match.teamId), eq(teamsTable.clubId, req.session.clubId!))) : [null];
-  const callups = await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId));
-  const playerIds = [...new Set(callups.map((c) => c.playerId))];
-  if (playerIds.length === 0) { res.status(400).json({ error: "Nessun convocato selezionato" }); return; }
-  const relations = await db
-    .select({ parentUserId: parentPlayerRelationsTable.parentUserId, playerId: parentPlayerRelationsTable.playerId })
-    .from(parentPlayerRelationsTable)
-    .where(inArray(parentPlayerRelationsTable.playerId, playerIds));
-
-  const players = await db
-    .select({ id: playersTable.id, firstName: playersTable.firstName, lastName: playersTable.lastName })
-    .from(playersTable)
-    .where(and(eq(playersTable.clubId, req.session.clubId!), inArray(playersTable.id, playerIds)));
-  const playerNameMap = new Map(players.map((p) => [p.id, `${p.firstName} ${p.lastName}`]));
-
-  const title = `Convocazione partita ${team?.name ?? ""}`.trim();
-  let notifications = 0;
-  for (const rel of relations) {
-    const childName = playerNameMap.get(rel.playerId) ?? "tuo figlio/a";
-    const message =
-      `Convocazione ${childName}: ${convocationDate.toLocaleString("it-IT")} presso ${convocationPlace}. ` +
-      `Partita vs ${match.opponent}${team?.name ? ` (${team.name})` : ""}.`;
-    await db.insert(parentNotificationsTable).values({
-      parentUserId: rel.parentUserId,
-      clubId: req.session.clubId!,
-      type: "match_callup",
-      title,
-      message,
-      isRead: false,
-    });
-    await sendParentNotificationEmail({
-      parentUserId: rel.parentUserId,
-      playerId: rel.playerId,
-      clubId: req.session.clubId!,
-      title,
-      message,
-    });
-    notifications++;
+  const callups = uniqueCoachCallups(await db.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId)));
+  const playerIds = callups.map(row => row.playerId);
+  if (!playerIds.length) {
+    res.status(400).json({ error: "Nessun convocato selezionato" }); return;
   }
+  const eligibility = await activeMatchEligibility(match);
+  const failure = callupRuleFailure(eligibility, playerIds);
+  if (failure) { res.status(409).json({ error: failure }); return; }
+  await ensureCallupRulesStorage();
+  const clubId = req.session.clubId!;
+  const title = `Convocazione partita ${team?.name ?? ""}`.trim();
+  const opponent = `Partita vs ${match.opponent}${team?.name ? ` (${team.name})` : ""}.`;
+  const result = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('match-callups'), ${matchId})`);
+    const current = uniqueCoachCallups(await tx.select().from(callUpsTable).where(eq(callUpsTable.matchId, matchId)));
+    if (current.length !== playerIds.length || current.some(row => !playerIds.includes(row.playerId))) return null;
+    const past = sqlRows<{ snapshot: Record<string, { type: string; title: string; message: string }> }>(await tx.execute(sql`
+      SELECT snapshot FROM match_callup_publications WHERE match_id = ${matchId}`))[0]?.snapshot ?? {};
+    const blocked = eligibility?.rows.filter(row => row.state === "blocked") ?? [];
+    const ids = [...new Set([...Object.keys(past).map(Number), ...playerIds, ...blocked.map(row => row.id)])];
+    const players = await tx.select({ id: playersTable.id, firstName: playersTable.firstName, lastName: playersTable.lastName, status: playersTable.status })
+      .from(playersTable).where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, ids)));
+    if (players.some(player => playerIds.includes(player.id) && player.status === WITHDRAWN_PLAYER_STATUS)) return null;
+    const snapshot: typeof past = {};
+    const deliveries: { parentUserId: number; playerId: number; title: string; message: string }[] = [];
+    for (const player of players) {
+      const playerId = player.id;
+      const name = player.firstName + " " + player.lastName;
+      const ineligible = blocked.find(row => row.id === playerId);
+      const selected = playerIds.includes(playerId);
+      const decision = selected
+        ? { type: "match_callup", title, message: `Convocazione ${name}: ${convocationDate.toLocaleString("it-IT", { timeZone: "Europe/Rome" })} presso ${convocationPlace}. ${opponent}` }
+        : ineligible ? { type: "match_callup_status", title: "Esito convocazione", message: `${name}: non convocabile. ${opponent} Motivo: ${ineligible.reasons[0]}.` }
+        : past[playerId] ? { type: "match_callup_status", title: "Aggiornamento convocazione", message: `${name}: non convocato. ${opponent}` }
+        : null;
+      if (!decision) continue;
+      snapshot[playerId] = decision;
+      if (isDeepStrictEqual(past[playerId], decision)) continue;
+      const parents = await notifyChild(tx, { clubId, playerId, ...decision });
+      deliveries.push(...parents.map(parentUserId => ({ parentUserId, playerId, title: decision.title, message: decision.message })));
+    }
+    await tx.execute(sql`INSERT INTO match_callup_publications (match_id, snapshot)
+      VALUES (${matchId}, ${JSON.stringify(snapshot)}::jsonb)
+      ON CONFLICT (match_id) DO UPDATE SET snapshot = EXCLUDED.snapshot`);
+    return { deliveries, names: new Map(players.map(player => [player.id, player.firstName + " " + player.lastName])) };
+  });
+  if (!result) { res.status(409).json({ error: "La lista dei convocati è cambiata. Verifica e ripubblica." }); return; }
+  const deliveredPlayers = new Set<number>();
+  await Promise.allSettled(result.deliveries.filter(item => {
+    if (deliveredPlayers.has(item.playerId)) return false;
+    deliveredPlayers.add(item.playerId);
+    return true;
+  }).map(item => sendParentNotificationEmail({ ...item, clubId })));
+  const playerNameMap = result.names;
+  const notifications = result.deliveries.length;
 
   const clipboardText = [
     `CONVOCAZIONE PARTITA - ${team?.name ?? "Squadra"}`,
@@ -1225,7 +1255,7 @@ router.post("/matches/:id/callups/publish", requireAuth, async (req, res): Promi
     ...playerIds.map((id, i) => `${i + 1}. ${playerNameMap.get(id) ?? `Giocatore #${id}`}`),
   ].join("\n");
 
-  res.json({ notifications, clipboardText, parentsImpacted: new Set(relations.map((r) => r.parentUserId)).size });
+  res.json({ notifications, clipboardText, parentsImpacted: new Set(result.deliveries.map(item => item.parentUserId)).size });
 });
 
 export default router;
