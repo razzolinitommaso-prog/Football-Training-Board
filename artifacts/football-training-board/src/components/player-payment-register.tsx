@@ -17,7 +17,7 @@ import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, pay
 
 export type PlayerLedgerPayment = PaymentEntry & { id: number; amount: number; paymentDate?: string | null; installmentNumber?: number | null };
 type LedgerPayment = PlayerLedgerPayment & { playerId: number };
-type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; clubSection?: string };
+type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; supplementalTeamId?: number | null; clubSection?: string };
 type Team = { id: number; name: string; clubSection: string };
 type Editor = { action: "due" | "settle" | "add" | "kit-link"; ids: number[]; date: string; method: string; amount?: string; tariffId?: string; kitItemId?: string; paymentType: string; status: "paid" | "pending"; description: string };
 const paymentTypes = { registration_fee: "Iscrizione · prima rata", annual_fee_installment: "Quota annuale", insurance_fee: "Assicurazione", kit_payment: "Kit", shuttle_monthly: "Pulmino", other: "Altro" };
@@ -226,13 +226,18 @@ export function PlayerPaymentWorkspace({ payments, focusSearch = false }: { paym
     byPlayer.set(payment.playerId, entries);
   }
   const availableTeams = (teams.data ?? []).filter(item => !sector || item.clubSection === sector);
+  const sectorTeamIds = new Set(availableTeams.map(item => item.id));
   const byTeam = new Map((teams.data ?? []).map(item => [item.id, item]));
   const today = trainingLocalDate();
   const matches = (players.data ?? []).flatMap(player => {
     const rows = byPlayer.get(player.id) ?? [];
     const playerTeam = byTeam.get(player.teamId ?? 0);
-    const playerSector = player.clubSection || playerTeam?.clubSection;
-    if ((sector && playerSector !== sector) || (team && String(player.teamId) !== team)) return [];
+    const supplementalTeam = byTeam.get(player.supplementalTeamId ?? 0);
+    const inSector = player.teamId || player.supplementalTeamId
+      ? sectorTeamIds.has(player.teamId ?? 0) || sectorTeamIds.has(player.supplementalTeamId ?? 0)
+      : player.clubSection === sector;
+    if (sector && !inSector) return [];
+    if (team && String(player.teamId) !== team && String(player.supplementalTeamId) !== team) return [];
     if (!`${player.firstName} ${player.lastName} ${player.lastName} ${player.firstName}`.toLocaleLowerCase("it").includes(name.trim().toLocaleLowerCase("it"))) return [];
     const overdue = rows.filter(row => row.amount > 0 && paymentStatus(row, today) === "overdue");
     if (situation === "new" && rows.length) return [];
@@ -240,7 +245,7 @@ export function PlayerPaymentWorkspace({ payments, focusSearch = false }: { paym
     if (situation === "active" && !rows.some(row => paymentStatus(row, today) === "pending" && !!row.dueDate)) return [];
     if (situation === "overdue" && !overdue.length) return [];
     const oldest = overdue.reduce<string | undefined>((date, row) => row.dueDate && (!date || row.dueDate < date) ? row.dueDate : date, undefined);
-    return [{ player, teamName: playerTeam?.name ?? "Senza annata", overdue, oldest }];
+    return [{ player, teamName: playerTeam?.name ?? "Senza annata", supplementalTeamName: supplementalTeam?.id !== playerTeam?.id ? supplementalTeam?.name : undefined, overdue, oldest }];
   }).sort((a, b) => {
     const byDate = situation === "overdue" ? (a.oldest ?? "9999").localeCompare(b.oldest ?? "9999") : 0;
     return byDate || `${a.player.lastName} ${a.player.firstName}`.localeCompare(`${b.player.lastName} ${b.player.firstName}`, "it");
@@ -268,14 +273,14 @@ export function PlayerPaymentWorkspace({ payments, focusSearch = false }: { paym
         </div>
         {matches.length === 0 ? <p className="px-1 text-sm text-muted-foreground">{overdueOnly ? "Nessun insoluto per i filtri selezionati." : "Nessun giocatore corrispondente."}</p> :
           <ul className="divide-y overflow-hidden rounded-lg border">
-            {matches.map(({ player, teamName, overdue, oldest }) => {
+            {matches.map(({ player, teamName, supplementalTeamName, overdue, oldest }) => {
               const expanded = selected === player.id;
               return <li key={player.id}>
                 <button type="button" aria-expanded={expanded} onClick={() => setSelected(expanded ? undefined : player.id)}
                   className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/50 focus-visible:outline focus-visible:-outline-offset-2 focus-visible:outline-primary sm:gap-4">
                   <span className="min-w-0 flex-1">
                     <span className="block break-words text-sm font-medium">{player.firstName} {player.lastName}</span>
-                    <span className="block text-xs text-muted-foreground">{teamName}</span>
+                    <span className="block text-xs text-muted-foreground">{teamName}{supplementalTeamName && <span className="block">Anche in {supplementalTeamName}</span>}</span>
                   </span>
                   {overdue.length > 0 && <span className="shrink-0 text-right">
                     <strong className="block text-sm tabular-nums text-destructive">{money.format(sum(overdue))}</strong>

@@ -1,3 +1,4 @@
+import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import { parseDocumentUpload } from "../lib/document-upload";
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
@@ -311,13 +312,14 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
     teamId: teamsTable.id,
     teamName: teamsTable.name,
     teamSeason: seasonsTable.name,
+    playerNotes: playersTable.notes,
   }).from(playerPaymentsTable)
     .leftJoin(playerPaymentKitItemsTable, eq(playerPaymentKitItemsTable.paymentId, playerPaymentsTable.id))
     .leftJoin(playersTable, and(eq(playersTable.id, playerPaymentsTable.playerId), eq(playersTable.clubId, playerPaymentsTable.clubId)))
     .leftJoin(teamsTable, and(eq(teamsTable.id, playersTable.teamId), eq(teamsTable.clubId, playerPaymentsTable.clubId)))
     .leftJoin(seasonsTable, and(eq(seasonsTable.id, teamsTable.seasonId), eq(seasonsTable.clubId, playerPaymentsTable.clubId)))
     .where(where).orderBy(desc(playerPaymentsTable.createdAt));
-  res.json(records);
+  res.json(records.map(({ playerNotes, ...payment }) => ({ ...payment, supplementalTeamId: supplementalTrainingTeam(playerNotes) })));
 });
 
 const receiptMethods = new Set(["cash", "card", "bank_transfer"]);

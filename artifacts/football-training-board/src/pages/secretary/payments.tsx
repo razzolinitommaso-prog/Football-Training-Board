@@ -25,10 +25,16 @@ type Payment = PaymentEntry & {
   amount: number;
   paymentDate?: string | null;
   teamId?: number | null;
+  supplementalTeamId?: number | null;
   teamName?: string | null;
   teamSeason?: string | null;
 };
-type Player = { id: number; firstName: string; lastName: string; teamId?: number | null };
+type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; supplementalTeamId?: number | null };
+function matchesAnnata(row: { teamId?: number | null; supplementalTeamId?: number | null }, team: string) {
+  if (!team) return true;
+  if (team === "unassigned") return row.teamId == null && row.supplementalTeamId == null;
+  return row.teamId === Number(team) || row.supplementalTeamId === Number(team);
+}
 type KitTeam = { id: number; name: string; seasonName?: string | null };
 const money = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", useGrouping: true });
 const axisAmount = new Intl.NumberFormat("it-IT", { useGrouping: true });
@@ -96,9 +102,9 @@ export default function PaymentsPage() {
     queryKey: ["/api/players", "kit-potential", club?.id, user?.id, role],
     queryFn: () => apiFetch<Player[]>("/api/players"), enabled: showKit,
   });
-  const kitTeams = useQuery({
-    queryKey: ["/api/teams", "kit-potential", club?.id, user?.id, role],
-    queryFn: () => apiFetch<KitTeam[]>("/api/teams"), enabled: showKit,
+  const rosterTeams = useQuery({
+    queryKey: ["/api/teams", "payment-annate", club?.id, user?.id, role],
+    queryFn: () => apiFetch<KitTeam[]>("/api/teams"), enabled: view === "ledger",
   });
   const kitEquipment = useQuery({
     queryKey: ["/api/equipment", club?.id, user?.id, role],
@@ -132,21 +138,19 @@ export default function PaymentsPage() {
       teams.set(payment.teamId, [payment.teamName, payment.teamSeason].filter(Boolean).join(" · "));
     }
   }
-  if (showKit) {
-    for (const entry of kitTeams.data ?? []) teams.set(entry.id, [entry.name, entry.seasonName].filter(Boolean).join(" · "));
-  }
-  const kitQueries = [kitRoster, kitTeams, kitEquipment, kitCatalog, kitRequests];
+  for (const entry of rosterTeams.data ?? []) teams.set(entry.id, [entry.name, entry.seasonName].filter(Boolean).join(" · "));
+  const kitQueries = [kitRoster, rosterTeams, kitEquipment, kitCatalog, kitRequests];
   const kitLoadError = kitQueries.some(query => query.isError);
   const kitPotential = showKit && !kitLoadError && kitQueries.every(query => query.isSuccess)
     ? estimateKitPotential(
       (kitRoster.data ?? []).filter(player =>
-        (!team || (team === "unassigned" ? player.teamId == null : String(player.teamId) === team)) &&
+        matchesAnnata(player, team) &&
         searchKey(`${player.firstName} ${player.lastName} ${player.lastName} ${player.firstName}`).includes(searchKey(search.trim())),
       ).map(player => player.id), kitEquipment.data ?? [], kitCatalog.data ?? [], kitRequests.data ?? [], payments,
     ) : undefined;
   const teamOptions = [...teams.entries()].sort(([, a], [, b]) => a.localeCompare(b, "it", { numeric: true }));
   const byCategoryAndName = payments.filter(payment =>
-    (!team || (team === "unassigned" ? payment.teamId === null : String(payment.teamId) === team)) &&
+    matchesAnnata(payment, team) &&
     (!category || paymentCategory(payment) === category) &&
     searchKey((payment.playerName ?? "") + " " + (payment.description ?? "")).includes(searchKey(search.trim())),
   );
@@ -244,7 +248,7 @@ export default function PaymentsPage() {
         <ScrollableSelect aria-label="Filtra per annata" className="w-full" value={team} onValueChange={setTeam}>
           <option value="">Tutte</option>
           {teamOptions.map(([id, label]) => <option key={id} value={String(id)}>{label}</option>)}
-          {(team === "unassigned" || payments.some(payment => payment.teamId === null) || (showKit && kitRoster.data?.some(player => player.teamId == null))) && <option value="unassigned">Senza annata</option>}
+          {(team === "unassigned" || payments.some(payment => matchesAnnata(payment, "unassigned")) || (showKit && kitRoster.data?.some(player => matchesAnnata(player, "unassigned")))) && <option value="unassigned">Senza annata</option>}
         </ScrollableSelect>
       </label>
       <label className="min-w-0 space-y-1 text-xs font-medium">Categoria
