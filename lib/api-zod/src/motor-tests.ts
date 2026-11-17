@@ -1,16 +1,18 @@
 import { z } from "zod/v4";
 
 export const motorTestCatalog = [
-  { id: "anthropometry", title: "Antropometria", principle: "Peso e statura", instructions: "Misurare statura e massa corporea prima delle prove.", minutes: 5, unit: "" },
-  { id: "colors", title: "Test dei 4 colori", principle: "Reazione e discriminazione visiva", instructions: "Al segnale raggiungere il cinesino del colore indicato.", minutes: 6, unit: "s" },
-  { id: "roll", title: "Rotolamento e capovolta", principle: "Coordinazione dinamica e orientamento spaziale", instructions: "Capovolta o rotolamento sul materassino, rialzata e scatto di 10 metri.", minutes: 7, unit: "s" },
-  { id: "high-jump", title: "Salto in alto da fermo", principle: "Spinta verticale e arrivo stabile", instructions: "Stacco verticale da fermo e atterraggio stabile.", minutes: 8, unit: "cm" },
-  { id: "long-jump", title: "Salto in lungo da fermo", principle: "Spinta orizzontale e arrivo stabile", instructions: "Salto in avanti a piedi uniti da fermo, con arrivo stabile.", minutes: 8, unit: "cm" },
-  { id: "slalom", title: "Conduzione palla a slalom", principle: "Controllo palla e cambi di direzione", instructions: "Andata e ritorno in conduzione tra 5–6 cinesini su 10–15 metri.", minutes: 8, unit: "s" },
-  { id: "balance", title: "Equilibrio monopodalico", principle: "Controllo posturale e stabilità", instructions: "Cronometrare la tenuta in appoggio su un solo arto su superficie stabile.", minutes: 6, unit: "s" },
-  { id: "march", title: "Marcia sul posto ad occhi chiusi", principle: "Propriocezione dinamica e orientamento", instructions: "Marciare per 20–30 secondi e misurare lo spostamento finale.", minutes: 5, unit: "cm" },
-  { id: "circuit", title: "Percorso misto a tempo", principle: "Fluidità e transizioni motorie", instructions: "Cronometrare il circuito con ostacoli, strisciata, salti e sprint finale.", minutes: 10, unit: "s" },
+  { id: "anthropometry", title: "Antropometria", principle: "Peso e statura", instructions: "Predisporre una superficie piana. Misurare la massa corporea con la bilancia e la statura con lo stadiometro.", materials: "Bilancia, stadiometro o metro verticale, scheda rilevazioni.", minutes: 5, unit: "" },
+  { id: "colors", title: "Test dei 4 colori", principle: "Reazione e discriminazione visiva", instructions: "Posizionare quattro cinesini di colori diversi attorno al giocatore, che parte dal centro. Al segnale vocale o visivo deve toccare il colore indicato nel minor tempo possibile.", materials: "4 cinesini di colori diversi, cronometro.", minutes: 6, unit: "s" },
+  { id: "roll", title: "Rotolamento e capovolta", principle: "Coordinazione dinamica e orientamento spaziale", instructions: "Posare un materassino e segnare il traguardo a 10 m. Eseguire una capovolta in avanti o un rotolamento laterale, rialzarsi e scattare fino al traguardo.", materials: "Materassino, cinesini, rotella metrica, cronometro.", minutes: 7, unit: "s" },
+  { id: "high-jump", title: "Salto in alto da fermo", principle: "Spinta verticale e arrivo stabile", instructions: "Predisporre un bersaglio verticale graduato. Da fermo eseguire lo stacco verso il bersaglio, osservando ritmo e stabilità all’arrivo. Rilevare l’altezza secondo il protocollo della prova.", materials: "Bersaglio verticale, metro, superficie stabile.", minutes: 8, unit: "cm" },
+  { id: "long-jump", title: "Salto in lungo da fermo", principle: "Spinta orizzontale e arrivo stabile", instructions: "Segnare la linea di partenza. Saltare in avanti a piedi uniti da fermo e misurare la distanza dalla linea al punto d’appoggio più vicino, osservando la stabilità all’arrivo.", materials: "Nastro o linea per lo stacco, rotella metrica, superficie di arrivo stabile.", minutes: 8, unit: "cm" },
+  { id: "slalom", title: "Conduzione palla a slalom", principle: "Controllo palla e cambi di direzione", instructions: "Disporre 5–6 cinesini su 10–15 m. Cronometrare il percorso di andata e ritorno in conduzione tra i cinesini.", materials: "Pallone, 5–6 cinesini, metro, cronometro.", minutes: 8, unit: "s" },
+  { id: "balance", title: "Equilibrio monopodalico", principle: "Controllo posturale e stabilità", instructions: "Su superficie stabile, mantenere l’appoggio su una gamba. Cronometrare la tenuta e annotare se la prova è stata eseguita a occhi aperti o chiusi.", materials: "Superficie piana e stabile, cronometro.", minutes: 6, unit: "s" },
+  { id: "march", title: "Marcia sul posto ad occhi chiusi", principle: "Propriocezione dinamica e orientamento", instructions: "Segnare il punto di partenza in uno spazio libero. Marciare sul posto a occhi chiusi per 20–30 secondi alzando le ginocchia. Osservare e annotare lo spostamento e le eventuali perdite d’asse.", materials: "Segno a terra, metro, cronometro.", minutes: 5, unit: "cm" },
+  { id: "circuit", title: "Percorso misto a tempo", principle: "Fluidità e transizioni motorie", instructions: "Allestire in sequenza ostacoli bassi, spazio di strisciata, cerchi a campana e rettilineo per lo sprint finale. Cronometrare il circuito intero.", materials: "Ostacoli bassi, materassino, cerchi, cinesini, cronometro.", minutes: 10, unit: "s" },
 ] as const;
+
+export const trainingExerciseStationsMarker = "\n\n[FTB_EXERCISE_STATIONS]";
 
 export const motorTestCycles = { start: "Inizio stagione", middle: "Metà stagione", end: "Fine stagione" } as const;
 const ids = motorTestCatalog.map(item => item.id);
@@ -21,6 +23,8 @@ export const motorTestSessionInput = z.object({
   date: z.iso.date(),
   cycle: z.enum(["start", "middle", "end"]),
   trainingSessionId: z.number().int().positive().nullable(),
+  linkProgram: z.boolean().optional(),
+  programPhase: z.enum(["iniziale", "centrale", "finale"]).optional(),
   tests: z.array(z.object({ id: z.enum(ids), minutes: z.number().int().min(1).max(180), link: z.boolean(), phase: z.enum(["iniziale", "centrale", "finale"]) })).min(1).max(ids.length),
   results: z.record(z.string().regex(/^[1-9]\d*$/), z.object({
     height: z.number().positive().max(300).nullable(),
@@ -33,7 +37,7 @@ export type MotorTestInput = z.infer<typeof motorTestSessionInput>;
 export type MotorTestId = (typeof ids)[number];
 export type MotorTestResult = z.infer<typeof result>;
 export type MotorPlayerResult = MotorTestInput["results"][string];
-export type MotorTestSession = MotorTestInput & { id: string; exerciseIds: Partial<Record<MotorTestId, number>> };
+export type MotorTestSession = MotorTestInput & { id: string; stationId?: number; exerciseIds: Partial<Record<MotorTestId, number>> };
 export type MotorTestHistory = { id: string; date: string; cycle: MotorTestInput["cycle"]; result: MotorPlayerResult };
 
 export function summarizeMotorTests(history: MotorTestHistory[]) {

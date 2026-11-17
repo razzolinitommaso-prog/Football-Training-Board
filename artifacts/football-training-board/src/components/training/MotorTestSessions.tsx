@@ -1,3 +1,4 @@
+import { MotorTestExport } from "./MotorTestExport";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { customFetch } from "@workspace/api-client-react/custom-fetch";
@@ -63,8 +64,10 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
       .map(session => ({ date: session.date, id: session.id, cycle: session.cycle, result: session.results[selected.id] })),
   ] : []);
   const readOnly = !canEdit || save.isPending;
-  const linked = !!draft && Object.keys(draft.exerciseIds).length > 0;
-  const canSave = !!draft?.teamId && !!draft.date && !!draft.tests.length && (!draft.tests.some(test => test.link) || !!draft.trainingSessionId);
+  const legacyLinks = !!draft && Object.keys(draft.exerciseIds).length > 0;
+  const linked = legacyLinks || !!draft?.stationId;
+  const canSave = !!draft?.teamId && !!draft.date && !!draft.tests.length && (!draft.tests.some(test => test.link) || !!draft.trainingSessionId || !!draft.linkProgram) &&
+    (!draft.linkProgram || !!draft.trainingSessionId || context.data?.sessions.length === 1);
   function open(session: MotorTestSession) {
     setDraft(session); setPlayerId(undefined); setStage("session"); setNewItem(undefined); setNotice("");
   }
@@ -79,7 +82,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h2 className="text-lg font-semibold">Sessioni di test motori</h2>
       {canEdit && !draft && <Button type="button" disabled={!teams.length} onClick={() => open({
-        id: crypto.randomUUID(), revision: 0, teamId: teams[0]?.id ?? 0, date: trainingLocalDate(), cycle: "start", trainingSessionId: null,
+        id: crypto.randomUUID(), revision: 0, teamId: teams[0]?.id ?? 0, date: trainingLocalDate(), cycle: "start", trainingSessionId: null, linkProgram: false, programPhase: "centrale",
         tests: motorTestCatalog.map(item => ({ id: item.id, minutes: item.minutes, link: false, phase: "centrale" })), results: {}, exerciseIds: {},
       })}>Aggiungi sessione test</Button>}
     </div>
@@ -92,9 +95,12 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
       </li>)}
     </ul> : <p className="text-sm text-muted-foreground">Nessuna sessione di test motori nell’ambito selezionato.</p>)}
     {draft && <>
-      <div className="flex flex-wrap gap-2 border-b pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+        <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" variant={stage === "session" ? "default" : "outline"} aria-pressed={stage === "session"} onClick={() => setStage("session")}>Sessione</Button>
         <Button type="button" size="sm" variant={stage === "results" ? "default" : "outline"} aria-pressed={stage === "results"} onClick={() => setStage("results")}>Presenze e valutazioni</Button>
+        </div>
+        {context.isSuccess && <MotorTestExport session={draft} roster={roster} team={names.get(draft.teamId) ?? "Annata"} />}
       </div>
       {stage === "session" ? <>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -110,13 +116,30 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
           <label className="text-sm">Seduta del mister<ScrollableSelect aria-label="Seduta del mister" value={draft.trainingSessionId ?? ""} className={selectClass}
             disabled={readOnly || linked || context.isError} onValueChange={value => setDraft({ ...draft, trainingSessionId: Number(value) || null,
               tests: draft.tests.map(test => value ? test : { ...test, link: false }) })}>
-            <option value="">Sessione autonoma</option>
+            <option value="">{draft.linkProgram ? "Seduta del giorno (automatica)" : "Sessione autonoma"}</option>
             {draft.trainingSessionId && !context.data?.sessions.some(session => session.id === draft.trainingSessionId) && <option value={draft.trainingSessionId}>Seduta collegata</option>}
             {context.data?.sessions.map(session => <option key={session.id} value={session.id}>{session.time} · {session.title}</option>)}
           </ScrollableSelect></label>
         </div>
+        <div className="space-y-2 rounded-lg border bg-muted/35 p-3">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={!!draft.linkProgram} disabled={readOnly || linked}
+              onChange={event => setDraft({ ...draft, linkProgram: event.target.checked })} />
+            {draft.stationId ? "Stazione Test motori inserita nella seduta" : "Aggiungi il programma alla seduta del giorno"}
+          </label>
+          {legacyLinks && <p className="text-xs text-muted-foreground">Le prove già collegate singolarmente si gestiscono dalla pagina Sedute.</p>}
+          {draft.linkProgram && !draft.stationId && <>
+            <label className="block max-w-48 text-xs">Fase della stazione<ScrollableSelect aria-label="Fase della stazione" className={selectClass} value={draft.programPhase ?? "centrale"}
+              disabled={readOnly} onValueChange={value => setDraft({ ...draft, programPhase: value as MotorTestSession["programPhase"] })}>
+              {Object.entries(phaseLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+            </ScrollableSelect></label>
+            {context.isSuccess && !draft.trainingSessionId && <p className="text-xs text-muted-foreground">{context.data.sessions.length === 1
+              ? "Collegamento automatico alla seduta delle " + context.data.sessions[0].time + "."
+              : context.data.sessions.length ? "Scegli una seduta tra quelle del giorno." : "Nessuna seduta per l’annata nel giorno selezionato."}</p>}
+          </>}
+        </div>
         <h3 className="text-sm font-semibold">Prove e durata</h3>
-        {!readOnly && !!otherTests.length && <div className="flex flex-wrap items-end gap-2">
+        {!readOnly && !draft.stationId && !!otherTests.length && <div className="flex flex-wrap items-end gap-2">
           <label className="min-w-0 flex-1 text-sm">Prova da aggiungere<ScrollableSelect aria-label="Prova da aggiungere" className={selectClass} value={newItem ?? otherTests[0].id} onValueChange={value => setNewItem(value as MotorTestId)}>
             {otherTests.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </ScrollableSelect></label>
@@ -135,17 +158,11 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
             }
             return <li key={test.id} className="grid items-end gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_6rem_auto]">
               <div><strong className="text-sm">{definition.title}</strong><p className="text-xs text-muted-foreground">{definition.principle}</p>
-                <details className="mt-1 text-xs"><summary className="cursor-pointer">Modalità di esecuzione</summary><p>{definition.instructions}</p></details>
+                <details className="mt-1 text-xs"><summary className="cursor-pointer">Modalità di esecuzione</summary><p>{definition.instructions}</p><p className="mt-1"><strong>Materiali</strong> · {definition.materials}</p></details>
               </div>
-              <label className="text-xs">Minuti<Input className="mt-1" type="number" min={1} max={180} value={test.minutes || ""} disabled={readOnly || alreadyLinked} onChange={event => update({ minutes: Number(event.target.value) })} /></label>
-              {!readOnly && !alreadyLinked && !hasResults && <Button type="button" size="sm" variant="ghost" onClick={() => setDraft({ ...draft, tests: draft.tests.filter(row => row.id !== test.id) })}>Rimuovi</Button>}
-              <div className="flex flex-wrap items-end gap-3 sm:col-span-3">
-                <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={test.link} disabled={readOnly || alreadyLinked || !draft.trainingSessionId} onChange={event => update({ link: event.target.checked })} />
-                  {alreadyLinked ? "Già inserita nella seduta" : "Aggiungi come esercitazione alla seduta"}</label>
-                {test.link && <label className="text-xs">Fase<ScrollableSelect aria-label={"Fase di " + definition.title} className={selectClass} value={test.phase} disabled={readOnly || alreadyLinked} onValueChange={value => update({ phase: value as typeof test.phase })}>
-                  {Object.entries(phaseLabels).map(([value,label]) => <option value={value} key={value}>{label}</option>)}
-                </ScrollableSelect></label>}
-              </div>
+              <label className="text-xs">Minuti<Input className="mt-1" type="number" min={1} max={180} value={test.minutes || ""} disabled={readOnly || alreadyLinked || !!draft.stationId} onChange={event => update({ minutes: Number(event.target.value) })} /></label>
+              {!readOnly && !alreadyLinked && !draft.stationId && !hasResults && <Button type="button" size="sm" variant="ghost" onClick={() => setDraft({ ...draft, tests: draft.tests.filter(row => row.id !== test.id) })}>Rimuovi</Button>}
+              {alreadyLinked && <p className="text-xs text-muted-foreground sm:col-span-3">Prova già inserita nella seduta</p>}
             </li>;
           })}
         </ul>

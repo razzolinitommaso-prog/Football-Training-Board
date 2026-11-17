@@ -10,7 +10,7 @@ import { useSessionParticipants } from "@/hooks/use-session-participants";
 import { attendanceExerciseView } from "@workspace/api-zod";
 import { StationAllocationDialog } from "@/components/training/StationAllocationDialog";
 import { StationOrganization } from "@/components/training/StationOrganization";
-import {reconcileStationOrganization,firstStationAssignment,stationGroups,sessionMaterialQuantities,stationAllocationProposal,TRAINING_ROTATION_PHASES,type RotationPhase} from "@workspace/api-zod";
+import {trainingExerciseStationsMarker,reconcileStationOrganization,firstStationAssignment,stationGroups,sessionMaterialQuantities,stationAllocationProposal,TRAINING_ROTATION_PHASES,type RotationPhase} from "@workspace/api-zod";
 import { rotationSeconds, rotationRecoverySeconds, rotationPhaseSeconds, type TrainingRotations } from "@workspace/api-zod";
 import { SessionTeamPicker } from "@/components/training/SessionTeamPicker";
 import { sessionTeamIds, withSessionTeams, SESSION_TEAMS_MARKER } from "@workspace/api-zod";
@@ -279,7 +279,7 @@ type MaterialId = (typeof MATERIAL_OPTIONS)[number]["id"];
 type MaterialAvailability = (typeof MATERIAL_OPTIONS)[number]["availability"];
 
 
-const EXERCISE_STATIONS_MARKER = "\n\n[FTB_EXERCISE_STATIONS]";
+const EXERCISE_STATIONS_MARKER = trainingExerciseStationsMarker;
 type ExerciseStation = {
   id: string;
   title: string;

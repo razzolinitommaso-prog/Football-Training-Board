@@ -310,7 +310,27 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       const summary = await call("/players/101/activity-summary", { "x-role": "admin" });
       assert.equal(summary.status, 200, JSON.stringify(summary.data));
       assert.equal(summary.data.motorTests[0].result.tests["high-jump"].score, 8);
-      console.log("PASS motor tests: separate results, staff roles, attendance, initial measurements and exercise linkage");
+      const groupedPath = "/motor-tests/12121212-1212-1212-1212-121212121213";
+      const groupedTest = { ...test, cycle: "middle", trainingSessionId: null, linkProgram: true, programPhase: "centrale",
+        tests: test.tests.map(item => ({ ...item, link: false })), results: {} };
+      const groupedSave = await save(groupedTest, staff, groupedPath);
+      const grouped = await groupedSave.json();
+      assert.equal(groupedSave.status, 200, JSON.stringify(grouped));
+      assert.equal(grouped.trainingSessionId, 900);
+      assert.ok(grouped.stationId);
+      assert.equal((await save(grouped, staff, groupedPath)).status, 200);
+      const fromCoach = await call("/training-sessions/900/exercises", { "x-role": "coach", "x-user": "3" });
+      assert.equal(fromCoach.status, 200, JSON.stringify(fromCoach.data));
+      const stations = fromCoach.data.filter(link => link.exercise?.title === "Test motori");
+      assert.equal(stations.length, 1);
+      assert.equal(stations[0].exercise.durationMinutes, 21);
+      const stationsMarker = "[FTB_EXERCISE_STATIONS]";
+      const proofs = JSON.parse(stations[0].exercise.description.split(stationsMarker)[1]);
+      assert.deepEqual(proofs.map(proof => proof.id), ["anthropometry", "high-jump", "long-jump"]);
+      assert.ok(proofs.every(proof => proof.exercise && proof.equipment && proof.objective));
+      await pg.exec("INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,status,session_kind) VALUES(901,1,11,'Seconda seduta','2026-11-17T18:00:00Z','scheduled','regular')");
+      assert.equal((await save(groupedTest, staff, "/motor-tests/12121212-1212-1212-1212-121212121214")).status, 400);
+      console.log("PASS motor tests: single station, coach access, auto-selection, ambiguity, initial measurements and separate results");
       return;
     }
     if (process.argv.includes("--fitness-results")) {
