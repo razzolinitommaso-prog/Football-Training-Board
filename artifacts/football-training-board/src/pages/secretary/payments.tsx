@@ -1,8 +1,9 @@
+import { addChartDays, paymentChartKey, paymentChartWindow } from "@/lib/payment-chart-time";
 import { PlayerPaymentWorkspace } from "@/components/player-payment-register";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Banknote, Plus, Trash2 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, Line, LineChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { trainingLocalDate } from "@workspace/api-zod";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -24,6 +25,7 @@ type Payment = PaymentEntry & {
   playerName?: string | null;
   amount: number;
   paymentDate?: string | null;
+  paymentTime?: string | null;
   teamId?: number | null;
   supplementalTeamId?: number | null;
   teamName?: string | null;
@@ -86,8 +88,13 @@ export default function PaymentsPage() {
   const [status, setStatus] = useState("");
   const [method, setMethod] = useState("");
   const [team, setTeam] = useState("");
-  const [receipt, setReceipt] = useState<{ id: number; date: string; method: string }>();
+  const [receipt, setReceipt] = useState<{ id: number; date: string; time?: string; method: string }>();
   const [month, setMonth] = useState("");
+  const [chartType, setChartType] = useState<"bars" | "lines">("bars");
+  const [zoom, setZoom] = useState(0);
+  const [focus, setFocus] = useState("");
+  const dragStart = useRef<number | null>(null);
+  const dragged = useRef(false);
   const [period, setPeriod] = useState<ChartPeriod>("annual");
   const [year, setYear] = useState(today.slice(0, 4));
   const [quarter, setQuarter] = useState(Math.ceil(Number(today.slice(5, 7)) / 3));
@@ -186,11 +193,14 @@ export default function PaymentsPage() {
   const years = [...yearsWithMovements].sort().reverse();
   const startMonth = period === "custom" ? fromMonth : monthKey(year, period === "annual" ? 1 : quarter * 3 - 2);
   const endMonth = period === "custom" ? toMonth : monthKey(year, period === "annual" ? 12 : quarter * 3);
-  const validRange = /^\d{4}-\d{2}$/.test(startMonth) && /^\d{4}-\d{2}$/.test(endMonth) && startMonth <= endMonth;
-  const sameYear = startMonth.slice(0, 4) === endMonth.slice(0, 4);
-  const amountsByMonth = new Map<string, MonthlyAmounts>();
-  let undatedReceipts = 0;
-  let undatedDues = 0;
+  const validRange = /^\d{4}-(?:0[1-9]|1[0-2])$/.test(startMonth) && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(endMonth) && startMonth <= endMonth;
+  const chartWindow = validRange ? paymentChartWindow(startMonth, endMonth, zoom, focus || today) : null;
+  const seriesForView = zoom === 3 ? receiptSeries : chartSeries;
+  const amounts = new Map(chartWindow?.keys.map(key => [key, { ...emptyMonth }]));
+  const bucketDates = new Map<string, string>();
+  const hourlyReceipts = new Map<string, { id: number; time: string; amount: number; method: string }[]>();
+  const periodTotals = { ...emptyMonth };
+  let undatedReceipts = 0, undatedDues = 0, untimedReceipts = 0;
   for (const payment of byStatus) {
     const state = paymentStatus(payment, today);
     const paid = state === "paid";
@@ -201,25 +211,53 @@ export default function PaymentsPage() {
       else undatedDues += amount;
       continue;
     }
-    const key = date.slice(0, 7);
+    if (!chartWindow || date < chartWindow.from || date > chartWindow.to || (zoom === 3 && !paid)) continue;
+    if (zoom === 3 && !payment.paymentTime) { untimedReceipts += amount; continue; }
+    const key = paymentChartKey(date, zoom, payment.paymentTime);
+    const values = amounts.get(key);
+    if (!values) continue;
     const series = paid ? (isReceiptMethod(payment.paymentMethod) ? payment.paymentMethod : "otherMethod") : state;
-    const values = amountsByMonth.get(key) ?? { ...emptyMonth };
     values[series] += amount;
-    amountsByMonth.set(key, values);
-  }
-  const chartMonths = [];
-  const periodTotals = { ...emptyMonth };
-  if (validRange) {
-    for (const date = monthDate(startMonth); date <= monthDate(endMonth); date.setUTCMonth(date.getUTCMonth() + 1)) {
-      const key = date.toISOString().slice(0, 7);
-      const values = amountsByMonth.get(key) ?? emptyMonth;
-      for (const series of chartSeries) periodTotals[series.key] += values[series.key];
-      chartMonths.push({
-        key, cash: values.cash / 100, card: values.card / 100, bank_transfer: values.bank_transfer / 100,
-        otherMethod: values.otherMethod / 100, pending: values.pending / 100, overdue: values.overdue / 100,
-      });
+    periodTotals[series] += amount;
+    if (!bucketDates.has(key) || date < bucketDates.get(key)!) bucketDates.set(key, date);
+    if (zoom === 3 && payment.paymentTime) {
+      const rows = hourlyReceipts.get(key) ?? [];
+      rows.push({ id: payment.id, time: payment.paymentTime, amount, method: receiptMethodLabel(payment.paymentMethod) });
+      hourlyReceipts.set(key, rows);
     }
   }
+  const chartPoints = [...amounts].map(([key, values]) => ({ key, ...Object.fromEntries(chartSeries.map(series => [series.key, values[series.key] / 100])) }));
+  const [selectedHour, setSelectedHour] = useState("");
+  const activeHour = amounts.has(selectedHour) ? selectedHour : [...hourlyReceipts.keys()].sort()[0] ?? chartPoints[0]?.key;
+  const selectedReceipts = (activeHour ? hourlyReceipts.get(activeHour) ?? [] : []).sort((a, b) => a.time.localeCompare(b.time));
+  const axisLabel = (key: string) => zoom === 3 ? key.slice(-2) + ":00" : zoom === 0
+    ? (startMonth.slice(0, 4) === endMonth.slice(0, 4) ? shortMonthLabel : monthLabel).format(monthDate(key))
+    : key.slice(8, 10) + "/" + key.slice(5, 7);
+  const changeZoom = (next: number) => {
+    if (chartWindow) setFocus(chartWindow.anchor);
+    setSelectedHour("");
+    setZoom(Math.max(0, Math.min(3, next)));
+  };
+  const pan = (direction: number) => {
+    if (zoom === 0) {
+      if (period === "annual") setYear(String(Math.min(9998, Math.max(1000, Number(year) + direction))));
+      if (period === "quarterly") {
+        const next = quarter + direction;
+        if (next < 1 || next > 4) setYear(String(Math.min(9998, Math.max(1000, Number(year) + direction))));
+        setQuarter((next + 3) % 4 + 1);
+      }
+      setFocus("");
+      return;
+    }
+    if (!chartWindow || (direction < 0 ? !chartWindow.hasPrevious : !chartWindow.hasNext)) return;
+    setFocus(addChartDays(chartWindow.anchor, direction * [0, 28, 7, 1][zoom]));
+    setSelectedHour("");
+  };
+  const pickBucket = (key?: string) => {
+    if (!key) return;
+    if (zoom === 3) setSelectedHour(key);
+    else setFocus(bucketDates.get(key) ?? (zoom === 0 ? key + "-01" : key));
+  };
   const chartTotal = receiptSeries.reduce((sum, series) => sum + periodTotals[series.key], 0);
   const periodScale = chartScale(Math.max(...Object.values(periodTotals)) / 100);
 
@@ -352,44 +390,59 @@ export default function PaymentsPage() {
             </ScrollableSelect>
           </label>}
         </div>
-        {chartMonths.length ? <>
-          <p className="mt-3 text-sm">Incassato nel periodo con data <strong className="tabular-nums">{money.format(chartTotal / 100)}</strong></p>
-          <div className="mt-2 overflow-x-auto" aria-label="Incassi e somme da riscuotere per mese">
-            <div className="h-52" style={{ minWidth: chartMonths.length > 12 || !sameYear ? chartMonths.length * 64 + 48 : undefined }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartMonths} margin={{ top: 12, right: 8 }} barGap={3}>
-                  <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
-                  <XAxis dataKey="key" interval={0} tickFormatter={key => {
-                    const date = monthDate(key);
-                    return sameYear ? shortMonthLabel.format(date).slice(0, 3) : monthLabel.format(date);
-                  }} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis width={48} domain={[0, "auto"]} tickFormatter={value => axisAmount.format(value)}
-                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                  <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} />
-                  <Tooltip labelFormatter={key => monthLabel.format(monthDate(String(key)))} formatter={value => money.format(Number(value))} />
-                  {chartSeries.map(series => <Bar key={series.key} name={series.label} dataKey={series.key} fill={series.color} stackId={series.stack} maxBarSize={32} />)}
-                </BarChart>
-              </ResponsiveContainer>
+        {chartWindow ? <>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="space-y-1 text-xs font-medium">Tipo di grafico<ScrollableSelect aria-label="Tipo di grafico" value={chartType} onValueChange={value => setChartType(value as typeof chartType)}><option value="bars">Barre</option><option value="lines">Linee</option></ScrollableSelect></label>
+            <label className="space-y-1 text-xs font-medium">Scala temporale<ScrollableSelect aria-label="Scala temporale" value={String(zoom)} onValueChange={value => changeZoom(Number(value))}>{["Mesi", "Settimane", "Giorni", "Ore"].map((label, index) => <option value={index} key={label}>{label}</option>)}</ScrollableSelect></label>
+            <div className="flex gap-1" role="group" aria-label="Navigazione temporale">
+              <Button type="button" size="icon" variant="outline" aria-label="Periodo precedente" disabled={zoom === 0 ? period === "custom" : !chartWindow.hasPrevious} onClick={() => pan(-1)}>←</Button>
+              <Button type="button" size="icon" variant="outline" aria-label="Periodo successivo" disabled={zoom === 0 ? period === "custom" : !chartWindow.hasNext} onClick={() => pan(1)}>→</Button>
+              <Button type="button" size="icon" variant="outline" aria-label="Riduci zoom temporale" disabled={zoom === 0} onClick={() => changeZoom(zoom - 1)}>−</Button>
+              <Button type="button" size="icon" variant="outline" aria-label="Aumenta zoom temporale" disabled={zoom === 3} onClick={() => changeZoom(zoom + 1)}>+</Button>
             </div>
           </div>
+          {zoom > 0 && <label className="mt-2 flex flex-wrap items-center gap-2 text-xs font-medium">Vai al giorno<Input type="date" className="w-auto" min={startMonth + "-01"} max={paymentChartWindow(startMonth, endMonth, 0, today).to} value={chartWindow.anchor} onChange={event => { if (event.target.value) { setFocus(event.target.value); setSelectedHour(""); } }} /></label>}
+          <p className="mt-3 text-sm" aria-live="polite">{displayDate(chartWindow.from)}{chartWindow.from === chartWindow.to ? "" : " – " + displayDate(chartWindow.to)} · {zoom === 3 ? "Incassato con orario" : "Incassato"} <strong className="tabular-nums">{money.format(chartTotal / 100)}</strong></p>
+          <div className="mt-2 h-56 min-w-0 touch-pan-y" aria-label="Incassi e somme da riscuotere nel periodo visibile"
+            onPointerDown={event => { dragStart.current = event.clientX; dragged.current = false; }} onPointerCancel={() => { dragStart.current = null; }}
+            onPointerUp={event => { const distance = dragStart.current === null ? 0 : event.clientX - dragStart.current; dragStart.current = null; if (Math.abs(distance) > 36) { dragged.current = true; pan(distance < 0 ? 1 : -1); } }}>
+            <ResponsiveContainer width="100%" height="100%">
+              {(() => {
+                const Chart = chartType === "bars" ? BarChart : LineChart;
+                return <Chart data={chartPoints} margin={{ top: 12, right: 12 }} onClick={state => { if (!dragged.current) pickBucket(state?.activeLabel == null ? undefined : String(state.activeLabel)); }}>
+                  <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
+                  <XAxis dataKey="key" minTickGap={12} tickFormatter={axisLabel} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis width={54} domain={[0, "auto"]} tickFormatter={value => axisAmount.format(value)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} />
+                  <Tooltip labelFormatter={key => axisLabel(String(key))} formatter={value => money.format(Number(value))} />
+                  {seriesForView.map(series => chartType === "bars"
+                    ? <Bar key={series.key} name={series.label} dataKey={series.key} fill={series.color} stackId={series.stack} maxBarSize={32} />
+                    : <Line key={series.key} name={series.label} dataKey={series.key} stroke={series.color} strokeWidth={2} dot={false} strokeDasharray={series.key === "pending" ? "6 4" : series.key === "overdue" ? "2 3" : undefined} />)}
+                </Chart>;
+              })()}
+            </ResponsiveContainer>
+          </div>
           <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Legenda del grafico">
-            {chartSeries.map(series => <li key={series.key} className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: series.color }} aria-hidden="true" />{series.label}
-            </li>)}
+            {seriesForView.map(series => <li key={series.key} className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: series.color }} aria-hidden="true" />{series.label}</li>)}
           </ul>
+          {zoom < 3 ? <p className="mt-2 text-xs text-muted-foreground">Seleziona un punto e premi + per avvicinarti. Trascina il grafico o usa le frecce per scorrere.</p> : <div className="mt-2 space-y-2 rounded-lg bg-muted/40 p-3 text-sm">
+            <label className="flex flex-wrap items-center gap-2">Ora<ScrollableSelect aria-label="Ora del dettaglio" value={activeHour ?? ""} onValueChange={setSelectedHour}>{chartPoints.map(({ key }) => <option key={key} value={key}>{axisLabel(key)}</option>)}</ScrollableSelect></label>
+            {selectedReceipts.length ? <ul className="space-y-1">{selectedReceipts.map(row => <li key={row.id} className="flex flex-wrap justify-between gap-2"><span>{row.time} · {row.method}</span><strong>{money.format(row.amount / 100)}</strong></li>)}</ul> : <p className="text-muted-foreground">Nessun incasso con orario in questa fascia.</p>}
+            {untimedReceipts > 0 && <p className="text-muted-foreground">Incassi del giorno senza orario: {money.format(untimedReceipts / 100)}.</p>}
+          </div>}
           <p className="mt-2 text-xs text-muted-foreground">Le uscite, quando saranno disponibili, compariranno sotto la linea dello zero.</p>
         </> : <p role="status" className="mt-3 text-sm text-muted-foreground">Scegli un mese iniziale e uno finale in ordine cronologico.</p>}
         {undatedReceipts > 0 && <p className="mt-2 text-xs text-muted-foreground">Incassi senza data da attribuire a un mese: {money.format(undatedReceipts / 100)}.</p>}
         {undatedDues > 0 && <p className="mt-2 text-xs text-muted-foreground">Somme da riscuotere senza scadenza: {money.format(undatedDues / 100)}.</p>}
       </section>
 
-      {chartMonths.length > 0 && <section className="space-y-3 rounded-xl border bg-card p-3 sm:p-4" aria-labelledby="payment-period-heading">
+      {chartWindow && <section className="space-y-3 rounded-xl border bg-card p-3 sm:p-4" aria-labelledby="payment-period-heading">
         <div>
           <h2 id="payment-period-heading" className="text-sm font-medium">Incassi per metodo e somme da riscuotere</h2>
-          <p className="mt-1 text-xs text-muted-foreground">Stesso periodo del grafico mensile</p>
+          <p className="mt-1 text-xs text-muted-foreground">Stesso periodo visibile nel grafico</p>
         </div>
         <ul className="space-y-3">
-          {chartSeries.map(series => {
+          {seriesForView.map(series => {
             const amount = periodTotals[series.key] / 100;
             return <li key={series.key}>
               <div className="mb-1 flex flex-wrap justify-between gap-x-3 text-sm">
@@ -430,7 +483,7 @@ export default function PaymentsPage() {
                 {Object.entries(paymentStatuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
               </ScrollableSelect>
               {effectiveStatus === "paid" && <Button type="button" variant="outline" size="sm" disabled={save.isPending}
-                onClick={() => setReceipt({ id: payment.id, date: payment.paymentDate ?? "", method: isReceiptMethod(payment.paymentMethod) ? payment.paymentMethod : "" })}>Dati incasso</Button>}
+                onClick={() => setReceipt({ id: payment.id, date: payment.paymentDate ?? "", time: payment.paymentTime ?? "", method: isReceiptMethod(payment.paymentMethod) ? payment.paymentMethod : "" })}>Dati incasso</Button>}
               <Button type="button" size="icon" variant="ghost" aria-label="Elimina pagamento" disabled={save.isPending}
                 onClick={() => { if (window.confirm("Eliminare questo pagamento?")) save.mutate({ id: payment.id, method: "DELETE" }); }}>
                 <Trash2 className="h-4 w-4 text-destructive" />
@@ -446,10 +499,13 @@ export default function PaymentsPage() {
         {receipt && <form className="space-y-3" onSubmit={event => {
           event.preventDefault();
           if (!receipt.date || !isReceiptMethod(receipt.method)) return;
-          save.mutate({ id: receipt.id, method: "PATCH", body: { status: "paid", paymentDate: receipt.date, paymentMethod: receipt.method } });
+          save.mutate({ id: receipt.id, method: "PATCH", body: { status: "paid", paymentDate: receipt.date, paymentTime: receipt.time || null, paymentMethod: receipt.method } });
         }}>
           <label className="block space-y-1 text-sm">Data di incasso
             <Input type="date" required value={receipt.date} onChange={event => setReceipt({ ...receipt, date: event.target.value })} />
+          </label>
+          <label className="block space-y-1 text-sm">Orario d’incasso (facoltativo)
+            <Input type="time" value={receipt.time ?? ""} onChange={event => setReceipt({ ...receipt, time: event.target.value })} />
           </label>
           <ReceiptMethodSelect value={receipt.method} onChange={method => setReceipt({ ...receipt, method })} />
           <Button type="submit" disabled={!receipt.date || !isReceiptMethod(receipt.method) || save.isPending}>Salva incasso</Button>

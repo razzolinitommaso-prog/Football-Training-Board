@@ -15,11 +15,11 @@ import { withApi } from "@/lib/api-base";
 import { listFeesForType, MAX_PLAYER_PAYMENT_AMOUNT, type FeeItem, type FeeType } from "@/lib/fee-list";
 import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, paymentStatuses, paymentStatusTone, receiptMethodLabel, type PaymentEntry } from "@/lib/payment-summary";
 
-export type PlayerLedgerPayment = PaymentEntry & { id: number; amount: number; paymentDate?: string | null; installmentNumber?: number | null };
+export type PlayerLedgerPayment = PaymentEntry & { id: number; amount: number; paymentDate?: string | null; paymentTime?: string | null; installmentNumber?: number | null };
 type LedgerPayment = PlayerLedgerPayment & { playerId: number };
 type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; supplementalTeamId?: number | null; clubSection?: string };
 type Team = { id: number; name: string; clubSection: string };
-type Editor = { action: "due" | "settle" | "add" | "kit-link"; ids: number[]; date: string; method: string; amount?: string; tariffId?: string; kitItemId?: string; paymentType: string; status: "paid" | "pending"; description: string };
+type Editor = { action: "due" | "settle" | "add" | "kit-link"; ids: number[]; date: string; time?: string; method: string; amount?: string; tariffId?: string; kitItemId?: string; paymentType: string; status: "paid" | "pending"; description: string };
 const paymentTypes = { registration_fee: "Iscrizione · prima rata", annual_fee_installment: "Quota annuale", insurance_fee: "Assicurazione", kit_payment: "Kit", shuttle_monthly: "Pulmino", other: "Altro" };
 const tariffTypes: Partial<Record<string, FeeType>> = {
   annual_fee_installment: "annual_fee", registration_fee: "registration_fee", insurance_fee: "insurance_fee",
@@ -112,7 +112,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
             <p>{payment.description || paymentCategories[paymentCategory(payment)]}</p>
             <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
               <Badge variant="outline" className={paymentStatusTone[state]}>{paymentStatuses[state]}</Badge>
-              {displayDate(payment.status === "paid" ? payment.paymentDate : payment.dueDate)}
+              {displayDate(payment.status === "paid" ? payment.paymentDate : payment.dueDate)}{payment.status === "paid" && payment.paymentTime ? " · " + payment.paymentTime : ""}
               {payment.status === "paid" && ` · ${receiptMethodLabel(payment.paymentMethod)}`}</p>
           </div>
           <strong className="tabular-nums">{money.format(payment.amount)}</strong>
@@ -135,7 +135,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
           if (editor.action === "due") {
             save.mutate({ path: `/api/player-payments/${editor.ids[0]}/due-date`, method: "PATCH", body: { dueDate: editor.date } });
           } else if (editor.action === "settle") {
-            save.mutate({ path: "/api/player-payments/settle", method: "POST", body: { playerId, ids: editor.ids, paymentDate: editor.date, paymentMethod: editor.method } });
+            save.mutate({ path: "/api/player-payments/settle", method: "POST", body: { playerId, ids: editor.ids, paymentDate: editor.date, paymentTime: editor.time || null, paymentMethod: editor.method } });
           } else if (editor.action === "kit-link") {
             save.mutate({ path: `/api/player-payments/${editor.ids[0]}/kit-item`, method: "PATCH", body: { kitItemId: kitItem?.id } });
           } else {
@@ -144,7 +144,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
               kitItemId: kitItem?.id,
               description: kitItem ? editor.description.trim() : editor.description.trim() || tariff?.name || paymentTypes[editor.paymentType as keyof typeof paymentTypes],
               dueDate: editor.status === "pending" ? editor.date : null,
-              paymentDate: editor.status === "paid" ? editor.date : null, paymentMethod: editor.status === "paid" ? editor.method : null,
+              paymentDate: editor.status === "paid" ? editor.date : null, paymentTime: requiresMethod ? editor.time || null : null, paymentMethod: editor.status === "paid" ? editor.method : null,
             } });
           }
         }}>
@@ -177,6 +177,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
           {editor.action !== "kit-link" && <label className="block text-sm">{editor.action === "due" ? "Nuova scadenza" : requiresMethod ? "Data d’incasso" : "Scadenza"}
             <Input type="date" required value={editor.date} onChange={event => setEditor({ ...editor, date: event.target.value })} />
           </label>}
+          {requiresMethod && <label className="block text-sm">Orario d’incasso (facoltativo)<Input type="time" className="mt-1" value={editor.time ?? ""} onChange={event => setEditor({ ...editor, time: event.target.value })} /></label>}
           {requiresMethod && <ReceiptMethodSelect value={editor.method} onChange={method => setEditor({ ...editor, method })} />}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={invalid || save.isPending}>{editor.action === "kit-link" ? "Collega articolo" : editor.action === "due" ? "Salva scadenza" : editor.action === "add" ? "Registra voce" : "Salva incasso"}</Button>

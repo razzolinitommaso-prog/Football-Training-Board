@@ -120,7 +120,7 @@ export default function PlayerPerformance() {
   const selectedTeamId = form.watch("teamId");
   const playersInSelectedTeam = (players ?? []).filter((player) => Number(player.teamId ?? 0) === Number(selectedTeamId));
   const filteredPlayers = (players ?? []).filter((player) => {
-    if (filterTeam !== "all" && Number(player.teamId ?? 0) !== Number(filterTeam)) return false;
+    if (filterTeam !== "all" && ![player.teamId, player.supplementalTeamId].includes(Number(filterTeam))) return false;
     return true;
   });
   const params = new URLSearchParams();

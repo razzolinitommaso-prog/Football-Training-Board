@@ -302,13 +302,15 @@ router.get("/player-fitness-data", requireAuth, async (req, res): Promise<void> 
     sections ? (sections.length ? inArray(playersTable.clubSection, sections) : sql`false`) : undefined,
   ));
   const allowed = new Map(players.filter(player => {
-    const assigned = player.teamId ?? supplementalTrainingTeam(player.notes);
-    return canAccessPlayerMeasurements(scope, assigned) && (teamId === undefined || teamId === assigned);
+    const assigned = [player.teamId, supplementalTrainingTeam(player.notes)].filter(id => id != null);
+    return teamId === undefined
+      ? scope === null || assigned.some(id => canAccessPlayerMeasurements(scope, id))
+      : assigned.includes(teamId) && canAccessPlayerMeasurements(scope, teamId);
   }).map(player => [player.id, player]));
   if (!allowed.size) { res.json(overview ? { total: 0, entries: [] } : []); return; }
   const publicResults = overview || req.query.view === "tests" || !canViewFitness(role);
   const conditions = and(eq(playerFitnessDataTable.clubId, clubId), inArray(playerFitnessDataTable.playerId, [...allowed.keys()]),
-    publicResults ? eq(playerFitnessDataTable.activityType, "test_atletico") : undefined);
+    publicResults ? sql`COALESCE(${playerFitnessDataTable.activityType}, 'test_atletico') = 'test_atletico'` : undefined);
   const ordering = [desc(playerFitnessDataTable.date), desc(playerFitnessDataTable.id)] as const;
   if (publicResults) {
     const query = db.select({

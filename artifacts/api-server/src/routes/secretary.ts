@@ -249,6 +249,34 @@ function ensurePaymentKitSchema() {
   return paymentKitSchema;
 }
 
+let receiptTimeSchema: Promise<unknown> | undefined;
+function ensureReceiptTimeSchema() {
+  receiptTimeSchema ??= db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(73319823)`);
+    await tx.execute(sql`CREATE TABLE IF NOT EXISTS player_payment_receipt_times (
+      payment_id integer PRIMARY KEY REFERENCES player_payments(id) ON DELETE CASCADE,
+      receipt_date date NOT NULL,
+      receipt_time time NOT NULL
+    )`);
+  }).catch(error => { receiptTimeSchema = undefined; throw error; });
+  return receiptTimeSchema;
+}
+
+function validReceiptTime(value: unknown) {
+  return value == null || (typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value));
+}
+
+async function writeReceiptTime(tx: Pick<typeof db, "execute">, id: number, date: string | null, time?: string | null) {
+  if (time && date) {
+    await tx.execute(sql`INSERT INTO player_payment_receipt_times (payment_id, receipt_date, receipt_time)
+      VALUES (${id}, ${date}::date, ${time}::time) ON CONFLICT (payment_id) DO UPDATE
+      SET receipt_date = EXCLUDED.receipt_date, receipt_time = EXCLUDED.receipt_time`);
+  } else {
+    await tx.execute(sql`DELETE FROM player_payment_receipt_times WHERE payment_id = ${id}
+      AND (${time === null || !date} OR receipt_date IS DISTINCT FROM ${date}::date)`);
+  }
+}
+
 async function paymentKitArticle(clubId: number, itemId: number) {
   const [article] = await db.select({
     id: warehouseItemsTable.id, name: warehouseItemsTable.name,
@@ -304,7 +332,7 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
       ? and(eq(playerPaymentsTable.clubId, clubId), inArray(playerPaymentsTable.playerId, ids))
       : and(eq(playerPaymentsTable.clubId, clubId), sql`false`);
   }
-  await ensurePaymentKitSchema();
+  await Promise.all([ensurePaymentKitSchema(), ensureReceiptTimeSchema()]);
   const records = await db.select({
     ...getTableColumns(playerPaymentsTable),
     kitArticle: playerPaymentKitItemsTable.article,
@@ -313,6 +341,9 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
     teamName: teamsTable.name,
     teamSeason: seasonsTable.name,
     playerNotes: playersTable.notes,
+    paymentTime: sql<string | null>`(SELECT to_char(receipt_time, 'HH24:MI') FROM player_payment_receipt_times
+      WHERE payment_id = ${playerPaymentsTable.id} AND receipt_date = ${playerPaymentsTable.paymentDate}
+      AND ${playerPaymentsTable.status} = 'paid')`,
   }).from(playerPaymentsTable)
     .leftJoin(playerPaymentKitItemsTable, eq(playerPaymentKitItemsTable.paymentId, playerPaymentsTable.id))
     .leftJoin(playersTable, and(eq(playersTable.id, playerPaymentsTable.playerId), eq(playersTable.clubId, playerPaymentsTable.clubId)))
@@ -333,7 +364,8 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });
     return;
   }
-  const { playerId, amount, dueDate, status, paymentDate, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod, kitItemId } = req.body;
+  const { playerId, amount, dueDate, status, paymentDate, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod, kitItemId, paymentTime } = req.body;
+  if (!validReceiptTime(paymentTime) || (paymentTime && status !== "paid")) { res.status(400).json({ error: "Orario di incasso non valido." }); return; }
   if (!playerId || amount == null) { res.status(400).json({ error: "playerId and amount required" }); return; }
   if (status === "paid" && !validReceiptMethod(paymentMethod)) {
     res.status(400).json({ error: "Indica il metodo di incasso." });
@@ -369,10 +401,12 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     paymentMethod: status === "paid" ? paymentMethod : null,
   };
   if (article) await ensurePaymentKitSchema();
-  const record = article ? await db.transaction(async tx => {
+  if (paymentTime) await ensureReceiptTimeSchema();
+  const record = article || paymentTime ? await db.transaction(async tx => {
     const [payment] = await tx.insert(playerPaymentsTable).values(values).returning();
-    await tx.insert(playerPaymentKitItemsTable).values({ paymentId: payment.id, article });
-    return { ...payment, kitArticle: article };
+    if (article) await tx.insert(playerPaymentKitItemsTable).values({ paymentId: payment.id, article });
+    if (paymentTime) await writeReceiptTime(tx, payment.id, paidDate, paymentTime);
+    return { ...payment, kitArticle: article, paymentTime: paymentTime ?? null };
   }) : (await db.insert(playerPaymentsTable).values(values).returning())[0];
   await reconcilePaymentAvailability(clubId, player.id, undefined, status === "paid");
   res.status(201).json(record);
@@ -681,15 +715,16 @@ router.patch("/player-payments/:id/due-date", requireAuth, async (req, res): Pro
 
 router.post("/player-payments/settle", requireAuth, async (req, res): Promise<void> => {
   if (!canEditFinancials(req.session.role)) { res.sendStatus(403); return; }
-  const { playerId, ids, paymentDate, paymentMethod } = req.body ?? {};
+  const { playerId, ids, paymentDate, paymentMethod, paymentTime } = req.body ?? {};
   if (!Number.isSafeInteger(playerId) || playerId <= 0 || !Array.isArray(ids) || ids.length === 0 || ids.length > 120 ||
       new Set(ids).size !== ids.length || ids.some(id => !Number.isSafeInteger(id) || id <= 0) ||
-      !isPaymentPlanDate(paymentDate) || !validReceiptMethod(paymentMethod)) {
+      !isPaymentPlanDate(paymentDate) || !validReceiptMethod(paymentMethod) || !validReceiptTime(paymentTime)) {
     res.status(400).json({ error: "Controlla rate, data e metodo d’incasso." }); return;
   }
   const clubId = req.session.clubId!;
   const scope = await getScopedPlayerIds(req, clubId);
   if (scope && !scope.includes(playerId)) { res.sendStatus(403); return; }
+  if (paymentTime) await ensureReceiptTimeSchema();
   const count = await db.transaction(async tx => {
     const condition = and(eq(playerPaymentsTable.clubId, clubId), eq(playerPaymentsTable.playerId, playerId),
       inArray(playerPaymentsTable.id, ids), sql`${playerPaymentsTable.status} <> 'paid' AND ${playerPaymentsTable.amount} > 0`);
@@ -698,6 +733,7 @@ router.post("/player-payments/settle", requireAuth, async (req, res): Promise<vo
     if (rows.length !== ids.length) return 0;
     const updated = await tx.update(playerPaymentsTable).set({ status: "paid", paymentDate, paymentMethod })
       .where(condition).returning({ id: playerPaymentsTable.id });
+    if (paymentTime) for (const row of updated) await writeReceiptTime(tx, row.id, paymentDate, paymentTime);
     return updated.length;
   });
   if (!count) { res.status(409).json({ error: "Le rate sono cambiate. Aggiorna il riepilogo e riprova." }); return; }
@@ -712,7 +748,8 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   }
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const { status, paymentDate, amount, description, dueDate, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod } = req.body;
+  const { status, paymentDate, amount, description, dueDate, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod, paymentTime } = req.body;
+  if (!validReceiptTime(paymentTime) || (paymentTime && status !== "paid")) { res.status(400).json({ error: "Orario di incasso non valido." }); return; }
   if (status === "paid" && (!validReceiptMethod(paymentMethod) || !isPaymentPlanDate(paymentDate))) {
     res.status(400).json({ error: "Indica data e metodo di incasso validi." });
     return;
@@ -731,9 +768,15 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   if (annualFeeTotal !== undefined) updates.annualFeeTotal = annualFeeTotal != null ? Number(annualFeeTotal) : null;
   if (availabilityBlocking !== undefined) updates.availabilityBlocking = availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1;
   if (status !== undefined) updates.paymentMethod = status === "paid" ? paymentMethod : null;
-  const [record] = await db.update(playerPaymentsTable).set(updates)
-    .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!),
-      paymentType === undefined ? undefined : sql`${playerPaymentsTable.paymentType} <> 'kit_article'`)).returning();
+  const updateTime = status !== undefined || paymentDate !== undefined || paymentTime !== undefined;
+  if (updateTime) await ensureReceiptTimeSchema();
+  const record = await db.transaction(async tx => {
+    const [payment] = await tx.update(playerPaymentsTable).set(updates)
+      .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!),
+        paymentType === undefined ? undefined : sql`${playerPaymentsTable.paymentType} <> 'kit_article'`)).returning();
+    if (payment && updateTime) await writeReceiptTime(tx, payment.id, payment.status === "paid" ? payment.paymentDate : null, paymentTime);
+    return payment;
+  });
   if (!record) { res.status(404).json({ error: "Not found" }); return; }
   await reconcilePaymentAvailability(req.session.clubId!, record.playerId, undefined, status === "paid");
   res.json(record);
