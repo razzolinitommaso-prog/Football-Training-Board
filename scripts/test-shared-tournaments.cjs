@@ -548,11 +548,13 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     const winterProgram = [
       {
         ...entry("december"),
+        finalsPolicy: "program-only",
         date: "2026-12-12T09:00:00.000Z",
         tournamentPhaseId: phases[0].id,
       },
       {
         ...entry("january"),
+        finalsPolicy: "program-only",
         date: "2027-01-10T09:00:00.000Z",
         tournamentPhaseId: phases[1].id,
       },
@@ -601,6 +603,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       409,
       "Cannot remove phase containing saved games",
     );
+    assert.ok(winterPage.program.every(entry => entry.finalsPolicy === "program-only"), "Imported no-finals policy survives shared save/reload");
     const scoreSave = await call("/tournament-documents/state", "PUT", {
       teamId: 11,
       competition: "Torneo: Natale e gennaio",
@@ -620,6 +623,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       phases.map((p) => p.id),
       "Saving scores preserves phase IDs",
     );
+    assert.ok(winterPage.program.every(entry => entry.finalsPolicy === "program-only"), "No-finals policy survives legacy score editor and reload");
     assert.equal(
       (
         await call(`/shared-tournaments/${winterId}`, "PATCH", {

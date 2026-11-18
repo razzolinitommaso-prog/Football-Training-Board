@@ -720,6 +720,7 @@ router.get(
         id: entry.id,
         date: entry.date,
         homeTeam: entry.homeTeam,
+        ...(entry.finalsPolicy === "program-only" ? { finalsPolicy: "program-only" } : {}),
         awayTeam: entry.awayTeam,
         group: entry.group ?? "",
         phase: entry.phase ?? "Gironi",

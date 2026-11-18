@@ -18,6 +18,7 @@ const MAX_TOURNAMENT_DOC_BYTES = 32 * 1024 * 1024;
 
 type TournamentProgramEntry = {
   tournamentPhaseId?: string;
+  finalsPolicy?: "program-only";
   id: string;
   date: string;
   homeTeam: string;
@@ -107,6 +108,7 @@ function normalizeProgram(value: unknown): TournamentProgramEntry[] {
       homeTeam,
       awayTeam,
       ...(typeof row.tournamentPhaseId === "string" ? { tournamentPhaseId: row.tournamentPhaseId } : {}),
+      ...(row.finalsPolicy === "program-only" ? { finalsPolicy: "program-only" as const } : {}),
       phase: row.phase == null ? null : String(row.phase),
       group: row.group == null ? null : String(row.group),
       kind,

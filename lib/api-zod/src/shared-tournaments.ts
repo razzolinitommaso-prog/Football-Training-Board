@@ -60,6 +60,7 @@ export const SharedTournamentProgramBody = z
             homeTeam: z.string().trim().min(1).max(250),
             awayTeam: z.string().trim().min(1).max(250),
             tournamentPhaseId: z.string().uuid().optional(),
+            finalsPolicy: z.literal("program-only").optional(),
             phase: z.string().trim().max(100).default("Gironi"),
             group: z.string().trim().max(100).default(""),
             ownSide: z.enum(["none", "home", "away"]),

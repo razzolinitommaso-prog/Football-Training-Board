@@ -1,3 +1,4 @@
+import { readDatedTournamentColumns } from "./tournament-dated-columns";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import type { PDFPageProxy } from "pdfjs-dist";
 import type { MatchImportRow } from "./match-calendar-excel";
@@ -112,6 +113,7 @@ export type TournamentProgramEntry = {
   homeScore?: number | null;
   awayScore?: number | null;
   kind?: "match" | "composition" | "fixture_placeholder";
+  finalsPolicy?: "program-only";
 };
 
 export type YouthChampionshipFixtureImportRow = {
@@ -238,6 +240,7 @@ type CloneFuturePhaseFixtureRejectedRow = {
 };
 
 type ParseTextOptions = ParsePdfOptions & {
+  datedColumnLines?: string[];
   fileName?: string;
   lastModified?: number;
   sourceLabel?: string;
@@ -2532,7 +2535,7 @@ async function pageToLinesWithYs(
     tournamentFallbackDateIso?: string | null;
     capturePreCollapseRaw?: boolean;
   } = {},
-): Promise<{ lines: string[]; ys: number[]; preCollapseLines?: string[]; syntheticLines?: string[] }> {
+): Promise<{ lines: string[]; ys: number[]; preCollapseLines?: string[]; syntheticLines?: string[]; datedColumnLines?: string[] }> {
   const content = await page.getTextContent();
   const items: { str: string; x: number; y: number }[] = [];
   for (const item of content.items) {
@@ -2606,6 +2609,7 @@ async function pageToLinesWithYs(
     ys,
     ...(options.capturePreCollapseRaw ? { preCollapseLines } : {}),
     ...(syntheticLines.length > 0 ? { syntheticLines } : {}),
+    ...(options.includeTournamentTableLines ? { datedColumnLines: readDatedTournamentColumns(items, options.tournamentFallbackDateIso) ?? undefined } : {}),
   };
 }
 
@@ -3681,6 +3685,7 @@ export async function parseMatchCalendarPdfFile(
     ys: number[];
     preCollapseLines?: string[];
     syntheticLines?: string[];
+    datedColumnLines?: string[];
   }[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -3833,6 +3838,9 @@ export async function parseMatchCalendarPdfFile(
     lastModified: file.lastModified,
     sourceLabel: "PDF",
     clonePdfLayoutMeta,
+    datedColumnLines: perPage.every(page => page.datedColumnLines?.length || !page.lines.some(line => /\b[0-2]?\d[:.][0-5]\d\b/.test(line))) &&
+      !/\b(final[ei]?|semifinal[ei]?|quarti|ottavi|spareggi)\b/i.test(nativeFullText)
+      ? perPage.flatMap(page => page.datedColumnLines ?? []) : undefined,
   });
 }
 
@@ -6597,6 +6605,18 @@ export function parseMatchCalendarTextLines(
   }
 
   if (documentMode === "tournament") {
+    if (options.unifiedTournamentProgram && options.datedColumnLines?.length) {
+      // Reuse the established alias matcher unchanged, one explicit occurrence at a time.
+      const occurrences = options.datedColumnLines.map(line => parseTournamentProgramLines(["GIRONE UNICO", line.replace(" Girone UNICO ", " ")], {
+        aliasNorms: tournamentAliases, tournamentTitle, tournamentName, fallbackDateIso: explicitTournamentFallbackIso, fallbackYearHint,
+      }));
+      if (occurrences.every(result => result.tournamentProgram?.length === 1)) {
+        const byFixture = new Map(occurrences.flatMap(result => result.tournamentProgram ?? []).map(entry => [entry.id, { ...entry, finalsPolicy: "program-only" as const }]));
+        const byRow = new Map(occurrences.flatMap(result => result.recognized).map(row => [tournamentImportRowMergeKey(row), row]));
+        return { recognized: [...byRow.values()], discarded: 0, totalDateLines: options.datedColumnLines.length,
+          tournamentProgram: [...byFixture.values()], tournamentScores: {} };
+      }
+    }
     if (options.unifiedTournamentProgram) {
       const unifiedResult = parseUnifiedTournamentProgramLines(workingLines, {
         aliasNorms: tournamentAliases,

@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 type Entry = {
   tournamentPhaseId?: string;
+  finalsPolicy?: "program-only";
   id: string;
   date: string;
   homeTeam: string;
