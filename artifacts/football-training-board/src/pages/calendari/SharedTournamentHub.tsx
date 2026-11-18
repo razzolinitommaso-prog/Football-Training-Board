@@ -206,11 +206,13 @@ export default function SharedTournamentHub({
             </div>
           </div>
           <SharedTournamentProgram
+            key={selected.id + ":" + teamId}
             id={selected.id}
             teamId={teamId}
             teamName={current?.name ?? ""}
             phases={selected.phases ?? []}
             startDate={selected.startDate}
+            endDate={selected.endDate}
             canManage={canManage}
             basePath={base(teamId)}
           />

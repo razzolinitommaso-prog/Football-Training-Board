@@ -1,6 +1,9 @@
+import { useGetMyClub } from "@workspace/api-client-react";
+import { parseMatchCalendarPdfFile, parseMatchCalendarPdfFileClone, parseTournamentImageFile, parseTournamentImageFileClone, buildPdfImportSearchTerms } from "@/lib/match-calendar-pdf";
+import { mergeSharedTournamentImport } from "@/lib/shared-tournament-import";
 import type { SharedTournamentPhase } from "@workspace/api-zod";
 import { useAuth } from "@/hooks/use-auth";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { withApi } from "@/lib/api-base";
 import { Button } from "@/components/ui/button";
@@ -55,6 +58,7 @@ export default function SharedTournamentProgram({
   teamId,
   teamName,
   startDate,
+  endDate,
   phases,
   canManage,
   basePath,
@@ -63,11 +67,15 @@ export default function SharedTournamentProgram({
   teamId: number;
   teamName: string;
   startDate: string;
+  endDate?: string | null;
   phases: SharedTournamentPhase[];
   canManage: boolean;
   basePath: string;
 }) {
   const { club, user, role } = useAuth();
+  const { data: myClub, isLoading: clubLoading } = useGetMyClub();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [importNotice, setImportNotice] = useState("");
   const qc = useQueryClient(),
     key = ["shared-program", id, teamId, club?.id, user?.id, role];
   const query = useQuery({
@@ -99,22 +107,58 @@ export default function SharedTournamentProgram({
       setOpen(false);
     },
   });
+  const importProgram = useMutation({
+    mutationFn: async (file: File) => {
+      if (!query.data) throw Error("Attendi il caricamento del programma dell’annata.");
+      if (file.size > 32 * 1024 * 1024) throw Error("Il documento supera 32 MB.");
+      const original = structuredClone(open ? draft : query.data.program);
+      const originalRevision = open ? revision : query.data.revision;
+      const profile = myClub as { name?: string | null; legalName?: string | null } | undefined;
+      const clubName = profile?.name?.trim() || club?.name || teamName;
+      const aliases = [profile?.name, profile?.legalName].map(value => String(value ?? "").trim())
+        .filter((value, index, list) => value.length >= 3 && list.findIndex(item => item.toLowerCase() === value.toLowerCase()) === index);
+      const options = { teamName, clubName, clubAliases: aliases, societyHint: clubName, documentMode: "tournament" as const, unifiedTournamentProgram: true,
+        searchTerms: buildPdfImportSearchTerms({ categoryLine: teamName, clubLine: clubName, teamName, clubName }) };
+      const image = file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
+      if (!image && file.type !== "application/pdf" && !/\.pdf$/i.test(file.name)) throw Error("Scegli un PDF o un’immagine PNG, JPG o WebP.");
+      let parsed = image ? await parseTournamentImageFile(file, options) : await parseMatchCalendarPdfFile(file, options);
+      if (!parsed.recognized.length) {
+        const fallback = image ? await parseTournamentImageFileClone(file, options) : await parseMatchCalendarPdfFileClone(file, options);
+        if (fallback.recognized.length > parsed.recognized.length || (fallback.tournamentProgram?.length ?? 0) > (parsed.tournamentProgram?.length ?? 0)) parsed = fallback;
+      }
+      return { ...mergeSharedTournamentImport(parsed, original, phases, clubName), revision: originalRevision, fileName: file.name };
+    },
+    onSuccess: result => {
+      setRevision(result.revision); setDraft(result.program); save.reset();
+      setImportNotice(`${result.fileName} · ${teamName}: ${result.added} nuove gare, ${result.matched} già presenti. Verifica l’anteprima e salva per confermare.`);
+      setOpen(true);
+    },
+  });
+  const outsideDates = draft.filter(entry => { const date = new Date(entry.date); if (!Number.isFinite(date.getTime())) return true;
+    const day = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Rome" }).format(date); return day < startDate || day > (endDate ?? startDate); }).length;
+  const missingPhase = phases.length ? draft.filter(entry => !phases.some(phase => phase.id === entry.tournamentPhaseId)).length : 0;
   const change = (index: number, patch: Partial<Entry>) =>
     setDraft((old) =>
       old.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)),
     );
   return (
     <div className="space-y-3">
+      <input ref={fileInput} type="file" disabled={!canManage || importProgram.isPending || save.isPending} className="hidden" accept=".pdf,image/png,image/jpeg,image/webp" aria-label={"Carica programma di " + teamName}
+        onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) importProgram.mutate(file); }} />
+      {canManage && <div className="space-y-2"><Button type="button" variant="outline" disabled={!query.data || clubLoading || importProgram.isPending || save.isPending} onClick={() => fileInput.current?.click()}>
+        {importProgram.isPending ? "Lettura programma…" : "Carica programma dell’annata"}
+      </Button><p className="text-xs text-muted-foreground">PDF o immagine · Importa soltanto nel programma di {teamName}. Le altre annate restano separate.</p></div>}
+      {importProgram.isError && <p role="alert" className="text-sm text-destructive">{importProgram.error.message}</p>}
       <div className="flex flex-wrap justify-between gap-2">
         <h4 className="font-medium">Programma di {teamName}</h4>
         {canManage && (
           <Button
             size="sm"
-            disabled={!query.data}
+            disabled={!query.data || importProgram.isPending}
             onClick={() => {
               setRevision(query.data!.revision);
               setDraft(structuredClone(query.data?.program ?? []));
-              save.reset();
+              save.reset(); importProgram.reset(); setImportNotice("");
               setOpen(true);
             }}
           >
@@ -162,7 +206,7 @@ export default function SharedTournamentProgram({
           )}
         </div>
       ))}
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={value => { if (!save.isPending && !importProgram.isPending) setOpen(value); }}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Programma · {teamName}</DialogTitle>
@@ -172,6 +216,12 @@ export default function SharedTournamentProgram({
               assegnare usa la stessa opzione.
             </DialogDescription>
           </DialogHeader>
+          {importNotice && <p role="status" className="rounded-lg border bg-muted/20 p-3 text-sm">{importNotice}</p>}
+          <p className="text-sm font-medium">{draft.length} gare nel programma · {draft.filter(entry => entry.ownSide !== "none").length} gare dell’annata</p>
+          {outsideDates > 0 && <p role="alert" className="text-sm text-destructive">{outsideDates} gare fuori dalle date del torneo. Verifica le date delle gare o aggiorna i dati comuni del torneo, includendo gennaio se previsto.</p>}
+          {missingPhase > 0 && <p role="alert" className="text-sm text-amber-700">Scegli la fase del torneo per {missingPhase} gare prima di salvare.</p>}
+          {importProgram.isError && <p role="alert" className="text-sm text-destructive">{importProgram.error.message}</p>}
+          <Button type="button" variant="outline" disabled={importProgram.isPending || save.isPending || clubLoading} onClick={() => fileInput.current?.click()}>Carica PDF o immagine per {teamName}</Button>
           <form
             className="space-y-4"
             onSubmit={(e) => {
@@ -182,6 +232,7 @@ export default function SharedTournamentProgram({
             {draft.map((entry, i) => (
               <fieldset
                 key={entry.id}
+                disabled={save.isPending || importProgram.isPending}
                 className="grid gap-3 rounded-xl border p-3 sm:grid-cols-2"
               >
                 <legend className="px-1 text-sm font-medium">
@@ -305,7 +356,7 @@ export default function SharedTournamentProgram({
             <Button
               type="button"
               variant="outline"
-              disabled={draft.length >= 250}
+              disabled={draft.length >= 250 || save.isPending || importProgram.isPending}
               onClick={() =>
                 setDraft((old) => [
                   ...old,
@@ -339,7 +390,7 @@ export default function SharedTournamentProgram({
               >
                 Annulla
               </Button>
-              <Button disabled={save.isPending}>
+              <Button disabled={save.isPending || importProgram.isPending || outsideDates > 0 || missingPhase > 0}>
                 {save.isPending
                   ? "Salvataggio…"
                   : "Salva programma dell’annata"}

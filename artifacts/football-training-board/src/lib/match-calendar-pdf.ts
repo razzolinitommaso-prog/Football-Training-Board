@@ -1,4 +1,4 @@
-import { readDatedTournamentColumns } from "./tournament-dated-columns";
+import { readDatedTournamentColumns, readDatedTournamentBlocks } from "./tournament-dated-columns";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import type { PDFPageProxy } from "pdfjs-dist";
 import type { MatchImportRow } from "./match-calendar-excel";
@@ -2609,7 +2609,7 @@ async function pageToLinesWithYs(
     ys,
     ...(options.capturePreCollapseRaw ? { preCollapseLines } : {}),
     ...(syntheticLines.length > 0 ? { syntheticLines } : {}),
-    ...(options.includeTournamentTableLines ? { datedColumnLines: readDatedTournamentColumns(items, options.tournamentFallbackDateIso) ?? undefined } : {}),
+    ...(options.includeTournamentTableLines ? { datedColumnLines: readDatedTournamentColumns(items, options.tournamentFallbackDateIso) ?? readDatedTournamentBlocks(items, options.tournamentFallbackDateIso) ?? undefined } : {}),
   };
 }
 

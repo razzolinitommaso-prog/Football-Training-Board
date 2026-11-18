@@ -65,3 +65,48 @@ export function readDatedTournamentColumns(items: TournamentTextCell[], fallback
   }
   return output.length?output:null;
 }
+
+
+/** Additional path for dated sections stacked vertically. The column reader stays unchanged. */
+export function readDatedTournamentBlocks(items: TournamentTextCell[], fallbackDate?: string | null): string[] | null {
+  const text=items.map(item=>item.str).join(" ");
+  if(!/\bgirone\s+unico\b/i.test(text)||/\b(final[ei]?|semifinal[ei]?|quarti|ottavi|spareggi)\b/i.test(text))return null;
+  const rows:{y:number;text:string}[]=[];
+  const grouped:{y:number;cells:TournamentTextCell[]}[]=[];
+  for(const item of [...items].sort((a,b)=>b.y-a.y||a.x-b.x)){
+    const row=grouped.find(row=>Math.abs(row.y-item.y)<3);
+    if(row)row.cells.push(item);else grouped.push({y:item.y,cells:[item]});
+  }
+  for(const row of grouped)rows.push({y:row.y,text:row.cells.sort((a,b)=>a.x-b.x).map(cell=>cell.str).join(" ").replace(/\s+/g," ").trim()});
+  const pattern=new RegExp("^("+weekdays.join("|")+")\\s+(\\d{1,2})\\s+("+months.join("|")+")(?:\\s+(20\\d{2}))?$");
+  const headings=rows.flatMap((row,index)=>{
+    const match=pattern.exec(normalize(row.text));
+    return match?[{index,day:Number(match[2]),month:months.indexOf(match[3])+1,weekday:weekdays.indexOf(match[1]),year:match[4]?Number(match[4]):null}]:[];
+  });
+  if(headings.length<2)return null;
+  const titleYear=rows.slice(0,headings[0].index).flatMap(row=>/\b(torneo|stagione)\b/i.test(row.text)?[...row.text.matchAll(/\b(20\d{2})\b/g)].map(match=>Number(match[1])):[])[0];
+  let year=headings[0].year??titleYear??(fallbackDate?Number(fallbackDate.slice(0,4)):NaN);
+  if(!Number.isInteger(year))return null;
+  const output:string[]=[];
+  for(let index=0;index<headings.length;index++){
+    const heading=headings[index];
+    if(heading.year)year=heading.year;
+    else if(index>0&&headings[index-1].month-heading.month>=6)year++;
+    const date=new Date(Date.UTC(year,heading.month-1,heading.day));
+    if(date.getUTCMonth()!==heading.month-1||date.getUTCDay()!==heading.weekday)return null;
+    const label=[String(heading.day).padStart(2,"0"),String(heading.month).padStart(2,"0"),year].join("/");
+    let time:string|null=null,count=0;
+    for(const row of rows.slice(heading.index+1,headings[index+1]?.index??rows.length)){
+      let value=row.text;
+      const found=/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/.exec(value);
+      if(found){time=found[1].padStart(2,"0")+":"+found[2];value=value.replace(found[0],"").trim();}
+      value=value.replace(/^[\s□■☐☑▪•]+/,"");
+      const sides=value.split(/\s*[-–—]\s*/);
+      if(sides.length!==2||!sides.every(side=>/[a-zàèéìòù]{2}/i.test(side)))continue;
+      if(!time)return null;
+      output.push(label+" "+time+" Girone UNICO "+sides[0].trim()+" - "+sides[1].trim());count++;
+    }
+    if(count<2)return null;
+  }
+  return output;
+}

@@ -19,3 +19,16 @@ Node, dipendenze del repository ed Edge/Playwright del runtime Codex Windows:
 Il primo usa il PDF originale senza scritture nell'app, confronta tutte le 25 coppie/data/orario e le 9 gare Fortis; confronta anche otto risultati del parser precedente (commit 346aba1), inclusi alias Borgo San Lorenzo, denominazione estesa, gironi e finali. Il commit di confronto deve essere disponibile nella cronologia Git.
 
 Il secondo usa PostgreSQL isolato e verifica round-trip della politica senza finali, date/fasi e protezione delle gare collegate. Non carica credenziali dell'app o dati di produzione. Il mancato riconoscimento di un layout nuovo conserva il comportamento precedente: non è una garanzia di lettura di qualunque locandina.
+
+## Estensione ai blocchi verticali e importazione per annata
+
+Il lettore aggiuntivo readDatedTournamentBlocks copre giornate separate verticalmente, senza cambiare readDatedTournamentColumns o le funzioni di alias/ricerca. Entrambi producono occorrenze con data completa per il parser PDF condiviso (base e clone).
+
+Nella scheda del torneo condiviso, Carica programma dell’annata legge PDF o immagini e apre l’editor in anteprima. Il salvataggio usa tournamentId e teamId dell’annata scelta. Gli incontri esistenti restano e il reimport conserva ID, collegamenti e assegnazioni manuali; gli incontri delle altre società rimangono solo programma. Le fasi vengono proposte solo se univoche; date fuori dal torneo e fasi mancanti sono segnalate prima del salvataggio. Nessun aggiornamento automatico alle date comuni.
+
+Verifiche aggiuntive:
+
+    node scripts/test-tournament-dated-columns.cjs "<2019.pdf>" "<2017.pdf>"
+    node scripts/test-shared-tournament-import-ui.cjs "<2017.pdf>" "<2019.pdf>"
+
+La seconda prova usa componenti e lettori reali in Edge con API simulata, verificando anteprima senza scritture, due annate separate, riimportazione, annullamento e avviso di date fuori intervallo. Non opera nell’app di produzione.
