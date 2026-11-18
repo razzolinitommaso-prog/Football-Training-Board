@@ -39,3 +39,20 @@ La seconda prova usa componenti e lettori reali in Edge con API simulata, verifi
 Il fallback spaziale tournament-schedule-layout.ts legge intestazioni datate esplicite e colonne di girone. Gestisce squadre ancora indicate con un numero e finali stampate come riferimenti di classifica, senza inventare società né attribuire finali alla Fortis. Le righe di riposo non generano gare. Gli orari al centro dei blocchi vengono associati alle righe più vicine; ambiguità o giorni della settimana incompatibili fanno rinunciare a questo percorso. La lettura precedente mantiene la precedenza quando è completa. Ricerca società e alias invariati.
 
 Verifica: node scripts/test-tournament-folder.cjs <cartella>, insieme al test 2017/2019 e confronti legacy. Sei documenti: 92 righe di programma, 30 gare Fortis note, 6 finali da definire. Il duplicato (1) va escluso.
+
+
+### Verifica del caricamento reale — 18 novembre 2026
+
+Torneo condiviso n. 2: Torneo di Natale e Capodanno Alleanza Giovanile Dicomano. Programmi salvati dall’interfaccia e successivamente riaperti; i valori dei campi sono stati confrontati con l’estrazione verificata dei PDF, per date, orari, squadre, fasi, gironi e assegnazione delle gare Fortis.
+
+| Programma | Annata applicativa | Righe | Gare Fortis |
+|---|---|---:|---:|
+| 2014 | Esordienti 2° anno | 9 | 2 |
+| 2015–2016 | Esordienti 1° anno (solo 2015, come richiesto) | 9 | 2 |
+| 2017 | Pulcini 1° anno | 12 | 6 |
+| 2018 | Primi Calci 2° anno | 12 | 6 |
+| 2019 | Primi Calci 1° anno | 25 | 9 |
+| 2020–2021 | Piccoli Amici | 25 | 5 |
+| **Totale** | **6 programmi** | **92** | **30** |
+
+Le sei finali restano solo programma, con riferimenti di classifica da assegnare. Le squadre 3/4 restano da definire e mantengono i loro incontri. Sei PDF originali allegati ai dati comuni; escluso il duplicato (1). Nessuna gara condivisa duplicata sui 2016. Prova tramite interfaccia in-app, senza prova sul telefono fisico.
