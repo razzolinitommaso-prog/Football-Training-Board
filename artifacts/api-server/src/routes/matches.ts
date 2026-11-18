@@ -1,3 +1,4 @@
+import { syncMatchTournamentReply } from "../lib/parent-tournament-availability";
 import { activeMatchEligibility, callupRuleFailure } from "../lib/callup-rules";
 import { ensureCallupRulesStorage, notifyChild } from "../lib/callup-rule-storage";
 import { WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
@@ -615,6 +616,7 @@ router.post("/matches", requireAuth, async (req, res): Promise<void> => {
     teamId: teamId ?? null, seasonId: seasonId ?? null, competition: competition ?? null,
     location: location ?? null, homeAway: homeAway ?? "home", notes: publicMatchNotesInput(notes),
   }).returning();
+  if (/^torneo\b/i.test(match.competition ?? "")) await syncMatchTournamentReply(match.id);
   const enriched = await enrichMatch(match);
   res.status(201).json(enriched);
 });
@@ -712,6 +714,7 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
       ...(matchPlan === undefined ? [] : [sql`${matchesTable.matchPlan} IS NOT DISTINCT FROM ${existing.matchPlan ? JSON.stringify(existing.matchPlan) : null}::jsonb`]))).returning();
   if (!match && matchPlan !== undefined) { res.status(409).json({ error: "Il piano è cambiato. Ricarica la partita prima di salvare." }); return; }
   if (!match) { res.status(404).json({ error: "Match not found" }); return; }
+  if ((competition !== undefined || teamId !== undefined || date !== undefined) && /^torneo\b/i.test(match.competition ?? "")) await syncMatchTournamentReply(match.id);
   const enriched = await enrichMatch(match);
   res.json(enriched);
 });

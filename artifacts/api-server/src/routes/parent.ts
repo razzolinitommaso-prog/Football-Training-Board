@@ -1,3 +1,4 @@
+import { ensureParentTournamentAvailability, tournamentMatchScope } from "../lib/parent-tournament-availability";
 import { motorTestHistory } from "../lib/motor-test-storage";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import { staffAttendance } from "../lib/attendance-notifications";
@@ -17,7 +18,7 @@ import { ensureParentDelegateSecurityColumns } from "../lib/parent-delegate-acce
 import { normalizeParentAccessCode, validateParentAccessCode } from "@workspace/api-zod";
 import bcrypt from "bcryptjs";
 import {
-  db, clubsTable, playersTable, teamsTable,
+  pool, db, clubsTable, playersTable, teamsTable,
   trainingSessionsTable, matchesTable, callUpsTable,
   trainingAttendancesTable, equipmentAssignmentsTable,
   playerPaymentsTable, playerDocumentsTable,
@@ -875,6 +876,8 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
   if (player.teamId && match.teamId && player.teamId !== match.teamId) {
     res.status(403).json({ error: "Partita non collegata alla squadra del figlio" }); return;
   }
+  await ensureParentTournamentAvailability();
+  if (await tournamentMatchScope(pool, matchId)) { res.status(409).json({ error: "Comunica la disponibilità dalla scheda del torneo: vale per tutte le sue giornate" }); return; }
   const deadline = parentAvailabilityDeadline(match.date);
   if (new Date() > deadline) {
     res.status(409).json({ error: "La disponibilita puo essere modificata fino al mercoledi precedente la partita" }); return;

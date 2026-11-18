@@ -28,9 +28,11 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
    CREATE TABLE team_staff_assignments(id serial PRIMARY KEY,team_id int,user_id int,club_id int,role text,created_at timestamptz DEFAULT now());
    INSERT INTO team_staff_assignments(team_id,user_id,club_id,role) VALUES(11,2,1,'coach');
    CREATE TABLE matches(id serial PRIMARY KEY,club_id int REFERENCES clubs(id),team_id int REFERENCES teams(id),season_id int,opponent text,date timestamptz,competition text,location text,home_away text,notes text,match_plan jsonb,result text,pre_match_notes text,post_match_notes text);
-   CREATE TABLE call_ups(id serial PRIMARY KEY,match_id int REFERENCES matches(id) ON DELETE CASCADE);
+   CREATE TABLE players(id int PRIMARY KEY,club_id int,team_id int);
+   CREATE TABLE call_ups(id serial PRIMARY KEY,match_id int REFERENCES matches(id) ON DELETE CASCADE,player_id int REFERENCES players(id),status text DEFAULT 'availability');
    CREATE TABLE tournament_states(id serial PRIMARY KEY,club_id int,team_id int,competition text,normalized_competition text,program jsonb,scores jsonb DEFAULT '{}',pdf_reference_date text,updated_at timestamptz DEFAULT now());
    CREATE TABLE tournament_documents(id serial PRIMARY KEY,club_id int,team_id int,competition text,normalized_competition text);
+   CREATE FUNCTION pg_advisory_xact_lock(integer) RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$;
    CREATE FUNCTION pg_advisory_xact_lock(integer,integer) RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$;
    INSERT INTO matches(club_id,team_id,opponent,date,competition) VALUES(1,11,'Storico','2026-10-01','Torneo precedente');`);
     await pg.exec(
@@ -52,7 +54,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
    const fixture=(globalThis as any).sharedTournamentTest; export const db=drizzle(fixture.pg);
    const query=async(text:string,params?:unknown[])=>{if(fixture.failInsert&&text.includes('INSERT INTO shared_tournament_teams'))throw Error('Simulated second write failure');
     if(fixture.failDelete&&text.includes('DELETE FROM shared_tournaments'))throw Error('Simulated final deletion failure');
-    if(text.trim().startsWith('CREATE TABLE')){await fixture.pg.exec(text);return {rows:[],rowCount:0};}
+    if(!params?.length && (text.includes('CREATE TABLE') || text.includes('ALTER TABLE'))){await fixture.pg.exec(text);return {rows:[],rowCount:0};}
     const result=await fixture.pg.query(text,params);return {...result,rowCount:result.rows.length};};
    export const pool={query,connect:async()=>({query,release(){}})};`,
     );

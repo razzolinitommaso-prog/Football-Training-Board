@@ -1,3 +1,4 @@
+import { ParentTournamentCard, parentTournamentDays, type ParentTournament } from "@/components/parent-tournament-card";
 import {ScrollableSelect} from "@/components/ui/scrollable-select";
 import {MatchRotationComparison} from "@/components/calendar/MatchRotationComparison";
 import { useEffect, useState } from "react";
@@ -360,7 +361,7 @@ function TrainingScheduleCard({ session, onUpdated }: { session: any; onUpdated:
   );
 }
 
-function MatchScheduleCard({ match, onUpdated, minutes, callup }: { match: any; onUpdated: (next: any) => void; minutes?: number | null; callup?: any }) {
+function MatchScheduleCard({ match, onUpdated, minutes, callup, hideAvailability=false }: { match: any; onUpdated: (next: any) => void; minutes?: number | null; callup?: any; hideAvailability?:boolean }) {
   return (
     <div className="rounded-2xl border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
@@ -392,7 +393,7 @@ function MatchScheduleCard({ match, onUpdated, minutes, callup }: { match: any; 
         {callup.match?.preMatchNotes && <p className="whitespace-pre-wrap">Indicazioni: {callup.match.preMatchNotes}</p>}
       </div>}
       {new Date(match.date).getTime() <= Date.now() && <p className="mt-3 text-sm font-semibold">Minuti effettivamente giocati: {minutes == null ? "Non registrato" : `${minutes}′`}</p>}
-      {match.parentPlayerId && (
+      {match.parentPlayerId && !hideAvailability && (
         <MatchAvailability match={match} onUpdated={onUpdated} />
       )}
     </div>
@@ -407,6 +408,9 @@ export default function ParentAttendance() {
   const [callups, setCallups] = useState<any[]>([]);
   const [callupError, setCallupError] = useState(false);
   const [matches, setMatches] = useState<any[]>([]);
+  const [tournaments,setTournaments]=useState<ParentTournament[]>([]);
+  const [tournamentsError,setTournamentsError]=useState(false);
+  const [tournamentsLoading,setTournamentsLoading]=useState(true);
   const [appointments, setAppointments] = useState<CalendarAppointment[]>([]);
   const [appointmentsError, setAppointmentsError] = useState(false);
   const [matchFilter, setMatchFilter] = useState("all");
@@ -432,7 +436,11 @@ export default function ParentAttendance() {
     acc[key].push(match);
     return acc;
   }, {});
+  const tournamentMatchIds=new Set(tournaments.flatMap(t=>t.matchIds));
+  const isTournamentMatch=(m:any)=>tournamentMatchIds.has(m.id)||/^torneo\b/i.test(m.competition??"");
+  const selectedTournaments=tournaments.filter(t=>dateKey(t.lastDate)>=dateKey(new Date())||parentTournamentDays(t).includes(selectedDateKey));
   const selectedMatches = (matchesByDay[selectedDateKey] ?? []).filter((match) => {
+    if(isTournamentMatch(match))return false;
     if (matchFilter === "all") return true;
     return matchFilterValue(match) === matchFilter;
   });
@@ -441,6 +449,11 @@ export default function ParentAttendance() {
     setTraining((prev) => prev.map((session) =>
       session.id === sessionId ? { ...session, parentAvailability } : session,
     ));
+  }
+
+  function updateTournament(next:ParentTournament){
+    setTournaments(prev=>prev.map(t=>t.key===next.key?next:t));
+    setMatches(prev=>prev.map(m=>next.matchIds.includes(m.id)?{...m,parentAvailability:next.parentAvailability}:m));
   }
 
   function updateMatchAvailability(matchId: number, parentAvailability: any) {
@@ -453,6 +466,7 @@ export default function ParentAttendance() {
     apiFetch("/parent/calendar-extra-events")
       .then(rows => setAppointments(Array.isArray(rows) ? rows : []))
       .catch(() => setAppointmentsError(true));
+    apiFetch("/parent/tournaments").then(rows=>setTournaments(rows)).catch(()=>setTournamentsError(true)).finally(()=>setTournamentsLoading(false));
     Promise.all([
       apiFetch("/parent/training"),
       apiFetch("/parent/matches"),
@@ -520,14 +534,15 @@ export default function ParentAttendance() {
             const isSelected = key === selectedDateKey;
             const isCurrentMonth = day.getMonth() === visibleMonth.getMonth();
             const hasTraining = sessions.length > 0 || history.some(item => dateKey(item.scheduledAt) === key);
-            const hasMatch = dayMatches.length > 0;
+            const hasTournament = tournaments.some(t=>parentTournamentDays(t).includes(key));
+            const hasMatch = dayMatches.length > 0 || hasTournament;
             const hasAppointment = appointments.some(event => appointmentOccursOn(event, day));
 
             return (
               <button
                 type="button"
                 key={key}
-                aria-label={day.toLocaleDateString("it-IT") + (hasAppointment ? ", appuntamento" : "")}
+                aria-label={day.toLocaleDateString("it-IT") + (hasTournament ? ", torneo" : "") + (hasAppointment ? ", appuntamento" : "")}
                 aria-pressed={isSelected}
                 onClick={() => setSelectedDateKey(key)}
                 className={[
@@ -589,10 +604,22 @@ export default function ParentAttendance() {
         )}
       </div>
 
+      <section className="space-y-3" aria-label="Tornei della squadra">
+        <div><h2 className="flex items-center gap-2 font-semibold"><Trophy className="h-4 w-4 text-primary"/>Tornei della squadra</h2><p className="text-xs text-muted-foreground">La risposta sulla card del torneo vale per tutte le sue giornate.</p></div>
+        {tournamentsError&&<p role="alert" className="rounded-xl border border-destructive p-3 text-sm text-destructive">Programmi dei tornei non disponibili. Aggiorna la pagina per riprovare.</p>}
+        {selectedTournaments.map(t=><ParentTournamentCard key={t.key} tournament={t} onUpdated={updateTournament} renderMatch={id=>{
+          const entry=t.program.find(e=>e.matchId===id),callup=callups.find(c=>c.match?.id===id);
+          const match=matches.find(m=>m.id===id)??callup?.match??{id,date:entry?.date,opponent:entry?.ownSide==="away"?entry?.homeTeam:entry?.awayTeam,location:t.location};
+          return <MatchScheduleCard match={{...match,ownCallupStatus:callup?.status??match.ownCallupStatus}} hideAvailability minutes={activity?.matches.find(m=>m.id===id)?.minutes} callup={callup} onUpdated={()=>{}}/>;
+        }}/>)}
+        {tournamentsLoading&&<p role="status" className="text-sm text-muted-foreground">Caricamento tornei…</p>}
+        {!tournamentsLoading&&!tournamentsError&&!selectedTournaments.length&&<p className="text-sm text-muted-foreground">Nessun torneo futuro o nella data selezionata.</p>}
+      </section>
+
       <div className="space-y-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-base font-semibold"><Trophy className="h-4 w-4 text-amber-500" /> Partite</h2>
+            <h2 className="flex items-center gap-2 text-base font-semibold"><Trophy className="h-4 w-4 text-amber-500" /> Partite singole</h2>
             <p className="text-xs text-muted-foreground">Filtra le partite del giorno selezionato.</p>
           </div>
           <Select value={matchFilter} onValueChange={setMatchFilter}>

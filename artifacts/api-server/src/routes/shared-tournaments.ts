@@ -1,3 +1,5 @@
+import { ensureSharedTournamentTables as ensureTables } from "../lib/shared-tournament-storage";
+import { ensureParentTournamentAvailability, syncTournamentReplies, tournamentReplyLock } from "../lib/parent-tournament-availability";
 import { Router, type IRouter, type Request } from "express";
 import { pool, db, teamsTable, teamStaffAssignmentsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
@@ -36,41 +38,6 @@ const staff = new Set([
   "fitness_coach",
   "athletic_director",
 ]);
-let ready: Promise<unknown> | undefined;
-function ensureTables() {
-  return (ready ??= pool
-    .query(
-      `
-    CREATE TABLE IF NOT EXISTS shared_tournaments (
-      id serial PRIMARY KEY, club_id integer NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
-      season_id integer REFERENCES seasons(id) ON DELETE RESTRICT, club_section text NOT NULL,
-      name text NOT NULL, location text, start_date date NOT NULL, end_date date,
-      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
-    );
-    ALTER TABLE shared_tournaments ADD COLUMN IF NOT EXISTS revision integer NOT NULL DEFAULT 0;
-    ALTER TABLE shared_tournaments ADD COLUMN IF NOT EXISTS phases jsonb NOT NULL DEFAULT '[]'::jsonb;
-    CREATE TABLE IF NOT EXISTS shared_tournament_teams (
-      id serial PRIMARY KEY, tournament_id integer NOT NULL REFERENCES shared_tournaments(id) ON DELETE CASCADE,
-      team_id integer NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
-      CONSTRAINT shared_tournament_team_unique UNIQUE(tournament_id,team_id)
-    );
-    CREATE TABLE IF NOT EXISTS shared_tournament_matches (
-      id serial PRIMARY KEY, tournament_id integer NOT NULL REFERENCES shared_tournaments(id) ON DELETE RESTRICT,
-      match_id integer NOT NULL REFERENCES matches(id) ON DELETE CASCADE, entry_id text,
-      CONSTRAINT shared_tournament_match_unique UNIQUE(match_id)
-    );
-    ALTER TABLE shared_tournament_matches ADD COLUMN IF NOT EXISTS entry_id text;
-    CREATE TABLE IF NOT EXISTS shared_tournament_documents (
-      id serial PRIMARY KEY, tournament_id integer NOT NULL REFERENCES shared_tournaments(id) ON DELETE CASCADE,
-      file_name text NOT NULL, data_url text NOT NULL
-    );
-  `,
-    )
-    .catch((error) => {
-      ready = undefined;
-      throw error;
-    }));
-}
 function phaseError(
   entry: { date: string; tournamentPhaseId?: string },
   phases: { id: string; startDate: string; endDate: string }[],
@@ -771,10 +738,11 @@ router.put(
       res.status(403).json({ error: "Annata non accessibile" });
       return;
     }
-    await ensureTables();
+    await ensureParentTournamentAvailability();
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [tournamentReplyLock(req.session.clubId!, b.teamId)]);
       const {
         rows: [t],
       } = await client.query(
@@ -946,6 +914,7 @@ router.put(
         "UPDATE shared_tournaments SET revision=revision+1,updated_at=now() WHERE id=$1",
         [id],
       );
+      await syncTournamentReplies(client, req.session.clubId!, b.teamId, `shared:${id}`);
       await client.query("COMMIT");
       res.json({ ok: true });
     } catch (error) {
