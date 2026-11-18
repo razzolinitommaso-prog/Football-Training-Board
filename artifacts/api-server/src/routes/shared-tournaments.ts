@@ -507,18 +507,22 @@ router.delete(
           .json({ error: "Torneo non accessibile per eliminazione" });
         return;
       }
-      const count = await client.query(
-        "SELECT id FROM shared_tournament_matches WHERE tournament_id=$1 LIMIT 1",
-        [id],
-      );
-      if (count.rowCount) {
+      if (req.body?.confirmAllTeams !== true || !Number.isInteger(req.body?.expectedRevision)) {
         await client.query("ROLLBACK");
-        res.status(409).json({
-          error:
-            "Il torneo contiene gare. Rimuovile dalle rispettive annate prima di eliminare il torneo: convocazioni e preparazioni non vengono cancellate automaticamente.",
-        });
+        res.status(409).json({ error: "Conferma l’eliminazione del torneo e delle gare per tutte le annate." });
         return;
       }
+      if (req.body.expectedRevision !== t.revision) {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: "Il torneo è cambiato. Ricarica la pagina e controlla le annate prima di confermare l’eliminazione." });
+        return;
+      }
+      // Delete only explicitly linked fixtures. Their callups/links cascade in the same transaction.
+      const deletedMatches = await client.query(
+        `DELETE FROM matches m USING shared_tournament_matches link
+         WHERE link.tournament_id=$1 AND link.match_id=m.id AND m.club_id=$2 RETURNING m.id`,
+        [id, req.session.clubId],
+      );
       for (const table of ["tournament_states", "tournament_documents"])
         await client.query(
           `DELETE FROM ${table} WHERE club_id=$1 AND team_id=ANY($2::integer[]) AND normalized_competition=$3`,
@@ -530,7 +534,7 @@ router.delete(
         );
       await client.query("DELETE FROM shared_tournaments WHERE id=$1", [id]);
       await client.query("COMMIT");
-      res.json({ ok: true });
+      res.json({ ok: true, deletedMatches: deletedMatches.rowCount, deletedTeams: members.length });
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

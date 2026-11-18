@@ -51,6 +51,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       `import {drizzle} from 'drizzle-orm/pglite'; export {tournamentStatesTable,tournamentDocumentsTable} from '../../lib/db/src/schema/tournament-documents'; export {teamsTable} from '../../lib/db/src/schema/teams';export {teamStaffAssignmentsTable} from '../../lib/db/src/schema/team-assignments';
    const fixture=(globalThis as any).sharedTournamentTest; export const db=drizzle(fixture.pg);
    const query=async(text:string,params?:unknown[])=>{if(fixture.failInsert&&text.includes('INSERT INTO shared_tournament_teams'))throw Error('Simulated second write failure');
+    if(fixture.failDelete&&text.includes('DELETE FROM shared_tournaments'))throw Error('Simulated final deletion failure');
     if(text.trim().startsWith('CREATE TABLE')){await fixture.pg.exec(text);return {rows:[],rowCount:0};}
     const result=await fixture.pg.query(text,params);return {...result,rowCount:result.rows.length};};
    export const pool={query,connect:async()=>({query,release(){}})};`,
@@ -124,7 +125,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       if (
         body &&
         ((method === "PUT" && url.endsWith("/program")) ||
-          method === "PATCH") &&
+          method === "PATCH" || method === "DELETE") &&
         body.expectedRevision === undefined
       ) {
         const id = url.split("/")[2];
@@ -487,7 +488,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       200,
     );
     assert.equal(
-      (await call(`/shared-tournaments/${empty.data.id}`, "DELETE")).status,
+      (await call(`/shared-tournaments/${empty.data.id}`, "DELETE", { confirmAllTeams: true })).status,
       200,
     );
     assert.equal(
@@ -653,6 +654,39 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       2,
       "Older client preserves existing phases",
     );
+
+    // Global deletion is explicit, revision-checked, scoped and atomic.
+    const deleteBody = { confirmAllTeams: true };
+    for (const headers of [{"x-role":"coach","x-user":"2"},{"x-club":"2"}]) {
+      assert.equal((await call(`/shared-tournaments/${id}`,"DELETE",deleteBody,headers)).status,403);
+    }
+    const revision=(await pg.query("SELECT revision FROM shared_tournaments WHERE id=$1",[id])).rows[0].revision;
+    assert.equal((await call(`/shared-tournaments/${id}`,"DELETE",{confirmAllTeams:true,expectedRevision:revision-1})).status,409);
+    const extraDocument=await call(`/shared-tournaments/${id}/documents`,"POST",document);
+    assert.equal(extraDocument.status,201);
+    const tables=["shared_tournaments","shared_tournament_teams","shared_tournament_matches","shared_tournament_documents","matches","call_ups","tournament_states","tournament_documents"];
+    const snapshot=async()=>Object.fromEntries(await Promise.all(tables.map(async table=>[table,(await pg.query(`SELECT * FROM ${table} ORDER BY id`)).rows])));
+    const beforeDelete=await snapshot();
+    const linkedIds=beforeDelete.shared_tournament_matches.filter(row=>row.tournament_id===id).map(row=>row.match_id);
+    assert.equal(linkedIds.length,2);
+    globalThis.sharedTournamentTest.failDelete=true;
+    assert.equal((await call(`/shared-tournaments/${id}`,"DELETE",deleteBody)).status,500);
+    globalThis.sharedTournamentTest.failDelete=false;
+    assert.deepEqual(await snapshot(),beforeDelete,"Failed global deletion restores fixtures, callups, programmes, files and all teams");
+    const deleted=await call(`/shared-tournaments/${id}`,"DELETE",deleteBody);
+    assert.equal(deleted.status,200,JSON.stringify(deleted.data));
+    assert.equal(deleted.data.deletedMatches,2);
+    assert.equal(deleted.data.deletedTeams,2);
+    const afterDelete=await snapshot();
+    assert.ok(!afterDelete.shared_tournaments.some(row=>row.id===id));
+    for(const table of ["shared_tournament_teams","shared_tournament_matches","shared_tournament_documents"])
+      assert.ok(!afterDelete[table].some(row=>row.tournament_id===id),table);
+    assert.ok(!afterDelete.matches.some(row=>linkedIds.includes(row.id)));
+    assert.ok(!afterDelete.call_ups.some(row=>linkedIds.includes(row.match_id)));
+    assert.deepEqual(afterDelete.matches,beforeDelete.matches.filter(row=>!linkedIds.includes(row.id)),"Unrelated fixtures are preserved");
+    assert.deepEqual(afterDelete.shared_tournaments,beforeDelete.shared_tournaments.filter(row=>row.id!==id),"Other tournaments are preserved");
+    assert.ok(!afterDelete.tournament_states.some(row=>row.normalized_competition==="torneo-primavera-aggiornata"));
+    console.log("PASS global tournament deletion: confirmation required, all teams/fixtures/callups/programmes/files removed atomically, stale revision/foreign club/coach denied, rollback and unrelated tournaments preserved");
     console.log(
       "PASS phased tournaments: December/January, dates and stage IDs, score-editor round-trip, protected phase removal and legacy clients.",
     );

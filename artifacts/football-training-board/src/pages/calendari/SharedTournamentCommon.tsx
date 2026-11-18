@@ -1,3 +1,4 @@
+import { SharedTournamentDeleteDialog, type TournamentDeleteTarget } from "./SharedTournamentDeleteDialog";
 import type { SharedTournamentPhase } from "@workspace/api-zod";
 import TournamentPhasesFields, {
   newTournamentPhase,
@@ -55,6 +56,7 @@ export default function SharedTournamentCommon({
     [open, setOpen] = useState(false),
     [name, setName] = useState(t.name),
     [location, setLocation] = useState(t.location);
+  const [deleteTarget, setDeleteTarget] = useState<TournamentDeleteTarget | null>(null);
   const [phases, setPhases] = useState<SharedTournamentPhase[]>(() =>
     t.phases?.length
       ? t.phases
@@ -86,7 +88,9 @@ export default function SharedTournamentCommon({
     },
   });
   const remove = useMutation({
-    mutationFn: () => api(`/api/shared-tournaments/${t.id}`, "DELETE"),
+    mutationFn: (target: TournamentDeleteTarget) => api(`/api/shared-tournaments/${target.id}`, "DELETE", {
+      confirmAllTeams: true, expectedRevision: target.revision,
+    }),
     onSuccess: async () => {
       await refresh();
       window.location.assign(window.location.pathname + "?phase=tornei");
@@ -154,20 +158,15 @@ export default function SharedTournamentCommon({
               size="sm"
               variant="outline"
               disabled={remove.isPending}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Eliminare il torneo ${t.name} per tutte le annate? Le gare esistenti impediscono l’eliminazione automatica.`,
-                  )
-                )
-                  remove.mutate();
-              }}
+              onClick={() => { remove.reset(); setDeleteTarget(structuredClone(t)); }}
             >
               Elimina torneo
             </Button>
           </>
         )}
       </div>
+      <SharedTournamentDeleteDialog target={deleteTarget} pending={remove.isPending} error={remove.isError ? remove.error.message : undefined}
+        onCancel={() => setDeleteTarget(null)} onConfirm={() => { if (deleteTarget) remove.mutate(deleteTarget); }} />
       {remove.isError && (
         <p role="alert" className="text-sm text-destructive">
           {remove.error.message}

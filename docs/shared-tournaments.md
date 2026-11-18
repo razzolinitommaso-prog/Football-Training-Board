@@ -17,7 +17,7 @@ Le operazioni comuni richiedono accesso a tutte le annate iscritte. Le API contr
 
 Creazione e aggiornamento avvengono in transazione. Gli identificativi stabili delle gare evitano doppioni al secondo salvataggio. Un numero di revisione impedisce di sovrascrivere un programma o dati comuni modificati da un'altra pagina. In caso di conflitto si ricarica prima di riprovare.
 
-Le gare con convocazioni, schieramenti, risultato o note di preparazione/resoconto non possono essere rimosse o trasformate in un'altra gara dal programma. Il torneo con gare collegate non viene eliminato automaticamente. La conferma di eliminazione è sempre richiesta nell'interfaccia. I programmi senza partite operative vengono ripuliti quando si elimina il torneo vuoto.
+Le gare con convocazioni, schieramenti, risultato o note di preparazione/resoconto non possono essere rimosse o trasformate in un'altra gara dal programma. Il comando Elimina torneo apre una conferma con nome ed elenco di tutte le annate coinvolte. Dopo conferma esplicita elimina il torneo, tutte le gare collegate (comprese convocazioni, schieramenti, risultati e resoconti), programmi e allegati, in un’unica transazione. Non occorre cancellare prima le singole gare. Le verifiche di ruolo e accesso a tutte le annate restano obbligatorie; una revisione obsoleta richiede di ricaricare e confermare nuovamente. La cancellazione dal singolo programma conserva invece le protezioni dei dati tecnici già previste.
 
 Le annate partecipanti vengono stabilite alla creazione; la modifica dei dati comuni non cambia silenziosamente le iscrizioni.
 
