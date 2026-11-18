@@ -32,3 +32,10 @@ Verifiche aggiuntive:
     node scripts/test-shared-tournament-import-ui.cjs "<2017.pdf>" "<2019.pdf>"
 
 La seconda prova usa componenti e lettori reali in Edge con API simulata, verificando anteprima senza scritture, due annate separate, riimportazione, annullamento e avviso di date fuori intervallo. Non opera nell’app di produzione.
+
+
+## Programmi con gironi, avversari numerati e orari centrati
+
+Il fallback spaziale tournament-schedule-layout.ts legge intestazioni datate esplicite e colonne di girone. Gestisce squadre ancora indicate con un numero e finali stampate come riferimenti di classifica, senza inventare società né attribuire finali alla Fortis. Le righe di riposo non generano gare. Gli orari al centro dei blocchi vengono associati alle righe più vicine; ambiguità o giorni della settimana incompatibili fanno rinunciare a questo percorso. La lettura precedente mantiene la precedenza quando è completa. Ricerca società e alias invariati.
+
+Verifica: node scripts/test-tournament-folder.cjs <cartella>, insieme al test 2017/2019 e confronti legacy. Sei documenti: 92 righe di programma, 30 gare Fortis note, 6 finali da definire. Il duplicato (1) va escluso.

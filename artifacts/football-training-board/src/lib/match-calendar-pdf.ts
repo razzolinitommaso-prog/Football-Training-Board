@@ -1,3 +1,4 @@
+import { readSpatialTournamentSchedule, type SpatialTournamentFixture } from "./tournament-schedule-layout";
 import { readDatedTournamentColumns, readDatedTournamentBlocks } from "./tournament-dated-columns";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import type { PDFPageProxy } from "pdfjs-dist";
@@ -241,6 +242,7 @@ type CloneFuturePhaseFixtureRejectedRow = {
 
 type ParseTextOptions = ParsePdfOptions & {
   datedColumnLines?: string[];
+  spatialSchedule?: SpatialTournamentFixture[];
   fileName?: string;
   lastModified?: number;
   sourceLabel?: string;
@@ -2535,7 +2537,7 @@ async function pageToLinesWithYs(
     tournamentFallbackDateIso?: string | null;
     capturePreCollapseRaw?: boolean;
   } = {},
-): Promise<{ lines: string[]; ys: number[]; preCollapseLines?: string[]; syntheticLines?: string[]; datedColumnLines?: string[] }> {
+): Promise<{ lines: string[]; ys: number[]; preCollapseLines?: string[]; syntheticLines?: string[]; datedColumnLines?: string[]; spatialSchedule?: SpatialTournamentFixture[] }> {
   const content = await page.getTextContent();
   const items: { str: string; x: number; y: number }[] = [];
   for (const item of content.items) {
@@ -2609,6 +2611,7 @@ async function pageToLinesWithYs(
     ys,
     ...(options.capturePreCollapseRaw ? { preCollapseLines } : {}),
     ...(syntheticLines.length > 0 ? { syntheticLines } : {}),
+    ...(options.includeTournamentTableLines ? { spatialSchedule: readSpatialTournamentSchedule(items, options.tournamentFallbackDateIso) ?? undefined } : {}),
     ...(options.includeTournamentTableLines ? { datedColumnLines: readDatedTournamentColumns(items, options.tournamentFallbackDateIso) ?? readDatedTournamentBlocks(items, options.tournamentFallbackDateIso) ?? undefined } : {}),
   };
 }
@@ -3686,6 +3689,7 @@ export async function parseMatchCalendarPdfFile(
     preCollapseLines?: string[];
     syntheticLines?: string[];
     datedColumnLines?: string[];
+    spatialSchedule?: SpatialTournamentFixture[];
   }[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -3838,6 +3842,7 @@ export async function parseMatchCalendarPdfFile(
     lastModified: file.lastModified,
     sourceLabel: "PDF",
     clonePdfLayoutMeta,
+    spatialSchedule: perPage.every(page => page.spatialSchedule?.length || !page.lines.some(line => /\b[0-2]?\d[:.][0-5]\d\b/.test(line))) ? perPage.flatMap(page => page.spatialSchedule ?? []) : undefined,
     datedColumnLines: perPage.every(page => page.datedColumnLines?.length || !page.lines.some(line => /\b[0-2]?\d[:.][0-5]\d\b/.test(line))) &&
       !/\b(final[ei]?|semifinal[ei]?|quarti|ottavi|spareggi)\b/i.test(nativeFullText)
       ? perPage.flatMap(page => page.datedColumnLines ?? []) : undefined,
@@ -6605,17 +6610,29 @@ export function parseMatchCalendarTextLines(
   }
 
   if (documentMode === "tournament") {
-    if (options.unifiedTournamentProgram && options.datedColumnLines?.length) {
+    if (options.unifiedTournamentProgram && options.datedColumnLines?.length && (!options.spatialSchedule?.length || options.spatialSchedule.length <= options.datedColumnLines.length)) {
       // Reuse the established alias matcher unchanged, one explicit occurrence at a time.
       const occurrences = options.datedColumnLines.map(line => parseTournamentProgramLines(["GIRONE UNICO", line.replace(" Girone UNICO ", " ")], {
         aliasNorms: tournamentAliases, tournamentTitle, tournamentName, fallbackDateIso: explicitTournamentFallbackIso, fallbackYearHint,
       }));
       if (occurrences.every(result => result.tournamentProgram?.length === 1)) {
-        const byFixture = new Map(occurrences.flatMap(result => result.tournamentProgram ?? []).map(entry => [entry.id, { ...entry, finalsPolicy: "program-only" as const }]));
+        const byFixture = new Map(occurrences.flatMap(result => result.tournamentProgram ?? []).map(entry => [entry.id, { ...entry, phase: entry.phase ?? "Gironi", group: entry.group ?? "Girone UNICO", finalsPolicy: "program-only" as const }]));
         const byRow = new Map(occurrences.flatMap(result => result.recognized).map(row => [tournamentImportRowMergeKey(row), row]));
         return { recognized: [...byRow.values()], discarded: 0, totalDateLines: options.datedColumnLines.length,
           tournamentProgram: [...byFixture.values()], tournamentScores: {} };
       }
+    }
+    if (options.unifiedTournamentProgram && options.spatialSchedule?.length) {
+      const entries = options.spatialSchedule.map(fixture => ({
+        id: [fixture.dateTime, fixture.homeTeam, fixture.awayTeam, fixture.group].join("|"),
+        date: parseDateTimeIso(fixture.dateTime) ?? "", homeTeam: fixture.homeTeam, awayTeam: fixture.awayTeam,
+        phase: fixture.phase, group: fixture.group, kind: fixture.placeholder ? "fixture_placeholder" as const : "match" as const,
+        finalsPolicy: "program-only" as const,
+      }));
+      if (entries.every(entry => !!entry.date)) return {
+        tournamentProgram: entries, recognized: cloneRecognizedRowsFromTournamentProgram(entries, tournamentAliases, tournamentName, tournamentTitle),
+        discarded: 0, totalDateLines: entries.length, tournamentScores: {},
+      };
     }
     if (options.unifiedTournamentProgram) {
       const unifiedResult = parseUnifiedTournamentProgramLines(workingLines, {

@@ -17,7 +17,7 @@ export function mergeSharedTournamentImport(parsed:MatchPdfImportResult, existin
   const result=[...existing],byKey=new Map(result.map((entry,index)=>[identity(entry),index]));
   let added=0,matched=0;
   for(const entry of source){
-    if(("kind" in entry && entry.kind && entry.kind!=="match")||!entry.date||!entry.homeTeam||!entry.awayTeam)continue;
+    if(("kind" in entry && entry.kind==="composition")||!entry.date||!entry.homeTeam||!entry.awayTeam)continue;
     if(!Number.isFinite(new Date(entry.date).getTime()))throw Error("Una gara non ha una data valida. Verifica il documento prima di importare.");
     const key=identity(entry),index=byKey.get(key),previous=index===undefined?undefined:result[index];
     const recognized=parsed.recognized.find(row=>row.date===entry.date&&(
@@ -27,7 +27,7 @@ export function mergeSharedTournamentImport(parsed:MatchPdfImportResult, existin
     const compatible=phases.filter(phase=>day>=phase.startDate&&day<=phase.endDate);
     const next:SharedProgramImportEntry={
       ...previous,id:previous?.id??crypto.randomUUID(),date:entry.date,homeTeam:entry.homeTeam,awayTeam:entry.awayTeam,
-      phase:entry.phase??"Gironi",group:entry.group??"",ownSide:previous?.ownSide??recognized?.homeAway??"none",
+      phase:entry.phase??"Gironi",group:entry.group??"",ownSide:previous?.ownSide??("kind" in entry && entry.kind==="fixture_placeholder"?"none":recognized?.homeAway??"none"),
       tournamentPhaseId:previous?.tournamentPhaseId??(compatible.length===1?compatible[0].id:undefined),
       ...("finalsPolicy" in entry&&entry.finalsPolicy==="program-only"?{finalsPolicy:"program-only" as const}:{}),
     };
