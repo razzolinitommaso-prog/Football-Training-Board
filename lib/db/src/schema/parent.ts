@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, boolean, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, uniqueIndex, check, jsonb } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { teamsTable } from "./teams";
 import { sharedTournamentsTable } from "./shared-tournaments";
@@ -14,6 +14,8 @@ export const parentTournamentAvailabilityTable = pgTable("parent_tournament_avai
   tournamentId: integer("tournament_id").references(()=>sharedTournamentsTable.id,{onDelete:"cascade"}),
   tournamentKey: text("tournament_key").notNull(),
   status: text("status").notNull(), reason: text("reason"), notes: text("notes"),
+  responseMode: text("response_mode").notNull().default('all'),
+  availableDates: jsonb('available_dates').$type<string[]>().notNull().default([]),
   updatedAt: timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
 },table=>[uniqueIndex("parent_tournament_reply_unique").on(table.clubId,table.teamId,table.playerId,table.tournamentKey),check("parent_tournament_reply_status",sql`${table.status} IN ('available','unavailable')`)]);
 

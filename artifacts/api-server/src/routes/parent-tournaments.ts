@@ -22,9 +22,12 @@ router.get("/parent/tournaments", async(req,res) => {
   res.json((await parentTournamentCatalog(pool,req.session.clubId!,Number(req.session.parentPlayerId))).map(present));
 });
 router.patch("/parent/tournaments", async(req,res) => {
-  const {key,status}=req.body ?? {};
+  const {key}=req.body ?? {};
+  const mode=req.body?.mode??'all';
+  const status=mode==='dates'?'available':req.body?.status;
   const reason=String(req.body?.reason??"").trim(),notes=String(req.body?.notes??"").trim();
-  if(typeof key!=="string"||key.length>1000||!["available","unavailable"].includes(status)){res.status(400).json({error:"Indica Disponibile oppure Non disponibile per il torneo"});return;}
+  if(typeof key!=="string"||key.length>1000||!['all','dates'].includes(mode)||!["available","unavailable"].includes(status)){res.status(400).json({error:"Scegli tutto il torneo oppure le date di disponibilità"});return;}
+  if(mode==='dates'&&(!Array.isArray(req.body.dates)||!req.body.dates.length||req.body.dates.length>366||req.body.dates.some((d:unknown)=>typeof d!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(d)))){res.status(400).json({error:"Seleziona almeno una data valida del torneo"});return;}
   if(status==="unavailable"&&(!Object.hasOwn(labels,reason)||(reason==="other"&&!notes))){res.status(400).json({error:"Indica il motivo dell’indisponibilità"});return;}
   if(notes.length>2000){res.status(400).json({error:"Le note non possono superare 2.000 caratteri"});return;}
   const clubId=req.session.clubId!,playerId=Number(req.session.parentPlayerId);
@@ -37,11 +40,15 @@ router.patch("/parent/tournaments", async(req,res) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[tournamentReplyLock(clubId,player.team_id)]);
     const group=(await parentTournamentCatalog(client,clubId,playerId)).find(g=>g.key===key);
     if(!group){await client.query("ROLLBACK");res.status(404).json({error:"Torneo non collegato alla squadra del figlio"});return;}
+    const dates:string[]=mode==='dates'?[...new Set<string>(req.body.dates)].sort():[];
+    if(dates.some(day=>!group.dates.includes(day))){await client.query("ROLLBACK");res.status(400).json({error:"Puoi selezionare soltanto le date previste per questo torneo"});return;}
+    const hasUnavailableDays=status==='unavailable'||(mode==='dates'&&dates.length<group.dates.length);
+    if(hasUnavailableDays&&(!Object.hasOwn(labels,reason)||(reason==='other'&&!notes))){await client.query("ROLLBACK");res.status(400).json({error:"Indica il motivo per le giornate non disponibili"});return;}
     if(new Date()>parentTournamentDeadline(group.firstDate)){await client.query("ROLLBACK");res.status(409).json({error:"Risposta chiusa: il termine è il mercoledì precedente la prima giornata del torneo"});return;}
-    await client.query(`INSERT INTO parent_tournament_availability(club_id,team_id,player_id,tournament_id,tournament_key,status,reason,notes)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(club_id,team_id,player_id,tournament_key)
-      DO UPDATE SET status=excluded.status,reason=excluded.reason,notes=excluded.notes,updated_at=now()`,
-      [clubId,group.teamId,playerId,group.tournamentId,key,status,status==="unavailable"?reason:null,status==="unavailable"?notes||null:null]);
+    await client.query(`INSERT INTO parent_tournament_availability(club_id,team_id,player_id,tournament_id,tournament_key,status,reason,notes,response_mode,available_dates)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) ON CONFLICT(club_id,team_id,player_id,tournament_key)
+      DO UPDATE SET status=excluded.status,reason=excluded.reason,notes=excluded.notes,response_mode=excluded.response_mode,available_dates=excluded.available_dates,updated_at=now()`,
+      [clubId,group.teamId,playerId,group.tournamentId,key,status,hasUnavailableDays?reason:null,hasUnavailableDays?notes||null:null,mode,JSON.stringify(dates)]);
     await syncTournamentReplies(client,clubId,group.teamId,key);
     const updated=(await parentTournamentCatalog(client,clubId,playerId)).find(g=>g.key===key);
     await client.query("COMMIT");res.json(present(updated));

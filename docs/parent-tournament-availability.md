@@ -1,6 +1,6 @@
 # Disponibilità dei genitori per torneo
 
-La card torneo dell’area genitori riunisce il programma per giornata e una sola risposta: **Disponibile** oppure **Non disponibile**. La risposta vale per tutte le giornate e tutte le gare del torneo, senza opzioni parziali. La convocazione del mister rimane un dato distinto.
+La card torneo dell’area genitori riunisce il programma per giornata. Dal nuovo aggiornamento il genitore sceglie **Tutto il torneo** (Disponibile/Non disponibile) oppure **Scegli le date**: le giornate selezionate sono disponibili, quelle non selezionate non disponibili. Ogni risposta per data si applica a tutte le gare della giornata; non è consentito scegliere singole partite. La convocazione del mister rimane un dato distinto.
 
 ## Ambito e conservazione
 
@@ -12,7 +12,7 @@ La card torneo dell’area genitori riunisce il programma per giornata e una sol
 - La singola API di disponibilità partita rifiuta aggiornamenti isolati su una gara di torneo e rimanda alla card torneo. Le partite singole e gli allenamenti mantengono il comportamento precedente.
 - Le precedenti risposte sulle singole gare vengono conservate: la card segnala che occorre confermare una risposta unica, senza inventare un consenso di torneo.
 
-Il termine è il mercoledì precedente la prima giornata del programma, alle 23:59 in Europa/Roma, anche attraversando mesi, anni e ora legale. È una sola scadenza per tutto il torneo. Il motivo è richiesto per l’indisponibilità; per “Altro” serve la motivazione.
+Il termine è il mercoledì precedente la prima giornata del torneo, alle 23:59 in Europa/Roma, anche attraversando mesi, anni e ora legale. È una sola scadenza per tutto il torneo. Il motivo è richiesto per l’indisponibilità; per “Altro” serve la motivazione.
 
 ## Interfaccia
 
@@ -27,3 +27,12 @@ Le card dei tornei futuri e quelli della data selezionata sono nella sezione “
 `node scripts/test-shared-tournaments.cjs <percorso-@electric-sql/pglite>` mantiene le regressioni di programmi multiannata, gare preparate, revisioni, documenti e cancellazione globale.
 
 Il mockup per popup e ricevute delle notifiche è una proposta separata in attesa di approvazione; questo intervento non lo implementa.
+
+
+## Aggiornamento: scelta delle date
+
+Le date comprendono le giornate dei programmi e tutti i giorni delle fasi comuni del torneo condiviso: una fase 19–20 dicembre più una fase 2–3 gennaio propone quattro date, anche quando l’annata non ha ancora gare in ciascuna. I campi response_mode (all/dates) e available_dates conservano la scelta. Le risposte precedenti vengono mantenute in modalità all. Le gare nuove ereditano la risposta della propria data locale Europa/Roma. Le note e il motivo di indisponibilità si applicano alle giornate non disponibili; sulle giornate disponibili questi campi delle gare rimangono vuoti.
+
+In modalità dates il client omette lo stato globale status: un server precedente rifiuta la richiesta invece di trasformarla per errore in disponibilità per tutto il torneo durante un deploy separato di frontend e API. Il nuovo server valida l’elenco di date contro il torneo del figlio e restituisce la modalità e il riepilogo aggregato. La scadenza unica già prevista resta invariata.
+
+I test coprono quattro date a cavallo d’anno, due gare nella stessa giornata, date fuori programma, cambio di modalità, ricaricamento, ereditarietà delle nuove gare, rollback e assenza di controlli sulle singole partite.

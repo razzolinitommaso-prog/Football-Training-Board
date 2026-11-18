@@ -453,7 +453,7 @@ export default function ParentAttendance() {
 
   function updateTournament(next:ParentTournament){
     setTournaments(prev=>prev.map(t=>t.key===next.key?next:t));
-    setMatches(prev=>prev.map(m=>next.matchIds.includes(m.id)?{...m,parentAvailability:next.parentAvailability}:m));
+    setMatches(prev=>prev.map(m=>next.matchIds.includes(m.id)?{...m,parentAvailability:next.parentAvailability?.mode==="dates"?{...next.parentAvailability,status:next.parentAvailability.availableDates?.includes(new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Rome",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(m.date)))?"available":"unavailable"}:next.parentAvailability}:m));
   }
 
   function updateMatchAvailability(matchId: number, parentAvailability: any) {
@@ -605,7 +605,7 @@ export default function ParentAttendance() {
       </div>
 
       <section className="space-y-3" aria-label="Tornei della squadra">
-        <div><h2 className="flex items-center gap-2 font-semibold"><Trophy className="h-4 w-4 text-primary"/>Tornei della squadra</h2><p className="text-xs text-muted-foreground">La risposta sulla card del torneo vale per tutte le sue giornate.</p></div>
+        <div><h2 className="flex items-center gap-2 font-semibold"><Trophy className="h-4 w-4 text-primary"/>Tornei della squadra</h2><p className="text-xs text-muted-foreground">Rispondi per tutto il torneo oppure scegli le date di disponibilità.</p></div>
         {tournamentsError&&<p role="alert" className="rounded-xl border border-destructive p-3 text-sm text-destructive">Programmi dei tornei non disponibili. Aggiorna la pagina per riprovare.</p>}
         {selectedTournaments.map(t=><ParentTournamentCard key={t.key} tournament={t} onUpdated={updateTournament} renderMatch={id=>{
           const entry=t.program.find(e=>e.matchId===id),callup=callups.find(c=>c.match?.id===id);

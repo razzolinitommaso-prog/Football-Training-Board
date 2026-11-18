@@ -21,7 +21,22 @@ export function ensureParentTournamentAvailability() {
       reason text, notes text, updated_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE(club_id,team_id,player_id,tournament_key)
     );
+    ALTER TABLE parent_tournament_availability ADD COLUMN IF NOT EXISTS response_mode text NOT NULL DEFAULT 'all';
+    ALTER TABLE parent_tournament_availability ADD COLUMN IF NOT EXISTS available_dates jsonb NOT NULL DEFAULT '[]'::jsonb;
   `)).catch(error => { ready = undefined; throw error; });
+}
+
+/** One choice per local tournament day, including every day in the shared phases. */
+export function parentTournamentDates(group: {program:any[];phases?:any[]}) {
+  const days=new Set<string>();
+  for(const entry of group.program) if(Number.isFinite(Date.parse(entry.date))) days.add(new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(entry.date)));
+  for(const phase of group.phases??[]){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(phase.startDate??'')||!/^\d{4}-\d{2}-\d{2}$/.test(phase.endDate??''))continue;
+    const start=Date.parse(phase.startDate+'T12:00:00Z'),end=Date.parse(phase.endDate+'T12:00:00Z');
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<start||end-start>365*86400000)continue;
+    for(let time=start;time<=end;time+=86400000)days.add(new Date(time).toISOString().slice(0,10));
+  }
+  return [...days].sort();
 }
 
 export async function tournamentMatchScope(client: Queryable, matchId: number) {
@@ -69,10 +84,13 @@ export async function parentTournamentCatalog(client: Queryable, clubId: number,
     const first = program[0]?.date ?? (group.startDate ? `${group.startDate}T12:00:00+01:00` : null);
     const reply = replies.find((r: any) => r.tournament_key === group.key);
     const oldReplies = group.matches.map((m: any) => m.id);
-    return { ...group, teamId, parentPlayerId: playerId, program, matchIds: oldReplies,
+    const dates=parentTournamentDates({...group,program});
+    const availableDates=Array.isArray(reply?.available_dates)?reply.available_dates.filter((d:unknown)=>typeof d==='string'&&dates.includes(d)):[];
+    const responseStatus=reply?.response_mode==='dates'?(dates.every(day=>availableDates.includes(day))?'available':availableDates.length?'partial':'unavailable'):reply?.status;
+    return { ...group, teamId, parentPlayerId: playerId, program, matchIds: oldReplies, dates,
       hasPreviousMatchReplies: !reply && previousReplies.some((r:any)=>oldReplies.includes(r.match_id)),
-      firstDate: first, lastDate: program.at(-1)?.date ?? first,
-      parentAvailability: reply ? {status: reply.status, reason: reply.reason, notes: reply.notes, updatedAt: reply.updated_at} : null };
+      firstDate: dates[0]?dates[0]+'T12:00:00+01:00':first, lastDate: dates.at(-1)?dates.at(-1)+'T12:00:00+01:00':program.at(-1)?.date ?? first,
+      parentAvailability: reply ? {status: responseStatus, mode:reply.response_mode??'all', availableDates, reason: reply.reason, notes: reply.notes, updatedAt: reply.updated_at} : null };
   }).filter(group => group.firstDate && group.program.length);
 }
 
@@ -94,11 +112,13 @@ export async function syncTournamentReplies(client: Queryable, clubId: number, t
     : await client.query(`SELECT m.id FROM matches m LEFT JOIN shared_tournament_matches x ON x.match_id=m.id WHERE m.club_id=$1 AND m.team_id=$2 AND x.match_id IS NULL AND $3=('legacy:'||coalesce(m.season_id::text,'none')||':'||lower(btrim(m.competition)))`, [clubId, teamId, key]);
   const ids = catalogMatches.rows.map((m: any) => m.id);
   if (!ids.length) return;
-  await client.query(`UPDATE call_ups c SET parent_availability_status=r.status,parent_availability_reason=r.reason,parent_availability_notes=r.notes,parent_availability_updated_at=r.updated_at
+  const effectiveStatus=`CASE WHEN r.response_mode='dates' THEN CASE WHEN r.available_dates ? to_char(m.date AT TIME ZONE 'Europe/Rome','YYYY-MM-DD') THEN 'available' ELSE 'unavailable' END ELSE r.status END`;
+  await client.query(`UPDATE call_ups c SET parent_availability_status=${effectiveStatus},parent_availability_reason=CASE WHEN (${effectiveStatus})='unavailable' THEN r.reason ELSE NULL END,parent_availability_notes=CASE WHEN (${effectiveStatus})='unavailable' THEN r.notes ELSE NULL END,parent_availability_updated_at=r.updated_at
     FROM parent_tournament_availability r JOIN players p ON p.id=r.player_id AND p.club_id=r.club_id AND p.team_id=r.team_id
-    WHERE r.club_id=$1 AND r.team_id=$2 AND r.tournament_key=$3 AND c.match_id=ANY($4::integer[]) AND c.player_id=r.player_id`, [clubId, teamId, key, ids]);
+    JOIN matches m ON m.club_id=r.club_id AND m.team_id=r.team_id
+    WHERE r.club_id=$1 AND r.team_id=$2 AND r.tournament_key=$3 AND c.match_id=m.id AND c.match_id=ANY($4::integer[]) AND c.player_id=r.player_id`, [clubId, teamId, key, ids]);
   await client.query(`INSERT INTO call_ups(match_id,player_id,status,parent_availability_status,parent_availability_reason,parent_availability_notes,parent_availability_updated_at)
-    SELECT m.id,r.player_id,'availability',r.status,r.reason,r.notes,r.updated_at FROM matches m
+    SELECT m.id,r.player_id,'availability',${effectiveStatus},CASE WHEN (${effectiveStatus})='unavailable' THEN r.reason ELSE NULL END,CASE WHEN (${effectiveStatus})='unavailable' THEN r.notes ELSE NULL END,r.updated_at FROM matches m
     JOIN parent_tournament_availability r ON r.club_id=m.club_id AND r.team_id=m.team_id AND r.tournament_key=$3
     JOIN players p ON p.id=r.player_id AND p.club_id=r.club_id AND p.team_id=r.team_id
     WHERE m.club_id=$1 AND m.team_id=$2 AND m.id=ANY($4::integer[]) AND NOT EXISTS(SELECT 1 FROM call_ups c WHERE c.match_id=m.id AND c.player_id=r.player_id)`, [clubId, teamId, key, ids]);
