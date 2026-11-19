@@ -1,5 +1,5 @@
 import { z } from "zod/v4";
-import { motorAssessmentSchema, motorAssessmentMeasurement, motorObservationCriteria } from "./motor-test-assessment";
+import { motorAssessmentSchema, motorAssessmentMeasurement, motorObservationCriteria, newMotorAttempt, type MotorAssessment } from "./motor-test-assessment";
 
 export const motorTestCatalog = [
   { id: "anthropometry", title: "Antropometria", principle: "Peso e statura", instructions: "Predisporre una superficie piana. Misurare la massa corporea con la bilancia e la statura con lo stadiometro.", materials: "Bilancia, stadiometro o metro verticale, scheda rilevazioni.", minutes: 5, unit: "" },
@@ -78,9 +78,32 @@ export function motorTestCompletion(tests: MotorTestInput["tests"], result?: Mot
 }
 export const motorCompletionLabels = { complete: "Test completato", partial: "Test parziale", "not-started": "Test da eseguire" };
 
+/** Legacy data is displayed in the new editor without rewriting the stored record. */
+export function motorLegacyAssessment(id: Exclude<MotorTestId, "anthropometry">, value: MotorTestResult): MotorAssessment {
+  if (value.assessment) return value.assessment;
+  const practice = newMotorAttempt("practice", "legacy-practice");
+  const formal = newMotorAttempt("formal", "legacy-formal");
+  if (value.measurement != null && id !== "high-jump" && id !== "balance") {
+    formal.values[id === "long-jump" || id === "march" ? "cm" : "seconds"] = value.measurement;
+  }
+  // Only the explicit two-measurement notation is transferable. Raw notes stay unchanged.
+  if (id === "high-jump") {
+    for (const [line, side] of [["sx", "left"], ["dx", "right"]] as const) {
+      const match = value.notes.match(new RegExp("(?:^|\\n)\\s*" + line + "\\s*:?\\s+(\\d+(?:[.,]\\d+)?)\\s*(?:,\\s+|;\\s*|/\\s*)(\\d+(?:[.,]\\d+)?)\\s*(?:cm)?\\s*(?=\\n|$)", "i"));
+      if (!match) continue;
+      const base = Number(match[1].replace(",", ".")), top = Number(match[2].replace(",", "."));
+      if (base > 0 && top >= base && top <= 300) {
+        formal.values[side + "Base"] = base;
+        formal.values[side + "Top"] = top;
+      }
+    }
+  }
+  return { version: 1, legacyMeasurement: value.measurement, status: "done", reason: "", conditions: {}, reference: formal.id, attempts: [practice, formal] };
+}
+
 /** Rich measurements are authoritative; never interpret handwritten legacy notes. */
 export function normalizeMotorResults(input: MotorTestInput): MotorTestInput {
   return { ...input, results: Object.fromEntries(Object.entries(input.results).map(([id, player]) => [id, { ...player,
-    tests: Object.fromEntries(Object.entries(player.tests).map(([testId, row]) => [testId, row?.assessment ? { ...row, measurement: motorAssessmentMeasurement(testId as MotorTestId, row.assessment) } : row])),
+    tests: Object.fromEntries(Object.entries(player.tests).map(([testId, row]) => [testId, row?.assessment ? { ...row, measurement: motorAssessmentMeasurement(testId as MotorTestId, row.assessment) ?? (row.assessment.status === "done" ? row.assessment.legacyMeasurement ?? null : null) } : row])),
   }])) };
 }

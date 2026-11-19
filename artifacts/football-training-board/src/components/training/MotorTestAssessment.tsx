@@ -6,6 +6,7 @@ import {
   motorMeasureFields,
   motorObservationCriteria,
   motorAssessmentMeasurement,
+  motorLegacyAssessment,
   newMotorAttempt,
   tgmdLongJumpCriteria,
   tgmdLongJumpScore,
@@ -122,21 +123,7 @@ function blankAssessment(
   id: Exclude<MotorTestId, "anthropometry">,
   value: MotorTestResult,
 ): MotorAssessment {
-  const practice = newMotorAttempt("practice", crypto.randomUUID()),
-    formal = newMotorAttempt("formal", crypto.randomUUID());
-  // Preserve the old scalar without guessing what was written in the notes.
-  if (value.measurement != null && !["high-jump", "balance"].includes(id))
-    formal.values[id === "long-jump" || id === "march" ? "cm" : "seconds"] =
-      value.measurement;
-  return {
-    version: 1,
-    legacyMeasurement: value.measurement,
-    status: "done",
-    reason: "",
-    conditions: {},
-    reference: formal.id,
-    attempts: [practice, formal],
-  };
+  return motorLegacyAssessment(id, value);
 }
 export function MotorTestAssessmentEditor({
   id,
@@ -159,7 +146,7 @@ export function MotorTestAssessmentEditor({
     const next = { ...assessment, ...patch };
     onChange({
       assessment: next,
-      measurement: motorAssessmentMeasurement(id, next),
+      measurement: motorAssessmentMeasurement(id, next) ?? (next.status === "done" ? next.legacyMeasurement ?? null : null),
     });
   }
   const updateAttempt = (
@@ -235,10 +222,11 @@ export function MotorTestAssessmentEditor({
         (!value.assessment ? value.measurement : null)) != null && (
         <p className="text-xs text-muted-foreground">
           Misura precedente conservata:{" "}
-          {value.assessment?.legacyMeasurement ?? value.measurement}. Le note
-          esistenti non vengono interpretate automaticamente.
+          {value.assessment?.legacyMeasurement ?? value.measurement} {motorTestCatalog.find(test => test.id === id)?.unit}.
+          {id === "balance" || id === "high-jump" ? " Il valore storico non specifica il lato e resta distinto dalle nuove misure." : " Riportata nel tentativo di conferma."}
         </p>
       )}
+      {!value.assessment && id === "high-jump" && Object.keys(assessment.attempts[1].values).length > 0 && <p className="rounded-lg bg-muted p-3 text-xs">Misure Sx/Dx riportate dalle note originali nei campi di partenza e arrivo. Controllale prima di confermarle. Le note restano conservate integralmente.</p>}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-xs">
           Stato della prova

@@ -27,6 +27,21 @@ compiled._compile(
   compiled.filename,
 );
 const s = compiled.exports;
+const historical = { measurement: 188, score: 7, notes: "Note originali" };
+const migrated = s.motorLegacyAssessment("long-jump", historical);
+assert.equal(migrated.attempts[1].values.cm, 188);
+assert.equal(historical.score, 7);
+assert.equal(historical.notes, "Note originali");
+assert.equal(s.motorLegacyAssessment("march", { ...historical, measurement: 0 }).attempts[1].values.cm, 0);
+const verticalNotes = "Sx 185, 218\nDx 182, 218";
+const migratedHigh = s.motorLegacyAssessment("high-jump", { ...historical, measurement: null, notes: verticalNotes });
+assert.deepEqual(migratedHigh.attempts[1].values, { leftBase: 185, leftTop: 218, rightBase: 182, rightTop: 218 });
+assert.equal(s.motorAssessmentMeasurement("high-jump", migratedHigh), 36);
+assert.deepEqual(s.motorLegacyAssessment("high-jump", { ...historical, notes: "sx 185,218" }).attempts[1].values, {}, "ambiguous decimal/comma notation must not be guessed");
+const legacyBalance = s.motorLegacyAssessment("balance", { ...historical, measurement: 30, notes: "Dx appoggi 0\nSx appoggi 0" });
+assert.deepEqual(legacyBalance.attempts[1].values, {}, "do not invent a side or convert old appoggi into saltelli");
+assert.equal(legacyBalance.legacyMeasurement, 30);
+assert.equal(s.normalizeMotorResults({ results: { 1: { height: null, weight: null, tests: { balance: { ...historical, measurement: 30, assessment: legacyBalance } } } } }).results[1].tests.balance.measurement, 30);
 const attempt = (id, values, kind = "formal") => ({
   id,
   kind,

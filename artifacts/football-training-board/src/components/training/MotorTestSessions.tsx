@@ -3,10 +3,11 @@ import { MotorTestAssessmentEditor, MotorTestGuide, MotorTestReferences } from "
 import { MotorTestProgram } from "./MotorTestProgram";
 import { Link, useSearch } from "wouter";
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { customFetch } from "@workspace/api-client-react/custom-fetch";
 import { motorTestCatalog, motorTestCycles, motorTestCompletion, motorCompletionLabels, summarizeMotorTests, trainingLocalDate, type MotorPlayerResult, type MotorTestId, type MotorTestResult, type MotorTestSession } from "@workspace/api-zod";
 import { useAuth } from "@/hooks/use-auth";
+import { useMotorTestDraft } from "@/hooks/use-motor-test-draft";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,8 +26,6 @@ const dateLabel = (value: string) => value.split("-").reverse().join("/");
 export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; scopedTeam?: number }) {
   const { club, user, role } = useAuth();
   const search=useSearch();const openedFromLink=useRef("");
-  const cache = useQueryClient();
-  const [draft, setDraft] = useState<MotorTestSession>();
   const [playerId, setPlayerId] = useState<number>();
   const [stage, setStage] = useState<"session" | "results" | "references">("session");
   const [activeTest,setActiveTest] = useState<MotorTestId>();
@@ -38,6 +37,10 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
     queryFn: () => customFetch<Collection>("/api/motor-tests"),
     enabled: !!user,
   });
+  const { draft, setDraft, open: openDraft, save, status: saveStatus, recovered, retry } = useMotorTestDraft(session =>
+    (canEdit || collection.data?.recordTeamIds?.includes(session.teamId) === true) &&
+    (!scopedTeam || session.teamId === scopedTeam) &&
+    (!session.linkProgram || !!session.trainingSessionId || context.data?.sessions.length === 1));
   const context = useQuery({
     queryKey: ["/api/motor-tests/context", club?.id, user?.id, role, draft?.teamId, draft?.date, draft?.trainingSessionId],
     queryFn: () => customFetch<Context>("/api/motor-tests/context?" + new URLSearchParams({
@@ -47,20 +50,8 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
     refetchOnWindowFocus: "always",
     refetchInterval: 15000,
   });
-  const save = useMutation({
-    mutationFn: (data: MotorTestSession) => customFetch<MotorTestSession>("/api/motor-tests/" + data.id, { method: "PUT", body: JSON.stringify(data) }),
-    onSuccess: saved => {
-      setDraft(saved);
-      setNotice(!canEdit ? "Rilevazioni salvate nella sessione e nella scheda del giocatore." : saved.stationId ? "Sessione salvata. Programma e ordine aggiornati nella stazione Test motori della seduta." : "Sessione salvata. Il programma è pronto da inserire nella seduta del mister.");
-      void cache.invalidateQueries({ queryKey: ["/api/motor-tests"] });
-      void cache.invalidateQueries({ queryKey: ["/api/training-sessions"] });
-      void cache.invalidateQueries({ queryKey: ["/api/exercises"] });
-      void cache.invalidateQueries({ queryKey: ["/api/players"] });
-    },
-    onError: error => setNotice(error instanceof Error ? error.message : "Sessione non salvata."),
-  });
   const teams = (collection.data?.teams ?? []).filter(team => !scopedTeam || team.id === scopedTeam);
-  useEffect(()=>{const params=new URLSearchParams(search),id=params.get("motorSession");if(!id||openedFromLink.current===id||!collection.data)return;const session=collection.data.sessions.find(s=>s.id===id&&(!scopedTeam||s.teamId===scopedTeam));if(!session)return;openedFromLink.current=id;setDraft(session);setStage("results");const test=params.get("test");if(session.tests.some(t=>t.id===test))setActiveTest(test as MotorTestId)},[search,collection.data,scopedTeam]);
+  useEffect(()=>{const params=new URLSearchParams(search),id=params.get("motorSession");if(!id||openedFromLink.current===id||!collection.data)return;const session=collection.data.sessions.find(s=>s.id===id&&(!scopedTeam||s.teamId===scopedTeam));if(!session)return;openedFromLink.current=id;openDraft(session);setStage("results");const test=params.get("test");if(session.tests.some(t=>t.id===test))setActiveTest(test as MotorTestId)},[search,collection.data,scopedTeam]);
   const names = new Map(teams.map(team => [team.id, team.name]));
   const sessions = collection.data?.sessions.filter(session => names.has(session.teamId)) ?? [];
   const otherTests = motorTestCatalog.filter(item => !draft?.tests.some(test => test.id === item.id));
@@ -82,7 +73,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
   const canSave = !!draft?.teamId && !!draft.date && !!draft.tests.length && (!draft.tests.some(test => test.link) || !!draft.trainingSessionId || !!draft.linkProgram) &&
     (!draft.linkProgram || !!draft.trainingSessionId || context.data?.sessions.length === 1);
   function open(session: MotorTestSession) {
-    setDraft(session); setPlayerId(undefined); setStage("session"); setShowAllPlayers(false); setNewItem(undefined); setActiveTest(undefined); setNotice("");
+    openDraft(session); setPlayerId(undefined); setStage("session"); setShowAllPlayers(false); setNewItem(undefined); setActiveTest(undefined); setNotice("");
   }
   function updatePlayer(patch: Partial<MotorPlayerResult>) {
     if (draft && selected && !assessmentReadOnly) setDraft({ ...draft, results: { ...draft.results, [selected.id]: { ...result, ...patch } } });
@@ -101,6 +92,10 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
     </div>
     {collection.isError && <p role="alert" className="text-sm text-destructive">Sessioni non disponibili. <button type="button" className="underline" onClick={() => void collection.refetch()}>Riprova</button></p>}
     {collection.isPending && <p className="text-sm text-muted-foreground">Caricamento sessioni…</p>}
+    {!draft && recovered.filter(session => (!scopedTeam || session.teamId === scopedTeam) && (!collection.data || names.has(session.teamId))).map(session => <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" key={session.id}>
+      <p>Bozza da recuperare · {names.get(session.teamId) ?? "Annata " + session.teamId} · {dateLabel(session.date)}</p>
+      <Button type="button" variant="outline" onClick={() => open(sessions.find(s => s.id === session.id) ?? session)}>Riprendi compilazione</Button>
+    </div>)}
     {!draft && !collection.isPending && !collection.isError && (sessions.length ? <ul className="divide-y rounded-lg border px-3">
       {sessions.map(session => <li className="flex flex-wrap items-center justify-between gap-2 py-3" key={session.id}>
         <div><strong>{names.get(session.teamId)} · {dateLabel(session.date)}</strong><p className="text-xs text-muted-foreground">{motorTestCycles[session.cycle]} · {session.tests.length} prove</p>
@@ -111,6 +106,10 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
       </li>)}
     </ul> : <p className="text-sm text-muted-foreground">Nessuna sessione di test motori nell’ambito selezionato.</p>)}
     {draft && <>
+      {saveStatus && <div role={saveStatus.error ? "alert" : "status"} aria-live="polite" className={"flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm " + (saveStatus.error ? "border-amber-400 bg-amber-50 text-amber-950" : "bg-muted/30")}>
+        <span>{saveStatus.message}</span>
+        {saveStatus.error && <Button type="button" variant="outline" size="sm" onClick={retry}>Riprova salvataggio</Button>}
+      </div>}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
         <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" variant={stage === "session" ? "default" : "outline"} aria-pressed={stage === "session"} onClick={() => setStage("session")}>Sessione</Button>
