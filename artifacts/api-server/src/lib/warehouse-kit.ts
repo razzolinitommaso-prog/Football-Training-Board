@@ -4,9 +4,10 @@ import { sql } from "drizzle-orm";
 let schemaReady: Promise<unknown> | undefined;
 
 export function ensureWarehouseKitSchema() {
-  schemaReady ??= db.execute(sql`
-    SELECT pg_advisory_xact_lock(73319821);
-    ALTER TABLE warehouse_items ADD COLUMN IF NOT EXISTS kit_slots JSONB;
+  schemaReady ??= db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(73319821)`);
+    await tx.execute(sql`ALTER TABLE warehouse_items ADD COLUMN IF NOT EXISTS kit_slots JSONB`);
+    await tx.execute(sql`
     CREATE TABLE IF NOT EXISTS warehouse_kit_requests (
       id SERIAL PRIMARY KEY,
       club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
@@ -17,10 +18,10 @@ export function ensureWarehouseKitSchema() {
       status TEXT NOT NULL CHECK (status IN ('pending', 'reserved', 'ordered', 'arrived', 'delivered')),
       archived_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-    CREATE INDEX IF NOT EXISTS warehouse_kit_requests_club_player_idx
-      ON warehouse_kit_requests (club_id, player_id, row_key);
-    CREATE OR REPLACE FUNCTION release_warehouse_kit_reserve() RETURNS trigger AS $kit$
+    )`);
+    await tx.execute(sql`CREATE INDEX IF NOT EXISTS warehouse_kit_requests_club_player_idx
+      ON warehouse_kit_requests (club_id, player_id, row_key)`);
+    await tx.execute(sql`CREATE OR REPLACE FUNCTION release_warehouse_kit_reserve() RETURNS trigger AS $kit$
     BEGIN
       IF OLD.status IN ('reserved', 'arrived') THEN
         UPDATE warehouse_items SET quantity_reserved = GREATEST(0, quantity_reserved - OLD.quantity), updated_at = now()
@@ -28,11 +29,11 @@ export function ensureWarehouseKitSchema() {
       END IF;
       RETURN OLD;
     END;
-    $kit$ LANGUAGE plpgsql;
-    DROP TRIGGER IF EXISTS release_warehouse_kit_reserve ON warehouse_kit_requests;
-    CREATE TRIGGER release_warehouse_kit_reserve BEFORE DELETE ON warehouse_kit_requests
-      FOR EACH ROW EXECUTE FUNCTION release_warehouse_kit_reserve();
-  `).catch((error) => {
+    $kit$ LANGUAGE plpgsql`);
+    await tx.execute(sql`DROP TRIGGER IF EXISTS release_warehouse_kit_reserve ON warehouse_kit_requests`);
+    await tx.execute(sql`CREATE TRIGGER release_warehouse_kit_reserve BEFORE DELETE ON warehouse_kit_requests
+      FOR EACH ROW EXECUTE FUNCTION release_warehouse_kit_reserve()`);
+  }).catch((error) => {
     schemaReady = undefined;
     throw error;
   });
@@ -65,6 +66,7 @@ type KitSelection = {
   assignment?: "manual" | "loan";
   ordered?: boolean;
   arrived?: boolean;
+  sourcePaymentId?: number;
 };
 
 function readKit(raw: unknown): KitSelection[] {
@@ -169,7 +171,15 @@ export async function requestKitRow(clubId: number, playerId: number, rowKey: st
         !Number.isSafeInteger(quantity) || quantity > 1000) {
       throw new KitRequestError(400, "Collega tutte le varianti e controlla la quantità");
     }
-    if (rowKey !== setKey && !ordinarySlots.includes(rowKey)) throw new KitRequestError(400, "Voce kit non valida");
+    if (rowKey !== setKey && !ordinarySlots.includes(rowKey)) {
+      const match = /^payment:([1-9]\d*)$/.exec(rowKey);
+      if (!match || row.sourcePaymentId !== Number(match[1])) throw new KitRequestError(400, "Voce kit non valida");
+      const owner = await tx.execute(sql`SELECT p.id FROM player_payments p
+        JOIN player_payment_kit_items k ON k.payment_id = p.id
+        WHERE p.id = ${Number(match[1])} AND p.club_id = ${clubId} AND p.player_id = ${playerId}
+          AND p.payment_type = 'kit_article' AND k.article->>'id' = ${String(ids[0])}`);
+      if (!owner.rows.length) throw new KitRequestError(409, "La voce kit non corrisponde al pagamento collegato.");
+    }
     const existing = await tx.execute(sql`
       SELECT id FROM warehouse_kit_requests WHERE club_id = ${clubId} AND player_id = ${playerId} AND row_key = ${rowKey} AND archived_at IS NULL LIMIT 1
     `);

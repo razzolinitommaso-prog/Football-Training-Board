@@ -412,7 +412,7 @@ function defaultKitRows(): KitRow[] {
 
 function parseKitRows(raw: string | null | undefined): KitRow[] {
   const source = savedKitSelections(raw);
-  return defaultKitRows().map((base) => {
+  return [...defaultKitRows().map((base) => {
     const saved = source.find((row) => row.key === base.key);
     return {
       ...base,
@@ -424,7 +424,7 @@ function parseKitRows(raw: string | null | undefined): KitRow[] {
       listItemId: saved?.listItemId ? String(saved.listItemId) : "",
       componentItemIds: Array.isArray(saved?.componentItemIds) ? saved.componentItemIds.slice(0, 2).map((id) => id ? String(id) : "") : undefined,
     };
-  });
+  }), ...source.filter(row => row.sourcePaymentId && row.key === `payment:${row.sourcePaymentId}`) as KitRow[]];
 }
 
 function parseExtraTimeRows(raw: string | null | undefined): ExtraTimeRow[] {
@@ -466,6 +466,8 @@ function serializeKitRows(rows: KitRow[], extraRows?: ExtraTimeRow[]): string {
     arrived: row.arrived,
     listItemId: row.listItemId || "",
     componentItemIds: row.componentItemIds,
+    sourcePaymentId: row.sourcePaymentId,
+    slotKey: row.slotKey,
   }));
   if (!extraRows) return JSON.stringify(kitRows);
   return JSON.stringify({
@@ -1745,6 +1747,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
   const plannedShuttleFee = parseEuroInput(shuttleMonthlyCost);
   const plannedShuttleMonths = Math.max(0, Math.floor(Number(shuttleMonthsCount) || 0));
   const plannedKitTotal = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
+  const unregisteredKitTotal = kitRows.filter(row => !row.sourcePaymentId).reduce((sum, row) => sum + kitRowTotal(row), 0);
   const normalizedExtraTimeRows = normalizeExtraTimeRows(extraTimeRows);
   const displayedExtraTimeRows = editingPlayerEquipment ? parseExtraTimeRows(editingPlayerEquipment.trainingKit) : normalizedExtraTimeRows;
   const plannedExtraTimeTotal = normalizedExtraTimeRows.reduce((sum, row) => sum + extraTimeRowTotal(row), 0);
@@ -1782,7 +1785,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     annual: isSafePlayerPaymentAmount(plannedAnnualFee) ? plannedAnnualFee : 0,
     insurance: isSafePlayerPaymentAmount(plannedInsuranceFee) ? plannedInsuranceFee : 0,
     shuttle: isSafePlayerPaymentAmount(plannedShuttleFee) ? plannedShuttleFee * plannedShuttleMonths : 0,
-    kit: plannedKitTotal,
+    kit: unregisteredKitTotal,
   }, plannedExtraTimeTotal, editingPlayerPayments,
   !annualFeeTotal && !insuranceFeeTotal,
   depositTotal, false, isSafePlayerPaymentAmount(plannedAnnualFee));
@@ -2282,12 +2285,14 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       credentials: "include",
     });
     if (!res.ok) {
-      toast({ title: "Errore eliminazione quota", variant: "destructive" });
+      toast({ title: "Errore eliminazione quota", description: (await res.json().catch(() => null))?.error, variant: "destructive" });
       return;
     }
     queryClient.invalidateQueries({ queryKey: ["/api/player-payments"] });
     queryClient.invalidateQueries({ queryKey: ["/api/players"] });
     toast({ title: "Quota eliminata" });
+    void queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/player-payment-kit-order"] });
   };
 
   const saveKitAssignmentOnly = async () => {
@@ -2338,11 +2343,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
   const createUnifiedEconomicPlan = async () => {
     if (!editingPlayer || !canEditFinancials) return;
-    if (!isSafePlayerPaymentAmount(plannedEconomicTotal)) {
+    if (!isSafePlayerPaymentAmount(economicBalance.planTotal)) {
       toast({ title: "Totale non valido", description: "Il totale deve essere compreso tra 0,01 e 20.000 euro.", variant: "destructive" });
       return;
     }
-    if (plannedUpfrontAmount > plannedOutstanding) {
+    if (plannedUpfrontAmount > economicBalance.planOutstanding) {
       toast({ title: "Acconto troppo alto", description: "Il nuovo acconto non può superare il saldo ancora da pagare.", variant: "destructive" });
       return;
     }
@@ -2369,7 +2374,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       const response = await fetch(withApi("/api/player-payment-plan"), {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          playerId: editingPlayer.id, total: plannedEconomicTotal, alreadyPaid: plannedAlreadyPaid, upfront: plannedUpfrontAmount,
+          playerId: editingPlayer.id, total: economicBalance.planTotal, alreadyPaid: economicBalance.planAlreadyPaid, upfront: plannedUpfrontAmount,
           deposits: receipts.map(({ amount, purpose, method, paymentDate }) => ({ amount, purpose, paymentMethod: method, paymentDate })),
           replaceTypes: economicBalance.replaceTypes, installments,
           expectedPayments: editingPlayerPayments.map(({ id, status, amount, dueDate }) => ({ id, status, amount, dueDate: dueDate ?? null })),
@@ -2528,7 +2533,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
   const savePlayerKit = async () => {
     if (!editingPlayer || !canEditFinancials) return;
-    const total = kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0);
+    const total = kitRows.filter(row => !row.sourcePaymentId).reduce((sum, row) => sum + kitRowTotal(row), 0);
     if (total > 0 && kitPaymentStatus === "paid" && !isReceiptMethod(kitPaymentMethod)) {
       toast({ title: "Scegli il metodo di incasso del kit", variant: "destructive" });
       return;
@@ -4373,8 +4378,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     <div className="space-y-2">
                       <Label>Importo rata kit</Label>
                       <Input
-                        value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0) > 0
-                          ? (kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0) / Number(kitInstallmentCount)).toFixed(2)
+                        value={Number(kitInstallmentCount) > 0 && unregisteredKitTotal > 0
+                          ? (unregisteredKitTotal / Number(kitInstallmentCount)).toFixed(2)
                           : ""}
                         readOnly
                       />
@@ -5176,6 +5181,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     <PlayerKitEditor rows={kitRows} items={kitListItems} requests={currentKitRequests} busy={isSavingKit || kitRequestsPending}
                       requestsUnavailable={kitRequestsError} updateRow={updateKitRow}
                       requestRow={(key) => { if (!kitRequestsPending) void saveKitLinks(key); }} formatEuro={formatEuro} rowTotal={kitRowTotal} parsePrice={parseEuroInput} />
+                    {kitRows.some(row => row.sourcePaymentId) && <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">Gli articoli provenienti da Pagamenti sono già registrati e si gestiscono dal relativo movimento. Il piano qui sotto riguarda solo le altre voci kit: € {formatEuro(unregisteredKitTotal)}.</p>}
                     <div className="space-y-2 border-t pt-3">
                       <Label>Note kit</Label>
                       <Textarea value={kitNotes} onChange={(e) => setKitNotes(e.target.value)} />
@@ -5201,8 +5207,8 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                       <div className="space-y-2">
                         <Label>Importo rata kit</Label>
                         <Input
-                          value={Number(kitInstallmentCount) > 0 && kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0) > 0
-                            ? (kitRows.reduce((sum, row) => sum + kitRowTotal(row), 0) / Number(kitInstallmentCount)).toFixed(2)
+                          value={Number(kitInstallmentCount) > 0 && unregisteredKitTotal > 0
+                            ? (unregisteredKitTotal / Number(kitInstallmentCount)).toFixed(2)
                             : ""}
                           readOnly
                         />

@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { Link } from "wouter";
 import { trainingLocalDate } from "@workspace/api-zod";
+import { paymentKitSlot } from "@workspace/api-zod";
+import { PaymentKitOrderButton, PaymentKitOrderDialog, kitOrderCacheKeys } from "./payment-kit-order";
 import { Badge } from "@/components/ui/badge";
 import { describeKitVariant, type KitCatalogItem } from "@/lib/player-kit-catalog";
 import { Button } from "@/components/ui/button";
@@ -19,7 +21,7 @@ export type PlayerLedgerPayment = PaymentEntry & { id: number; amount: number; p
 type LedgerPayment = PlayerLedgerPayment & { playerId: number };
 type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; supplementalTeamId?: number | null; clubSection?: string };
 type Team = { id: number; name: string; clubSection: string };
-type Editor = { action: "due" | "settle" | "add" | "kit-link"; ids: number[]; date: string; time?: string; method: string; amount?: string; tariffId?: string; kitItemId?: string; paymentType: string; status: "paid" | "pending"; description: string };
+type Editor = { action: "due" | "settle" | "add" | "kit-link"; ids: number[]; date: string; time?: string; method: string; amount?: string; tariffId?: string; kitItemId?: string; kitQuantity?: string; paymentType: string; status: "paid" | "pending"; description: string };
 const paymentTypes = { registration_fee: "Iscrizione · prima rata", annual_fee_installment: "Quota annuale", insurance_fee: "Assicurazione", kit_payment: "Kit", shuttle_monthly: "Pulmino", other: "Altro" };
 const tariffTypes: Partial<Record<string, FeeType>> = {
   annual_fee_installment: "annual_fee", registration_fee: "registration_fee", insurance_fee: "insurance_fee",
@@ -45,6 +47,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
   const cache = useQueryClient();
   const [editor, setEditor] = useState<Editor>();
   const [error, setError] = useState("");
+  const [kitOrderId, setKitOrderId] = useState<number>();
   const tariffType = editor?.action === "add" ? tariffTypes[editor.paymentType] : undefined;
   const feeList = useQuery({
     queryKey: ["/api/fee-list", club?.id, user?.id, role],
@@ -64,16 +67,17 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
   const tariffs = tariffType ? listFeesForType(activeFees, tariffType) : [];
   const tariffId = editor?.tariffId ?? (tariffs.length === 1 ? String(tariffs[0].id) : "");
   const tariff = tariffs.find(item => String(item.id) === tariffId);
-  const suggestedPrice = needsKitArticle ? kitItem?.price : tariff?.price;
+  const suggestedPrice = needsKitArticle ? kitItem?.price == null ? undefined : kitItem.price * Number(editor?.kitQuantity ?? 1) : tariff?.price;
   const amount = editor?.amount ?? (suggestedPrice == null ? "" : String(suggestedPrice));
   const today = trainingLocalDate();
   const openPayments = payments.filter(payment => payment.status !== "paid" && payment.amount > 0);
   const overdue = openPayments.filter(payment => paymentStatus(payment, today) === "overdue");
   const save = useMutation({
-    mutationFn: ({ path, method, body }: { path: string; method: string; body: object }) => request(path, method, body),
-    onSuccess: async () => {
+    mutationFn: ({ path, method, body }: { path: string; method: string; body: object }) => request<{ id?: number; kitArticle?: unknown } | undefined>(path, method, body),
+    onSuccess: async record => {
       setEditor(undefined);
-      await Promise.all(["/api/player-payments", "/api/players", "/api/extra-time"].map(key => cache.invalidateQueries({ queryKey: [key] })));
+      if (record?.kitArticle && record.id) setKitOrderId(record.id);
+      await Promise.all([...kitOrderCacheKeys, "/api/players", "/api/extra-time"].map(key => cache.invalidateQueries({ queryKey: [key] })));
     },
     onError: error => setError(error.message),
   });
@@ -83,12 +87,12 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
       method: "", paymentType: "annual_fee_installment", status: "paid", description: "" });
   }
   const requiresMethod = editor?.action === "settle" || (editor?.action === "add" && editor.status === "paid");
-  const invalid = !editor || (needsKitArticle && (!kitItem || kitCatalog.isError)) ||
+  const invalid = !editor || (needsKitArticle && (!kitItem || kitCatalog.isError || !Number.isSafeInteger(Number(editor.kitQuantity ?? 1)) || Number(editor.kitQuantity ?? 1) < 1 || Number(editor.kitQuantity ?? 1) > 1000)) ||
     (editor.action !== "kit-link" && !editor.date) || (requiresMethod && !isReceiptMethod(editor.method)) ||
     (editor.action === "add" && !(Number(amount) >= 0.01 && Number(amount) <= MAX_PLAYER_PAYMENT_AMOUNT));
   const kitPicker = editor && needsKitArticle && <label className="block text-sm">Articolo kit
     <ScrollableSelect aria-label="Articolo kit" className="mt-1 w-full" value={editor.kitItemId ?? ""}
-      onValueChange={kitItemId => setEditor({ ...editor, kitItemId, amount: undefined })}>
+      onValueChange={kitItemId => setEditor({ ...editor, kitItemId, kitQuantity: "1", amount: undefined })}>
       <option value="">{kitCatalog.isPending ? "Caricamento articoli…" : "Seleziona articolo e taglia"}</option>
       {kitItems.map(item => <option key={item.id} value={String(item.id)}>{describeKitVariant(item)}</option>)}
     </ScrollableSelect>
@@ -120,6 +124,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
           {payment.status !== "paid" && canCollect && payment.amount > 0 && <Button type="button" size="sm" onClick={() => open("settle", [payment])}>Incassa rata</Button>}
           {canCollect && payment.paymentType === "kit_payment" && payment.installmentNumber == null &&
             <Button type="button" size="sm" variant="outline" onClick={() => open("kit-link", [payment])}>Collega articolo</Button>}
+          {payment.kitArticle && <PaymentKitOrderButton paymentId={payment.id} />}
           {canCollect && onDelete && <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => onDelete(payment.id)}>Elimina</Button>}
         </div>;
       })}
@@ -142,6 +147,8 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
             save.mutate({ path: "/api/player-payments", method: "POST", body: {
               playerId, amount: Number(amount), status: editor.status, paymentType: editor.paymentType,
               kitItemId: kitItem?.id,
+              kitQuantity: needsKitArticle ? Number(editor.kitQuantity ?? 1) : undefined,
+              kitSlot: kitItem ? paymentKitSlot(kitItem) : undefined,
               description: kitItem ? editor.description.trim() : editor.description.trim() || tariff?.name || paymentTypes[editor.paymentType as keyof typeof paymentTypes],
               dueDate: editor.status === "pending" ? editor.date : null,
               paymentDate: editor.status === "paid" ? editor.date : null, paymentTime: requiresMethod ? editor.time || null : null, paymentMethod: editor.status === "paid" ? editor.method : null,
@@ -160,6 +167,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
               </ScrollableSelect>
             </label>}
             {kitPicker}
+            {needsKitArticle && <label className="block text-sm">Pezzi<Input type="number" min={1} max={1000} step={1} value={editor.kitQuantity ?? "1"} onChange={event => setEditor({ ...editor, kitQuantity: event.target.value, amount: undefined })} /></label>}
             <label className="block text-sm">Importo (€)<Input type="number" min="0.01" max={MAX_PLAYER_PAYMENT_AMOUNT} step="0.01" value={amount} onChange={event => setEditor({ ...editor, amount: event.target.value })} /></label>
             <label className="block text-sm">Stato<ScrollableSelect aria-label="Stato nuova voce" className="mt-1 w-full" value={editor.status} onValueChange={value => setEditor({ ...editor, status: value === "pending" ? "pending" : "paid", date: value === "pending" ? "" : today })}>
               <option value="paid">Incassato subito</option><option value="pending">Da incassare</option>
@@ -184,6 +192,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
         </form>}
       </DialogContent>
     </Dialog>
+    {kitOrderId && <PaymentKitOrderDialog paymentId={kitOrderId} onClose={() => setKitOrderId(undefined)} />}
   </div>;
 }
 
@@ -204,6 +213,7 @@ export function RegisteredKitPayments({ payments, today }: { payments: PlayerLed
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className={paymentStatusTone[state]}>{paymentStatuses[state]}</Badge>
             <span className="tabular-nums">{money.format(payment.amount)}</span>
+            <PaymentKitOrderButton paymentId={payment.id} />
           </div>
         </li>;
       })}

@@ -9,7 +9,7 @@ export const paymentStatusTone: Record<PaymentStatus, string> = {
   pending: "border-orange-300 bg-orange-50 text-orange-800 dark:border-orange-700 dark:bg-orange-950 dark:text-orange-200",
   overdue: "border-red-300 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950 dark:text-red-200",
 };
-export type PaymentKitArticle = { id: number; name: string; code: string; size: string | null };
+export type PaymentKitArticle = { id: number; name: string; code: string; size: string | null; rowKey?: string; slotKey?: string; quantity?: number };
 export const receiptMethods = { cash: "Contanti", card: "Carta / Bancomat (POS)", bank_transfer: "Bonifico" } as const;
 export const depositPurposes = ["Generale", "Iscrizione", "Quota annuale", "Assicurazione", "Kit", "Pulmino", "Extra Time"] as const;
 export type ReceiptMethod = keyof typeof receiptMethods;
@@ -142,8 +142,12 @@ export function playerEconomicBalance(
     sum + (payment.status === "paid" ? cents(payment.amount) : 0), 0));
   const outstanding = gross - recorded;
   const newPayment = settle ? outstanding : cents(upfront);
+  const articles = payments.filter(payment => payment.paymentType === "kit_article");
+  const articleTotal = articles.reduce((sum, payment) => sum + cents(payment.amount), 0);
+  const articlePaid = articles.reduce((sum, payment) => sum + (payment.status === "paid" ? cents(payment.amount) : 0), 0);
   return {
-    quotes: quotes / 100, savedPlanBalance: (gross - directTotal) / 100, total: gross / 100, alreadyPaid: recorded / 100, outstanding: outstanding / 100,
+    quotes: quotes / 100, savedPlanBalance: (gross - directTotal) / 100, total: (gross + articleTotal) / 100, alreadyPaid: (recorded + articlePaid) / 100, outstanding: (outstanding + articleTotal - articlePaid) / 100,
+    planTotal: gross / 100, planAlreadyPaid: recorded / 100, planOutstanding: outstanding / 100,
     upfront: newPayment / 100, residual: Math.max(0, outstanding - newPayment) / 100,
     replaceTypes: types,
   };

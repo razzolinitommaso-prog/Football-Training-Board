@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PaymentKitOrderButton } from "@/components/payment-kit-order";
 import {
   describeKitVariant, KIT_REQUEST_STATUS, kitRowHasContent, kitRowItemIds, kitRowNeedsLink, REPRESENTATION_COMPONENTS, REPRESENTATION_SET,
   suggestKitSlots, type KitCatalogItem, type KitRequestLine, type KitRow,
@@ -37,7 +38,8 @@ export function PlayerKitEditor({ rows, items, requests, busy, requestsUnavailab
   const byId = new Map(items.map((item) => [String(item.id), item]));
   const activeIds = new Set(byId.keys());
   const missing = (row: KitRow) => kitRowNeedsLink(row, activeIds);
-  const rowsToShow = onlyUnlinked ? rows.filter(missing) : rows.filter((row) => row.area === area);
+  const visibleRows = rows.filter(row => row.sourcePaymentId || kitRowHasContent(row) || !rows.some(other => other.sourcePaymentId && other.slotKey === row.key));
+  const rowsToShow = onlyUnlinked ? visibleRows.filter(missing) : visibleRows.filter((row) => row.area === area);
   const unlinked = rows.filter(missing).length;
   const net = (item: PlayerKitVariant) => Math.max(0, Number(item.quantityAvailable ?? 0) - Number(item.quantityReserved ?? 0));
   const priceOf = (ids: string[]) => ids.reduce((sum, id) => sum + Number(byId.get(id)?.price ?? 0), 0);
@@ -57,6 +59,16 @@ export function PlayerKitEditor({ rows, items, requests, busy, requestsUnavailab
       {rowsToShow.length === 0 && <p className="py-3 text-sm text-muted-foreground">Nessuna voce da collegare.</p>}
       <div className="divide-y divide-border">
         {rowsToShow.map((row) => {
+          if (row.sourcePaymentId) {
+            const item = byId.get(String(row.listItemId));
+            const lines = requests.filter(line => line.rowKey === row.key);
+            return <div key={row.key} className="space-y-2 py-3">
+              <div className="flex flex-wrap justify-between gap-2"><span className="text-sm font-medium">{row.label}</span><strong className="text-sm tabular-nums">€ {formatEuro(rowTotal(row))}</strong></div>
+              <p className="text-xs text-muted-foreground">{item ? describeKitVariant(item) : "Articolo collegato al pagamento"} · {row.quantity} pezzi</p>
+              <p className="text-xs text-muted-foreground">{lines.length ? lines.map(line => `${KIT_REQUEST_STATUS[line.status]} (${line.quantity})`).join(" · ") : "Da richiedere al Magazzino"}</p>
+              <PaymentKitOrderButton paymentId={row.sourcePaymentId} />
+            </div>;
+          }
           const componentSlots = row.key === REPRESENTATION_SET ? REPRESENTATION_COMPONENTS : [{ key: row.key, label: row.label }];
           const ids = kitRowItemIds(row);
           const selection = row.componentItemIds?.some(Boolean) ? row.componentItemIds : [row.listItemId ?? ""];

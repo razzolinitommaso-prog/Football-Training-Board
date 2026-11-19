@@ -38,3 +38,4 @@ export * from "./player-roster-status";
 export * from "./motor-tests";
 export * from "./motor-test-assessment";
 export * from "./motor-test-diagrams";
+export * from "./player-kit-catalog";

@@ -24,6 +24,7 @@ import { requireAuth } from "../lib/auth";
 import { extraTimeCatalog, extraTimeShareCents, trainingLocalDate, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { ensureExtraTimeStorage } from "../lib/extra-time-storage";
 import { reconcilePaymentAvailability } from "../lib/payment-availability";
+import { preservePaymentKitRows, readPaymentKitRow, removePaymentKitRow, syncPaymentKitRow, type PaymentKitArticle } from "../lib/payment-kit";
 import { normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { calendarStaffMessage, encodeCalendarCommunication, readCalendarAudience } from "../lib/parent-calendar-communication";
 
@@ -364,7 +365,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     res.status(403).json({ error: "Solo la segreteria puo modificare quote e rate" });
     return;
   }
-  const { playerId, amount, dueDate, status, paymentDate, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod, kitItemId, paymentTime } = req.body;
+  const { playerId, amount, dueDate, status, paymentDate, description, paymentType, installmentNumber, totalInstallments, annualFeeTotal, availabilityBlocking, paymentMethod, kitItemId, paymentTime, kitQuantity, kitSlot } = req.body;
   if (!validReceiptTime(paymentTime) || (paymentTime && status !== "paid")) { res.status(400).json({ error: "Orario di incasso non valido." }); return; }
   if (!playerId || amount == null) { res.status(400).json({ error: "playerId and amount required" }); return; }
   if (status === "paid" && !validReceiptMethod(paymentMethod)) {
@@ -400,16 +401,19 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
     availabilityBlocking: availabilityBlocking === 0 || availabilityBlocking === false ? 0 : 1,
     paymentMethod: status === "paid" ? paymentMethod : null,
   };
-  if (article) await ensurePaymentKitSchema();
+  if (article) await Promise.all([ensurePaymentKitSchema(), ensureWarehouseKitSchema()]);
   if (paymentTime) await ensureReceiptTimeSchema();
+  try {
   const record = article || paymentTime ? await db.transaction(async tx => {
+    if (article) await lockKitPlayer(tx, clubId, player.id);
     const [payment] = await tx.insert(playerPaymentsTable).values(values).returning();
-    if (article) await tx.insert(playerPaymentKitItemsTable).values({ paymentId: payment.id, article });
+    const linked = article ? await syncPaymentKitRow(tx, clubId, payment, article, { quantity: kitQuantity, slotKey: kitSlot }) : undefined;
     if (paymentTime) await writeReceiptTime(tx, payment.id, paidDate, paymentTime);
-    return { ...payment, kitArticle: article, paymentTime: paymentTime ?? null };
+    return { ...payment, kitArticle: linked?.article, paymentTime: paymentTime ?? null };
   }) : (await db.insert(playerPaymentsTable).values(values).returning())[0];
   await reconcilePaymentAvailability(clubId, player.id, undefined, status === "paid");
   res.status(201).json(record);
+  } catch (error) { if (!sendKitError(res, error)) throw error; }
 });
 
 router.patch("/player-payments/:id/kit-item", requireAuth, async (req, res): Promise<void> => {
@@ -421,8 +425,13 @@ router.patch("/player-payments/:id/kit-item", requireAuth, async (req, res): Pro
   const scope = await getScopedPlayerIds(req, clubId);
   const article = await paymentKitArticle(clubId, itemId);
   if (!article) { res.status(404).json({ error: "Articolo kit non più disponibile." }); return; }
-  await ensurePaymentKitSchema();
+  await Promise.all([ensurePaymentKitSchema(), ensureWarehouseKitSchema()]);
+  try {
   const record = await db.transaction(async tx => {
+    const [owner] = await tx.select({ playerId: playerPaymentsTable.playerId }).from(playerPaymentsTable)
+      .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId)));
+    if (!owner || (scope && !scope.includes(owner.playerId))) return null;
+    await lockKitPlayer(tx, clubId, owner.playerId);
     const [payment] = await tx.select().from(playerPaymentsTable).where(and(
       eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId),
       eq(playerPaymentsTable.paymentType, "kit_payment"), sql`${playerPaymentsTable.installmentNumber} IS NULL`,
@@ -433,11 +442,49 @@ router.patch("/player-payments/:id/kit-item", requireAuth, async (req, res): Pro
     const description = note && !["kit", "kit giocatore"].includes(note.toLocaleLowerCase("it")) ? title + " · " + note : title;
     const [updated] = await tx.update(playerPaymentsTable).set({ paymentType: "kit_article", description })
       .where(eq(playerPaymentsTable.id, id)).returning();
-    await tx.insert(playerPaymentKitItemsTable).values({ paymentId: id, article });
-    return { ...updated, kitArticle: article };
+    const linked = await syncPaymentKitRow(tx, clubId, updated, article, { quantity: req.body.kitQuantity, slotKey: req.body.kitSlot });
+    return { ...updated, kitArticle: linked.article };
   });
   if (!record) { res.status(404).json({ error: "Movimento kit non collegabile o già collegato." }); return; }
   res.json(record);
+  } catch (error) { if (!sendKitError(res, error)) throw error; }
+});
+
+router.get("/player-payments/:id/kit-order", requireAuth, async (req, res): Promise<void> => {
+  if (!canViewFinancials(req.session.role)) { res.sendStatus(403); return; }
+  const id = Number(req.params.id), clubId = req.session.clubId!;
+  if (!validKitId(id)) { res.sendStatus(400); return; }
+  await Promise.all([ensurePaymentKitSchema(), ensureWarehouseKitSchema()]);
+  const [record] = await db.select({ payment: getTableColumns(playerPaymentsTable), article: playerPaymentKitItemsTable.article })
+    .from(playerPaymentsTable).innerJoin(playerPaymentKitItemsTable, eq(playerPaymentKitItemsTable.paymentId, playerPaymentsTable.id))
+    .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId), eq(playerPaymentsTable.paymentType, "kit_article")));
+  const scope = await getScopedPlayerIds(req, clubId);
+  if (!record || (scope && !scope.includes(record.payment.playerId))) { res.sendStatus(404); return; }
+  const { row } = await readPaymentKitRow(db, clubId, record.payment.playerId, id);
+  const requests = (await listKitRequests(clubId, record.payment.playerId)).filter(line => line.rowKey === `payment:${id}` && !line.archived);
+  res.json({ ...record, row: row ?? null, requests });
+});
+
+router.post("/player-payments/:id/kit-order", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditFinancials(req.session.role)) { res.sendStatus(403); return; }
+  const id = Number(req.params.id), clubId = req.session.clubId!;
+  if (!validKitId(id)) { res.sendStatus(400); return; }
+  const scope = await getScopedPlayerIds(req, clubId);
+  await Promise.all([ensurePaymentKitSchema(), ensureWarehouseKitSchema()]);
+  try {
+    const linked = await db.transaction(async tx => {
+      const [owner] = await tx.select({ playerId: playerPaymentsTable.playerId }).from(playerPaymentsTable)
+        .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId)));
+      if (!owner || (scope && !scope.includes(owner.playerId))) throw new KitRequestError(404, "Movimento non trovato.");
+      await lockKitPlayer(tx, clubId, owner.playerId);
+      const [record] = await tx.select({ payment: getTableColumns(playerPaymentsTable), article: playerPaymentKitItemsTable.article })
+        .from(playerPaymentsTable).innerJoin(playerPaymentKitItemsTable, eq(playerPaymentKitItemsTable.paymentId, playerPaymentsTable.id))
+        .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId), eq(playerPaymentsTable.paymentType, "kit_article"))).for("update", { of: playerPaymentsTable });
+      if (!record) throw new KitRequestError(404, "Collega prima un articolo al movimento kit.");
+      return syncPaymentKitRow(tx, clubId, record.payment, record.article, req.body ?? {});
+    });
+    res.json(linked);
+  } catch (error) { if (!sendKitError(res, error)) throw error; }
 });
 
 const paymentPlanTypes = new Set([
@@ -770,16 +817,34 @@ router.patch("/player-payments/:id", requireAuth, async (req, res): Promise<void
   if (status !== undefined) updates.paymentMethod = status === "paid" ? paymentMethod : null;
   const updateTime = status !== undefined || paymentDate !== undefined || paymentTime !== undefined;
   if (updateTime) await ensureReceiptTimeSchema();
+  const [owner] = await db.select().from(playerPaymentsTable).where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!)));
+  if (!owner) { res.sendStatus(404); return; }
+  const paymentScope = await getScopedPlayerIds(req, req.session.clubId!);
+  if (paymentScope && !paymentScope.includes(owner.playerId)) { res.sendStatus(404); return; }
+  const kitArticlePayment = owner?.paymentType === "kit_article";
+  if (kitArticlePayment) {
+    const scope = await getScopedPlayerIds(req, req.session.clubId!);
+    if (scope && !scope.includes(owner.playerId)) { res.sendStatus(404); return; }
+    if (amount !== undefined && !(paymentPlanCents(amount) > 0)) { res.status(400).json({ error: "Importo kit non valido." }); return; }
+    await Promise.all([ensurePaymentKitSchema(), ensureWarehouseKitSchema()]);
+  }
+  try {
   const record = await db.transaction(async tx => {
+    await lockKitPlayer(tx, req.session.clubId!, owner.playerId);
     const [payment] = await tx.update(playerPaymentsTable).set(updates)
       .where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, req.session.clubId!),
         paymentType === undefined ? undefined : sql`${playerPaymentsTable.paymentType} <> 'kit_article'`)).returning();
     if (payment && updateTime) await writeReceiptTime(tx, payment.id, payment.status === "paid" ? payment.paymentDate : null, paymentTime);
+    if (payment?.paymentType === "kit_article") {
+      const [link] = await tx.select().from(playerPaymentKitItemsTable).where(eq(playerPaymentKitItemsTable.paymentId, payment.id));
+      if (link) await syncPaymentKitRow(tx, req.session.clubId!, payment, link.article);
+    }
     return payment;
   });
   if (!record) { res.status(404).json({ error: "Not found" }); return; }
   await reconcilePaymentAvailability(req.session.clubId!, record.playerId, undefined, status === "paid");
   res.json(record);
+  } catch (error) { if (!sendKitError(res, error)) throw error; }
 });
 
 router.delete("/player-payments/:id", requireAuth, async (req, res): Promise<void> => {
@@ -790,10 +855,29 @@ router.delete("/player-payments/:id", requireAuth, async (req, res): Promise<voi
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const clubId = req.session.clubId!;
-  const [deleted] = await db.delete(playerPaymentsTable).where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId)))
-    .returning({ playerId: playerPaymentsTable.playerId });
+  const [existing] = await db.select().from(playerPaymentsTable).where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId)));
+  if (!existing) { res.sendStatus(204); return; }
+  const paymentScope = await getScopedPlayerIds(req, clubId);
+  if (paymentScope && !paymentScope.includes(existing.playerId)) { res.sendStatus(404); return; }
+  if (existing.paymentType === "kit_article") {
+    const scope = await getScopedPlayerIds(req, clubId);
+    if (scope && !scope.includes(existing.playerId)) { res.sendStatus(404); return; }
+    await ensureWarehouseKitSchema();
+  }
+  try {
+  const deleted = await db.transaction(async tx => {
+    await lockKitPlayer(tx, clubId, existing.playerId);
+    const [current] = await tx.select().from(playerPaymentsTable).where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId))).for("update");
+    if (current?.paymentType === "kit_article") {
+      await removePaymentKitRow(tx, clubId, current);
+    }
+    const [row] = await tx.delete(playerPaymentsTable).where(and(eq(playerPaymentsTable.id, id), eq(playerPaymentsTable.clubId, clubId)))
+      .returning({ playerId: playerPaymentsTable.playerId });
+    return row;
+  });
   if (deleted) await reconcilePaymentAvailability(clubId, deleted.playerId);
   res.sendStatus(204);
+  } catch (error) { if (!sendKitError(res, error)) throw error; }
 });
 
 router.get("/player-documents", requireAuth, async (req, res): Promise<void> => {
@@ -1164,8 +1248,9 @@ router.post("/equipment", requireAuth, async (req, res): Promise<void> => {
       const [existing] = await tx.select().from(equipmentAssignmentsTable)
         .where(and(eq(equipmentAssignmentsTable.playerId, playerId), eq(equipmentAssignmentsTable.clubId, clubId)))
         .orderBy(asc(equipmentAssignmentsTable.id)).limit(1);
-      await validateKitLinks(tx, clubId, playerId, existing?.trainingKit, trainingKit);
-      const changes = { kitAssigned: kitAssigned ?? null, trainingKit: trainingKit ?? null, matchKit: matchKit ?? null, notes: notes ?? null };
+      const mergedKit = preservePaymentKitRows(existing?.trainingKit, trainingKit);
+      await validateKitLinks(tx, clubId, playerId, existing?.trainingKit, mergedKit);
+      const changes = { kitAssigned: kitAssigned ?? null, trainingKit: mergedKit ?? null, matchKit: matchKit ?? null, notes: notes ?? null };
       if (existing) {
         const [record] = await tx.update(equipmentAssignmentsTable).set(changes)
           .where(eq(equipmentAssignmentsTable.id, existing.id)).returning();

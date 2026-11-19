@@ -1,5 +1,6 @@
 import { addChartDays, paymentChartKey, paymentChartWindow } from "@/lib/payment-chart-time";
 import { PlayerPaymentWorkspace } from "@/components/player-payment-register";
+import { PaymentKitOrderButton } from "@/components/payment-kit-order";
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Banknote, Plus, Trash2 } from "lucide-react";
@@ -71,7 +72,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(withApi(url), {
     ...options, credentials: "include", headers: { "Content-Type": "application/json", ...options?.headers },
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? "Operazione non riuscita.");
   return response.status === 204 ? null as T : response.json();
 }
 
@@ -133,9 +134,11 @@ export default function PaymentsPage() {
     onSuccess: (_, action) => {
       void cache.invalidateQueries({ queryKey: ["/api/player-payments"] });
       void cache.invalidateQueries({ queryKey: ["/api/players"] });
+      void cache.invalidateQueries({ queryKey: ["/api/equipment"] });
+      void cache.invalidateQueries({ queryKey: ["/api/player-payment-kit-order"] });
       if (action.method === "PATCH") setReceipt(undefined);
     },
-    onError: () => toast({ title: "Pagamento non aggiornato", variant: "destructive" }),
+    onError: error => toast({ title: "Pagamento non aggiornato", description: error.message, variant: "destructive" }),
   });
 
   const payments = list.data ?? [];
@@ -475,6 +478,7 @@ export default function PaymentsPage() {
             </div>
             <span className="text-sm tabular-nums">{money.format(payment.amount)}</span>
             <Badge variant="outline" className={paymentStatusTone[effectiveStatus]}>{ledgerStatusLabels[effectiveStatus]}</Badge>
+            {payment.kitArticle && <PaymentKitOrderButton paymentId={payment.id} />}
             {canEdit && <div className="flex items-center gap-1">
               <ScrollableSelect aria-label="Aggiorna stato pagamento" value={payment.status} disabled={save.isPending} onValueChange={value => {
                 if (value === "paid") setReceipt({ id: payment.id, date: today, method: "" });
