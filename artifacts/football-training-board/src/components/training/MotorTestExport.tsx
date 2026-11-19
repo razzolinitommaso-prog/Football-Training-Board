@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { buildTextPdfBlob } from "@/lib/callup-pdf";
-import { motorTestCatalog, motorTestCycles, motorTestCompletion, motorCompletionLabels, summarizeMotorTests, type MotorTestSession } from "@workspace/api-zod";
+import { motorTestCatalog, motorTestCycles, motorTestCompletion, motorCompletionLabels, summarizeMotorTests, motorResultLines, tgmdLongJumpScore, type MotorTestSession } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
 import { exportMultiSheet } from "@/lib/excel-export";
 
@@ -9,7 +9,7 @@ const dayLabel = (value: string) => value.split("-").reverse().join("/");
 const familyLabels: Record<string, string> = { available: "Disponibile", unavailable: "Non disponibile", pending: "In attesa" };
 const coachLabels: Record<string, string> = { present: "Presente", absent: "Assente", requested: "Richiesto", injured: "Infortunato" };
 
-function reportSheets(draft: MotorTestSession, roster: ExportPlayer[], team: string) {
+export function motorReportSheets(draft: MotorTestSession, roster: ExportPlayer[], team: string) {
   const items = draft.tests.map(test => ({ ...test, info: motorTestCatalog.find(item => item.id === test.id)! }));
   const players = [...roster];
   const registered = new Set(players.map(player => player.id));
@@ -42,7 +42,9 @@ function reportSheets(draft: MotorTestSession, roster: ExportPlayer[], team: str
           "Peso (kg)": item.id === "anthropometry" ? results?.weight ?? "" : "",
           Misura: value?.measurement ?? "", "Unità": item.info.unit,
           "% statura": jump && results?.height && value?.measurement != null ? Math.round(1000 * value.measurement / results.height) / 10 : "",
-          "Voto (1–10)": value?.score ?? "", "Indice (%)": index ?? "", Note: value?.notes ?? "",
+          "Voto storico (1–10)": value?.score ?? "", "Indice storico (%)": index ?? "", Note: value?.notes ?? "",
+          "Tentativi, condizioni e osservazioni": motorResultLines(item.id,value).join("\n"),
+          "TGMD-3 salto in lungo (grezzo /8)": item.id==="long-jump" ? tgmdLongJumpScore(value?.assessment?.tgmd) ?? "" : "",
         };
       });
     }) },
@@ -57,7 +59,7 @@ export function MotorTestExport({ session, roster, team }: { session: MotorTestS
   function exportPdf() {
     setError("");
     try {
-      const sheets = reportSheets(session, roster, team);
+      const sheets = motorReportSheets(session, roster, team);
       const report = [{ heading: "TEST MOTORI - " + team, lines: [
         dayLabel(session.date) + " - " + motorTestCycles[session.cycle],
         session.tests.length + " prove - " + session.tests.reduce((sum, test) => sum + test.minutes, 0) + " minuti complessivi",
@@ -84,16 +86,18 @@ export function MotorTestExport({ session, roster, team }: { session: MotorTestS
       for (const [name, rows] of byPlayer) {
         const anthropometry = rows.find(row => row["Statura (cm)"] !== "" || row["Peso (kg)"] !== "");
         const lines = [rows[0]["Stato test"] + " - " + rows[0]["Prove eseguite"] + " prove eseguite", "Valutazioni complete: " + rows[0]["Valutazioni complete"]];
-        if (rows[0]["Indice (%)"] !== "") lines.push("Indice attuale: " + rows[0]["Indice (%)"] + "%");
+        if (rows[0]["Indice storico (%)"] !== "") lines.push("Indice dei voti storici: " + rows[0]["Indice storico (%)"] + "% (non TGMD-3)");
         if (anthropometry) lines.push("Statura: " + (anthropometry["Statura (cm)"] || "-") + " cm - Peso: " + (anthropometry["Peso (kg)"] || "-") + " kg");
         for (const row of rows) {
           if (row.Prova !== "Antropometria") lines.push(String(row.Prova) + " - " + (row.Misura !== "" ? row.Misura + " " + row["Unità"] : "Misura da rilevare") +
-            " - Voto: " + (row["Voto (1–10)"] !== "" ? row["Voto (1–10)"] + "/10" : "-"));
+            " - Voto storico: " + (row["Voto storico (1–10)"] !== "" ? row["Voto storico (1–10)"] + "/10" : "-"));
+          if(row["Tentativi, condizioni e osservazioni"]) lines.push(...String(row["Tentativi, condizioni e osservazioni"]).split("\n"));
           if (row["% statura"] !== "") lines.push("Misura relativa: " + row["% statura"] + "% della statura");
           if (row.Note) lines.push("Note " + row.Prova + ": " + row.Note);
         }
         report.push({ heading: "Risultati - " + name, lines });
       }
+      report.push({heading:"Riferimenti e risultati",lines:["Le osservazioni didattiche non sono punteggi TGMD-3. Nel TGMD-3: 1 = criterio eseguito correttamente; 0 = non eseguito correttamente; vuoto = da osservare. Due prove formali, familiarizzazione esclusa.","TGMD-3 salto in lungo: punteggio grezzo del singolo item /8 solo a protocollo confermato. Non e un percentile o indice globale. Applicare il manuale italiano completo.","ALPHA: migliore di due tentativi validi. Misure, tentativi, condizioni e osservazioni sono distinti; confronti soltanto a protocollo invariato."]});
       const url = URL.createObjectURL(buildTextPdfBlob(report));
       setPdfUrl(url);
       const link = document.createElement("a");
@@ -107,7 +111,7 @@ export function MotorTestExport({ session, roster, team }: { session: MotorTestS
   }
   return <div className="space-y-2">
     <div className="flex flex-wrap gap-2">
-      <Button type="button" size="sm" variant="outline" onClick={() => exportMultiSheet(reportSheets(session, roster, team), filename + ".xlsx")}>Esporta Excel</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => {setError("");try{exportMultiSheet(motorReportSheets(session, roster, team), filename + ".xlsx")}catch{setError("Excel non generato. Riprova con Esporta Excel.")}}}>Esporta Excel</Button>
       <Button type="button" size="sm" variant="outline" onClick={exportPdf}>Esporta PDF</Button>
       {pdfUrl && <a className="inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium text-primary" href={pdfUrl} target="_blank" rel="noopener noreferrer">Apri PDF e stampa</a>}
     </div>

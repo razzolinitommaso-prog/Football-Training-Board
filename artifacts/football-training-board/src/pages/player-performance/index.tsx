@@ -203,7 +203,7 @@ export default function PlayerPerformance() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">{testsOnly ? "Test giocatori" : t.playerPerformance}</h1>
-          <p className="text-muted-foreground mt-1">{canEdit ? t.playerPerformanceDesc : "Risultati dei test atletici · Sola lettura"}</p>
+          <p className="text-muted-foreground mt-1">{canEdit ? t.playerPerformanceDesc : "Programmi e risultati dei test atletici"}</p>
         </div>
         {canEdit && <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>

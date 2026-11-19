@@ -1,4 +1,5 @@
 import {syncExerciseBoardRoster,boardPlayerIds} from "@workspace/api-zod";
+import { motorTestCatalog, motorDiagramImage, motorTestBoard, type MotorTestId } from "@workspace/api-zod";
 import { AdoptTrainingProposal } from "@/components/training/AdoptTrainingProposal";
 import { SupervisionOverview, SessionSupervision, SessionReviewDialog, type SupervisionData } from "@/components/training/TrainingSupervision";
 import { useTechnicalScope } from "@/components/technical-scope";
@@ -282,6 +283,10 @@ type MaterialAvailability = (typeof MATERIAL_OPTIONS)[number]["availability"];
 
 const EXERCISE_STATIONS_MARKER = trainingExerciseStationsMarker;
 type ExerciseStation = {
+  motorTestId?: MotorTestId;
+  motorSessionId?: string;
+  boardJson?: string;
+  boardPreview?: string;
   id: string;
   title: string;
   exercise: string;
@@ -492,6 +497,10 @@ function parseExerciseStations(raw: string): ExerciseStation[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .map((item, index) => ({
+        ...(motorTestCatalog.some(test=>test.id===(item?.motorTestId??item?.id))?{motorTestId:(item.motorTestId??item.id) as MotorTestId}:{}),
+        ...(typeof item?.motorSessionId==="string"?{motorSessionId:item.motorSessionId}:{}),
+        ...(typeof item?.boardJson==="string"?{boardJson:item.boardJson}:motorTestCatalog.some(test=>test.id===(item?.motorTestId??item?.id))?{boardJson:motorTestBoard((item.motorTestId??item.id) as MotorTestId)}:{}),
+        ...(typeof item?.boardPreview==="string"?{boardPreview:item.boardPreview}:{}),
         id: String(item?.id || `${Date.now()}-${index}`),
         title: String(item?.title ?? ""),
         exercise: String(item?.exercise ?? ""),
@@ -2365,6 +2374,7 @@ function SessionDetailsDialog({
                             <span className="font-medium">Descrizione svolgimento: </span>{station.exercise}
                           </p>
                         )}
+                        {station.motorTestId&&<div className="mt-3 space-y-2"><img className="max-h-64 w-full rounded-md object-contain" src={station.boardPreview||motorDiagramImage(station.motorTestId)} alt={"Lavagna illustrativa · "+station.title}/>{station.motorSessionId&&<Link className="inline-flex rounded-md border px-3 py-2 text-xs text-primary" href={"/player-performance?motorSession="+encodeURIComponent(station.motorSessionId)+"&test="+station.motorTestId}>Apri rilevazioni e valutazioni della prova</Link>}</div>}
                         {station.variants.filter((variant) => variant.trim()).length > 0 && (
                           <div className="mt-2 space-y-1">
                             {station.variants.filter((variant) => variant.trim()).map((variant, variantIndex) => (
@@ -2727,6 +2737,7 @@ function SessionDetailsDialog({
                                 placeholder={`Esercizio ${index + 1}, es. conduzione e finalizzazione`}
                               />
                             </div>
+                            {station.motorTestId&&<div className="mt-3 space-y-2"><img className="max-h-56 w-full rounded-md object-contain" src={station.boardPreview||motorDiagramImage(station.motorTestId)} alt={"Lavagna · "+station.title}/><ExerciseTacticalBoard title={station.title} teamId={exerciseForm.teamId} value={station.boardJson} onSave={result=>setStations(exerciseStations.map(item=>item.id===station.id?{...item,boardJson:result.statoLavagnaJson,boardPreview:result.drawingData}:item))}/></div>}
 
                             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(150px,220px)_1fr]">
                               <div className="space-y-2">

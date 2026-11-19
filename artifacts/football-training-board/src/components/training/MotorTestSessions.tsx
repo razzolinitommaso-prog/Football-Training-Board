@@ -1,6 +1,8 @@
 import { MotorTestExport } from "./MotorTestExport";
-import { Link } from "wouter";
-import { useState } from "react";
+import { MotorTestAssessmentEditor, MotorTestGuide, MotorTestReferences } from "./MotorTestAssessment";
+import { MotorTestProgram } from "./MotorTestProgram";
+import { Link, useSearch } from "wouter";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { customFetch } from "@workspace/api-client-react/custom-fetch";
 import { motorTestCatalog, motorTestCycles, motorTestCompletion, motorCompletionLabels, summarizeMotorTests, trainingLocalDate, type MotorPlayerResult, type MotorTestId, type MotorTestResult, type MotorTestSession } from "@workspace/api-zod";
@@ -10,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 
-type Collection = { teams: { id: number; name: string }[]; sessions: MotorTestSession[] };
+type Collection = { teams: { id: number; name: string }[]; sessions: MotorTestSession[]; canRecord?: boolean; recordTeamIds?: number[] };
 type Context = { trainingSessionId: number | null; presentCount: number; sessions: { id: number; title: string; time: string }[]; players: { id: number; name: string; family: string | null; coach: string | null }[] };
 const phaseLabels = { iniziale: "Iniziale", centrale: "Centrale", finale: "Finale" } as const;
 const familyLabels: Record<string, string> = { available: "Disponibile", unavailable: "Non disponibile", pending: "In attesa" };
@@ -22,10 +24,12 @@ const dateLabel = (value: string) => value.split("-").reverse().join("/");
 
 export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; scopedTeam?: number }) {
   const { club, user, role } = useAuth();
+  const search=useSearch();const openedFromLink=useRef("");
   const cache = useQueryClient();
   const [draft, setDraft] = useState<MotorTestSession>();
   const [playerId, setPlayerId] = useState<number>();
-  const [stage, setStage] = useState<"session" | "results">("session");
+  const [stage, setStage] = useState<"session" | "results" | "references">("session");
+  const [activeTest,setActiveTest] = useState<MotorTestId>();
   const [newItem, setNewItem] = useState<MotorTestId>();
   const [showAllPlayers, setShowAllPlayers] = useState(false);
   const [notice, setNotice] = useState("");
@@ -47,7 +51,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
     mutationFn: (data: MotorTestSession) => customFetch<MotorTestSession>("/api/motor-tests/" + data.id, { method: "PUT", body: JSON.stringify(data) }),
     onSuccess: saved => {
       setDraft(saved);
-      setNotice(saved.stationId ? "Sessione salvata. La stazione Test motori è presente nella seduta del mister." : "Sessione salvata. Il programma è pronto da inserire nella seduta del mister.");
+      setNotice(!canEdit ? "Rilevazioni salvate nella sessione e nella scheda del giocatore." : saved.stationId ? "Sessione salvata. Programma e ordine aggiornati nella stazione Test motori della seduta." : "Sessione salvata. Il programma è pronto da inserire nella seduta del mister.");
       void cache.invalidateQueries({ queryKey: ["/api/motor-tests"] });
       void cache.invalidateQueries({ queryKey: ["/api/training-sessions"] });
       void cache.invalidateQueries({ queryKey: ["/api/exercises"] });
@@ -56,6 +60,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
     onError: error => setNotice(error instanceof Error ? error.message : "Sessione non salvata."),
   });
   const teams = (collection.data?.teams ?? []).filter(team => !scopedTeam || team.id === scopedTeam);
+  useEffect(()=>{const params=new URLSearchParams(search),id=params.get("motorSession");if(!id||openedFromLink.current===id||!collection.data)return;const session=collection.data.sessions.find(s=>s.id===id&&(!scopedTeam||s.teamId===scopedTeam));if(!session)return;openedFromLink.current=id;setDraft(session);setStage("results");const test=params.get("test");if(session.tests.some(t=>t.id===test))setActiveTest(test as MotorTestId)},[search,collection.data,scopedTeam]);
   const names = new Map(teams.map(team => [team.id, team.name]));
   const sessions = collection.data?.sessions.filter(session => names.has(session.teamId)) ?? [];
   const otherTests = motorTestCatalog.filter(item => !draft?.tests.some(test => test.id === item.id));
@@ -70,13 +75,14 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
       .map(session => ({ date: session.date, id: session.id, cycle: session.cycle, result: session.results[selected.id] })),
   ] : []);
   const readOnly = !canEdit || save.isPending;
-  const assessmentReadOnly = readOnly || context.isError || (!!effectiveSession && selected?.coach !== "present");
+  const canRecord = canEdit || (!!draft&&collection.data?.recordTeamIds?.includes(draft.teamId)===true);
+  const assessmentReadOnly = !canRecord || save.isPending || context.isError || (!!effectiveSession && selected?.coach !== "present");
   const legacyLinks = !!draft && Object.keys(draft.exerciseIds).length > 0;
   const linked = legacyLinks || !!draft?.stationId;
   const canSave = !!draft?.teamId && !!draft.date && !!draft.tests.length && (!draft.tests.some(test => test.link) || !!draft.trainingSessionId || !!draft.linkProgram) &&
     (!draft.linkProgram || !!draft.trainingSessionId || context.data?.sessions.length === 1);
   function open(session: MotorTestSession) {
-    setDraft(session); setPlayerId(undefined); setStage("session"); setShowAllPlayers(false); setNewItem(undefined); setNotice("");
+    setDraft(session); setPlayerId(undefined); setStage("session"); setShowAllPlayers(false); setNewItem(undefined); setActiveTest(undefined); setNotice("");
   }
   function updatePlayer(patch: Partial<MotorPlayerResult>) {
     if (draft && selected && !assessmentReadOnly) setDraft({ ...draft, results: { ...draft.results, [selected.id]: { ...result, ...patch } } });
@@ -109,6 +115,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
         <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" variant={stage === "session" ? "default" : "outline"} aria-pressed={stage === "session"} onClick={() => setStage("session")}>Sessione</Button>
         <Button type="button" size="sm" variant={stage === "results" ? "default" : "outline"} aria-pressed={stage === "results"} onClick={() => setStage("results")}>Presenze e valutazioni</Button>
+        <Button type="button" size="sm" variant={stage === "references" ? "default" : "outline"} aria-pressed={stage === "references"} onClick={() => setStage("references")}>Riferimenti e risultati</Button>
         </div>
         {context.isSuccess && <MotorTestExport session={draft} roster={roster} team={names.get(draft.teamId) ?? "Annata"} />}
       </div>
@@ -131,7 +138,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
         </div>
         {!canEdit && !draft.stationId && !legacyLinks && <p className="text-xs text-muted-foreground">Il preparatore può inserire il programma dalla sessione test.</p>}
       </div>
-      {stage === "session" ? <>
+      {stage === "references" ? <MotorTestReferences/> : stage === "session" ? <>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">Annata<ScrollableSelect aria-label="Annata della sessione" value={String(draft.teamId)} disabled={readOnly || draft.revision > 0 || !!Object.keys(draft.results).length}
             onValueChange={value => { setDraft({ ...draft, teamId: Number(value), trainingSessionId: null }); setPlayerId(undefined); }} className={selectClass}>
@@ -168,7 +175,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
           </>}
         </div>
         <h3 className="text-sm font-semibold">Prove e durata</h3>
-        {!readOnly && !draft.stationId && !!otherTests.length && <div className="flex flex-wrap items-end gap-2">
+        {!readOnly && !!otherTests.length && <div className="flex flex-wrap items-end gap-2">
           <label className="min-w-0 flex-1 text-sm">Prova da aggiungere<ScrollableSelect aria-label="Prova da aggiungere" className={selectClass} value={newItem ?? otherTests[0].id} onValueChange={value => setNewItem(value as MotorTestId)}>
             {otherTests.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </ScrollableSelect></label>
@@ -177,25 +184,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
             setDraft({ ...draft, tests: [...draft.tests, { id: item.id, minutes: item.minutes, phase: "centrale", link: false }] }); setNewItem(undefined);
           }}>Aggiungi prova</Button>
         </div>}
-        <ul className="divide-y rounded-lg border px-3">
-          {draft.tests.map(test => {
-            const definition = motorTestCatalog.find(item => item.id === test.id)!;
-            const alreadyLinked = !!draft.exerciseIds[test.id];
-            const hasResults = Object.values(draft.results).some(result => result.tests[test.id] != null || (test.id === "anthropometry" && (result.height != null || result.weight != null)));
-            function update(patch: Partial<typeof test>) {
-              setDraft({ ...draft!, tests: draft!.tests.map(row => row.id === test.id ? { ...row, ...patch } : row) });
-            }
-            return <li key={test.id} className="grid items-end gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_6rem_auto]">
-              <div><strong className="text-sm">{definition.title}</strong><p className="text-xs text-muted-foreground">{definition.principle}</p>
-                <p className="mt-2 text-xs"><strong>Esecuzione</strong> · {definition.instructions}</p><p className="mt-1 text-xs"><strong>Materiali</strong> · {definition.materials}</p>
-              </div>
-              <label className="text-xs">Minuti<Input className="mt-1" type="number" min={1} max={180} value={test.minutes || ""} disabled={readOnly || alreadyLinked || !!draft.stationId} onChange={event => update({ minutes: Number(event.target.value) })} /></label>
-              {!readOnly && !alreadyLinked && !draft.stationId && !hasResults && <Button type="button" size="sm" variant="ghost" onClick={() => setDraft({ ...draft, tests: draft.tests.filter(row => row.id !== test.id) })}>Rimuovi</Button>}
-              {alreadyLinked && <p className="text-xs text-muted-foreground sm:col-span-3">Prova già inserita nella seduta</p>}
-            </li>;
-          })}
-        </ul>
-        <p className="rounded-lg bg-muted p-3 text-sm font-medium">{draft.tests.length} prove · {draft.tests.reduce((total, test) => total + test.minutes, 0)} minuti complessivi</p>
+        <MotorTestProgram draft={draft} disabled={readOnly} onChange={setDraft}/>
       </> : <>
         {context.isPending && <p className="text-sm text-muted-foreground">Caricamento rosa…</p>}
         {!!effectiveSession && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showAllPlayers} onChange={event => { setShowAllPlayers(event.target.checked); setPlayerId(undefined); }} />Mostra anche assenti e appelli da completare</label>}
@@ -209,34 +198,35 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
             <p>Appello del mister <strong className="block">{selected.coach ? coachLabels[selected.coach] ?? selected.coach : "Da registrare"}</strong></p>
           </div>
           {!!effectiveSession && selected.coach !== "present" && <p role="status" className="text-sm text-amber-700">Giocatore non presente nell’appello. Risultati consultabili. Il mister deve correggere la presenza prima di inserire valutazioni.</p>}
+          <label className="block text-sm">Esercizio da rilevare<ScrollableSelect aria-label="Esercizio da rilevare" className={selectClass} value={activeTest&&draft.tests.some(t=>t.id===activeTest)?activeTest:draft.tests[0]?.id} onValueChange={v=>setActiveTest(v as MotorTestId)}>{draft.tests.map((test,index)=><option key={test.id} value={test.id}>{index+1}. {motorTestCatalog.find(item=>item.id===test.id)!.title}</option>)}</ScrollableSelect></label>
           <ul className="grid gap-2">
-            {draft.tests.map(test => {
+            {draft.tests.filter(test=>test.id===(activeTest&&draft.tests.some(t=>t.id===activeTest)?activeTest:draft.tests[0]?.id)).map(test => {
               const definition = motorTestCatalog.find(item => item.id === test.id)!;
               const value = result.tests[test.id] ?? emptyTest;
-              return <li key={test.id} className="grid gap-2 rounded-lg border p-3">
+              return <li key={test.id} className="grid gap-3 rounded-lg border p-3">
+                <MotorTestGuide id={test.id} minutes={test.minutes}/>
                 <div className="grid gap-2 max-sm:grid-cols-[minmax(0,1fr)_6rem] sm:grid-cols-[minmax(0,1fr)_9rem_7rem]">
                   <div className="max-sm:col-span-2"><strong className="text-sm">{definition.title}</strong><p className="text-xs text-muted-foreground">{definition.principle}</p></div>
                   {test.id === "anthropometry" ? <>
                     <label className="text-xs">Statura · cm<Input className="mt-1" type="number" min={1} max={300} step="any" value={result.height ?? ""} disabled={assessmentReadOnly} onChange={event => updatePlayer({ height: numberValue(event.target.value) })} /></label>
                     <label className="text-xs">Peso · kg<Input className="mt-1" type="number" min={1} max={400} step="any" value={result.weight ?? ""} disabled={assessmentReadOnly} onChange={event => updatePlayer({ weight: numberValue(event.target.value) })} /></label>
                   </> : <>
-                    <label className="text-xs">Misura · {definition.unit}<Input className="mt-1" type="number" min={0} step="any" value={value.measurement ?? ""} disabled={assessmentReadOnly} onChange={event => updateTest(test.id, { measurement: numberValue(event.target.value) })} /></label>
-                    <label className="text-xs">Voto 1–10<Input className="mt-1" type="number" min={1} max={10} value={value.score ?? ""} disabled={assessmentReadOnly} onChange={event => updateTest(test.id, { score: numberValue(event.target.value) })} /></label>
+                    {value.score!=null&&<p className="text-xs text-muted-foreground">Voto storico conservato: {value.score}/10 · non è un punteggio TGMD-3.</p>}
                   </>}
                 </div>
-                <div className="space-y-1 rounded-md bg-muted/30 p-2 text-xs"><p><strong>Esecuzione</strong> · {definition.instructions}</p><p><strong>Materiali</strong> · {definition.materials}</p></div>
-                <label className="text-xs">Note sulla prova<Textarea rows={2} maxLength={1000} className="mt-1" value={value.notes} disabled={assessmentReadOnly} onChange={event => updateTest(test.id, { notes: event.target.value })} /></label>
+                {test.id!=="anthropometry"&&<MotorTestAssessmentEditor key={selected.id+":"+test.id} id={test.id} value={value} disabled={assessmentReadOnly} onChange={patch=>updateTest(test.id,patch)}/>}
+                <label className="text-xs">Note aggiuntive sulla prova<Textarea rows={2} maxLength={1000} className="mt-1" value={value.notes} disabled={assessmentReadOnly} onChange={event => updateTest(test.id, { notes: event.target.value })} /></label>
               </li>;
             })}
           </ul>
-          <p className="rounded-lg bg-muted p-3 text-sm">Indice attuale <strong>{scored.index == null ? "—" : scored.index + "%"}</strong>{scored.growth != null && <> · Crescita <strong>{scored.growth > 0 ? "+" : ""}{scored.growth} p.p.</strong> su {scored.comparable} prove</>}</p>
+          {scored.index!=null&&<p className="rounded-lg bg-muted p-3 text-xs">Indice dei voti storici 1–10: {scored.index}%. Non è un percentile o un indice TGMD-3.</p>}
         </>}
       </>}
       {context.isError && <p role="alert" className="text-sm text-destructive">Rosa e sedute non disponibili. <button type="button" className="underline" onClick={() => void context.refetch()}>Riprova</button></p>}
       {notice && <p role={save.isError ? "alert" : "status"} className={save.isError ? "text-sm text-destructive" : "text-sm text-primary"}>{notice}</p>}
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" disabled={save.isPending} onClick={() => { setDraft(undefined); setNotice(""); }}>Chiudi</Button>
-        {canEdit && <Button type="button" disabled={!canSave || save.isPending || context.isFetching || context.isError} onClick={() => { setNotice(""); save.mutate({ ...draft, trainingSessionId: effectiveSession ?? null }); }}>{save.isPending ? "Salvataggio…" : "Salva sessione"}</Button>}
+        {canRecord && <Button type="button" disabled={!canSave || save.isPending || context.isFetching || context.isError} onClick={() => { setNotice(""); save.mutate({ ...draft, trainingSessionId: canEdit ? effectiveSession ?? null : draft.trainingSessionId }); }}>{save.isPending ? "Salvataggio…" : canEdit ? "Salva sessione" : "Salva rilevazioni"}</Button>}
       </div>
     </>}
   </section>;

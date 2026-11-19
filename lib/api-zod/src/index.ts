@@ -36,3 +36,5 @@ export * from "./extra-time-catalog";
 export * from "./fitness-access";
 export * from "./player-roster-status";
 export * from "./motor-tests";
+export * from "./motor-test-assessment";
+export * from "./motor-test-diagrams";

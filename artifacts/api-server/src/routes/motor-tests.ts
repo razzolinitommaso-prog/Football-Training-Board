@@ -1,8 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 import { Router, type Request } from "express";
-import { db, exercisesTable, playersTable, teamsTable, trainingAttendancesTable, trainingSessionExercisesTable, trainingSessionsTable } from "@workspace/db";
+import { db, clubMembershipsTable, teamStaffAssignmentsTable, exercisesTable, playersTable, teamsTable, trainingAttendancesTable, trainingSessionExercisesTable, trainingSessionsTable } from "@workspace/db";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { FITNESS_RESULTS_ROLES, motorTestCatalog, motorTestSessionInput, sessionTeamIds, trainingLocalSlot, trainingExerciseStationsMarker, type MotorPlayerResult, type MotorTestSession } from "@workspace/api-zod";
+import { FITNESS_RESULTS_ROLES, motorTestCatalog, motorTestSessionInput, normalizeMotorResults, composeMotorStation, motorTestBoard, sessionTeamIds, trainingLocalSlot, trainingExerciseStationsMarker, type MotorPlayerResult, type MotorTestSession } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
 import { getPlayerMeasurementTeamScope, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { ensureMotorTestStorage, motorRows } from "../lib/motor-test-storage";
@@ -31,6 +31,19 @@ function eligibleSession(session: typeof trainingSessionsTable.$inferSelect, tea
 
 export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
   const router = Router();
+  async function canRecordAsCoach(req: Request) {
+    if(normalizeSessionRole(req.session.role)!=="coach" || !req.session.userId || !req.session.clubId) return false;
+    const memberships=await db.select({staffRole:clubMembershipsTable.staffRole}).from(clubMembershipsTable).where(and(eq(clubMembershipsTable.clubId,req.session.clubId),eq(clubMembershipsTable.userId,req.session.userId)));
+    return !memberships.some(member=>["collaboratore","stagista"].includes(normalizeSessionRole(member.staffRole)));
+  }
+  async function coachTeamIds(req: Request): Promise<number[]> {
+    if(!await canRecordAsCoach(req)) return [];
+    const [direct,assigned]=await Promise.all([
+      db.select({id:teamsTable.id}).from(teamsTable).where(and(eq(teamsTable.clubId,req.session.clubId!),eq(teamsTable.coachId,req.session.userId!))),
+      db.select({id:teamStaffAssignmentsTable.teamId}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,req.session.clubId!),eq(teamStaffAssignmentsTable.userId,req.session.userId!),eq(teamStaffAssignmentsTable.role,"coach"))),
+    ]);
+    return [...new Set([...direct,...assigned].map(row=>row.id))];
+  }
   router.get("/motor-tests", requireAuth, async (req, res) => {
     if (!FITNESS_RESULTS_ROLES.includes(normalizeSessionRole(req.session.role))) { res.sendStatus(403); return; }
     const teams = await allowedTeams(req);
@@ -39,7 +52,8 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
       SELECT data FROM motor_test_sessions WHERE club_id=${req.session.clubId}
         AND team_id IN (${sql.join(teams.map(team => sql`${team.id}`), sql`,`)})
       ORDER BY test_date DESC, id DESC`)).map(row => row.data) : [];
-    res.json({ teams, sessions });
+    const recordTeamIds=(await coachTeamIds(req)).filter(id=>teams.some(team=>team.id===id));
+    res.json({ teams, sessions, canRecord: recordTeamIds.length>0, recordTeamIds });
   });
 
   router.get("/motor-tests/context", requireAuth, async (req, res) => {
@@ -74,12 +88,14 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
   });
 
   router.put("/motor-tests/:id", requireAuth, async (req, res) => {
-    if (!await canEdit(req)) { res.sendStatus(403); return; }
+    const programEditor = await canEdit(req);
+    if (!programEditor && !await canRecordAsCoach(req)) { res.sendStatus(403); return; }
     const id = String(req.params.id);
     const parsed = motorTestSessionInput.safeParse(req.body);
-    if (!uuid.test(id) || !parsed.success) { res.status(400).json({ error: "Controlla data, durata, misure e voti delle prove." }); return; }
-    const input = parsed.data, clubId = req.session.clubId!, userId = req.session.userId!;
+    if (!uuid.test(id) || !parsed.success) { res.status(400).json({ error: !parsed.success ? parsed.error.issues.map(issue => issue.message).slice(0,4).join(" · ") : "Identificativo della sessione non valido." }); return; }
+    const input = normalizeMotorResults(parsed.data), clubId = req.session.clubId!, userId = req.session.userId!;
     if (!(await allowedTeams(req)).some(team => team.id === input.teamId)) { res.sendStatus(403); return; }
+    if(!programEditor && !(await coachTeamIds(req)).includes(input.teamId)) { res.sendStatus(403);return; }
     if (Object.keys(input.results).length > 150 || (!input.linkProgram && input.tests.some(test => test.link) && !input.trainingSessionId)) {
       res.status(400).json({ error: "Scegli la seduta del mister per le prove da aggiungere." }); return;
     }
@@ -91,14 +107,20 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
       if ((previous?.data.revision ?? 0) !== input.revision || (previous && (previous.clubId !== clubId || previous.data.teamId !== input.teamId || previous.data.date !== input.date || previous.data.cycle !== input.cycle))) {
         return { status: 409, error: "La sessione è cambiata. Ricarica prima di salvare." };
       }
+      if (!programEditor && (!previous || !isDeepStrictEqual(
+        { teamId: input.teamId, date: input.date, cycle: input.cycle, trainingSessionId: input.trainingSessionId, tests: input.tests, linkProgram: input.linkProgram, programPhase: input.programPhase },
+        { teamId: previous.data.teamId, date: previous.data.date, cycle: previous.data.cycle, trainingSessionId: previous.data.trainingSessionId, tests: previous.data.tests, linkProgram: previous.data.linkProgram, programPhase: previous.data.programPhase },
+      ))) return { status: 403, error: "Il mister può registrare i risultati del programma esistente; il preparatore gestisce sessione e programma." };
       const exerciseIds = { ...previous?.data.exerciseIds };
       let stationId = previous?.data.stationId;
       if (input.linkProgram && Object.keys(exerciseIds).length) {
         return { status: 409, error: "Questa sessione ha già prove singole nella seduta. Gestiscile dalla pagina Sedute." };
       }
-      if (stationId && (!input.linkProgram || input.trainingSessionId !== previous?.data.trainingSessionId ||
-        input.programPhase !== previous?.data.programPhase || !isDeepStrictEqual(input.tests, previous?.data.tests))) {
-        return { status: 409, error: "La stazione già inserita va modificata dalla pagina Sedute." };
+      if (stationId && (!input.linkProgram || input.trainingSessionId !== previous?.data.trainingSessionId || input.programPhase !== previous?.data.programPhase)) {
+        return { status: 409, error: "La seduta e la fase della stazione collegata vanno modificate dalla pagina Sedute." };
+      }
+      if (stationId && previous?.data.tests.some(test => !input.tests.some(next => next.id === test.id) && Object.values(previous.data.results).some(result => result.tests[test.id] != null || (test.id === "anthropometry" && (result.height != null || result.weight != null))))) {
+        return { status: 409, error: "Non puoi rimuovere una prova con risultati già salvati." };
       }
       if (input.linkProgram && !input.trainingSessionId) {
         const candidates = (await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId, clubId),
@@ -125,6 +147,7 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
         .orderBy(asc(playersTable.id)).for("update") : [];
       const valid = new Set(rosterMembers(players, [input.teamId]).filter(player => player.status !== "training_trial").map(player => player.id));
       const knownResults = previous?.data.results ?? {};
+      if(Object.keys(knownResults).some(playerId=>!Object.hasOwn(input.results,playerId))) return {status:409,error:"Il salvataggio non può eliminare le rilevazioni di altri giocatori. Ricarica la sessione."};
       if (playerIds.some(playerId => !valid.has(playerId) && !isDeepStrictEqual(knownResults[playerId], input.results[playerId]))) {
         return { status: 400, error: "Una valutazione riguarda un giocatore fuori dall’annata." };
       }
@@ -146,20 +169,25 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
         if (playerIds.some(playerId => !present.has(playerId) && !isDeepStrictEqual(input.results[playerId], knownResults[playerId]))) {
           return { status: 409, error: "Puoi valutare solo i presenti nell’appello della seduta. Aggiorna le presenze con il mister." };
         }
+        if (stationId && programEditor) {
+          const [station] = await tx.select().from(exercisesTable).where(and(eq(exercisesTable.id,stationId),eq(exercisesTable.clubId,clubId))).for("update");
+          const [link] = await tx.select().from(trainingSessionExercisesTable).where(and(eq(trainingSessionExercisesTable.trainingSessionId,session.id),eq(trainingSessionExercisesTable.exerciseId,stationId)));
+          if(!station || !link) return {status:409,error:"La stazione collegata non è più disponibile nella seduta. Ricarica la sessione."};
+          if(!station.description?.includes(trainingExerciseStationsMarker)) return {status:409,error:"La stazione è stata modificata nella seduta. Controlla le esercitazioni prima di sincronizzarla."};
+          let description:string;
+          try { description=composeMotorStation(input.tests,station.description,id); } catch { return {status:409,error:"Le esercitazioni salvate nella stazione non sono leggibili. Controllale nella seduta prima di sincronizzare."}; }
+          await tx.update(exercisesTable).set({description,durationMinutes:input.tests.reduce((sum,test)=>sum+test.minutes,0)}).where(eq(exercisesTable.id,stationId));
+        }
         const pending = input.linkProgram ? [] : input.tests.filter(test => test.link && !exerciseIds[test.id]);
         if (pending.length || (input.linkProgram && !stationId)) {
           const [last] = await tx.select({ order: sql<number>`coalesce(max(${trainingSessionExercisesTable.order}), -1)::integer` })
             .from(trainingSessionExercisesTable).where(eq(trainingSessionExercisesTable.trainingSessionId, session.id));
           let order = last.order + 1;
           if (input.linkProgram) {
-            const exercises = input.tests.map(test => {
-              const item = catalog.get(test.id)!;
-              return { id: item.id, title: item.title, exercise: item.instructions, equipment: item.materials,
-                durationMinutes: String(test.minutes), objective: item.principle, notes: "", playersRequired: "", variants: [] };
-            });
             const [station] = await tx.insert(exercisesTable).values({ clubId, teamId: session.teamId,
               createdByUserId: session.createdByUserId ?? userId, title: "Test motori", category: "Test motori",
-              description: "Programma di valutazione motoria e coordinativa." + trainingExerciseStationsMarker + JSON.stringify(exercises),
+              description: composeMotorStation(input.tests,undefined,id),
+              statoLavagnaJson: motorTestBoard(input.tests[0].id),
               equipment: "Materiali indicati nelle singole prove della stazione.",
               trainingDay: input.date, trainingPhase: input.programPhase ?? "centrale",
               durationMinutes: input.tests.reduce((total, test) => total + test.minutes, 0),
@@ -171,7 +199,7 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
             const item = catalog.get(test.id)!;
             const [exercise] = await tx.insert(exercisesTable).values({ clubId, teamId: session.teamId, createdByUserId: session.createdByUserId ?? userId,
               title: item.title, description: item.instructions, equipment: item.materials, durationMinutes: test.minutes, trainingDay: input.date,
-              principio: item.principle, trainingPhase: test.phase, category: "Test motori" }).returning({ id: exercisesTable.id });
+              principio: item.principle, trainingPhase: test.phase, category: "Test motori", statoLavagnaJson: motorTestBoard(test.id) }).returning({ id: exercisesTable.id });
             await tx.insert(trainingSessionExercisesTable).values({ trainingSessionId: session.id, exerciseId: exercise.id, order: order++ });
             exerciseIds[test.id] = exercise.id;
           }

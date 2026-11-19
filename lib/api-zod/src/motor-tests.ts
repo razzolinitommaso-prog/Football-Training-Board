@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { motorAssessmentSchema, motorAssessmentMeasurement, motorObservationCriteria } from "./motor-test-assessment";
 
 export const motorTestCatalog = [
   { id: "anthropometry", title: "Antropometria", principle: "Peso e statura", instructions: "Predisporre una superficie piana. Misurare la massa corporea con la bilancia e la statura con lo stadiometro.", materials: "Bilancia, stadiometro o metro verticale, scheda rilevazioni.", minutes: 5, unit: "" },
@@ -6,7 +7,7 @@ export const motorTestCatalog = [
   { id: "roll", title: "Rotolamento e capovolta", principle: "Coordinazione dinamica e orientamento spaziale", instructions: "Posare un materassino e segnare il traguardo a 10 m. Eseguire una capovolta in avanti o un rotolamento laterale, rialzarsi e scattare fino al traguardo.", materials: "Materassino, cinesini, rotella metrica, cronometro.", minutes: 7, unit: "s" },
   { id: "high-jump", title: "Salto in alto da fermo", principle: "Spinta verticale e arrivo stabile", instructions: "Predisporre un bersaglio verticale graduato. Da fermo eseguire lo stacco verso il bersaglio, osservando ritmo e stabilità all’arrivo. Rilevare l’altezza secondo il protocollo della prova.", materials: "Bersaglio verticale, metro, superficie stabile.", minutes: 8, unit: "cm" },
   { id: "long-jump", title: "Salto in lungo da fermo", principle: "Spinta orizzontale e arrivo stabile", instructions: "Segnare la linea di partenza. Saltare in avanti a piedi uniti da fermo e misurare la distanza dalla linea al punto d’appoggio più vicino, osservando la stabilità all’arrivo.", materials: "Nastro o linea per lo stacco, rotella metrica, superficie di arrivo stabile.", minutes: 8, unit: "cm" },
-  { id: "slalom", title: "Conduzione palla a slalom", principle: "Controllo palla e cambi di direzione", instructions: "Disporre 5–6 cinesini su 10–15 m. Cronometrare il percorso di andata e ritorno in conduzione tra i cinesini.", materials: "Pallone, 5–6 cinesini, metro, cronometro.", minutes: 8, unit: "s" },
+  { id: "slalom", title: "Conduzione della palla attraverso i coni", principle: "Controllo della palla e cambi di direzione", instructions: "Disporre 5–6 coni su 10–15 m. Condurre la palla attraverso i coni, alternando i cambi di direzione e mantenendo il controllo del pallone. Cronometrare andata e ritorno; registrare separatamente coni saltati, coni abbattuti e perdite di controllo.", materials: "Pallone, 5–6 coni, metro, cronometro.", minutes: 8, unit: "s" },
   { id: "balance", title: "Equilibrio monopodalico", principle: "Controllo posturale e stabilità", instructions: "Su superficie stabile, mantenere l’appoggio su una gamba. Cronometrare la tenuta e annotare se la prova è stata eseguita a occhi aperti o chiusi.", materials: "Superficie piana e stabile, cronometro.", minutes: 6, unit: "s" },
   { id: "march", title: "Marcia sul posto ad occhi chiusi", principle: "Propriocezione dinamica e orientamento", instructions: "Segnare il punto di partenza in uno spazio libero. Marciare sul posto a occhi chiusi per 20–30 secondi alzando le ginocchia. Osservare e annotare lo spostamento e le eventuali perdite d’asse.", materials: "Segno a terra, metro, cronometro.", minutes: 5, unit: "cm" },
   { id: "circuit", title: "Percorso misto a tempo", principle: "Fluidità e transizioni motorie", instructions: "Allestire in sequenza ostacoli bassi, spazio di strisciata, cerchi a campana e rettilineo per lo sprint finale. Cronometrare il circuito intero.", materials: "Ostacoli bassi, materassino, cerchi, cinesini, cronometro.", minutes: 10, unit: "s" },
@@ -16,7 +17,7 @@ export const trainingExerciseStationsMarker = "\n\n[FTB_EXERCISE_STATIONS]";
 
 export const motorTestCycles = { start: "Inizio stagione", middle: "Metà stagione", end: "Fine stagione" } as const;
 const ids = motorTestCatalog.map(item => item.id);
-const result = z.object({ measurement: z.number().min(0).max(10000).nullable(), score: z.number().int().min(1).max(10).nullable(), notes: z.string().max(1000) });
+const result = z.object({ measurement: z.number().min(0).max(10000).nullable(), score: z.number().int().min(1).max(10).nullable(), notes: z.string().max(1000), assessment: motorAssessmentSchema.optional() });
 export const motorTestSessionInput = z.object({
   revision: z.number().int().nonnegative(),
   teamId: z.number().int().positive(),
@@ -31,7 +32,11 @@ export const motorTestSessionInput = z.object({
     weight: z.number().positive().max(400).nullable(),
     tests: z.partialRecord(z.enum(ids), result),
   })),
-}).refine(input => new Set(input.tests.map(test => test.id)).size === input.tests.length, { message: "Una prova compare più di una volta." });
+}).refine(input => new Set(input.tests.map(test => test.id)).size === input.tests.length, { message: "Una prova compare più di una volta." }).superRefine((input, ctx) => {
+  for (const [playerId, player] of Object.entries(input.results)) for (const [id, row] of Object.entries(player.tests)) {
+    if (id !== "long-jump" && row?.assessment?.tgmd) ctx.addIssue({ code: "custom", path: ["results", playerId, "tests", id], message: "La valutazione TGMD-3 configurata riguarda soltanto il salto in lungo da fermo." });
+  }
+});
 
 export type MotorTestInput = z.infer<typeof motorTestSessionInput>;
 export type MotorTestId = (typeof ids)[number];
@@ -41,14 +46,15 @@ export type MotorTestSession = MotorTestInput & { id: string; stationId?: number
 export type MotorTestHistory = { id: string; date: string; cycle: MotorTestInput["cycle"]; result: MotorPlayerResult; tests?: MotorTestInput["tests"]; trainingSessionId?: number | null };
 
 export function summarizeMotorTests(history: MotorTestHistory[]) {
-  const scored = (entry: MotorTestHistory) => Object.entries(entry.result.tests).filter(([id, value]) => id !== "anthropometry" && value?.score != null);
+  const scored = (entry: MotorTestHistory) => Object.entries(entry.result.tests).filter(([id, value]) => id !== "anthropometry" && !value?.assessment && value?.score != null);
   const latest = history.find(entry => scored(entry).length);
   if (!latest) return { index: null, growth: null, comparable: 0 };
   const latestScores = scored(latest);
   const index = Math.round(10 * latestScores.reduce((total, [, row]) => total + row!.score!, 0) / latestScores.length);
-  const previous = history.find(entry => entry.date < latest.date && latestScores.some(([id]) => entry.result.tests[id as MotorTestId]?.score != null));
+  const previous = history.find(entry => entry.date < latest.date && latestScores.some(([id]) => !entry.result.tests[id as MotorTestId]?.assessment && entry.result.tests[id as MotorTestId]?.score != null));
   const deltas = latestScores.flatMap(([id, row]) => {
-    const prior = previous?.result.tests[id as MotorTestId]?.score;
+    const priorRow = previous?.result.tests[id as MotorTestId];
+    const prior = priorRow?.assessment ? null : priorRow?.score;
     return prior == null ? [] : [row!.score! - prior];
   });
   return { index, growth: deltas.length ? Math.round(10 * deltas.reduce((a,b) => a+b,0) / deltas.length) : null, comparable: deltas.length };
@@ -59,11 +65,22 @@ export function motorTestCompletion(tests: MotorTestInput["tests"], result?: Mot
   for (const test of tests) {
     const row = result?.tests[test.id];
     const anthropometry = test.id === "anthropometry";
-    const measured = anthropometry ? result?.height != null && result.weight != null : row?.measurement != null;
+    const assessment = row?.assessment;
+    const measured = anthropometry ? result?.height != null && result.weight != null : assessment ? assessment.status === "done" && motorAssessmentMeasurement(test.id, assessment) != null : row?.measurement != null;
     if (measured) complete++;
-    if (measured && (anthropometry || row?.score != null)) assessed++;
-    if (measured || row?.measurement != null || row?.score != null || (anthropometry && (result?.height != null || result?.weight != null))) started++;
+    const reference = assessment?.attempts.find(a => a.id === assessment.reference);
+    const sides = test.id === "balance" ? ["left", "right"] : [""];
+    const observed = !!reference && sides.every(side => motorObservationCriteria[test.id].every((_, index) => reference.observations[index + (side ? ":" + side : "")]?.value != null));
+    if (measured && (anthropometry || (assessment ? observed : row?.score != null))) assessed++;
+    if (measured || row?.measurement != null || row?.score != null || assessment || (anthropometry && (result?.height != null || result?.weight != null))) started++;
   }
   return { completed: complete, assessed, total: tests.length, status: tests.length > 0 && complete === tests.length ? "complete" as const : started > 0 ? "partial" as const : "not-started" as const };
 }
 export const motorCompletionLabels = { complete: "Test completato", partial: "Test parziale", "not-started": "Test da eseguire" };
+
+/** Rich measurements are authoritative; never interpret handwritten legacy notes. */
+export function normalizeMotorResults(input: MotorTestInput): MotorTestInput {
+  return { ...input, results: Object.fromEntries(Object.entries(input.results).map(([id, player]) => [id, { ...player,
+    tests: Object.fromEntries(Object.entries(player.tests).map(([testId, row]) => [testId, row?.assessment ? { ...row, measurement: motorAssessmentMeasurement(testId as MotorTestId, row.assessment) } : row])),
+  }])) };
+}
