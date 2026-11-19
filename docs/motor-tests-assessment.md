@@ -45,6 +45,12 @@ I dati dettagliati restano nel JSON della sessione, senza migrazione distruttiva
 - Controlli TypeScript frontend, API e librerie; build frontend. Avvisi Vite preesistenti su sourcemap e dimensioni del bundle.
 - Verifica visiva completa tramite browser non eseguita in questo intervento. Deploy e controllo online successivi al push rimangono da verificare.
 
+## Aggiornamento 19/11/2026 — export PDF impaginato
+
+L'export PDF dei test usa un rapporto A4 dedicato, senza modificare gli export testuali delle altre aree. Programma con durata, materiali e istruzioni; tabella presenze; schede individuali che iniziano su un nuovo foglio. Condizioni, misure, tentativi, osservazioni e note sono in tabelle, con separatori per esercizio e tentativo. Giocatore, annata, data e ciclo sono ripetuti sulle continuazioni; pagine numerate. Le note lunghe vengono suddivise senza troncamenti, le intestazioni restano con il contenuto successivo, gli accenti italiani sono codificati in WinAnsi. Misure derivate dai tentativi, storico e dati mancanti restano distinti, compreso lo zero. Il download PDF e il collegamento Apri PDF e stampa restano disponibili; Excel non modificato.
+
+Collaudo del generatore effettivo con dati simulati: nove pagine A4 con due giocatori, tentativi distinti, marcia a zero, note lunghe, accenti, intestazioni e limiti dell'area stampabile. PDF riaperto, testo estratto e tutte le pagine renderizzate per controllo visivo. Nessuna modifica ai dati reali e nessun controllo del deploy.
+
 ## Aggiornamento 19/11/2026 — salvataggi, tentativi e misure del giocatore
 
 Il salvataggio manuale mostra una conferma visibile; lo stato distingue dati salvati online, bozza sul dispositivo ed errori da correggere. Un errore in una rilevazione non impedisce il salvataggio delle altre rilevazioni valide: il test non valido conserva online l'ultima versione valida, mentre le modifiche incomplete restano nella bozza locale. L'avviso identifica giocatore, esercizio, tentativo e campo, con pulsante per raggiungerlo. Le quote del salto verticale sono entrambe misurate da terra: quota raggiunta non inferiore alla quota della mano da fermo.
