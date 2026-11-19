@@ -1,7 +1,7 @@
 import { syncMatchTournamentReply } from "../lib/parent-tournament-availability";
-import { activeMatchEligibility, callupRuleFailure } from "../lib/callup-rules";
+import { activeMatchEligibility, callupRuleFailure, matchKickoff } from "../lib/callup-rules";
 import { ensureCallupRulesStorage, notifyChild } from "../lib/callup-rule-storage";
-import { WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
+import { trainingLocalDate, trainingOnlyAvailabilityOverride, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { isDeepStrictEqual } from "node:util";
 import { Router, type IRouter } from "express";
 import {
@@ -22,6 +22,14 @@ import { sendParentNotificationEmail } from "../lib/parent-email";
 import { analyseMatchReport, defaultRotationCapacity, matchReportPlayerIds, matchReportSchema, rotationSummaryCapacity } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+async function trainingOnlyCallupFailure(match: typeof matchesTable.$inferSelect, ids: number[]) {
+  const kickoff = matchKickoff(match);
+  if (!kickoff || !ids.length) return null;
+  const players = await db.select().from(playersTable).where(and(eq(playersTable.clubId, match.clubId), inArray(playersTable.id, ids)));
+  const blocked = players.find(player => trainingOnlyAvailabilityOverride(player, trainingLocalDate(kickoff)));
+  return blocked ? `${blocked.lastName} ${blocked.firstName}: disponibilità forzata solo per allenamenti. Non convocabile per questa partita.` : null;
+}
 
 // Parent replies and historical duplicate rows must not inflate a saved callup.
 function uniqueCoachCallups<T extends { playerId: number; status?: string | null }>(rows: T[]): T[] {
@@ -950,6 +958,8 @@ router.post("/matches/:id/callups", requireAuth, async (req, res): Promise<void>
   const [player] = await db.select({ id: playersTable.id, status: playersTable.status }).from(playersTable).where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!)));
   if (!player) { res.status(400).json({ error: "Giocatore non valido per questa societa" }); return; }
   if (player.status === WITHDRAWN_PLAYER_STATUS) { res.status(409).json({ error: "Il giocatore è ritirato." }); return; }
+  const scopeFailure = await trainingOnlyCallupFailure(match, [Number(playerId)]);
+  if (scopeFailure) { res.status(409).json({ error: scopeFailure }); return; }
   const ruleFailure = callupRuleFailure(await activeMatchEligibility(match), [Number(playerId)]);
   if (ruleFailure) { res.status(409).json({ error: ruleFailure }); return; }
   if (await parentUnavailableForMatch(matchId, [Number(playerId)])) {
@@ -986,6 +996,10 @@ router.patch("/callups/:id", requireAuth, async (req, res): Promise<void> => {
   if (!match) { res.status(404).json({ error: "Match not found" }); return; }
   const canManage = await userCanManageAssignedTeamMatch(req.session.userId!, req.session.clubId!, req.session.role ?? "", match.teamId ?? null);
   if (!canManage) { res.status(403).json({ error: "Non autorizzato a modificare le convocazioni" }); return; }
+  if (!["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(status ?? "").toLowerCase())) {
+    const failure = await trainingOnlyCallupFailure(match, [existing.playerId]);
+    if (failure) { res.status(409).json({ error: failure }); return; }
+  }
   if (!["available", "unavailable", "availability", "absent", "declined", "not_called"].includes(String(status ?? "").toLowerCase()) && await parentUnavailableForMatch(existing.matchId, [existing.playerId])) {
     res.status(409).json({ error: "Il genitore ha indicato il giocatore come non disponibile per questa partita" });
     return;
@@ -1076,6 +1090,8 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
   const reportError = validateMatchReport(matchPlan, [...desiredPlayerIds, ...matchReportPlayerIds(historical.data)]);
   if (reportError) { res.status(400).json({ error: reportError }); return; }
 
+  const scopeFailure = await trainingOnlyCallupFailure(existingMatch, desiredPlayerIds);
+  if (scopeFailure) { res.status(409).json({ error: scopeFailure }); return; }
   const ruleFailure = callupRuleFailure(await activeMatchEligibility(existingMatch), desiredPlayerIds);
   if (ruleFailure) { res.status(409).json({ error: ruleFailure }); return; }
   if (await parentUnavailableForMatch(matchId, desiredPlayerIds)) {
@@ -1201,6 +1217,8 @@ router.post("/matches/:id/callups/publish", requireAuth, async (req, res): Promi
   if (!playerIds.length) {
     res.status(400).json({ error: "Nessun convocato selezionato" }); return;
   }
+  const scopeFailure = await trainingOnlyCallupFailure(match, playerIds);
+  if (scopeFailure) { res.status(409).json({ error: scopeFailure }); return; }
   const eligibility = await activeMatchEligibility(match);
   const failure = callupRuleFailure(eligibility, playerIds);
   if (failure) { res.status(409).json({ error: failure }); return; }

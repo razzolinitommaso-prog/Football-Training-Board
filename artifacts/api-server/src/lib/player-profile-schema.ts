@@ -6,6 +6,12 @@ export async function ensurePlayerProfileSchema(): Promise<void> {
     BEGIN
       IF NOT EXISTS (
         SELECT 1 FROM pg_attribute
+        WHERE attrelid = 'players'::regclass AND attname = 'availability_override_scope' AND NOT attisdropped
+      ) THEN
+        ALTER TABLE players ADD COLUMN IF NOT EXISTS availability_override_scope text NOT NULL DEFAULT 'training_and_matches';
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_attribute
         WHERE attrelid = 'players'::regclass AND attname = 'profile_history' AND NOT attisdropped
       ) THEN
         ALTER TABLE players ADD COLUMN IF NOT EXISTS profile_history jsonb;

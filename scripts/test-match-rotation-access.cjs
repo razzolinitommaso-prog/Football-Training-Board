@@ -295,6 +295,33 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       console.log("PASS dashboard preparation: unstarted, partial, complete and club scope");
       return;
     }
+    if (process.argv.includes("--availability-override-scope")) {
+      const headers = {"x-role":"admin","content-type":"application/json"};
+      const write = async (url, method, body, extra={}) => { const response=await fetch(base+url,{method,headers:{...headers,...(!url.startsWith('/players') ? {'x-role':'coach','x-user':'3'}:{}),...extra},body:JSON.stringify(body)});return {status:response.status,data:await response.text()}; };
+      await pg.exec(`INSERT INTO users(id,first_name,last_name) VALUES(3,'Coach','Scope'); UPDATE teams SET coach_id=3 WHERE id=11;
+        INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(3,1,3,11,'coach');
+        UPDATE players SET registered=true, medical_certificate_expiry='2099-01-01',status='active',available=true,created_at=now(),availability_override_active=true,availability_override_from='2000-01-01',availability_override_until='2099-01-01',availability_override_scope='training_only' WHERE id=101;
+        CREATE SEQUENCE scope_notifications; ALTER TABLE club_notifications ALTER COLUMN id SET DEFAULT nextval('scope_notifications');
+        INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,duration_minutes,status,session_kind) VALUES(601,1,11,'Scope test','2026-10-12T15:30:00Z',90,'scheduled','regular');`);
+      const player = await call('/players/101',{'x-role':'admin'});
+      assert.equal(player.status,200,JSON.stringify(player.data));assert.equal(player.data.availabilityOverrideScope,'training_only');assert.equal(player.data.available,false);
+      const training = await routes.readSessionEligibility(1,{id:601,teamId:11,notes:'',scheduledAt:new Date('2026-10-12T15:30:00Z'),durationMinutes:90,sessionKind:'regular'});
+      assert(!training.blockedPlayerIds.includes(101),'Training-only override must allow training');
+      const denied = await write('/matches/501/callups','POST',{playerId:101,status:'called'});assert.equal(denied.status,409,denied.data);assert(denied.data.includes('solo per allenamenti'));
+      assert.equal((await write('/callups/1','PATCH',{status:'called'})).status,409);
+      const deniedPlan=await write('/matches/501/plan','PUT',{playerIds:[101,102],matchPlan:plan});assert.equal(deniedPlan.status,409,deniedPlan.data);
+      const deniedPublish=await write('/matches/501/callups/publish','POST',{convocationAt:'2026-10-10T14:00:00Z',convocationPlace:'Campo test'});assert.equal(deniedPublish.status,409,deniedPublish.data);
+      const invalid=await write('/players/101','PATCH',{availabilityOverrideScope:'matches_only'});assert.equal(invalid.status,400,invalid.data);
+      const unauthorized=await write('/players/101','PATCH',{availabilityOverrideScope:'training_and_matches'},{'x-role':'coach'});assert([200,403].includes(unauthorized.status),unauthorized.data);
+      assert.equal((await call('/players/101',{'x-role':'admin'})).data.availabilityOverrideScope,'training_only','Coach must not change the override scope');
+      const saved=await write('/players/101','PATCH',{availabilityOverrideActive:true,availabilityOverrideScope:'training_and_matches'});assert.equal(saved.status,200,saved.data);
+      const all=await call('/players/101',{'x-role':'admin'});assert.equal(all.data.availabilityOverrideScope,'training_and_matches');assert.equal(all.data.available,true);
+      assert.equal((await write('/callups/1','PATCH',{status:'called'})).status,200);
+      await pg.exec("UPDATE players SET availability_override_scope='training_only',availability_override_until='2026-10-01' WHERE id=101");
+      assert.equal((await write('/callups/1','PATCH',{status:'called'})).status,200,'Scope must use the match date, not a stale flag');
+      console.log('PASS availability scope: round trip, training allowed, match/callup/plan blocked, dates, legacy scope and permissions');
+      return;
+    }
     if (process.argv.includes("--callup-rules")) {
       const now = new Date();
       const kickoff = new Date(now.getTime() + 300_000);

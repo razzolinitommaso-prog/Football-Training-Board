@@ -1,4 +1,4 @@
-import { WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
+import { trainingOnlyAvailabilityOverride, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { activationContact, activationScope, activations, deliverActivation, ensureAccountActivations, issueActivation } from "../lib/account-activation";
 import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { sessionTeamScope } from "../lib/session-team-scope";
@@ -137,6 +137,7 @@ type ParentDelegateInput = {
 };
 type PlayerAvailabilityOverrideFields = {
   availabilityOverrideActive?: boolean | null;
+  availabilityOverrideScope?: string | null;
   availabilityOverrideFrom?: string | null;
   availabilityOverrideUntil?: string | null;
   availabilityOverrideReason?: string | null;
@@ -711,14 +712,14 @@ async function notifyParentAvailabilityOverride(clubId: number, player: typeof p
       clubId,
       type: "availability_override",
       title: `Disponibilita temporanea ${fullName}`,
-      message: `La societa ha autorizzato temporaneamente la disponibilita del giocatore fino al ${String(until || "periodo indicato")}.`,
+      message: `La societa ha autorizzato temporaneamente la disponibilita del giocatore ${player.availabilityOverrideScope === "training_only" ? "solo per allenamenti" : "per allenamenti e partite"} fino al ${String(until || "periodo indicato")}.`,
     });
     await sendParentNotificationEmail({
       parentUserId: relation.parentUserId,
       playerId: player.id,
       clubId,
       title: `Disponibilita temporanea ${fullName}`,
-      message: `La societa ha autorizzato temporaneamente la disponibilita del giocatore fino al ${String(until || "periodo indicato")}.`,
+      message: `La societa ha autorizzato temporaneamente la disponibilita del giocatore ${player.availabilityOverrideScope === "training_only" ? "solo per allenamenti" : "per allenamenti e partite"} fino al ${String(until || "periodo indicato")}.`,
     });
   }
 }
@@ -792,10 +793,11 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect, role: unkn
     shuttleService: player.shuttleService ?? false,
     shuttleRoute: (player as typeof player & { shuttleRoute?: string | null }).shuttleRoute ?? null,
     shuttleDirection: (player as typeof player & { shuttleDirection?: string | null }).shuttleDirection ?? null,
-    available: player.status !== WITHDRAWN_PLAYER_STATUS && (player.available ?? true),
+    available: player.status !== WITHDRAWN_PLAYER_STATUS && !trainingOnlyAvailabilityOverride(player) && (player.available ?? true),
     unavailabilityReason: player.unavailabilityReason ?? null,
     expectedReturn: player.expectedReturn ?? null,
     availabilityOverrideActive: availabilityOverride.availabilityOverrideActive ?? false,
+    availabilityOverrideScope: player.availabilityOverrideScope ?? "training_and_matches",
     availabilityOverrideFrom: availabilityOverride.availabilityOverrideFrom ?? null,
     availabilityOverrideUntil: availabilityOverride.availabilityOverrideUntil ?? null,
     availabilityOverrideReason: availabilityOverride.availabilityOverrideReason ?? null,
@@ -1395,6 +1397,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     PLAYER_AVAILABILITY_OVERRIDE_ROLES.includes(role) &&
     Object.keys(updateData).every((key) => [
       "availabilityOverrideActive",
+      "availabilityOverrideScope",
       "availabilityOverrideFrom",
       "availabilityOverrideUntil",
       "availabilityOverrideReason",
@@ -1450,6 +1453,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   }
   if (!PLAYER_AVAILABILITY_OVERRIDE_ROLES.includes(role)) {
     delete updateData.availabilityOverrideActive;
+    delete updateData.availabilityOverrideScope;
     delete updateData.availabilityOverrideFrom;
     delete updateData.availabilityOverrideUntil;
     delete updateData.availabilityOverrideReason;
@@ -1486,7 +1490,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
 
   if (existingPlayer.status === WITHDRAWN_PLAYER_STATUS || updateData.status === WITHDRAWN_PLAYER_STATUS) {
     for (const key of ["status", "available", "unavailabilityReason", "expectedReturn", "availabilityOverrideActive",
-      "availabilityOverrideFrom", "availabilityOverrideUntil", "availabilityOverrideReason"]) delete updateData[key];
+      "availabilityOverrideFrom", "availabilityOverrideUntil", "availabilityOverrideReason", "availabilityOverrideScope"]) delete updateData[key];
   }
 
   if (Object.keys(updateData).length === 0) {
@@ -1556,8 +1560,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   }
 
   const overrideActivated =
-    updateData.availabilityOverrideActive === true &&
-    (existingPlayer as PlayerWithAvailabilityOverride).availabilityOverrideActive !== true &&
+    (existingPlayer.availabilityOverrideActive !== true || existingPlayer.availabilityOverrideScope !== player.availabilityOverrideScope) &&
     isAvailabilityOverrideActive(player);
   if (overrideActivated && req.session.clubId) {
     try {
@@ -1566,7 +1569,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
       await db.insert(clubNotificationsTable).values({
         clubId: req.session.clubId,
         title: `Forza disponibilita: ${fullName}`,
-        message: `Disponibilita forzata fino al ${(player as PlayerWithAvailabilityOverride).availabilityOverrideUntil ?? "periodo indicato"}. Motivo: ${(player as PlayerWithAvailabilityOverride).availabilityOverrideReason ?? "non indicato"}.`,
+        message: `Disponibilita forzata ${player.availabilityOverrideScope === "training_only" ? "solo per allenamenti" : "per allenamenti e partite"} fino al ${(player as PlayerWithAvailabilityOverride).availabilityOverrideUntil ?? "periodo indicato"}. Motivo: ${(player as PlayerWithAvailabilityOverride).availabilityOverrideReason ?? "non indicato"}.`,
         type: "warning",
         targetAudience: "staff",
         targetRoles: ["secretary", "sporting_director", "technical_director", "director"],

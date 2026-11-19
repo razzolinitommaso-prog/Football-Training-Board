@@ -156,6 +156,7 @@ const editSchema = z.object({
   unavailabilityReason: z.string().optional(),
   expectedReturn: z.string().optional(),
   availabilityOverrideActive: z.boolean().optional(),
+  availabilityOverrideScope: z.enum(["training_only", "training_and_matches"]).optional(),
   availabilityOverrideFrom: z.string().optional().nullable(),
   availabilityOverrideUntil: z.string().optional().nullable(),
   availabilityOverrideReason: z.string().optional().nullable(),
@@ -211,6 +212,7 @@ type Player = {
   unavailabilityReason?: string | null;
   expectedReturn?: string | null;
   availabilityOverrideActive?: boolean | null;
+  availabilityOverrideScope?: "training_only" | "training_and_matches";
   availabilityOverrideFrom?: string | null;
   availabilityOverrideUntil?: string | null;
   availabilityOverrideReason?: string | null;
@@ -2836,6 +2838,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
       unavailabilityReason: player.unavailabilityReason ?? undefined,
       expectedReturn: player.expectedReturn ?? undefined,
       availabilityOverrideActive: player.availabilityOverrideActive ?? false,
+      availabilityOverrideScope: player.availabilityOverrideScope ?? "training_and_matches",
       availabilityOverrideFrom: player.availabilityOverrideFrom ?? undefined,
       availabilityOverrideUntil: player.availabilityOverrideUntil ?? undefined,
       availabilityOverrideReason: player.availabilityOverrideReason ?? undefined,
@@ -3232,6 +3235,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
     const overridePayload: Record<string, unknown> = {
       availabilityOverrideActive: data.availabilityOverrideActive === true,
+      availabilityOverrideScope: data.availabilityOverrideScope ?? "training_and_matches",
       availabilityOverrideFrom: data.availabilityOverrideFrom || null,
       availabilityOverrideUntil: data.availabilityOverrideUntil || null,
       availabilityOverrideReason: data.availabilityOverrideReason || null,
@@ -4145,7 +4149,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   <div><span className="text-muted-foreground">Rientro previsto</span><p>{editingPlayer.expectedReturn || "-"}</p></div>
                   {editingPlayer.availabilityOverrideActive && (
                     <>
-                      <div><span className="text-muted-foreground">Forza disponibilita</span><p>Attiva fino al {editingPlayer.availabilityOverrideUntil || "-"}</p></div>
+                      <div><span className="text-muted-foreground">Forza disponibilita</span><p>{editingPlayer.availabilityOverrideScope === "training_only" ? "Solo allenamenti" : "Allenamenti e partite"} · Attiva fino al {editingPlayer.availabilityOverrideUntil || "-"}</p></div>
                       <div><span className="text-muted-foreground">Motivo deroga</span><p>{editingPlayer.availabilityOverrideReason || "-"}</p></div>
                     </>
                   )}
@@ -5575,6 +5579,14 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                     </div>
                     {watchAvailabilityOverrideActive && (
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <fieldset className="space-y-2 sm:col-span-3">
+                          <legend className="text-sm font-medium">Valida per</legend>
+                          <div className="flex flex-wrap gap-4">
+                            <label className="flex items-center gap-2 text-sm"><input type="radio" value="training_only" {...editForm.register("availabilityOverrideScope")} />Solo allenamenti</label>
+                            <label className="flex items-center gap-2 text-sm"><input type="radio" value="training_and_matches" {...editForm.register("availabilityOverrideScope")} />Allenamenti e partite</label>
+                          </div>
+                          <p className="text-xs text-blue-800">Solo allenamenti: la deroga non consente la convocazione alle partite.</p>
+                        </fieldset>
                         <div className="space-y-2">
                           <Label>Dal</Label>
                           <Input type="date" {...editForm.register("availabilityOverrideFrom")} />

@@ -63,6 +63,7 @@ export const playersTable = pgTable("players", {
   unavailabilityReason: text("unavailability_reason"),
   expectedReturn: date("expected_return"),
   availabilityOverrideActive: boolean("availability_override_active").default(false).notNull(),
+  availabilityOverrideScope: text("availability_override_scope").default("training_and_matches").notNull(),
   availabilityOverrideFrom: date("availability_override_from"),
   availabilityOverrideUntil: date("availability_override_until"),
   availabilityOverrideReason: text("availability_override_reason"),

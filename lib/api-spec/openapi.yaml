@@ -878,6 +878,10 @@ components:
     Player:
       type: object
       properties:
+        availabilityOverrideScope:
+          type: string
+          enum: [training_only, training_and_matches]
+          description: Ambito della deroga temporanea. Le deroghe preesistenti valgono per allenamenti e partite.
         id:
           type: integer
         clubId:
@@ -920,6 +924,9 @@ components:
     CreatePlayerRequest:
       type: object
       properties:
+        availabilityOverrideScope:
+          type: string
+          enum: [training_only, training_and_matches]
         firstName:
           type: string
         lastName:
@@ -950,6 +957,9 @@ components:
     UpdatePlayerRequest:
       type: object
       properties:
+        availabilityOverrideScope:
+          type: string
+          enum: [training_only, training_and_matches]
         firstName:
           type: string
         lastName:
