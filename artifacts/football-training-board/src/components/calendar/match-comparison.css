@@ -1,4 +1,5 @@
 .match-comparison-layout {
+  container-type: inline-size;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 290px;
   gap: 14px;
@@ -10,8 +11,12 @@
   gap: 8px;
 }
 .match-minute-grid {
-  table-layout: fixed;
+  table-layout: auto;
+  min-width: 40rem;
 }
+.match-minute-scroll { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+.match-minute-grid thead th { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
+.match-minute-grid .match-unit-column { min-width: 3rem; }
 .match-minute-grid .match-player-column {
   width: 34%;
 }
@@ -31,6 +36,7 @@
   }
 }
 @media (max-width: 767px) {
+  .match-minute-grid { min-width: 0; }
   .match-comparison-layout:not(.match-comparison-layout--editor) .match-pitch-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
@@ -81,6 +87,11 @@
   .match-comparison-layout:not(.match-comparison-layout--editor) .match-comparison-pitches article > div > p {
     display: none;
   }
+}
+@container (max-width: 52rem) {
+  .match-comparison-layout > .match-comparison-pitches { grid-column: 1 / -1; }
+  .match-comparison-layout > div:first-child { grid-column: 1 / -1; }
+  .match-comparison-layout:not(.match-comparison-layout--editor) .match-pitch-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
 }
 
 /* Give the editor's fields the full width of the match sheet, including on mobile. */

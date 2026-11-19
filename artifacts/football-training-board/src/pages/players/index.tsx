@@ -4,6 +4,7 @@ import { DocumentFilePicker } from "@/components/document-file-picker";
 import { downloadDocument, readDocumentFile } from "@/lib/document-files";
 import { PlayerPaymentRegister, RegisteredKitPayments } from "@/components/player-payment-register";
 import { PlayerKitEditor } from "./player-kit-editor";
+import { PlayerEntryMeasurements } from "@/components/player-entry-measurements";
 import { ParentFamilyLinks } from "@/components/parent-family-links";
 import { PLAYER_KIT_ROWS, kitRowHasContent, kitRowItemIds, kitRowNeedsLink, KIT_REQUEST_STATUS, savedKitSelections, type KitRequestLine, type KitRow } from "@/lib/player-kit-catalog";
 import "./player-directory.css";
@@ -58,7 +59,7 @@ const zNullableNumberInput = z.preprocess((v) => {
 
 const zEntryMeasurement = z.preprocess(
   value => value === "" ? null : value,
-  z.coerce.number().int().positive().max(2147483647).nullish(),
+  z.coerce.number().positive().max(2147483647).nullish(),
 );
 
 const zNullableSquadInput = z.preprocess((v) => {
@@ -3595,11 +3596,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="create-entry-height">Altezza iniziale (cm)</Label>
-                  <Input id="create-entry-height" type="number" min={1} step={1} {...form.register("height")} />
+                  <Input id="create-entry-height" type="number" min={1} step="any" {...form.register("height")} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="create-entry-weight">Peso iniziale (kg)</Label>
-                  <Input id="create-entry-weight" type="number" min={1} step={1} {...form.register("weight")} />
+                  <Input id="create-entry-weight" type="number" min={1} step="any" {...form.register("weight")} />
                 </div>
               </div>
 
@@ -4299,14 +4300,18 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
                   <PlayerEntryValues entry={playerActivity.data?.profile?.entry} player={editingPlayer} inputs={canEditFullPlayer ? {
                     height: initialHeight == null ? <>
                       <dt><Label htmlFor="edit-entry-height" className="text-xs text-muted-foreground">Altezza iniziale (cm)</Label></dt>
-                      <dd><Input id="edit-entry-height" className="mt-1" type="number" min={1} step={1} {...editForm.register("height")} /></dd>
+                      <dd><Input id="edit-entry-height" className="mt-1" type="number" min={1} step="any" {...editForm.register("height")} /></dd>
                     </> : undefined,
                     weight: initialWeight == null ? <>
                       <dt><Label htmlFor="edit-entry-weight" className="text-xs text-muted-foreground">Peso iniziale (kg)</Label></dt>
-                      <dd><Input id="edit-entry-weight" className="mt-1" type="number" min={1} step={1} {...editForm.register("weight")} /></dd>
+                      <dd><Input id="edit-entry-weight" className="mt-1" type="number" min={1} step="any" {...editForm.register("weight")} /></dd>
                     </> : undefined,
                   } : undefined} />
                 )}
+                {editingPlayer && (canManagePlayers || ["fitness_coach", "athletic_director"].includes(nr)) && <div className="mt-3 space-y-2">
+                  <PlayerEntryMeasurements playerId={editingPlayer.id} height={initialHeight} weight={initialWeight} />
+                  <p className="text-xs text-muted-foreground">Il primo dato storico rimane distinto dal dato attuale, aggiornato dall’ultimo test, anche nella stagione successiva.</p>
+                </div>}
               </details>
 
               <PlayerActivitySummaryPanel player={editingPlayer} isYouthSection={editingPlayerIsYouthSection} summary={playerActivity} />

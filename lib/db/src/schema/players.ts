@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, date, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, date, boolean, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { clubsTable } from "./clubs";
@@ -32,9 +32,9 @@ export const playersTable = pgTable("players", {
   position: text("position"),
   jerseyNumber: integer("jersey_number"),
   status: text("status").notNull().default("active"),
-  height: integer("height"),
-  weight: integer("weight"),
-  profileHistory: jsonb("profile_history").$type<{ entry: PlayerProfileEntry; changes: PlayerAssignmentChange[] }>(),
+  height: doublePrecision("height"),
+  weight: doublePrecision("weight"),
+  profileHistory: jsonb("profile_history").$type<{ entry: PlayerProfileEntry; changes: PlayerAssignmentChange[]; entryCorrections?: { date: string; userId: number; height?: { from: number | null; to: number | null }; weight?: { from: number | null; to: number | null }; note: string }[] }>(),
   notes: text("notes"),
   phone: text("phone"),
   email: text("email"),

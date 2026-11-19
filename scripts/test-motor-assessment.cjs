@@ -27,6 +27,15 @@ compiled._compile(
   compiled.filename,
 );
 const s = compiled.exports;
+const deletionExample = { version: 1, status: "done", reason: "", conditions: {}, reference: "one", attempts: [
+  { id: "one", kind: "formal", valid: true, values: { cm: 100 }, observations: { "0": { value: true, note: "Delete only this note" } } },
+  { id: "two", kind: "formal", valid: true, values: { cm: 110 }, observations: {} } ] };
+const removed = s.removeMotorAttempt(deletionExample, "one");
+assert.equal(removed.reference, "two"); assert.equal(removed.attempts.length, 1); assert.equal(removed.attempts[0].values.cm, 110);
+assert.equal(deletionExample.attempts.length, 2, "deletion must not mutate previous snapshots");
+assert.equal(s.motorAssessmentSchema.safeParse(s.removeMotorAttempt(removed, "two")).success, true);
+assert.ok(s.motorMeasureFields.march.some(field => field.key === "coordination"));
+assert.ok(s.motorMeasureFields.march.some(field => field.key === "spaceTime"));
 const historical = { measurement: 188, score: 7, notes: "Note originali" };
 const migrated = s.motorLegacyAssessment("long-jump", historical);
 assert.equal(migrated.attempts[1].values.cm, 188);

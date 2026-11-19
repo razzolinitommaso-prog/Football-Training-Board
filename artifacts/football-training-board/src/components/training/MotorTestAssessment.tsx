@@ -8,6 +8,7 @@ import {
   motorAssessmentMeasurement,
   motorLegacyAssessment,
   newMotorAttempt,
+  removeMotorAttempt,
   tgmdLongJumpCriteria,
   tgmdLongJumpScore,
   tgmdSource,
@@ -20,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
+import "./motor-tests.css";
 
 export function MotorTestGuide({
   id,
@@ -136,7 +139,7 @@ export function MotorTestAssessmentEditor({
   disabled: boolean;
   onChange: (patch: Partial<MotorTestResult>) => void;
 }) {
-  const [side, setSide] = useState("right");
+  const [deleteAttempt, setDeleteAttempt] = useState<string>();
   const [preview] = useState(() => blankAssessment(id, value));
   const assessment = value.assessment ?? preview;
   const reference =
@@ -163,12 +166,13 @@ export function MotorTestAssessmentEditor({
     current: string | number | null | undefined,
     save: (v: string | number | null) => void,
     off = false,
+    error?: string,
   ) {
     return (
-      <label key={def.key} className="min-w-0 text-xs">
+      <label key={def.key} className={"min-w-0 text-xs " + (def.kind === "text" ? "col-span-full" : "")}>
         {def.label}
         {def.unit ? " · " + def.unit : ""}
-        {def.options ? (
+        {def.kind === "text" ? <Textarea data-motor-field={def.key} rows={2} maxLength={200} className="mt-1" value={String(current ?? "")} disabled={disabled || off} onChange={event => save(event.target.value)} /> : def.options ? (
           <ScrollableSelect
             aria-label={def.label}
             className="mt-1 w-full"
@@ -185,7 +189,9 @@ export function MotorTestAssessmentEditor({
           </ScrollableSelect>
         ) : (
           <Input
-            className="mt-1"
+            data-motor-field={def.key}
+            className={"mt-1 " + (error ? "border-destructive" : "")}
+            aria-invalid={!!error}
             aria-label={def.label + (def.unit ? " · " + def.unit : "")}
             type={def.key === "layout" ? "text" : "number"}
             min={0}
@@ -210,6 +216,7 @@ export function MotorTestAssessmentEditor({
             }
           />
         )}
+        {error && <span role="alert" className="mt-1 block text-xs text-destructive">{error}</span>}
       </label>
     );
   }
@@ -217,7 +224,13 @@ export function MotorTestAssessmentEditor({
     ...new Set(fields.map((f) => f.group)),
   ];
   return (
-    <div className="space-y-4">
+    <div className="motor-assessment space-y-4">
+      <AlertDialog open={!!deleteAttempt} onOpenChange={open => { if (!open) setDeleteAttempt(undefined); }}>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Eliminare questo tentativo?</AlertDialogTitle>
+          <AlertDialogDescription>Verranno eliminati le misure, le osservazioni e le note di questo tentativo. Gli altri tentativi e le note generali restano conservati.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => { if (deleteAttempt) update(removeMotorAttempt(assessment, deleteAttempt)); setDeleteAttempt(undefined); }}>Conferma eliminazione</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {(value.assessment?.legacyMeasurement ??
         (!value.assessment ? value.measurement : null)) != null && (
         <p className="text-xs text-muted-foreground">
@@ -261,7 +274,7 @@ export function MotorTestAssessmentEditor({
         {groups(motorConditionFields[id]).map((group) => (
           <div key={group} className="space-y-2 border-t pt-3">
             <p className="text-xs font-medium text-muted-foreground">{group}</p>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="motor-measure-grid">
               {motorConditionFields[id]
                 .filter((f) => f.group === group)
                 .map((def) =>
@@ -284,7 +297,7 @@ export function MotorTestAssessmentEditor({
       <section className="space-y-3 rounded-lg border p-3">
         <h4 className="text-sm font-semibold">Misurazioni e tentativi</h4>
         {assessment.attempts.map((attempt, index) => (
-          <div key={attempt.id} className="space-y-3 border-t pt-3">
+          <div key={attempt.id} data-motor-attempt-index={index} className="space-y-3 border-t pt-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <strong className="text-sm">Tentativo {index + 1}</strong>
               <label className="flex items-center gap-2 text-xs">
@@ -297,6 +310,7 @@ export function MotorTestAssessmentEditor({
                 />
                 Osserva questo tentativo
               </label>
+              <Button type="button" variant="ghost" size="sm" className="text-destructive" disabled={disabled} onClick={() => setDeleteAttempt(attempt.id)}>Elimina tentativo</Button>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-xs">
@@ -327,12 +341,13 @@ export function MotorTestAssessmentEditor({
                 Tentativo valido
               </label>
             </div>
+            <div className={id === "balance" || id === "high-jump" ? "motor-bilateral-measures" : "space-y-3"}>
             {groups(motorMeasureFields[id]).map((group) => (
               <div key={group} className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">
                   {group}
                 </p>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="motor-measure-grid">
                   {motorMeasureFields[id]
                     .filter((f) => f.group === group)
                     .map((def) => {
@@ -358,11 +373,14 @@ export function MotorTestAssessmentEditor({
                           ["degrees", "rotationDirection"].includes(def.key)) ||
                           (noMovement &&
                             ["cm", "movementDirection"].includes(def.key)),
+                        id === "high-jump" && def.key.endsWith("Top") && typeof attempt.values[def.key] === "number" && typeof attempt.values[def.key.replace("Top", "Base")] === "number" && Number(attempt.values[def.key]) < Number(attempt.values[def.key.replace("Top", "Base")])
+                          ? "La quota raggiunta in salto deve essere almeno pari alla quota della mano da fermo, misurata da terra." : undefined,
                       );
                     })}
                 </div>
               </div>
             ))}
+            </div>
             {id === "high-jump" && (
               <p className="text-xs">
                 Elevazione:{" "}
@@ -387,14 +405,16 @@ export function MotorTestAssessmentEditor({
           variant="outline"
           size="sm"
           disabled={disabled || assessment.attempts.length >= 12}
-          onClick={() =>
+          onClick={() => {
+            const attempt = newMotorAttempt("formal", crypto.randomUUID());
             update({
+              reference: assessment.attempts.length ? assessment.reference : attempt.id,
               attempts: [
                 ...assessment.attempts,
-                newMotorAttempt("formal", crypto.randomUUID()),
+                attempt,
               ],
-            })
-          }
+            });
+          }}
         >
           Aggiungi misurazione
         </Button>
@@ -427,20 +447,9 @@ export function MotorTestAssessmentEditor({
             Sul tentativo selezionato. Questi flag didattici non producono un
             punteggio TGMD-3.
           </p>
-          {id === "balance" && (
-            <label className="block max-w-52 text-xs">
-              Gamba osservata
-              <ScrollableSelect
-                className="mt-1 w-full"
-                value={side}
-                onValueChange={setSide}
-              >
-                <option value="right">Destra</option>
-                <option value="left">Sinistra</option>
-              </ScrollableSelect>
-            </label>
-          )}
-          {motorObservationCriteria[id].map((criterion, index) => {
+          {id === "balance" && <p className="text-xs text-muted-foreground">Compila entrambi i lati: gamba destra e gamba sinistra sono sempre visibili.</p>}
+          <div className={id === "balance" ? "motor-bilateral-observations" : "space-y-3"}>
+          {motorObservationCriteria[id].flatMap((criterion, index) => (id === "balance" ? ["right", "left"] : [""]).map(side => {
             const key = String(index) + (id === "balance" ? ":" + side : "");
             const item = reference.observations[key] ?? {
               value: null,
@@ -455,11 +464,12 @@ export function MotorTestAssessmentEditor({
               });
             return (
               <div key={key} className="space-y-2 border-t pt-3">
+                {side && <h5 className="text-sm font-semibold">{side === "right" ? "Gamba destra" : "Gamba sinistra"}</h5>}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm">{criterion}</p>
                   <div
                     role="group"
-                    aria-label={criterion}
+                    aria-label={criterion + (side ? " · " + (side === "right" ? "destra" : "sinistra") : "")}
                     className="flex flex-wrap gap-1"
                   >
                     {(
@@ -495,7 +505,8 @@ export function MotorTestAssessmentEditor({
                 </label>
               </div>
             );
-          })}
+          }))}
+          </div>
         </section>
       )}
       {id === "long-jump" && (

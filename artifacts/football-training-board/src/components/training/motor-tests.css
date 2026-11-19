@@ -1,0 +1,14 @@
+.motor-program-list { container-type: inline-size; }
+.motor-program-header { display: grid; grid-template-columns: 2rem minmax(0,1fr); align-items: center; gap: .5rem; }
+.motor-program-title { overflow-wrap: normal; word-break: normal; line-height: 1.45; }
+.motor-program-controls { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; justify-content: flex-end; }
+.motor-program-controls > button, .motor-program-controls > label { flex-shrink: 0; }
+@container (min-width: 38rem) {
+  .motor-program-header { grid-template-columns: 2rem minmax(0,1fr) auto; }
+  .motor-program-controls { grid-column: auto; }
+}
+.motor-assessment { min-width: 0; overflow-wrap: normal; }
+.motor-measure-grid { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit,minmax(min(100%,14rem),1fr)); }
+.motor-bilateral-observations, .motor-bilateral-measures { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
+.motor-bilateral-observations button { min-height: 2.25rem; height: auto; white-space: normal; overflow-wrap: normal; }
+@media (max-width: 380px) { .motor-bilateral-observations { column-gap: .5rem; } }

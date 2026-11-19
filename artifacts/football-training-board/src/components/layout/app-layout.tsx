@@ -282,7 +282,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 : "h-[calc(4rem+max(env(safe-area-inset-top),2.25rem))] border-b opacity-100 sm:h-16"
             }`}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
               {showBackButton && (
                 <Button
@@ -299,15 +299,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
               )}
-              <div className="hidden sm:flex items-center gap-2">
+              <div className="hidden min-w-0 flex-1 sm:flex items-center gap-2">
                 {clubLogoUrl && (
                   <img
                     src={clubLogoUrl}
                     alt={activeClub?.name || "Logo societa"}
-                    className="h-8 w-8 rounded-md object-contain bg-white/80 p-0.5 ring-1 ring-border"
+                    className="h-8 w-8 shrink-0 rounded-md object-contain bg-white/80 p-0.5 ring-1 ring-border"
                   />
                 )}
-                <h1 className="font-display font-semibold text-base sm:text-lg truncate">
+                <h1 className="min-w-0 flex-1 font-display font-semibold text-base sm:text-lg truncate">
                   {activeClub?.name || "Football Training Board"}
                 </h1>
                 {role && ROLE_LABELS[role] && (
@@ -316,7 +316,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   </Badge>
                 )}
                 {workspaceAreaLabel && (
-                  <Badge variant="outline" className="text-xs font-medium shrink-0">
+                  <Badge variant="outline" className="hidden xl:inline-flex text-xs font-medium shrink-0">
                     {workspaceAreaLabel}
                   </Badge>
                 )}
@@ -335,7 +335,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 sm:gap-4">
+            <div className="flex shrink-0 items-center gap-1 sm:gap-2">
               <AppearanceMenu />
               {role !== "team_manager" && <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -431,7 +431,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </DropdownMenu>}
 
               <div className="flex items-center gap-2 sm:gap-3 pl-3 sm:pl-4 border-l">
-                <div className="hidden md:flex flex-col items-end">
+                <div className="hidden max-w-44 shrink-0 xl:flex flex-col items-end [&>span]:max-w-full [&>span]:truncate">
                   <span className="text-sm font-medium leading-none">{user?.firstName} {user?.lastName}</span>
                   <span className="text-xs text-muted-foreground capitalize">{user?.email}</span>
                 </div>

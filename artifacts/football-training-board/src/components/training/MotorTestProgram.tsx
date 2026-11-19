@@ -8,6 +8,7 @@ import { GripVertical, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MotorTestGuide } from "./MotorTestAssessment";
+import "./motor-tests.css";
 
 export function reorderMotorProgram(
   tests: MotorTestSession["tests"],
@@ -38,11 +39,11 @@ export function MotorTestProgram({
     if (disabled) return;
     onChange({ ...draft, tests: reorderMotorProgram(draft.tests, from, to) });
     setNotice(
-      "Ordine modificato. Salva la sessione per aggiornare anche la stazione nella seduta.",
+      "Ordine aggiornato. Controlla lo stato di salvataggio della sessione.",
     );
   }
   return (
-    <section className="space-y-3">
+    <section className="motor-program-list space-y-3">
       <h3 className="text-sm font-semibold">
         Programma · ordine di esecuzione
       </h3>
@@ -82,7 +83,7 @@ export function MotorTestProgram({
                 dragged.current = undefined;
               }}
             >
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="motor-program-header">
                 <Button
                   type="button"
                   size="icon"
@@ -118,9 +119,10 @@ export function MotorTestProgram({
                 >
                   <GripVertical className="h-4 w-4" />
                 </Button>
-                <strong className="min-w-0 flex-1 text-sm">
+                <strong className="motor-program-title min-w-0 text-sm">
                   {index + 1}. {item.title}
                 </strong>
+                <div className="motor-program-controls">
                 <Button
                   type="button"
                   variant="outline"
@@ -177,6 +179,7 @@ export function MotorTestProgram({
                     Rimuovi
                   </Button>
                 )}
+                </div>
               </div>
               <details>
                 <summary className="cursor-pointer text-xs text-primary">

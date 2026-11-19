@@ -2,14 +2,18 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { customFetch } from "@workspace/api-client-react/custom-fetch";
 import type { MotorTestSession } from "@workspace/api-zod";
-import { useAuth } from "./use-auth";
-import { MotorDraftStore } from "@/lib/motor-test-drafts";
+import { useAuth } from "@/hooks/use-auth";
+import { MotorDraftStore, motorDraftIssues } from "@/lib/motor-test-drafts";
+import { useToast } from "./use-toast";
 
 export function useMotorTestDraft(allowed: (session: MotorTestSession) => boolean) {
   const { club, user, role, profileKey, section } = useAuth();
   const cache = useQueryClient();
+  const { toast } = useToast();
   const [, render] = useReducer(n => n + 1, 0);
   const [active, setActive] = useState<{ scope: string; id: string }>();
+  const [manualSaving, setManualSaving] = useState(false);
+  const manualPending = useRef(false);
   const activeRef = useRef(active); activeRef.current = active;
   const permission = useRef(allowed); permission.current = allowed;
   const scope = JSON.stringify([club?.id, user?.id, profileKey, role, section]);
@@ -70,10 +74,20 @@ export function useMotorTestDraft(allowed: (session: MotorTestSession) => boolea
     draft, setDraft, open,
     recovered: store.recoverable(),
     status: draft ? store.status(draft.id) : undefined,
+    issues: draft ? motorDraftIssues(draft) : [],
     save: {
-      isPending: false, // Background saves never lock the editor or player selector.
+      isPending: manualSaving, // Background saves never lock the editor or player selector.
       isError: draft ? store.status(draft.id).error : false,
-      mutate: (value: MotorTestSession) => { setDraft(value); void store.flush(value.id, true); },
+      mutate: (value: MotorTestSession) => {
+        if (manualPending.current) return;
+        manualPending.current = true; setManualSaving(true);
+        setDraft(value);
+        void store.flush(value.id, true).then(async () => {
+          if (store.status(value.id).dirty && !store.status(value.id).error) await store.flush(value.id, true);
+          const status = store.status(value.id);
+          toast({ title: !status.dirty ? "Sessione salvata" : status.error ? "Salvataggio da completare" : "Bozza conservata", description: status.message, variant: status.error ? "destructive" : "default" });
+        }).finally(() => { manualPending.current = false; setManualSaving(false); });
+      },
     },
     retry: () => store.retry(true),
   };

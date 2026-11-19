@@ -85,7 +85,8 @@ async function run() {
   assert.equal(blocked.store.recoverable()[0].results[1].tests["long-jump"].measurement, 100); blocked.store.stop();
 
   const invalid = make(); invalid.store.open(base()); invalid.store.edit({ ...base(), results: { 1: { ...row(100), height: 0 } } });
-  await invalid.store.flush("test-session"); assert.equal(invalid.calls(), 0); assert.ok(invalid.store.status("test-session").error);
+  await invalid.store.flush("test-session"); assert.equal(invalid.calls(), 1, "valid test measurement saves even when height is invalid"); assert.ok(invalid.store.status("test-session").error);
+  await invalid.store.flush("test-session"); assert.equal(invalid.calls(), 1, "the unchanged invalid entry must not cause repeated requests");
   invalid.store.stop();
   const recovery = make({ storage: invalid.storage }); assert.equal(recovery.store.open(base()).results[1].height, 0, "incomplete/invalid drafts recover too"); recovery.store.stop();
   const brokenStorage = make({ storage: { getItem: () => null, key: () => null, length: 0, setItem: () => { throw new Error("quota"); }, removeItem: () => {} } });
@@ -109,6 +110,20 @@ async function run() {
   await constraint.store.flush("test-session"); await new Promise(resolve => setTimeout(resolve, 30));
   assert.equal(constraintCalls, 1, "non-revision 409 must not cause an infinite merge/retry loop");
   assert.match(constraint.store.status("test-session").message, /Stazione rimossa/); constraint.store.stop();
+  let partialSaved;
+  const partial = make({ put: async s => { partialSaved = structuredClone(s); return { ...s, revision: s.revision + 1 }; } });
+  const partialProgram = { ...base(), tests: [...base().tests, { id: "high-jump", minutes: 8, phase: "centrale", link: false }] };
+  partial.store.open(partialProgram);
+  const badAssessment = { version: 1, status: "done", reason: "", conditions: {}, reference: "formal", attempts: [{ id: "formal", kind: "formal", valid: true, values: { leftBase: 180, leftTop: 160 }, observations: {} }] };
+  partial.store.edit({ ...partialProgram, results: { 1: { ...row(120), tests: { ...row(120).tests, "high-jump": { measurement: null, score: null, notes: "Do not lose me", assessment: badAssessment } } }, 2: row(145) } });
+  await partial.store.flush("test-session");
+  assert.equal(partialSaved.results[2].tests["long-jump"].measurement, 145);
+  assert.equal(partialSaved.results[1].tests["long-jump"].measurement, 120);
+  assert.equal(partialSaved.results[1].tests["high-jump"], undefined);
+  assert.equal(partial.store.current("test-session").results[1].tests["high-jump"].assessment.attempts[0].values.leftTop, 160);
+  const fixed = structuredClone(partial.store.current("test-session")); fixed.results[1].tests["high-jump"].assessment.attempts[0].values.leftTop = 210;
+  partial.store.edit(fixed); await partial.store.flush("test-session");
+  assert.equal(partial.store.status("test-session").dirty, false); assert.equal(partialSaved.results[1].tests["high-jump"].notes, "Do not lose me"); partial.store.stop();
   console.log("PASS motor drafts: eight-player recovery, synchronous backup, late responses, serialized saves, offline retry, revisions, conflicts, partial inputs, storage failure and profile isolation");
 }
 run().catch(e => { console.error(e); process.exit(1); });

@@ -6,6 +6,8 @@ import { requireAuth } from "../lib/auth";
 import { FITNESS_DASHBOARD_ROLES, FITNESS_RESULTS_ROLES, FITNESS_RESULTS_WRITE_ROLES } from "@workspace/api-zod";
 import { getPlayerMeasurementTeamScope, canAccessPlayerMeasurements, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
+import { ensurePlayerMeasurementStorage, refreshPlayerMeasurements } from "../lib/player-measurements";
+import { ensureMotorTestStorage } from "../lib/motor-test-storage";
 import type { Request } from "express";
 
 const observedRoles = ["GK", "DEF", "MID", "FWD"];
@@ -36,6 +38,7 @@ let fitnessSchemaReady: Promise<void> | null = null;
 function ensureFitnessSchema() {
   if (!fitnessSchemaReady) {
     fitnessSchemaReady = Promise.all([
+      ensurePlayerMeasurementStorage(), ensureMotorTestStorage(),
       db.execute(sql`ALTER TABLE fitness_programs ADD COLUMN IF NOT EXISTS plan_json TEXT`),
       db.execute(sql`ALTER TABLE fitness_programs ADD COLUMN IF NOT EXISTS materials TEXT`),
       db.execute(sql`ALTER TABLE fitness_programs ADD COLUMN IF NOT EXISTS board_notes TEXT`),
@@ -377,11 +380,13 @@ router.post("/player-fitness-data", requireAuth, async (req, res): Promise<void>
     parentNote: parentNote ?? null,
     notes: notes ?? null,
   }));
-
-  const entries = await db
-    .insert(playerFitnessDataTable)
-    .values(insertRows)
-    .returning();
+  const clubId = req.session.clubId!;
+  const entries = await db.transaction(async tx => {
+    await tx.select({ id: playersTable.id }).from(playersTable).where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, insertRows.map(row => row.playerId)))).orderBy(playersTable.id).for("update");
+    const saved = await tx.insert(playerFitnessDataTable).values(insertRows).returning();
+    await refreshPlayerMeasurements(tx, clubId, insertRows.map(row => row.playerId));
+    return saved;
+  });
 
   const enriched = await Promise.all(entries.map(entry => enrichFitnessData(entry)));
   res.status(201).json(enriched.length === 1 ? enriched[0] : enriched);
@@ -418,11 +423,12 @@ router.patch("/player-fitness-data/:id", requireAuth, async (req, res): Promise<
     res.status(403).json({ error: "Giocatore fuori dalle squadre assegnate." }); return;
   }
 
-  const [entry] = await db
-    .update(playerFitnessDataTable)
-    .set(updates)
-    .where(and(eq(playerFitnessDataTable.id, id), eq(playerFitnessDataTable.clubId, req.session.clubId!)))
-    .returning();
+  const [entry] = await db.transaction(async tx => {
+    if (existing) await tx.select({ id: playersTable.id }).from(playersTable).where(and(eq(playersTable.id, existing.playerId), eq(playersTable.clubId, req.session.clubId!))).for("update");
+    const saved = await tx.update(playerFitnessDataTable).set(updates).where(and(eq(playerFitnessDataTable.id, id), eq(playerFitnessDataTable.clubId, req.session.clubId!))).returning();
+    if (existing) await refreshPlayerMeasurements(tx, req.session.clubId!, [existing.playerId]);
+    return saved;
+  });
 
   if (!entry) { res.status(404).json({ error: "Entry not found" }); return; }
   const enriched = await enrichFitnessData(entry, await getPlayerMeasurementTeamScope(req));
@@ -430,6 +436,7 @@ router.patch("/player-fitness-data/:id", requireAuth, async (req, res): Promise<
 });
 
 router.delete("/player-fitness-data/:id", requireAuth, async (req, res): Promise<void> => {
+  await ensureFitnessSchema();
   if (!await canManageFitnessResults(req)) {
     res.status(403).json({ error: "Non autorizzato a gestire dati atletici" });
     return;
@@ -443,10 +450,12 @@ router.delete("/player-fitness-data/:id", requireAuth, async (req, res): Promise
     res.status(403).json({ error: "Giocatore fuori dalle squadre assegnate." });
     return;
   }
-  const [entry] = await db
-    .delete(playerFitnessDataTable)
-    .where(and(eq(playerFitnessDataTable.id, id), eq(playerFitnessDataTable.clubId, req.session.clubId!)))
-    .returning();
+  const [entry] = await db.transaction(async tx => {
+    if (existing) await tx.select({ id: playersTable.id }).from(playersTable).where(and(eq(playersTable.id, existing.playerId), eq(playersTable.clubId, req.session.clubId!))).for("update");
+    const removed = await tx.delete(playerFitnessDataTable).where(and(eq(playerFitnessDataTable.id, id), eq(playerFitnessDataTable.clubId, req.session.clubId!))).returning();
+    if (existing) await refreshPlayerMeasurements(tx, req.session.clubId!, [existing.playerId]);
+    return removed;
+  });
 
   if (!entry) { res.status(404).json({ error: "Entry not found" }); return; }
   res.sendStatus(204);

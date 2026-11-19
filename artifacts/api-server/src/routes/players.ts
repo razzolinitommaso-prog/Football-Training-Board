@@ -4,7 +4,8 @@ import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
 import { sessionTeamScope } from "../lib/session-team-scope";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import { playerMatchAttendance } from "../lib/player-match-attendance";
-import { motorTestHistory } from "../lib/motor-test-storage";
+import { motorTestHistory, ensureMotorTestStorage } from "../lib/motor-test-storage";
+import { ensurePlayerMeasurementStorage, refreshPlayerMeasurements, reconcileExistingPlayerMeasurements } from "../lib/player-measurements";
 import { Router, type IRouter } from "express";
 import { randomInt, randomUUID } from "node:crypto";
 import { ensureParentDelegateSecurityColumns, ensureParentFamilyLinks } from "../lib/parent-delegate-access";
@@ -808,6 +809,8 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: "Club context required" });
     return;
   }
+  await Promise.all([ensurePlayerMeasurementStorage(), ensureMotorTestStorage()]);
+  await reconcileExistingPlayerMeasurements(ids.clubId);
   const { clubId, userId } = ids;
   const queryParams = ListPlayersQueryParams.safeParse(req.query);
   const requestedTeamId = queryParams.success ? queryParams.data.teamId : undefined;
@@ -911,7 +914,7 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
 const entryMeasurementFields = ["height", "weight"] as const;
 
 function entryMeasurement(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 2147483647 ? value : null;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 2147483647 ? value : null;
 }
 
 function playerProfileEntry(
@@ -1043,6 +1046,7 @@ router.delete("/players/:id/parent-family-links/:delegateId", requireAuth, async
 });
 
 router.post("/players", requireAuth, async (req, res): Promise<void> => {
+  await ensurePlayerMeasurementStorage();
   const role = normalizeSessionRole(req.session.role);
   if (!PLAYER_MANAGE_ROLES.includes(role)) {
     res.status(403).json({ error: "Non sei autorizzato ad aggiungere giocatori" });
@@ -1066,7 +1070,7 @@ router.post("/players", requireAuth, async (req, res): Promise<void> => {
     return;
   }
   if (hasInvalidEntryMeasurement(playerData)) {
-    res.status(400).json({ error: "Altezza e peso iniziali devono essere numeri interi positivi." });
+    res.status(400).json({ error: "Altezza e peso iniziali devono essere numeri positivi, anche decimali." });
     return;
   }
   let clubSection = typeof req.session.section === "string" && req.session.section
@@ -1294,7 +1298,43 @@ router.get("/players/:id/activity-summary", requireAuth, async (req, res): Promi
   });
 });
 
+router.patch("/players/:id/entry-measurements", requireAuth, async (req, res): Promise<void> => {
+  const role = normalizeSessionRole(req.session.role), id = Number(req.params.id), clubId = req.session.clubId!;
+  if (![...PLAYER_MANAGE_ROLES, "fitness_coach", "athletic_director"].includes(role)) { res.sendStatus(403); return; }
+  if (["fitness_coach", "athletic_director"].includes(role)) {
+    const members = await db.select({ role: clubMembershipsTable.role, staffRole: clubMembershipsTable.staffRole }).from(clubMembershipsTable)
+      .where(and(eq(clubMembershipsTable.clubId, clubId), eq(clubMembershipsTable.userId, req.session.userId!)));
+    if (members.some(member => normalizeSessionRole(member.role) === role && ["collaboratore", "stagista"].includes(normalizeSessionRole(member.staffRole)))) { res.sendStatus(403); return; }
+  }
+  const body = req.body ?? {};
+  const supplied = entryMeasurementFields.filter(key => Object.hasOwn(body, key));
+  if (!Number.isSafeInteger(id) || id <= 0 || !supplied.length || supplied.some(key => body[key] != null &&
+      (entryMeasurement(body[key]) == null || body[key] > (key === "height" ? 300 : 400))) ||
+      (body.note !== undefined && (typeof body.note !== "string" || body.note.length > 1000))) {
+    res.status(400).json({ error: "Indica altezza e peso iniziali validi, anche con decimali." }); return;
+  }
+  const [owner] = await db.select().from(playersTable).where(and(eq(playersTable.id, id), eq(playersTable.clubId, clubId)));
+  const scope = await getPlayerMeasurementTeamScope(req);
+  if (!owner || (scope !== null && ![owner.teamId, supplementalTrainingTeam(owner.notes)].some(teamId => canAccessPlayerMeasurements(scope, teamId)))) { res.sendStatus(404); return; }
+  await Promise.all([ensurePlayerMeasurementStorage(), ensureMotorTestStorage()]);
+  const player = await db.transaction(async tx => {
+    const [current] = await tx.select().from(playersTable).where(and(eq(playersTable.id, id), eq(playersTable.clubId, clubId))).for("update");
+    if (!current) return null;
+    const entry = profileEntryForPlayer(current);
+    const correction: NonNullable<NonNullable<typeof current.profileHistory>["entryCorrections"]>[number] = { date: profileDate(), userId: req.session.userId!, note: body.note?.trim() ?? "" };
+    for (const key of supplied) if (entry[key] !== body[key]) { correction[key] = { from: entry[key], to: body[key] }; entry[key] = body[key]; }
+    const history = { ...current.profileHistory, entry, changes: current.profileHistory?.changes ?? [],
+      entryCorrections: [...(current.profileHistory?.entryCorrections ?? []), ...(correction.height || correction.weight ? [correction] : [])] };
+    await tx.update(playersTable).set({ profileHistory: history }).where(eq(playersTable.id, id));
+    await refreshPlayerMeasurements(tx, clubId, [id]);
+    return (await tx.select().from(playersTable).where(and(eq(playersTable.id, id), eq(playersTable.clubId, clubId))))[0];
+  });
+  if (!player) { res.sendStatus(404); return; }
+  res.json(await enrichPlayer(player, req.session.role));
+});
+
 router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
+  await ensurePlayerMeasurementStorage();
   const params = UpdatePlayerParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -1464,18 +1504,21 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   const newlyAddedThreadItems = updatedThread.filter((n) => n?.id && !previousIds.has(n.id));
 
   if (hasInvalidEntryMeasurement(updateData)) {
-    res.status(400).json({ error: "Altezza e peso iniziali devono essere numeri interi positivi." });
+    res.status(400).json({ error: "Altezza e peso devono essere numeri positivi, anche con decimali." });
     return;
   }
   const clubId = req.session.clubId!;
   const playerScope = and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, clubId),
     Object.hasOwn(updateData, "status") ? sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}` : undefined);
   const affectsProfile = ["height", "weight", "position", "jerseyNumber"].some(field => Object.hasOwn(updateData, field));
+  const affectsMeasurements = ["height", "weight"].some(field => Object.hasOwn(updateData, field));
+  if (affectsMeasurements) await ensureMotorTestStorage();
   const [player] = affectsProfile ? await db.transaction(async (tx) => {
     const [current] = await tx.select().from(playersTable).where(playerScope).for("update");
     if (!current) return [];
     const entry = profileEntryForPlayer(current);
     const profile = {
+      ...current.profileHistory,
       entry: {
         ...entry,
         height: entry.height ?? entryMeasurement(updateData.height),
@@ -1498,7 +1541,9 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
       if (nextJersey !== current.jerseyNumber) change.jersey = { from: current.jerseyNumber, to: nextJersey };
       profile.changes = [...profile.changes, change];
     }
-    return tx.update(playersTable).set({ ...updateData, profileHistory: profile }).where(playerScope).returning();
+    const updated = await tx.update(playersTable).set({ ...updateData, profileHistory: profile }).where(playerScope).returning();
+    if (affectsMeasurements) { await refreshPlayerMeasurements(tx, clubId, [current.id]); return tx.select().from(playersTable).where(playerScope); }
+    return updated;
   }) : await db.update(playersTable).set(updateData).where(playerScope).returning();
 
   if (!player) {

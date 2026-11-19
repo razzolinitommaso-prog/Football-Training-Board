@@ -6,6 +6,7 @@ import { FITNESS_RESULTS_ROLES, motorTestCatalog, motorTestSessionInput, normali
 import { requireAuth } from "../lib/auth";
 import { getPlayerMeasurementTeamScope, normalizeSessionRole, resolveAllowedClubSections } from "../lib/club-scope";
 import { ensureMotorTestStorage, motorRows } from "../lib/motor-test-storage";
+import { ensurePlayerMeasurementStorage, refreshPlayerMeasurements } from "../lib/player-measurements";
 import { rosterMembers } from "../lib/training-roster-policy";
 import { trainingAvailability } from "../lib/training-availability";
 import { staffAttendance } from "../lib/attendance-notifications";
@@ -99,7 +100,7 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
     if (Object.keys(input.results).length > 150 || (!input.linkProgram && input.tests.some(test => test.link) && !input.trainingSessionId)) {
       res.status(400).json({ error: "Scegli la seduta del mister per le prove da aggiungere." }); return;
     }
-    await ensureMotorTestStorage();
+    await Promise.all([ensureMotorTestStorage(), ensurePlayerMeasurementStorage()]);
     const result = await db.transaction(async tx => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${id}))`);
       const previous = motorRows<{ clubId: number; createdAt: string; data: MotorTestSession }>(await tx.execute(sql`
@@ -205,37 +206,11 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
           }
         }
       }
-      if (input.cycle === "start" && active.has("anthropometry") && playerIds.length) {
-        const year = Number(input.date.slice(0, 4)) - (Number(input.date.slice(5, 7)) < 7 ? 1 : 0);
-        const seasonStart = String(year) + "-07-01";
-        const alreadyStarted = new Set(motorRows<{ playerId: number }>(await tx.execute(sql`
-          SELECT DISTINCT key::integer AS "playerId" FROM motor_test_sessions
-          CROSS JOIN LATERAL jsonb_object_keys(data->'results') AS key
-          WHERE club_id=${clubId} AND id<>${id}::uuid AND test_date BETWEEN ${seasonStart}::date AND ${input.date}::date
-            AND (test_date < ${input.date}::date OR created_at < coalesce(${previous?.createdAt ?? null}::timestamptz, now()))
-            AND data->>'cycle'='start'
-            AND EXISTS (SELECT 1 FROM jsonb_array_elements(data->'tests') AS proof WHERE proof->>'id'='anthropometry')
-            AND key IN (${sql.join(playerIds.map(playerId => sql`${String(playerId)}`), sql`,`)})`)).map(row => row.playerId));
-        for (const player of players.filter(player => valid.has(player.id) && !alreadyStarted.has(player.id))) {
-          const { height, weight } = input.results[player.id] as MotorPlayerResult;
-          const history = player.profileHistory;
-          const entry = history?.entry ?? { source: "legacy" as const, date: null, position: player.position, jerseyNumber: player.jerseyNumber, height: player.height, weight: player.weight };
-          const validMeasurement = (value?: number | null) => typeof value === "number" && value > 0;
-          const initialHeight = validMeasurement(entry.height) ? entry.height : validMeasurement(player.height) ? player.height : height == null ? null : Math.round(height);
-          const initialWeight = validMeasurement(entry.weight) ? entry.weight : validMeasurement(player.weight) ? player.weight : weight == null ? null : Math.round(weight);
-          const addHeight = !validMeasurement(player.height) && !validMeasurement(entry.height) && initialHeight != null && initialHeight > 0;
-          const addWeight = !validMeasurement(player.weight) && !validMeasurement(entry.weight) && initialWeight != null && initialWeight > 0;
-          if (!addHeight && !addWeight) continue;
-          await tx.update(playersTable).set({
-            ...(addHeight ? { height: initialHeight } : {}), ...(addWeight ? { weight: initialWeight } : {}),
-            profileHistory: { entry: { ...entry, height: initialHeight, weight: initialWeight }, changes: history?.changes ?? [] },
-          }).where(and(eq(playersTable.id, player.id), eq(playersTable.clubId, clubId)));
-        }
-      }
       const data: MotorTestSession = { ...input, revision: input.revision + 1, id, exerciseIds, stationId };
       await tx.execute(sql`INSERT INTO motor_test_sessions(id, club_id, team_id, test_date, data)
         VALUES(${id}::uuid,${clubId},${input.teamId},${input.date}::date,${JSON.stringify(data)}::jsonb)
         ON CONFLICT(id) DO UPDATE SET test_date=excluded.test_date, data=excluded.data`);
+      await refreshPlayerMeasurements(tx, clubId, players.filter(player => valid.has(player.id)).map(player => player.id));
       return { data };
     });
     if ("error" in result) { res.status(result.status ?? 400).json({ error: result.error }); return; }

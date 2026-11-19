@@ -1,4 +1,36 @@
-import { motorTestSessionInput, type MotorTestSession } from "@workspace/api-zod";
+import { motorTestSessionInput, type MotorTestSession, type MotorTestId } from "@workspace/api-zod";
+
+export type MotorDraftIssue = { path: string[]; playerId?: number; testId?: MotorTestId; message: string };
+export function motorDraftIssues(draft: MotorTestSession): MotorDraftIssue[] {
+  const parsed = motorTestSessionInput.safeParse(draft);
+  return parsed.success ? [] : parsed.error.issues.map(issue => ({ path: issue.path.map(String),
+    playerId: issue.path[0] === "results" ? Number(issue.path[1]) : undefined,
+    testId: issue.path[2] === "tests" ? String(issue.path[3]) as MotorTestId : issue.path[2] === "height" || issue.path[2] === "weight" ? "anthropometry" : undefined,
+    message: issue.code === "too_small" ? "Inserisci un valore maggiore di zero." : issue.code === "too_big" ? "Il valore supera il limite consentito." : issue.code === "invalid_type" ? "Completa il campo con un valore valido." : issue.message }));
+}
+
+/** Keep invalid entries in the local draft; independently valid measurements can still reach the server. */
+export function prepareMotorSave(base: MotorTestSession, draft: MotorTestSession) {
+  const issues = motorDraftIssues(draft);
+  if (!issues.length) return { candidate: structuredClone(draft), issues };
+  if (issues.some(issue => !issue.playerId)) return { candidate: undefined, issues };
+  const candidate = structuredClone(draft);
+  for (const issue of issues) {
+    const id = String(issue.playerId), field = issue.path[2];
+    const player = candidate.results[id];
+    if (!player) return { candidate: undefined, issues };
+    if (field === "height" || field === "weight") player[field] = base.results[id]?.[field] ?? null;
+    else if (field === "tests" && issue.testId) {
+      const old = base.results[id]?.tests[issue.testId];
+      if (old) player.tests[issue.testId] = structuredClone(old);
+      else delete player.tests[issue.testId];
+    } else return { candidate: undefined, issues };
+  }
+  for (const [id, player] of Object.entries(candidate.results)) {
+    if (!base.results[id] && player.height == null && player.weight == null && !Object.keys(player.tests).length) delete candidate.results[id];
+  }
+  return { candidate: motorTestSessionInput.safeParse(candidate).success ? candidate : undefined, issues };
+}
 
 type StoragePort = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 type Envelope = { version: 1; base: MotorTestSession; draft: MotorTestSession; dirty: boolean; updatedAt: number };
@@ -131,13 +163,12 @@ export class MotorDraftStore {
     const entry = this.entries.get(id);
     if (!entry?.dirty || !this.options.allowed(entry.draft)) return;
     if (!force && entry.draft.revision === 0 && !Object.keys(entry.draft.results).length) return;
-    const validation = motorTestSessionInput.safeParse(entry.draft);
-    if (!validation.success) {
-      const issue = validation.error.issues[0];
-      this.report(id, `Bozza sul dispositivo · completa o correggi ${issue.path.join(" / ")}: ${issue.message}`, true);
+    const prepared = prepareMotorSave(entry.base, entry.draft);
+    if (!prepared.candidate || (prepared.issues.length && equal(prepared.candidate, entry.base))) {
+      this.report(id, `Bozza conservata sul dispositivo · ${prepared.issues.length} ${prepared.issues.length === 1 ? "dato da correggere" : "dati da correggere"}. Le altre rilevazioni già salvate restano online.`, true);
       return;
     }
-    const sent = structuredClone(entry.draft);
+    const sent = prepared.candidate;
     this.report(id, "Salvataggio online…", false, true);
     const operation = (async () => {
       try {
@@ -147,9 +178,10 @@ export class MotorDraftStore {
         if (merged.conflicts.length) throw new Error("La risposta online differisce dalle modifiche in corso. La bozza locale è conservata.");
         const local = this.persist({ ...current, base: saved, draft: merged.draft, dirty: !equal(merged.draft, saved) });
         const dirty = this.entries.get(id)!.dirty;
-        this.report(id, dirty
+        const remainingIssues = motorDraftIssues(merged.draft);
+        this.report(id, remainingIssues.length ? `Rilevazioni valide salvate online · ${remainingIssues.length} ${remainingIssues.length === 1 ? "dato da correggere, conservato" : "dati da correggere, conservati"} sul dispositivo.` : dirty
           ? local ? "Salvato sul dispositivo · altre modifiche da sincronizzare." : "Altre modifiche in attesa, senza copia locale. Mantieni aperta la scheda."
-          : local ? "Salvato online e sul dispositivo." : "Salvato online. Copia sul dispositivo non disponibile.", dirty && !local);
+          : local ? "Salvato online e sul dispositivo." : "Salvato online. Copia sul dispositivo non disponibile.", (dirty && !local) || remainingIssues.length > 0);
         this.options.saved(saved);
       } catch (error) {
         if ((error as { status?: number })?.status === 409) {

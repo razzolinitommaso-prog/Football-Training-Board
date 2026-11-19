@@ -131,6 +131,16 @@ export const motorAssessmentSchema = z
       });
   });
 export type MotorAssessment = z.infer<typeof motorAssessmentSchema>;
+export function removeMotorAttempt(assessment: MotorAssessment, id: string): MotorAssessment {
+  const removed = assessment.attempts.find(attempt => attempt.id === id);
+  if (!removed) return assessment;
+  const attempts = assessment.attempts.filter(attempt => attempt.id !== id);
+  const reference = assessment.reference === id
+    ? attempts.find(attempt => attempt.kind === "formal" && attempt.valid)?.id ?? attempts[0]?.id ?? ""
+    : assessment.reference;
+  return { ...assessment, attempts, reference,
+    ...(assessment.tgmd && removed.kind === "formal" ? { tgmd: { ...assessment.tgmd, confirmedProtocol: false } } : {}) };
+}
 export type MotorAttempt = z.infer<typeof motorAttemptSchema>;
 export type MotorField = {
   key: string;
@@ -140,6 +150,7 @@ export type MotorField = {
   options?: string[];
   max?: number;
   integer?: boolean;
+  kind?: "text";
 };
 const field = (
   key: string,
@@ -181,6 +192,10 @@ export const motorMeasureFields: Record<
   ],
   march: [
     field("seconds", "Durata effettiva", "s", "Durata"),
+    field("coordination", "Valutazione della coordinazione", "", "Coordinazione", ["Ottima", "Buona", "Insufficiente"]),
+    { ...field("coordinationNote", "Note sulla coordinazione", "", "Coordinazione"), kind: "text" },
+    field("spaceTime", "Percezione spazio-tempo", "", "Percezione spazio-tempo", ["Ottima", "Buona", "Insufficiente"]),
+    { ...field("spaceTimeNote", "Note sulla percezione spazio-tempo", "", "Percezione spazio-tempo"), kind: "text" },
     field("rotationLevel", "Entità", "", "Rotazione", [
       "Nessuna",
       "Leggera",

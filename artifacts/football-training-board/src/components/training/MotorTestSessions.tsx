@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
+import type { MotorDraftIssue } from "@/lib/motor-test-drafts";
+import { motorMeasureFields } from "@workspace/api-zod";
 
 type Collection = { teams: { id: number; name: string }[]; sessions: MotorTestSession[]; canRecord?: boolean; recordTeamIds?: number[] };
 type Context = { trainingSessionId: number | null; presentCount: number; sessions: { id: number; title: string; time: string }[]; players: { id: number; name: string; family: string | null; coach: string | null }[] };
@@ -32,12 +34,13 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
   const [newItem, setNewItem] = useState<MotorTestId>();
   const [showAllPlayers, setShowAllPlayers] = useState(false);
   const [notice, setNotice] = useState("");
+  const [focusIssue, setFocusIssue] = useState<MotorDraftIssue>();
   const collection = useQuery({
     queryKey: ["/api/motor-tests", club?.id, user?.id, role],
     queryFn: () => customFetch<Collection>("/api/motor-tests"),
     enabled: !!user,
   });
-  const { draft, setDraft, open: openDraft, save, status: saveStatus, recovered, retry } = useMotorTestDraft(session =>
+  const { draft, setDraft, open: openDraft, save, status: saveStatus, recovered, retry, issues } = useMotorTestDraft(session =>
     (canEdit || collection.data?.recordTeamIds?.includes(session.teamId) === true) &&
     (!scopedTeam || session.teamId === scopedTeam) &&
     (!session.linkProgram || !!session.trainingSessionId || context.data?.sessions.length === 1));
@@ -59,6 +62,15 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
   const effectiveSession = draft?.trainingSessionId ?? context.data?.trainingSessionId;
   const selectable = effectiveSession && !showAllPlayers ? roster.filter(player => player.coach === "present") : roster;
   const selected = selectable.find(player => player.id === playerId) ?? selectable[0];
+  useEffect(() => {
+    if (!focusIssue || selected?.id !== focusIssue.playerId || stage !== "results") return;
+    const token = focusIssue.path.at(-1);
+    const attemptIndex = focusIssue.path.indexOf("attempts");
+    const selector = (attemptIndex >= 0 ? `[data-motor-attempt-index="${focusIssue.path[attemptIndex + 1]}"] ` : "") + `[data-motor-field="${CSS.escape(token ?? "")}"]`;
+    const target = (token ? document.querySelector<HTMLElement>(selector) : null) ?? document.querySelector<HTMLElement>(`[data-motor-test-id="${focusIssue.testId ?? "anthropometry"}"]`);
+    target?.focus(); target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    setFocusIssue(undefined);
+  }, [focusIssue, selected?.id, stage, activeTest]);
   const result = selected && draft ? draft.results[selected.id] ?? emptyResult : emptyResult;
   const scored = summarizeMotorTests(draft && selected && Object.values(result.tests).some(row => row?.score != null) ? [
     { date: draft.date, id: draft.id, cycle: draft.cycle, result },
@@ -110,6 +122,13 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
         <span>{saveStatus.message}</span>
         {saveStatus.error && <Button type="button" variant="outline" size="sm" onClick={retry}>Riprova salvataggio</Button>}
       </div>}
+      {issues.length > 0 && <ul className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950" aria-label="Dati della sessione da correggere">{issues.map((issue, index) => <li key={index} className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 flex-1"><strong>{issue.playerId ? roster.find(player => player.id === issue.playerId)?.name ?? "Giocatore da verificare" : "Programma della sessione"}</strong>
+          {issue.testId && <span> · {motorTestCatalog.find(test => test.id === issue.testId)?.title}</span>}
+          {issue.testId && issue.testId !== "anthropometry" && <p className="text-xs font-medium">{motorMeasureFields[issue.testId].filter(field => field.key === issue.path.at(-1)).map(field => `${field.group} · ${field.label}`).join(" · ")}{issue.path.includes("attempts") ? ` · Tentativo ${Number(issue.path[issue.path.indexOf("attempts") + 1]) + 1}` : ""}</p>}
+          <p className="mt-1 text-xs">{issue.message}</p></div>
+        {issue.playerId && <Button type="button" size="sm" variant="outline" onClick={() => { setShowAllPlayers(true); setPlayerId(issue.playerId); setStage("results"); setActiveTest(issue.testId); setFocusIssue(issue); }}>Vai al dato da correggere</Button>}
+      </li>)}</ul>}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
         <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" variant={stage === "session" ? "default" : "outline"} aria-pressed={stage === "session"} onClick={() => setStage("session")}>Sessione</Button>
@@ -202,13 +221,13 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
             {draft.tests.filter(test=>test.id===(activeTest&&draft.tests.some(t=>t.id===activeTest)?activeTest:draft.tests[0]?.id)).map(test => {
               const definition = motorTestCatalog.find(item => item.id === test.id)!;
               const value = result.tests[test.id] ?? emptyTest;
-              return <li key={test.id} className="grid gap-3 rounded-lg border p-3">
+              return <li key={test.id} data-motor-test-id={test.id} className="grid gap-3 rounded-lg border p-3">
                 <MotorTestGuide id={test.id} minutes={test.minutes}/>
                 <div className="grid gap-2 max-sm:grid-cols-[minmax(0,1fr)_6rem] sm:grid-cols-[minmax(0,1fr)_9rem_7rem]">
                   <div className="max-sm:col-span-2"><strong className="text-sm">{definition.title}</strong><p className="text-xs text-muted-foreground">{definition.principle}</p></div>
                   {test.id === "anthropometry" ? <>
-                    <label className="text-xs">Statura · cm<Input className="mt-1" type="number" min={1} max={300} step="any" value={result.height ?? ""} disabled={assessmentReadOnly} onChange={event => updatePlayer({ height: numberValue(event.target.value) })} /></label>
-                    <label className="text-xs">Peso · kg<Input className="mt-1" type="number" min={1} max={400} step="any" value={result.weight ?? ""} disabled={assessmentReadOnly} onChange={event => updatePlayer({ weight: numberValue(event.target.value) })} /></label>
+                    <label className="text-xs">Statura · cm<Input data-motor-field="height" className="mt-1" type="number" min={1} max={300} step="any" value={result.height ?? ""} disabled={assessmentReadOnly} onChange={event => updatePlayer({ height: numberValue(event.target.value) })} /></label>
+                    <label className="text-xs">Peso · kg<Input data-motor-field="weight" className="mt-1" type="number" min={1} max={400} step="any" value={result.weight ?? ""} disabled={assessmentReadOnly} onChange={event => updatePlayer({ weight: numberValue(event.target.value) })} /></label>
                   </> : <>
                     {value.score!=null&&<p className="text-xs text-muted-foreground">Voto storico conservato: {value.score}/10 · non è un punteggio TGMD-3.</p>}
                   </>}

@@ -323,6 +323,7 @@ export function MatchRotationComparison({
               <span>Frazioni {page * pageSize + 1}–{page * pageSize + units.length} di {summary.units.length}</span>
               <Button type="button" size="sm" variant="outline" disabled={page === lastPage} onClick={() => setUnitPage(page + 1)}>Successive</Button>
             </nav>}
+            <div className="match-minute-scroll" role="region" aria-label="Tabella dei minuti, scorribile orizzontalmente" tabIndex={0}>
             <table className="match-minute-grid w-full border-collapse text-xs">
               <thead>
                 <tr className="bg-muted/40 text-left">
@@ -426,6 +427,7 @@ export function MatchRotationComparison({
                 ))}
               </tbody>
             </table>
+            </div>
             <p className="mt-2 text-xs text-muted-foreground">
               T = titolare · P = panchina · — = non assegnato. Le lettere indicano
               le frazioni di ogni tempo. {showActual ? "I minuti effettivi provengono dal resoconto." : "Consulta gli effettivi nella sezione Resoconto."}
