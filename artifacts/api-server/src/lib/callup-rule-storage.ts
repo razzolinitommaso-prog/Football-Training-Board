@@ -13,6 +13,7 @@ export function ensureCallupRulesStorage() {
       minimum integer NOT NULL CHECK (minimum BETWEEN 1 AND sessions),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`);
+    await tx.execute(sql`ALTER TABLE match_callup_rules ADD COLUMN IF NOT EXISTS allow_unrated_conduct boolean NOT NULL DEFAULT false`);
     await tx.execute(sql`CREATE TABLE IF NOT EXISTS training_conduct_reviews (
       club_id integer NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
       session_id integer NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,

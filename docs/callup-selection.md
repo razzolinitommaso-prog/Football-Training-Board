@@ -14,4 +14,12 @@ La regola appartiene alla squadra della partita. La condotta considerata è l'ul
 
 Estesi i test HTTP/PostgreSQL isolati con `--callup-rules`: regole 1/2 e 2/2 memorizzate per squadre distinte; buona condotta senza presenze sufficienti ancora bloccata; assenza di valutazioni da verificare; valutazione precedente valida e nuova Insufficiente che la sostituisce. Tutti superati. Nessuna modifica alle regole o alle convocazioni reali.
 
+## Condotta non ancora registrata: opzione per annata
+
+DT, DG e DS possono abilitare **Da verificare: consenti convocazione** nella modifica della regola. Buona e Ottima restano ammesse; Insufficiente resta sempre bloccante. L'opzione riguarda soltanto la mancanza di una condotta e non rende validi appelli incompleti, presenze sotto soglia o altre indisponibilità.
+
+Il campo `allow_unrated_conduct` viene aggiunto in modo idempotente, con valore iniziale falso per mantenere le regole esistenti. API di lettura, anteprima, selezione e pubblicazione usano lo stesso valore per squadra. Un vecchio client che salva senza il campo mantiene la scelta già registrata. L'allenatore vede la regola ma non può modificarla.
+
+Verifiche aggiuntive: valore booleano e permessi, persistenza, isolamento tra annate, attivazione e disattivazione, condotta Insufficiente sempre bloccata e presenze insufficienti non aggirabili. Test API/PostgreSQL superati. Verificato sul componente reale con dati simulati il percorso modifica, anteprima, salvataggio e riapertura. Typecheck API e frontend superati.
+
 Verifica browser sul componente React reale con dati simulati: deselezione e riselezione di un giocatore, rimozione di tutte le selezioni e ripristino; giocatore non convocabile ancora disabilitato. Typecheck e build frontend superati; build con avvisi preesistenti sulle sourcemap e sulle dimensioni dei bundle.

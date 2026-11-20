@@ -3005,7 +3005,7 @@ function MatchCard({
             {workspace && <>
               {eligibility.data && <details className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
                 <summary className="cursor-pointer font-medium">Regole convocazioni · {eligibility.data.rule.minimum} su {eligibility.data.rule.sessions}</summary>
-                <p className="mt-2 text-xs text-muted-foreground">Presenze minime sugli allenamenti settimanali a partire da lunedì {eligibility.data.weekStart.split("-").reverse().join("/")}. Vale l’ultima condotta registrata. Buona o Ottima consentono la convocazione. La riga di ciascun giocatore spiega gli eventuali blocchi.</p>
+                <p className="mt-2 text-xs text-muted-foreground">Presenze minime sugli allenamenti settimanali a partire da lunedì {eligibility.data.weekStart.split("-").reverse().join("/")}. Vale l’ultima condotta registrata. Buona o Ottima consentono la convocazione; Insufficiente la blocca. {eligibility.data.rule.allowUnratedConduct ? "La regola ammette anche la condotta ancora da registrare." : "La condotta ancora da registrare richiede verifica."} La riga di ciascun giocatore spiega gli eventuali blocchi.</p>
               </details>}
               {eligibility.isError && <p role="alert" className="text-sm text-destructive">Impossibile caricare la verifica delle regole di convocazione.</p>}
               <MatchCallupRoster roster={canManageMatchPlan ? callupRoster : callupRoster.filter(player => player.called)}

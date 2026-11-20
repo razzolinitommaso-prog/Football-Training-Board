@@ -11,13 +11,14 @@ export const RULE_EDIT_ROLES = ["technical_director", "director", "sporting_dire
 export const RULE_READ_ROLES = [...RULE_EDIT_ROLES, "coach", "fitness_coach", "athletic_director", "team_manager"];
 export const conductLabels = { ottima: "Ottima", buona: "Buona", insufficiente: "Insufficiente" } as const;
 export type Conduct = keyof typeof conductLabels;
-export type CallupRule = { sessions: number; minimum: number };
+export type CallupRule = { sessions: number; minimum: number; allowUnratedConduct?: boolean };
 
 export function validCallupRule(value: unknown): value is CallupRule {
   if (!value || typeof value !== "object") return false;
-  const { sessions, minimum } = value as CallupRule;
+  const { sessions, minimum, allowUnratedConduct } = value as CallupRule;
   return Number.isInteger(sessions) && sessions >= 1 && sessions <= 5 &&
-    Number.isInteger(minimum) && minimum >= 1 && minimum <= sessions;
+    Number.isInteger(minimum) && minimum >= 1 && minimum <= sessions &&
+    (allowUnratedConduct === undefined || typeof allowUnratedConduct === "boolean");
 }
 
 export function legacyConduct(notes?: string | null): Conduct | null {
@@ -32,7 +33,7 @@ export function legacyConduct(notes?: string | null): Conduct | null {
 export async function readCallupRule(clubId: number, teamId: number) {
   await ensureCallupRulesStorage();
   return sqlRows<CallupRule & { updatedAt: string }>(await db.execute(sql`
-    SELECT sessions, minimum, updated_at AS "updatedAt" FROM match_callup_rules
+    SELECT sessions, minimum, allow_unrated_conduct AS "allowUnratedConduct", updated_at AS "updatedAt" FROM match_callup_rules
     WHERE club_id = ${clubId} AND team_id = ${teamId}
   `))[0] ?? null;
 }
@@ -85,11 +86,12 @@ export async function evaluateCallupRule(clubId: number, teamId: number, kickoff
     if (lastConduct === "insufficiente") reasons.push("Ultima condotta insufficiente");
     const incomplete = recorded < rule.sessions;
     if (!incomplete && present < rule.minimum) reasons.push(`Presenze insufficienti: ${present}/${rule.sessions}, minimo ${rule.minimum}`);
-    const state = reasons.length ? "blocked" : incomplete || !lastConduct ? "pending" : "eligible";
+    const state = reasons.length ? "blocked" : incomplete || (!lastConduct && !rule.allowUnratedConduct) ? "pending" : "eligible";
     if (incomplete) reasons.push(weekly.length < rule.sessions
       ? `Sedute valide prima della gara: ${weekly.length}/${rule.sessions}`
       : `Appelli da completare: ${rule.sessions - recorded}`);
-    if (!lastConduct) reasons.push("Condotta da registrare");
+    if (!lastConduct) reasons.push(rule.allowUnratedConduct
+      ? "Condotta da registrare: ammessa dalla regola" : "Condotta da registrare");
     return { id: player.id, name: player.lastName + " " + player.firstName,
       present, recorded, conduct: lastConduct, state, reasons };
   });

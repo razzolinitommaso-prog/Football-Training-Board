@@ -34,7 +34,7 @@ router.get("/callup-rules", requireAuth, async (req, res) => {
   if (!access) { res.sendStatus(403); return; }
   await ensureCallupRulesStorage();
   const rules = new Map(sqlRows<CallupRule & { teamId: number; updatedAt: string }>(await db.execute(sql`
-    SELECT team_id AS "teamId", sessions, minimum, updated_at AS "updatedAt" FROM match_callup_rules WHERE club_id = ${req.session.clubId}
+    SELECT team_id AS "teamId", sessions, minimum, allow_unrated_conduct AS "allowUnratedConduct", updated_at AS "updatedAt" FROM match_callup_rules WHERE club_id = ${req.session.clubId}
   `)).map(rule => [rule.teamId, rule]));
   res.json({ canEdit: access.canEdit, teams: access.teams.map(team => ({ ...team, rule: rules.get(team.id) ?? null })) });
 });
@@ -45,10 +45,11 @@ router.put("/callup-rules/:teamId", requireAuth, async (req, res) => {
   if (!access?.canEdit || !access.teams.length) { res.sendStatus(403); return; }
   if (!validCallupRule(req.body)) { res.status(400).json({ error: "Indica da 1 a 5 allenamenti e un minimo compreso nel totale." }); return; }
   await ensureCallupRulesStorage();
-  const { sessions, minimum } = req.body;
-  await db.execute(sql`INSERT INTO match_callup_rules (club_id, team_id, sessions, minimum)
-    VALUES (${req.session.clubId}, ${teamId}, ${sessions}, ${minimum})
-    ON CONFLICT (team_id) DO UPDATE SET sessions = EXCLUDED.sessions, minimum = EXCLUDED.minimum, updated_at = now()
+  const { sessions, minimum, allowUnratedConduct } = req.body;
+  await db.execute(sql`INSERT INTO match_callup_rules (club_id, team_id, sessions, minimum, allow_unrated_conduct)
+    VALUES (${req.session.clubId}, ${teamId}, ${sessions}, ${minimum}, ${allowUnratedConduct ?? false})
+    ON CONFLICT (team_id) DO UPDATE SET sessions = EXCLUDED.sessions, minimum = EXCLUDED.minimum,
+      allow_unrated_conduct = coalesce(${allowUnratedConduct ?? null}::boolean, match_callup_rules.allow_unrated_conduct), updated_at = now()
     WHERE match_callup_rules.club_id = EXCLUDED.club_id`);
   res.sendStatus(204);
 });
