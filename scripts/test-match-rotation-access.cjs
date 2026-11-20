@@ -38,6 +38,9 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       `export {default as rules} from '../../artifacts/api-server/src/routes/callup-rules';export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     fs.appendFileSync(path.join(dir,"entry.ts"),"\nexport {default as clubsRouter} from '../../artifacts/api-server/src/routes/clubs';export {ensureSocietyStorage} from '../../artifacts/api-server/src/lib/society-storage';export {enforceSocietyAccess} from '../../artifacts/api-server/src/lib/society-access';export {default as societies} from '../../artifacts/api-server/src/routes/society-management';export {default as playerFinance} from '../../artifacts/api-server/src/routes/player-finance';");
+    if (process.argv.includes("--callup-rules")) {
+      fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {evaluateCallupRule,readCallupRule} from '../../artifacts/api-server/src/lib/callup-rules';");
+    }
     const bundle = path.join(dir, "bundle.cjs");
     if (process.argv.includes("--member-services")) {
       fs.appendFileSync(path.join(dir,"entry.ts"),"\nexport {default as memberServices} from '../../artifacts/api-server/src/routes/member-services';export * as memberModels from '../../lib/api-zod/src/member-services';export * as memberChart from '../../artifacts/football-training-board/src/lib/member-expense-chart';");
@@ -384,6 +387,28 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       assert.equal(sibling.status, 200, JSON.stringify(sibling.data));
       assert.deepEqual(firstChild.data.map(item => item.type).sort(), ["match_callup", "training_conduct", "training_conduct"]);
       assert.deepEqual(sibling.data, []);
+      // Same attendance, different rules per team; conduct never replaces attendance.
+      await pg.exec("INSERT INTO teams(id,club_id,name,club_section) VALUES(13,1,'Piccoli Amici','scuola_calcio');");
+      assert.equal((await write(path, "PUT", director, { sessions: 2, minimum: 1 })).status, 204);
+      assert.equal((await write("/callup-rules/13", "PUT", director, { sessions: 2, minimum: 2 })).status, 204);
+      assert.equal((await routes.readCallupRule(1, 11)).minimum, 1);
+      assert.equal((await routes.readCallupRule(1, 13)).minimum, 2);
+      await pg.query("INSERT INTO training_sessions(id,club_id,team_id,title,scheduled_at,session_kind,status) VALUES(901,1,11,'Seconda seduta',$1,'regular','completed'),(899,1,11,'Settimana precedente',$2,'regular','completed')", [new Date(now.getTime() - 120_000).toISOString(), new Date(now.getTime() - 7 * 86400_000).toISOString()]);
+      await pg.exec("INSERT INTO training_attendances(id,club_id,training_session_id,player_id,status) VALUES(906,1,901,101,'absent'),(907,1,900,102,'present'),(908,1,901,102,'present');");
+      const check = async rule => (await routes.evaluateCallupRule(1, 11, kickoff, rule)).rows;
+      let rows = await check({ sessions: 2, minimum: 1 });
+      assert.equal(rows.find(row => row.id === 101).present, 1);
+      assert.equal(rows.find(row => row.id === 101).state, "eligible", "1/2 plus good conduct is sufficient for Primi Calci");
+      assert.equal(rows.find(row => row.id === 102).state, "pending", "2/2 without any conduct remains to verify");
+      rows = await check({ sessions: 2, minimum: 2 });
+      assert.equal(rows.find(row => row.id === 101).state, "blocked", "Good conduct cannot bypass a 2/2 attendance rule");
+      assert.ok(rows.find(row => row.id === 101).reasons.some(reason => reason.includes("minimo 2")));
+      await pg.exec("INSERT INTO training_conduct_reviews(club_id,session_id,player_id,conduct) VALUES(1,899,102,'ottima');");
+      rows = await check({ sessions: 2, minimum: 2 });
+      assert.equal(rows.find(row => row.id === 102).state, "eligible", "Latest recorded conduct remains valid when the current session has no new review");
+      assert.equal(rows.find(row => row.id === 102).present, 2);
+      await pg.exec("INSERT INTO training_conduct_reviews(club_id,session_id,player_id,conduct) VALUES(1,900,102,'insufficiente');");
+      assert.equal((await check({ sessions: 2, minimum: 1 })).find(row => row.id === 102).state, "blocked", "New insufficient conduct supersedes older good conduct");
       console.log("Callup permissions, weekly attendance, separate conduct, publication deduplication and sibling scope OK");
       return;
     }
