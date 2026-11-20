@@ -2,6 +2,8 @@
 
 ## Accesso e punti di ingresso
 
+Aggiornamento responsive: nelle card è disponibile **Contratti e compensi**, che apre direttamente Ruoli e contratti. Dettagli e collaudi in [responsive-layout.md](responsive-layout.md). Le squadre senza stagione esplicita sono proponibili nella sola stagione attiva, senza modificarne i dati.
+
 - **Presenze → Membri · allenamenti e partite**: Presidente/Amministratore, DG, DS, DT e Segreteria. Appelli distinti da quelli dei giocatori, una riga per persona/evento anche con più ruoli. Filtri mese, settore, annata, allenamento/partita e membro/ruolo; riepilogo ed esportazioni Excel/PDF.
 - **Membri → Scheda membro**: dati, certificato e allegati, incarichi, piano uscite e dotazione. Gli incarichi professionali non creano profili di accesso né ampliano i permessi di autenticazione.
 - **Pagamenti → Compensi e rimborsi membri**: piano, pagamenti parziali, ricevute, ricerca, mese di competenza e stato. Scheda membro raggiungibile da ogni rata.

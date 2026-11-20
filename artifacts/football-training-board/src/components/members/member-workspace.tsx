@@ -180,10 +180,12 @@ export function MemberWorkspace({
   memberId,
   open,
   onOpenChange,
+  initialPane="profile",
 }: {
   memberId: number | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialPane?: "profile"|"contracts";
 }) {
   const { club, user, role } = useAuth(),
     [pane, setPane] = useState("profile"),
@@ -212,10 +214,10 @@ export function MemberWorkspace({
     enabled: open && detail.data?.canFinance === true,
   });
   useEffect(() => {
-    setPane("profile");
+    setPane(initialPane);
     setEditor(undefined);
     setDirty(false);
-  }, [memberId, open]);
+  }, [memberId, open, initialPane]);
   const close = (next: boolean) => {
     if (
       !next &&

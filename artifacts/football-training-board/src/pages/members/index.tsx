@@ -1,6 +1,6 @@
 import { withApi } from "@/lib/api-base";
 import { MemberWorkspace } from "@/components/members/member-workspace";
-import { memberApi, memberViewRoles, type MemberIndex } from "@/lib/member-services";
+import { memberApi, memberViewRoles, memberExpenseRoles, type MemberIndex } from "@/lib/member-services";
 import { memberRoleLabels } from "@workspace/api-zod";
 import { useState } from "react";
 import { useListClubMembers, useInviteClubMember, useRemoveClubMember, useUpdateClubMemberRole, useListTeams } from "@workspace/api-client-react";
@@ -140,6 +140,7 @@ export default function MembersList() {
   const { t, language } = useLanguage();
   const { role, club, user } = useAuth();
   const [workspaceMember,setWorkspaceMember] = useState<number|null>(null);
+  const [workspacePane,setWorkspacePane] = useState<"profile"|"contracts">("profile");
   const memberServices=useQuery({queryKey:["member-services",club?.id,user?.id,role,"index"],queryFn:()=>memberApi<MemberIndex>(""),enabled:memberViewRoles.includes(role??"")});
   const { data: members = [], isLoading } = useListClubMembers();
   const { data: teams = [] } = useListTeams();
@@ -512,10 +513,11 @@ export default function MembersList() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-display font-bold tracking-tight">{t.staffAndMembers}</h1>
           <p className="text-muted-foreground mt-1">{t.membersDesc}</p>
+          {memberViewRoles.includes(role??"")&&<p className="mt-2 max-w-2xl text-sm text-muted-foreground">Apri la scheda del membro per certificato, incarichi e KIT.{memberExpenseRoles.includes(role??"")&&" Usa Contratti e compensi per impostare importi, mesi, annate e termini di pagamento."}</p>}
         </div>
 
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -771,7 +773,7 @@ export default function MembersList() {
 
       {/* Edit Member Dialog */}
       <Dialog open={!!editingMember} onOpenChange={(open) => { if (!open) setEditingMember(null); }}>
-        <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[560px] max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t.editMember}</DialogTitle>
           </DialogHeader>
@@ -792,7 +794,7 @@ export default function MembersList() {
             {/* Dati anagrafici */}
             <div className="p-3 rounded-lg bg-muted/40 border space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Dati anagrafici</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="responsive-form-grid gap-3">
                 <div className="space-y-1.5">
                   <Label>{t.firstName}</Label>
                   <Input {...editForm.register("firstName")} />
@@ -825,7 +827,7 @@ export default function MembersList() {
             {/* Ruolo e qualifiche */}
             <div className="p-3 rounded-lg bg-muted/40 border space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ruolo e qualifiche</p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="responsive-form-grid gap-3">
                 <div className="space-y-2">
                   <Label>{t.role}</Label>
                   <Controller control={editForm.control} name="role" render={({ field }) => (
@@ -872,7 +874,7 @@ export default function MembersList() {
                   staffRoleValue={watchedEditStaffRoleValue}
                 />
               )}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="responsive-form-grid gap-3">
                 <div className="space-y-2">
                   <Label>{t.registrationNumber}</Label>
                   <Input {...editForm.register("registrationNumber")} />
@@ -1145,7 +1147,8 @@ export default function MembersList() {
       </div>
 
       {/* Members list */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {memberServices.isError&&memberViewRoles.includes(role??"")&&<p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">Impossibile caricare gli incarichi membri. <Button variant="outline" size="sm" onClick={()=>void memberServices.refetch()}>Riprova</Button></p>}
+      <div className="responsive-card-grid gap-4">
         {isLoading ? (
           Array(4).fill(0).map((_, i) => (
             <div key={i} className="bg-card border border-border/50 rounded-xl p-5 flex items-center gap-4 shadow-sm">
@@ -1169,17 +1172,17 @@ export default function MembersList() {
             : ["scuola_calcio" as ClubSection];
           const memberStaffRoles = staffRoleLabelsForMember(member, memberSecs);
           return (
-          <div key={member.id} className="relative overflow-hidden rounded-xl border border-border/50 bg-card shadow-md transition-shadow hover:shadow-lg">
-            <div className="flex w-full min-w-0 items-start gap-4 p-5">
-            <Avatar className="h-14 w-14 border-2 border-primary/20 shrink-0">
+          <div key={member.id} data-testid="member-card" className="member-card relative flex min-w-0 flex-col rounded-xl border border-border/50 bg-card shadow-md transition-shadow hover:shadow-lg">
+            <div className="flex w-full min-w-0 flex-1 items-start gap-3 p-4">
+            <Avatar className="h-11 w-11 border-2 border-primary/20 shrink-0">
               <AvatarFallback className="bg-primary/5 text-primary text-lg font-bold">
                 {member.firstName[0]}{member.lastName[0]}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-semibold text-foreground truncate">{member.firstName} {member.lastName}</h3>
+              <h3 className="text-lg font-semibold text-foreground break-words">{member.firstName} {member.lastName}</h3>
               {memberServices.data?.members.find(p=>p.id===member.id)?.duties.filter(d=>d.active).map(d=><span key={d.id} className="mr-1 mt-1 inline-block rounded-full border px-2 py-0.5 text-xs">{memberRoleLabels[d.role as keyof typeof memberRoleLabels]??d.role} · {d.title}</span>)}
-              <p className="text-sm text-muted-foreground truncate">{member.email}</p>
+              <p className="text-sm text-muted-foreground break-all">{member.email}</p>
               <p className="text-xs text-muted-foreground/70 mt-0.5">
                 {t.joined} {format(new Date(member.joinedAt), "MMM yyyy", { locale })}
               </p>
@@ -1237,12 +1240,17 @@ export default function MembersList() {
                 <p className="text-xs text-muted-foreground mt-1">{member.phone}</p>
               )}
             </div>
-            {memberViewRoles.includes(role??"")&&<Button type="button" variant="outline" size="sm" className="shrink-0" onClick={()=>setWorkspaceMember(member.id)}>Scheda membro</Button>}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/50 p-3">
+            {memberViewRoles.includes(role??"")&&<Button type="button" variant="outline" size="sm" className="h-auto min-h-9 whitespace-normal" onClick={()=>{setWorkspacePane("profile");setWorkspaceMember(member.id);}}>Scheda membro</Button>}
+            {memberExpenseRoles.includes(role??"")&&<Button type="button" size="sm" className="h-auto min-h-9 whitespace-normal" onClick={()=>{setWorkspacePane("contracts");setWorkspaceMember(member.id);}}>Contratti e compensi</Button>}
             {canManageThisMember && (
-            <div className="flex shrink-0 flex-col gap-1">
+            <div className="ml-auto flex shrink-0 gap-1">
               <Button
                 variant="ghost"
                 size="icon"
+                title="Modifica anagrafica e accesso"
+                aria-label={`Modifica anagrafica e accesso di ${member.firstName} ${member.lastName}`}
                 className="text-muted-foreground hover:text-primary"
                 onClick={() => openEdit(member)}
               >
@@ -1251,6 +1259,8 @@ export default function MembersList() {
               <Button
                 variant="ghost"
                 size="icon"
+                title="Rimuovi membro"
+                aria-label={`Rimuovi ${member.firstName} ${member.lastName}`}
                 className="text-muted-foreground hover:text-destructive"
                 onClick={() => { if (confirm(t.removeMember)) removeMutation.mutate({ userId: member.id }) }}
               >
@@ -1263,7 +1273,7 @@ export default function MembersList() {
           );
         })}
       </div>
-      <MemberWorkspace memberId={workspaceMember} open={workspaceMember!==null} onOpenChange={open=>{if(!open)setWorkspaceMember(null);}}/>
+      <MemberWorkspace memberId={workspaceMember} initialPane={workspacePane} open={workspaceMember!==null} onOpenChange={open=>{if(!open)setWorkspaceMember(null);}}/>
     </div>
   );
 }

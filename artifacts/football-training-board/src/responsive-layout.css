@@ -1,0 +1,321 @@
+/* Layout follows the usable pane, including a docked sidebar and larger account fonts.
+   Fixed diagrams/canvases can opt out of grid caps with data-fixed-grid. */
+@layer utilities {
+  .app-shell {
+    container: app-shell / inline-size;
+  }
+  .app-page {
+    container: app-page / inline-size;
+  }
+  .app-dialog {
+    container: app-dialog / inline-size;
+  }
+  .header-brand,
+  .header-account-details {
+    display: none;
+  }
+  .header-context {
+    display: flex;
+  }
+  .responsive-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  }
+  .responsive-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  }
+  .responsive-card-grid > *,
+  .responsive-form-grid > *,
+  .app-dialog > * {
+    min-width: 0;
+  }
+  .app-dialog label > button[role="combobox"] {
+    width: 100%;
+  }
+  @container app-shell (min-width: 40rem) {
+    .header-brand {
+      display: flex;
+    }
+    .header-context {
+      display: none;
+    }
+  }
+  @container app-shell (min-width: 64rem) {
+    .header-account-details {
+      display: flex;
+    }
+  }
+  @container app-shell (max-width: 28rem) {
+    .app-header {
+      column-gap: 0.25rem;
+      padding-inline: 0.5rem;
+    }
+    .header-actions,
+    .header-account {
+      gap: 0.25rem;
+    }
+    .header-account {
+      padding-left: 0.25rem;
+    }
+    .app-header button[data-slot="button"],
+    .app-header button[aria-label^="Aspetto"],
+    .app-header button[title="Logout"],
+    .app-header button[title^="Nuova comunicazione"],
+    .app-header button[title="Comunicazioni"] {
+      flex-shrink: 0;
+      width: 2rem;
+      height: 2rem;
+    }
+  }
+  @media (min-width: 640px) {
+    @container app-page (width < 40rem) {
+      .app-page .sm\:grid-cols-2:not([data-fixed-grid]),
+      .app-page .sm\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .sm\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .sm\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .sm\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (width < 40rem) {
+      .app-dialog .sm\:grid-cols-2:not([data-fixed-grid]),
+      .app-dialog .sm\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .sm\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .sm\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .sm\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-page (40rem <= width < 56rem) {
+      .app-page .sm\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .sm\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .sm\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .sm\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (40rem <= width < 56rem) {
+      .app-dialog .sm\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .sm\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .sm\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .sm\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-page (56rem <= width < 72rem) {
+      .app-page .sm\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .sm\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .sm\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (56rem <= width < 72rem) {
+      .app-dialog .sm\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .sm\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .sm\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+  }
+  @media (min-width: 768px) {
+    @container app-page (width < 40rem) {
+      .app-page .md\:grid-cols-2:not([data-fixed-grid]),
+      .app-page .md\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .md\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .md\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .md\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (width < 40rem) {
+      .app-dialog .md\:grid-cols-2:not([data-fixed-grid]),
+      .app-dialog .md\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .md\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .md\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .md\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-page (40rem <= width < 56rem) {
+      .app-page .md\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .md\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .md\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .md\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (40rem <= width < 56rem) {
+      .app-dialog .md\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .md\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .md\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .md\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-page (56rem <= width < 72rem) {
+      .app-page .md\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .md\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .md\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (56rem <= width < 72rem) {
+      .app-dialog .md\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .md\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .md\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+  }
+  @media (min-width: 1024px) {
+    @container app-page (width < 40rem) {
+      .app-page .lg\:grid-cols-2:not([data-fixed-grid]),
+      .app-page .lg\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .lg\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .lg\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .lg\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (width < 40rem) {
+      .app-dialog .lg\:grid-cols-2:not([data-fixed-grid]),
+      .app-dialog .lg\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .lg\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .lg\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .lg\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-page (40rem <= width < 56rem) {
+      .app-page .lg\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .lg\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .lg\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .lg\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (40rem <= width < 56rem) {
+      .app-dialog .lg\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .lg\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .lg\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .lg\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-page (56rem <= width < 72rem) {
+      .app-page .lg\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .lg\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .lg\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (56rem <= width < 72rem) {
+      .app-dialog .lg\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .lg\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .lg\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+  }
+  @media (min-width: 1280px) {
+    @container app-page (width < 40rem) {
+      .app-page .xl\:grid-cols-2:not([data-fixed-grid]),
+      .app-page .xl\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (width < 40rem) {
+      .app-dialog .xl\:grid-cols-2:not([data-fixed-grid]),
+      .app-dialog .xl\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-page (40rem <= width < 56rem) {
+      .app-page .xl\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (40rem <= width < 56rem) {
+      .app-dialog .xl\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-page (56rem <= width < 72rem) {
+      .app-page .xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (56rem <= width < 72rem) {
+      .app-dialog .xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+  }
+  @media (min-width: 1536px) {
+    @container app-page (width < 40rem) {
+      .app-page .\32 xl\:grid-cols-2:not([data-fixed-grid]),
+      .app-page .\32 xl\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .\32 xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .\32 xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .\32 xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (width < 40rem) {
+      .app-dialog .\32 xl\:grid-cols-2:not([data-fixed-grid]),
+      .app-dialog .\32 xl\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .\32 xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .\32 xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .\32 xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
+    }
+    @container app-page (40rem <= width < 56rem) {
+      .app-page .\32 xl\:grid-cols-3:not([data-fixed-grid]),
+      .app-page .\32 xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .\32 xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .\32 xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (40rem <= width < 56rem) {
+      .app-dialog .\32 xl\:grid-cols-3:not([data-fixed-grid]),
+      .app-dialog .\32 xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .\32 xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .\32 xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @container app-page (56rem <= width < 72rem) {
+      .app-page .\32 xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-page .\32 xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-page .\32 xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+    @container app-dialog (56rem <= width < 72rem) {
+      .app-dialog .\32 xl\:grid-cols-4:not([data-fixed-grid]),
+      .app-dialog .\32 xl\:grid-cols-5:not([data-fixed-grid]),
+      .app-dialog .\32 xl\:grid-cols-6:not([data-fixed-grid]) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+  }
+}

@@ -157,7 +157,7 @@ router.get(
     const [list, teams, seasons] = await Promise.all([
       members(club),
       db.execute(
-        sql`SELECT id,name,club_section AS section,season_id AS "seasonId" FROM teams WHERE club_id=${club} ORDER BY name`,
+        sql`SELECT id,name,club_section AS section,coalesce(season_id,(SELECT id FROM seasons WHERE club_id=${club} AND is_active ORDER BY start_date DESC,id DESC LIMIT 1)) AS "seasonId" FROM teams WHERE club_id=${club} ORDER BY name`,
       ),
       db.execute(
         sql`SELECT id,name,start_date AS "startDate",end_date AS "endDate",is_active AS "isActive" FROM seasons WHERE club_id=${club} ORDER BY start_date DESC`,
@@ -368,7 +368,7 @@ router.put(
         );
       for (const allocation of c.allocations) {
         const team = await tx.execute(
-          sql`SELECT id FROM teams WHERE id=${allocation.teamId} AND club_id=${club} AND season_id=${c.seasonId}`,
+          sql`SELECT id FROM teams WHERE id=${allocation.teamId} AND club_id=${club} AND (season_id=${c.seasonId} OR (season_id IS NULL AND ${c.seasonId}=(SELECT id FROM seasons WHERE club_id=${club} AND is_active ORDER BY start_date DESC,id DESC LIMIT 1)))`,
         );
         if (!team.rows.length)
           throw new MemberError(

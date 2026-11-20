@@ -41,6 +41,11 @@ module.exports = async ({ pg, base, call, models, chart }) => {
     ok(await get("/expenses", role));
   const index = await get("");
   ok(index);
+  await pg.exec("UPDATE teams SET season_id=NULL WHERE id=12");
+  assert.equal(
+    (await get("")).data.teams.find((t) => t.id === 12).seasonId,
+    70,
+  );
   assert.equal(index.data.members.filter((m) => m.id === 3).length, 1);
   assert.deepEqual(index.data.members.find((m) => m.id === 3).roles.sort(), [
     "coach",
@@ -100,6 +105,19 @@ module.exports = async ({ pg, base, call, models, chart }) => {
     active: true,
   };
   const installments = models.memberInstallments(contract);
+  await pg.exec(
+    "INSERT INTO seasons(id,club_id,name,start_date,end_date,is_active) VALUES(71,1,'2025/2026','2025-07-01','2026-06-30',false)",
+  );
+  const historic = {
+    ...contract,
+    id: randomUUID(),
+    seasonId: 71,
+    fromMonth: "2025-09",
+    toMonth: "2025-11",
+    lastPaymentDate: "2025-12-31",
+    allocations: [{ teamId: 12, share: 10000 }],
+  };
+  ok(await write(`/3/contracts/${historic.id}`, historic), 400);
   assert.equal(
     installments.reduce((s, r) => s + r.amountCents, 0),
     100001,

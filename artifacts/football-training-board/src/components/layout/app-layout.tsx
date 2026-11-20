@@ -38,7 +38,6 @@ const ROLE_LABELS: Record<string, string> = {
   superadmin:         "Super Admin",
 };
 
-const MOBILE_BREAKPOINT = 768;
 const NOTIFICATION_POLL_MS = 30000;
 
 type LayoutNotification = {
@@ -125,9 +124,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const seenNotificationKeysRef = useRef<Set<string> | null>(null);
   const canWatchClubNotifications = !!user?.id && !!activeClub?.id && role !== "parent" && role !== "superadmin" && role !== "team_manager";
 
-  const defaultSidebarOpen = typeof window !== "undefined"
-    ? window.innerWidth >= MOBILE_BREAKPOINT
-    : true;
+  // Mobile uses its own closed drawer; keep the desktop preference when resizing.
+  const defaultSidebarOpen = true;
 
   const unreadNotificationCount = unreadNotifications.length;
   const newestUnreadNotification = useMemo(
@@ -274,9 +272,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <SidebarProvider defaultOpen={defaultSidebarOpen} style={style}>
       <div className="flex h-dvh min-h-svh w-full overflow-hidden bg-muted/30">
         <AppSidebar rolePreview={canPreviewRoles && rolePreview} onRolePreviewChange={setRolePreview} roleLabels={ROLE_LABELS} />
-        <div className="mobile-contain-x flex flex-col flex-1 min-w-0 overflow-hidden">
+        <div className="app-shell mobile-contain-x flex flex-col flex-1 min-w-0 overflow-hidden">
           <header
-            className={`mobile-safe-header flex shrink-0 items-center justify-between overflow-hidden px-4 pb-0 sm:px-6 sm:pt-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 transition-all duration-200 ${
+            className={`app-header mobile-safe-header flex shrink-0 items-center justify-between gap-2 overflow-hidden px-3 pb-0 sm:px-5 sm:pt-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 transition-all duration-200 ${
               isTacticalBoardRoute && hideTacticalHeader
                 ? "h-0 border-b-0 opacity-0 pointer-events-none"
                 : "h-[calc(4rem+max(env(safe-area-inset-top),2.25rem))] border-b opacity-100 sm:h-16"
@@ -299,7 +297,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
               )}
-              <div className="hidden min-w-0 flex-1 sm:flex items-center gap-2">
+              <div className="header-brand min-w-0 flex-1 items-center gap-2">
                 {clubLogoUrl && (
                   <img
                     src={clubLogoUrl}
@@ -321,21 +319,21 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   </Badge>
                 )}
               </div>
-              <div className="flex min-w-0 flex-col gap-1 sm:hidden">
+              <div className="header-context min-w-0 flex-1 flex-col gap-1">
                 {role && ROLE_LABELS[role] && (
-                  <Badge variant="secondary" className="w-fit max-w-[42vw] truncate text-[10px] font-medium">
+                  <Badge variant="secondary" className="w-fit max-w-full truncate text-[10px] font-medium">
                     {ROLE_LABELS[role]}
                   </Badge>
                 )}
                 {workspaceAreaLabel && (
-                  <Badge variant="outline" className="w-fit max-w-[42vw] truncate text-[10px] font-medium">
+                  <Badge variant="outline" className="w-fit max-w-full truncate text-[10px] font-medium">
                     {workspaceAreaLabel}
                   </Badge>
                 )}
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <div className="header-actions flex shrink-0 items-center gap-1 sm:gap-2">
               <AppearanceMenu />
               {role !== "team_manager" && <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -430,8 +428,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 </DropdownMenuContent>
               </DropdownMenu>}
 
-              <div className="flex items-center gap-2 sm:gap-3 pl-3 sm:pl-4 border-l">
-                <div className="hidden max-w-44 shrink-0 xl:flex flex-col items-end [&>span]:max-w-full [&>span]:truncate">
+              <div className="header-account flex items-center gap-2 sm:gap-3 pl-2 sm:pl-3 border-l">
+                <div className="header-account-details max-w-44 shrink-0 flex-col items-end [&>span]:max-w-full [&>span]:truncate">
                   <span className="text-sm font-medium leading-none">{user?.firstName} {user?.lastName}</span>
                   <span className="text-xs text-muted-foreground capitalize">{user?.email}</span>
                 </div>
@@ -503,7 +501,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             )}
             <div
               className={
-                isTacticalBoardRoute ? "relative z-10 w-full min-w-0" : "mobile-contain-x relative z-10 mx-auto w-full min-w-0 max-w-7xl"
+                isTacticalBoardRoute ? "relative z-10 w-full min-w-0" : "app-page mobile-contain-x relative z-10 mx-auto w-full min-w-0 max-w-7xl"
               }
             >
               {role === "parent" && <ParentChildSwitcher />}

@@ -235,7 +235,7 @@ export function MemberContractEditor({
           Chiudi senza salvare
         </Button>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="responsive-form-grid gap-3">
         <label className="space-y-1 text-sm">
           Descrizione
           <Input
@@ -517,7 +517,7 @@ export function MemberContractEditor({
           {error}
         </p>
       )}
-      <Button type="submit" disabled={save.isPending}>
+      <Button type="submit" className="h-auto min-h-9 max-w-full whitespace-normal" disabled={save.isPending}>
         {save.isPending
           ? "Salvataggio…"
           : "Salva incarico e aggiorna piano uscite"}
