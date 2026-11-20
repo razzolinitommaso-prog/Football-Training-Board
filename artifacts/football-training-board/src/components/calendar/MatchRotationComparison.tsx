@@ -183,7 +183,9 @@ export function MatchCallupRoster({ roster, onCallup }: {
               disabled={(p.disabled && !p.called) || !onCallup}
               aria-label={"Convoca " + p.name}
               onCheckedChange={(v) => {
-                if (!called.length) setAll(true);
+                // Keep the full editable list visible after removing a selection,
+                // so the same player can be selected again before saving.
+                setAll(true);
                 onCallup?.(p.id, v === true);
               }}
             />
