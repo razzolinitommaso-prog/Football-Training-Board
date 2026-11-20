@@ -1,4 +1,6 @@
 import { useTechnicalScope } from "@/components/technical-scope";
+import { MemberAttendance } from "@/components/members/member-attendance";
+import { memberViewRoles } from "@/lib/member-services";
 import { AttendanceRegister } from "@/components/training/AttendanceRegister";
 import { sessionTeamIds } from "@workspace/api-zod";
 import { trainingPrincipleLabel } from "@workspace/api-zod";
@@ -779,9 +781,10 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
 
 export default function AttendancePage({ section: pageSection }: { section?: "scuola_calcio" | "settore_giovanile" | "prima_squadra" }) {
   const scope = useTechnicalScope(); const section = scope.enabled ? scope.section : pageSection;
+  const {role}=useAuth();const [view,setView]=useState<"players"|"members">("players"),[membersDirty,setMembersDirty]=useState(false);
   const search = useSearch();
   const query = new URLSearchParams(search);
-  if (query.has("sessionId") || query.has("date")) return <AttendanceSheet key={search} section={section} />;
   const path = section ? "/" + section.replace(/_/g, "-") + "/attendance" : "/attendance";
-  return <AttendanceRegister key={`${section}:${scope.teamId}`} section={section} lockTeam={scope.enabled && !!scope.teamId} initialTeamId={scope.enabled && scope.teamId ? String(scope.teamId) : query.get("teamId") ?? undefined} attendancePath={path} />;
+  return <div className="space-y-4">{memberViewRoles.includes(role??"")&&<div className="flex flex-wrap gap-2"><Button type="button" aria-pressed={view==="players"} variant={view==="players"?"default":"outline"} onClick={()=>{if(!membersDirty||window.confirm("Scartare le modifiche non salvate alle presenze membri?"))setView("players");}}>Giocatori</Button><Button type="button" aria-pressed={view==="members"} variant={view==="members"?"default":"outline"} onClick={()=>setView("members")}>Membri · allenamenti e partite</Button></div>}
+    {view==="members"&&memberViewRoles.includes(role??"")?<MemberAttendance onDirty={setMembersDirty} section={section} initialDate={query.get("date")??undefined} initialEventId={Number(query.get("sessionId"))||undefined}/>:query.has("sessionId")||query.has("date")?<AttendanceSheet key={search} section={section}/>:<AttendanceRegister key={`${section}:${scope.teamId}`} section={section} lockTeam={scope.enabled && !!scope.teamId} initialTeamId={scope.enabled && scope.teamId ? String(scope.teamId) : query.get("teamId") ?? undefined} attendancePath={path}/>}</div>;
 }

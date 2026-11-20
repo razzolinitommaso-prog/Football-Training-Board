@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { MemberKitRequests } from "@/components/members/member-kit";
 import { KIT_REQUEST_STATUS, PLAYER_KIT_ROWS, PLAYER_KIT_SLOTS, kitRowNeedsLink, savedKitSelections, suggestKitSlots, type KitRequestLine } from "@/lib/player-kit-catalog";
 import { useAuth } from "@/hooks/use-auth";
 import { normalizeSessionRole } from "@/lib/session-role";
@@ -642,6 +643,7 @@ export default function WarehousePage() {
       )}
 
 
+      {section === "apparel" && <MemberKitRequests/>}
       {section === "apparel" && (
         <details className="group rounded-lg border bg-card">
           <DisclosureSummary className="px-4 py-3">

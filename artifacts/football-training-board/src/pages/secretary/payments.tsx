@@ -1,5 +1,9 @@
 import { addChartDays, paymentChartKey, paymentChartWindow } from "@/lib/payment-chart-time";
 import { PlayerPaymentWorkspace } from "@/components/player-payment-register";
+import { MemberExpensesPanel } from "@/components/members/member-finance";
+import { MemberWorkspace } from "@/components/members/member-workspace";
+import { memberApi, memberExpenseRoles, type MemberExpenses } from "@/lib/member-services";
+import { memberExpenseMovements } from "@/lib/member-expense-chart";
 import { PaymentKitOrderButton } from "@/components/payment-kit-order";
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -53,8 +57,11 @@ const chartSeries = [
   { key: "otherMethod", label: "Altro o senza metodo", color: "#64748b", stack: "incassato" },
   { key: "pending", label: ledgerStatusLabels.pending, color: "#d97706", stack: "da-incassare" },
   { key: "overdue", label: "Scaduto", color: "#dc2626", stack: "da-incassare" },
+  { key: "memberPaid", label: "Uscite membri · pagate", color: "#0f766e", stack: "uscite" },
+  { key: "memberPending", label: "Uscite membri · da pagare", color: "#b45309", stack: "uscite" },
+  { key: "memberOverdue", label: "Uscite membri · scadute", color: "#be123c", stack: "uscite" },
 ] as const;
-const emptyMonth = { cash: 0, card: 0, bank_transfer: 0, otherMethod: 0, pending: 0, overdue: 0 };
+const emptyMonth = { cash: 0, card: 0, bank_transfer: 0, otherMethod: 0, pending: 0, overdue: 0, memberPaid: 0, memberPending: 0, memberOverdue: 0 };
 type MonthlyAmounts = typeof emptyMonth;
 const receiptSeries = chartSeries.filter(series => series.stack === "incassato");
 const scaleLabel = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0, useGrouping: true });
@@ -82,7 +89,11 @@ export default function PaymentsPage() {
   const { toast } = useToast();
   const cache = useQueryClient();
   const today = trainingLocalDate();
-  const [view, setView] = useState<"players" | "ledger">("players");
+  const [view, setView] = useState<"players" | "ledger" | "members">("players");
+  const canFinance = memberExpenseRoles.includes(role ?? "");
+  const [workspaceMember, setWorkspaceMember] = useState<number|null>(null);
+  const [includeExpenses, setIncludeExpenses] = useState(true);
+  const expenses = useQuery({queryKey:["member-services",club?.id,user?.id,role,"expenses"], queryFn:()=>memberApi<MemberExpenses>("/expenses"),enabled:canFinance});
   const [focusPlayerSearch, setFocusPlayerSearch] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
@@ -193,12 +204,16 @@ export default function PaymentsPage() {
     const forecast = annualForecasts.get(movementYear);
     if (forecast !== undefined) annualForecasts.set(movementYear, forecast + Math.round(payment.amount * 100));
   }
+  for (const row of expenses.data?.dues ?? []) yearsWithMovements.add(row.dueDate.slice(0,4));
+  for (const row of expenses.data?.receipts ?? []) yearsWithMovements.add(row.paidDate.slice(0,4));
   const years = [...yearsWithMovements].sort().reverse();
   const startMonth = period === "custom" ? fromMonth : monthKey(year, period === "annual" ? 1 : quarter * 3 - 2);
   const endMonth = period === "custom" ? toMonth : monthKey(year, period === "annual" ? 12 : quarter * 3);
   const validRange = /^\d{4}-(?:0[1-9]|1[0-2])$/.test(startMonth) && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(endMonth) && startMonth <= endMonth;
   const chartWindow = validRange ? paymentChartWindow(startMonth, endMonth, zoom, focus || today) : null;
-  const seriesForView = zoom === 3 ? receiptSeries : chartSeries;
+  // Player-specific filters keep the existing income-only meaning.
+  const showExpenses = canFinance && includeExpenses && !category && !search.trim() && !status && !method;
+  const seriesForView = zoom === 3 ? receiptSeries : chartSeries.filter(series=>showExpenses || series.stack!=="uscite");
   const amounts = new Map(chartWindow?.keys.map(key => [key, { ...emptyMonth }]));
   const bucketDates = new Map<string, string>();
   const hourlyReceipts = new Map<string, { id: number; time: string; amount: number; method: string }[]>();
@@ -229,6 +244,15 @@ export default function PaymentsPage() {
       hourlyReceipts.set(key, rows);
     }
   }
+  let untimedExpenses = 0;
+  const addExpense=(date:string,amount:number,key:"memberPaid"|"memberPending"|"memberOverdue")=>{
+    if(!showExpenses||!chartWindow||date<chartWindow.from||date>chartWindow.to)return;
+    if(zoom===3){if(key==="memberPaid")untimedExpenses+=amount;return;}
+    const bucket=paymentChartKey(date,zoom);const values=amounts.get(bucket);if(!values)return;
+    values[key]-=amount;periodTotals[key]-=amount;
+    if(!bucketDates.has(bucket)||date<bucketDates.get(bucket)!)bucketDates.set(bucket,date);
+  };
+  for(const row of memberExpenseMovements(expenses.data,team,today))addExpense(row.date,row.amount,row.key);
   const chartPoints = [...amounts].map(([key, values]) => ({ key, ...Object.fromEntries(chartSeries.map(series => [series.key, values[series.key] / 100])) }));
   const [selectedHour, setSelectedHour] = useState("");
   const activeHour = amounts.has(selectedHour) ? selectedHour : [...hourlyReceipts.keys()].sort()[0] ?? chartPoints[0]?.key;
@@ -262,7 +286,7 @@ export default function PaymentsPage() {
     else setFocus(bucketDates.get(key) ?? (zoom === 0 ? key + "-01" : key));
   };
   const chartTotal = receiptSeries.reduce((sum, series) => sum + periodTotals[series.key], 0);
-  const periodScale = chartScale(Math.max(...Object.values(periodTotals)) / 100);
+  const periodScale = chartScale(Math.max(...Object.values(periodTotals).map(Math.abs)) / 100);
 
   return <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -280,7 +304,9 @@ export default function PaymentsPage() {
     <div className="flex flex-wrap gap-2">
       <Button type="button" aria-pressed={view === "players"} variant={view === "players" ? "default" : "outline"} onClick={() => { setFocusPlayerSearch(false); setView("players"); }}>Incassi giocatori</Button>
       <Button type="button" aria-pressed={view === "ledger"} variant={view === "ledger" ? "default" : "outline"} onClick={() => setView("ledger")}>Registro e grafici</Button>
+      {canFinance&&<Button type="button" aria-pressed={view==="members"} variant={view==="members"?"default":"outline"} onClick={()=>setView("members")}>Compensi e rimborsi membri</Button>}
     </div>
+    {view==="ledger"&&canFinance&&<div className="space-y-2 rounded-xl border bg-card p-3 text-sm"><label className="flex items-center gap-2"><input type="checkbox" checked={includeExpenses} onChange={event=>setIncludeExpenses(event.target.checked)}/>Mostra nel grafico anche le uscite membri</label><p className="text-xs text-muted-foreground">Uscite sotto lo zero: pagamenti alla data effettiva, residui alla scadenza. Il filtro annata segue la ripartizione del contratto. I filtri giocatore, categoria, stato e metodo mostrano soltanto gli incassi giocatori.</p>{expenses.isPending?<p role="status">Caricamento uscite membri…</p>:expenses.isError?<p role="alert">Uscite membri non disponibili. <Button variant="outline" size="sm" onClick={()=>void expenses.refetch()}>Riprova</Button></p>:null}{zoom===3&&untimedExpenses>0&&<p>Uscite pagate senza orario, escluse dal dettaglio orario: {money.format(untimedExpenses/100)}</p>}</div>}
     {view === "ledger" && <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-3 md:grid-cols-3 xl:grid-cols-6">
       <label className="min-w-0 space-y-1 text-xs font-medium">Giocatore o descrizione
         <Input placeholder="Cerca…" value={search} onChange={event => setSearch(event.target.value)} />
@@ -316,7 +342,7 @@ export default function PaymentsPage() {
       </label>
     </div>}
 
-    {list.isPending ? <p role="status">Caricamento pagamenti…</p> : list.isError ? (
+    {view==="members"&&canFinance?<MemberExpensesPanel onOpenMember={setWorkspaceMember}/>:list.isPending ? <p role="status">Caricamento pagamenti…</p> : list.isError ? (
       <div role="alert" className="flex flex-wrap items-center gap-2">Impossibile caricare i pagamenti.
         <Button type="button" variant="outline" size="sm" onClick={() => void list.refetch()}>Riprova</Button>
       </div>
@@ -415,7 +441,7 @@ export default function PaymentsPage() {
                 return <Chart data={chartPoints} margin={{ top: 12, right: 12 }} onClick={state => { if (!dragged.current) pickBucket(state?.activeLabel == null ? undefined : String(state.activeLabel)); }}>
                   <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
                   <XAxis dataKey="key" minTickGap={12} tickFormatter={axisLabel} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis width={54} domain={[0, "auto"]} tickFormatter={value => axisAmount.format(value)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis width={64} domain={["auto", "auto"]} tickFormatter={value => axisAmount.format(value)} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
                   <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} />
                   <Tooltip labelFormatter={key => axisLabel(String(key))} formatter={value => money.format(Number(value))} />
                   {seriesForView.map(series => chartType === "bars"
@@ -433,7 +459,7 @@ export default function PaymentsPage() {
             {selectedReceipts.length ? <ul className="space-y-1">{selectedReceipts.map(row => <li key={row.id} className="flex flex-wrap justify-between gap-2"><span>{row.time} · {row.method}</span><strong>{money.format(row.amount / 100)}</strong></li>)}</ul> : <p className="text-muted-foreground">Nessun incasso con orario in questa fascia.</p>}
             {untimedReceipts > 0 && <p className="text-muted-foreground">Incassi del giorno senza orario: {money.format(untimedReceipts / 100)}.</p>}
           </div>}
-          <p className="mt-2 text-xs text-muted-foreground">Le uscite, quando saranno disponibili, compariranno sotto la linea dello zero.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Gli incassi sono sopra lo zero; le uscite membri sono sotto lo zero quando abilitate. Le schede riepilogative in alto riguardano gli incassi giocatori.</p>
         </> : <p role="status" className="mt-3 text-sm text-muted-foreground">Scegli un mese iniziale e uno finale in ordine cronologico.</p>}
         {undatedReceipts > 0 && <p className="mt-2 text-xs text-muted-foreground">Incassi senza data da attribuire a un mese: {money.format(undatedReceipts / 100)}.</p>}
         {undatedDues > 0 && <p className="mt-2 text-xs text-muted-foreground">Somme da riscuotere senza scadenza: {money.format(undatedDues / 100)}.</p>}
@@ -453,7 +479,7 @@ export default function PaymentsPage() {
                 <span className="font-medium tabular-nums">{money.format(amount)}</span>
               </div>
               <div className="h-2.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                <div className="h-full rounded-full" style={{ width: `${amount / periodScale * 100}%`, backgroundColor: series.color }} />
+                <div className="h-full rounded-full" style={{ width: `${Math.min(100,Math.abs(amount) / periodScale * 100)}%`, backgroundColor: series.color }} />
               </div>
             </li>;
           })}
@@ -497,6 +523,7 @@ export default function PaymentsPage() {
         })}</ul> : <p className="px-3 py-6 text-sm text-muted-foreground">Nessun pagamento per i filtri selezionati.</p>}
       </section>
     </>}
+    <MemberWorkspace memberId={workspaceMember} open={workspaceMember!==null} onOpenChange={open=>{if(!open)setWorkspaceMember(null);}}/>
     {canEdit && <Dialog open={Boolean(receipt)} onOpenChange={isOpen => { if (!isOpen && !save.isPending) setReceipt(undefined); }}>
       <DialogContent>
         <DialogHeader><DialogTitle>Registra dati incasso</DialogTitle></DialogHeader>

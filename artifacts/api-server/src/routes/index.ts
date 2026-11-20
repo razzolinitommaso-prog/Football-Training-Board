@@ -1,6 +1,7 @@
 import parentTournamentsRouter from "./parent-tournaments";
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import memberServicesRouter from "./member-services";
 import authRouter from "./auth";
 import accountProfileRouter from "./account-profile";
 import clubsRouter from "./clubs";
@@ -41,6 +42,7 @@ router.use(refreshClubPaymentAvailability);
 router.use(teamManagerRouter);
 
 router.use(healthRouter);
+router.use(memberServicesRouter);
 router.use(authRouter);
 router.use(accountProfileRouter);
 router.use(clubsRouter);

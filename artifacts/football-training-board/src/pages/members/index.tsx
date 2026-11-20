@@ -1,7 +1,10 @@
 import { withApi } from "@/lib/api-base";
+import { MemberWorkspace } from "@/components/members/member-workspace";
+import { memberApi, memberViewRoles, type MemberIndex } from "@/lib/member-services";
+import { memberRoleLabels } from "@workspace/api-zod";
 import { useState } from "react";
 import { useListClubMembers, useInviteClubMember, useRemoveClubMember, useUpdateClubMemberRole, useListTeams } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -135,7 +138,9 @@ function serializeStaffRoleBySection(map: StaffRoleBySection) {
 
 export default function MembersList() {
   const { t, language } = useLanguage();
-  const { role } = useAuth();
+  const { role, club, user } = useAuth();
+  const [workspaceMember,setWorkspaceMember] = useState<number|null>(null);
+  const memberServices=useQuery({queryKey:["member-services",club?.id,user?.id,role,"index"],queryFn:()=>memberApi<MemberIndex>(""),enabled:memberViewRoles.includes(role??"")});
   const { data: members = [], isLoading } = useListClubMembers();
   const { data: teams = [] } = useListTeams();
   const [isInviteOpen, setIsInviteOpen] = useState(false);
@@ -481,7 +486,7 @@ export default function MembersList() {
         : [m.clubSection ?? "scuola_calcio"];
       if (!memberSections.includes(sectionFilter)) return false;
     }
-    if (roleFilter !== "all" && m.role !== roleFilter) return false;
+    if (roleFilter !== "all" && m.role !== roleFilter && !memberServices.data?.members.find(p=>p.id===m.id)?.roles.includes(roleFilter)) return false;
     if (licenseFilter !== "all" && m.licenseType !== licenseFilter) return false;
     if (staffRoleFilter !== "all") {
       const sections = (Array.isArray(m.clubSection) && m.clubSection.length > 0
@@ -1173,6 +1178,7 @@ export default function MembersList() {
             </Avatar>
             <div className="flex-1 min-w-0">
               <h3 className="text-lg font-semibold text-foreground truncate">{member.firstName} {member.lastName}</h3>
+              {memberServices.data?.members.find(p=>p.id===member.id)?.duties.filter(d=>d.active).map(d=><span key={d.id} className="mr-1 mt-1 inline-block rounded-full border px-2 py-0.5 text-xs">{memberRoleLabels[d.role as keyof typeof memberRoleLabels]??d.role} · {d.title}</span>)}
               <p className="text-sm text-muted-foreground truncate">{member.email}</p>
               <p className="text-xs text-muted-foreground/70 mt-0.5">
                 {t.joined} {format(new Date(member.joinedAt), "MMM yyyy", { locale })}
@@ -1231,6 +1237,7 @@ export default function MembersList() {
                 <p className="text-xs text-muted-foreground mt-1">{member.phone}</p>
               )}
             </div>
+            {memberViewRoles.includes(role??"")&&<Button type="button" variant="outline" size="sm" className="shrink-0" onClick={()=>setWorkspaceMember(member.id)}>Scheda membro</Button>}
             {canManageThisMember && (
             <div className="flex shrink-0 flex-col gap-1">
               <Button
@@ -1256,6 +1263,7 @@ export default function MembersList() {
           );
         })}
       </div>
+      <MemberWorkspace memberId={workspaceMember} open={workspaceMember!==null} onOpenChange={open=>{if(!open)setWorkspaceMember(null);}}/>
     </div>
   );
 }

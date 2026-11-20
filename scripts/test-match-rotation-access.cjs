@@ -38,6 +38,9 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       `export {default as rules} from '../../artifacts/api-server/src/routes/callup-rules';export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
     const bundle = path.join(dir, "bundle.cjs");
+    if (process.argv.includes("--member-services")) {
+      fs.appendFileSync(path.join(dir,"entry.ts"),"\nexport {default as memberServices} from '../../artifacts/api-server/src/routes/member-services';export * as memberModels from '../../lib/api-zod/src/member-services';export * as memberChart from '../../artifacts/football-training-board/src/lib/member-expense-chart';");
+    }
     if (process.argv.includes("--extra-time") || process.argv.includes("--payment-desk") || process.argv.includes("--withdrawals") || process.argv.includes("--document-files")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {default as secretary} from '../../artifacts/api-server/src/routes/secretary';");
     }
@@ -187,6 +190,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     app.use("/api", routes.restrictTeamManagerApi, routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.rules, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
     if (routes.secretary) app.use("/api", routes.secretary);
     if (routes.fitness) app.use("/api", routes.fitness);
+    if (routes.memberServices) app.use("/api", routes.memberServices);
     if (routes.seasons) app.use("/api", routes.seasons, routes.seasonStatus);
     app.use((error, _req, res, _next) =>
       res.status(500).json({ error: error.message }),
@@ -199,6 +203,11 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         const response = await fetch(base + url, { headers });
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
+
+    if(process.argv.includes("--member-services")) {
+      await require("./test-member-services.cjs")({pg,base,call,models:routes.memberModels,chart:routes.memberChart});
+      return;
+    }
 
 
     if (process.argv.includes("--station-reuse-graphics")) {
