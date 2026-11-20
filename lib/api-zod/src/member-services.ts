@@ -14,6 +14,17 @@ export const memberRoleLabels = {
   presidente: "Presidente",
   admin: "Amministratore",
   secretary: "Segreteria",
+  warehouse_keeper: "Magazziniere",
+  maintenance: "Manutentore",
+  groundskeeper: "Custode / responsabile impianto",
+  driver: "Autista pulmino",
+  physiotherapist: "Fisioterapista / massaggiatore",
+  doctor: "Medico sociale",
+  communications: "Comunicazione / stampa",
+  event_manager: "Organizzazione eventi",
+  administrative_manager: "Responsabile amministrativo",
+  other: "Altro incarico",
+  player: "Giocatore Prima Squadra",
 } as const;
 export const memberRole = z.enum(
   Object.keys(memberRoleLabels) as [

@@ -1,3 +1,4 @@
+import { isOperationalPlayer,isArchivedPlayer } from "@workspace/api-zod";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import {
@@ -39,6 +40,8 @@ type AlertFilter = "all" | "registration" | "certificate" | "overdue";
 type AlertListState = { filter: AlertFilter; search: string; scrollTop: number };
 
 type Player = {
+  available?:boolean;
+  isTest?:boolean;
   id: number;
   firstName: string;
   lastName: string;
@@ -233,7 +236,7 @@ export function UnifiedOverview({
       String(now.getMonth() + 1).padStart(2, "0"),
       String(now.getDate()).padStart(2, "0"),
     ].join("-");
-  const roster = players.filter(player => player.status !== "withdrawn");
+  const all=players.filter(p=>!(p as typeof p & {isTest?:boolean}).isTest);const roster = all.filter(isOperationalPlayer);const archived=all.filter(isArchivedPlayer);const temporary=roster.filter(p=>p.available===false).length;
   const enrolledIds = new Set(overduePlayers?.enrolledIds);
   const overdueIds = new Set(overduePlayers?.overdueIds);
   const enrolledCount = roster.filter(player => enrolledIds.has(player.id)).length;
@@ -272,11 +275,11 @@ export function UnifiedOverview({
       title: "Giocatori",
       value:
         dataState.players === "ready"
-          ? roster.length
+          ? all.length
           : dataState.players === "loading"
             ? "…"
             : "—",
-      description: "Rosa selezionata",
+      description: `${roster.length} attivi (${temporary} temporaneamente indisponibili) · ${archived.length} in archivio: ${archived.filter(p=>p.status!=="retired_definitive").length} possibili rientri, ${archived.filter(p=>p.status==="retired_definitive").length} definitivi`,
       icon: Users,
       href: "/players",
     },

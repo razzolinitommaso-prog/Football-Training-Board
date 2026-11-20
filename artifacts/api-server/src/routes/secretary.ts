@@ -1,3 +1,4 @@
+import { isForecastPlayer } from "@workspace/api-zod";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import { parseDocumentUpload } from "../lib/document-upload";
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -336,6 +337,8 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
   await Promise.all([ensurePaymentKitSchema(), ensureReceiptTimeSchema()]);
   const records = await db.select({
     ...getTableColumns(playerPaymentsTable),
+    forecastEligible: sql<boolean>`(NOT coalesce(${playersTable.isTest},false) AND coalesce(${playersTable.registered},false) AND ${playersTable.status} NOT IN ('withdrawn','not_renewed','transferred','retired_definitive','training_trial'))`,
+    isTest: playersTable.isTest,
     kitArticle: playerPaymentKitItemsTable.article,
     playerName: sql<string | null>`${playersTable.firstName} || ' ' || ${playersTable.lastName}`,
     teamId: teamsTable.id,
@@ -351,7 +354,7 @@ router.get("/player-payments", requireAuth, async (req, res): Promise<void> => {
     .leftJoin(teamsTable, and(eq(teamsTable.id, playersTable.teamId), eq(teamsTable.clubId, playerPaymentsTable.clubId)))
     .leftJoin(seasonsTable, and(eq(seasonsTable.id, teamsTable.seasonId), eq(seasonsTable.clubId, playerPaymentsTable.clubId)))
     .where(where).orderBy(desc(playerPaymentsTable.createdAt));
-  res.json(records.map(({ playerNotes, ...payment }) => ({ ...payment, supplementalTeamId: supplementalTrainingTeam(playerNotes) })));
+  res.json(records.filter(p=>!p.isTest).map(({ playerNotes, ...payment }) => ({ ...payment, supplementalTeamId: supplementalTrainingTeam(playerNotes) })));
 });
 
 const receiptMethods = new Set(["cash", "card", "bank_transfer"]);

@@ -176,6 +176,8 @@ export interface Team {
   ageGroup?: string | null;
   /** @nullable */
   category?: string | null;
+  discipline?: "football11"|"futsal"|"other";
+  gender?: "male"|"female"|"mixed";
   /** @nullable */
   coachId?: number | null;
   /** @nullable */
@@ -198,6 +200,8 @@ export interface CreateTeamRequest {
   ageGroup?: string | null;
   /** @nullable */
   category?: string | null;
+  discipline?: "football11"|"futsal"|"other";
+  gender?: "male"|"female"|"mixed";
   /** @nullable */
   coachId?: number | null;
   /** @nullable */
@@ -215,6 +219,8 @@ export interface UpdateTeamRequest {
   ageGroup?: string | null;
   /** @nullable */
   category?: string | null;
+  discipline?: "football11"|"futsal"|"other";
+  gender?: "male"|"female"|"mixed";
   /** @nullable */
   coachId?: number | null;
   /** @nullable */

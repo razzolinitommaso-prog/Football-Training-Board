@@ -71,7 +71,7 @@ const YOUTH_CATEGORY_SUGGESTIONS = [
   "Juniores",
 ];
 
-const FIRST_TEAM_CATEGORY_SUGGESTIONS = ["Prima Squadra"];
+const FIRST_TEAM_CATEGORY_SUGGESTIONS = ["Prima Squadra", "Terza Categoria", "Seconda Categoria", "Prima Categoria", "Promozione", "Eccellenza", "Serie D", "Serie C", "Serie B", "Serie A", "Serie A2 Élite", "Serie A2", "Serie C1", "Serie C2", "Amatori", "Altro campionato"];
 
 function categoryOptionsForSection(section?: string | null) {
   if (section === "settore_giovanile") return YOUTH_CATEGORY_SUGGESTIONS;
@@ -288,6 +288,8 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     name: z.string().optional(),
     ageGroup: z.string().optional(),
     category: z.string().min(2, "Categoria obbligatoria"),
+    discipline:z.enum(["football11","futsal","other"]).default("football11"),
+    gender:z.enum(["male","female","mixed"]).default("male"),
     clubSection: z.enum(["scuola_calcio", "settore_giovanile", "prima_squadra"]).default("scuola_calcio"),
     seasonTrainingStartDate: z.string().optional(),
     officialTrainingEndDate: z.string().optional(),
@@ -389,7 +391,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
     defaultValues: {
       name: "",
       ageGroup: "",
-      category: "",
+      category: "",discipline:"football11",gender:"male",
       clubSection: "scuola_calcio",
       seasonTrainingStartDate: "",
       officialTrainingEndDate: "",
@@ -403,6 +405,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
       name: team.name ?? "",
       ageGroup: team.ageGroup ?? "",
       category: team.category ?? "",
+      discipline:team.discipline??"football11",gender:team.gender??"male",
       clubSection: team.clubSection || effectiveSection || "scuola_calcio",
       seasonTrainingStartDate: team.seasonTrainingStartDate ?? activeSeason?.startDate ?? "",
       officialTrainingEndDate: team.officialTrainingEndDate ?? activeSeason?.endDate ?? "",
@@ -724,7 +727,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="ageGroup">{t.ageGroup}</Label>
-                  <Input id="ageGroup" placeholder="es. 1 anno, U12" {...form.register("ageGroup")} />
+                  <label>Disciplina<select className="w-full rounded border bg-background p-2" {...form.register("discipline")}><option value="football11">Calcio a 11</option><option value="futsal">Calcio a 5</option><option value="other">Altra disciplina</option></select></label><label>Ambito<select className="w-full rounded border bg-background p-2" {...form.register("gender")}><option value="male">Maschile</option><option value="female">Femminile</option><option value="mixed">Misto</option></select></label><Input id="ageGroup" placeholder="es. 1 anno, U12" {...form.register("ageGroup")} />
                 </div>
               </div>
               <div className="space-y-2">
@@ -1131,7 +1134,7 @@ export default function TeamsList({ section }: TeamsListProps = {}) {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-ageGroup">{t.ageGroup}</Label>
-                <Input id="edit-ageGroup" placeholder="es. 1 anno, U12" {...editForm.register("ageGroup")} />
+                <label>Disciplina<select className="w-full rounded border bg-background p-2" {...editForm.register("discipline")}><option value="football11">Calcio a 11</option><option value="futsal">Calcio a 5</option><option value="other">Altra disciplina</option></select></label><label>Ambito<select className="w-full rounded border bg-background p-2" {...editForm.register("gender")}><option value="male">Maschile</option><option value="female">Femminile</option><option value="mixed">Misto</option></select></label><Input id="edit-ageGroup" placeholder="es. 1 anno, U12" {...editForm.register("ageGroup")} />
               </div>
             </div>
             <div className="space-y-2">

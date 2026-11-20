@@ -106,7 +106,7 @@ async function members(club: number, reader: Pick<typeof db, "execute"> = db) {
     teamIds: number[];
   }>(sql`
     SELECT u.id,concat_ws(' ',u.last_name,u.first_name) AS name,u.email,max(m.phone) AS phone,
-      array_agg(DISTINCT CASE WHEN m.staff_role IN ('collaboratore','stagista') THEN 'collaborator' ELSE m.role END) AS roles,
+      array_agg(DISTINCT CASE WHEN EXISTS(SELECT 1 FROM member_dismissals d WHERE d.club_id=m.club_id AND d.user_id=m.user_id AND d.role=m.role AND d.effective_date<=CURRENT_DATE) THEN 'dismissed:'||m.role WHEN m.staff_role IN ('collaboratore','stagista') THEN 'collaborator' ELSE m.role END) AS roles,
       ARRAY(SELECT DISTINCT unnest(mm.club_section) FROM club_memberships mm WHERE mm.club_id=${club} AND mm.user_id=u.id) AS sections,
       ARRAY(SELECT DISTINCT a.team_id FROM team_staff_assignments a WHERE a.club_id=${club} AND a.user_id=u.id
         UNION SELECT id FROM teams WHERE club_id=${club} AND coach_id=u.id) AS "teamIds"
@@ -129,7 +129,7 @@ async function members(club: number, reader: Pick<typeof db, "execute"> = db) {
       .map((c) => c.data);
     return {
       ...m,
-      roles: [...new Set([...m.roles, ...active.map((c) => c.role)])],
+      roles: [...new Set([...m.roles, ...active.map((c) => c.role).filter(role=>!m.roles.includes("dismissed:"+role))])],
       teamIds: [
         ...new Set([
           ...m.teamIds,
@@ -144,7 +144,7 @@ async function members(club: number, reader: Pick<typeof db, "execute"> = db) {
           role: c.data.role,
           fromMonth: c.data.fromMonth,
           toMonth: c.data.toMonth,
-          active: c.data.active,
+          active: c.data.active && !m.roles.includes("dismissed:"+c.data.role),
           teamIds: c.data.allocations.map((a) => a.teamId),
         })),
     };

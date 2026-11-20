@@ -1,3 +1,4 @@
+import { isArchivedPlayer } from "@workspace/api-zod";
 import { assignedTrainingProgram } from "../lib/training-program-access";
 import { Router, type IRouter } from "express";
 import {
@@ -515,7 +516,7 @@ router.patch("/exercises/:id", requireAuth, async (req, res): Promise<void> => {
           const [session]=await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),eq(trainingSessionsTable.id,Number(req.body.programSessionId))));
           if(session)teamIds=sessionTeamIds(session.teamId,session.notes);
         }
-        const regular = (teamIds.length ? rosterMembers(candidates, teamIds) : candidates).filter(player => player.status !== TRAINING_TRIAL_STATUS && player.status !== WITHDRAWN_PLAYER_STATUS);
+        const regular = (teamIds.length ? rosterMembers(candidates, teamIds) : candidates).filter(player => player.status !== TRAINING_TRIAL_STATUS && !isArchivedPlayer(player));
         const allowed = new Set([...regular.map(player => player.id), ...allowedBoardGuests]);
         const ids = boardIds.filter(id => allowed.has(id));
         updates.selectedPlayerIdsJson=JSON.stringify(ids);updates.playersRequired=ids.length;updates.scegliGiocatori=true;updates.caricaRosaIntera=false;

@@ -1,3 +1,4 @@
+import { isArchivedPlayer } from "@workspace/api-zod";
 import { syncMatchTournamentReply } from "../lib/parent-tournament-availability";
 import { activeMatchEligibility, callupRuleFailure, matchKickoff } from "../lib/callup-rules";
 import { ensureCallupRulesStorage, notifyChild } from "../lib/callup-rule-storage";
@@ -955,9 +956,9 @@ router.post("/matches/:id/callups", requireAuth, async (req, res): Promise<void>
   if (!match) { res.status(404).json({ error: "Match not found" }); return; }
   const canManage = await userCanManageAssignedTeamMatch(req.session.userId!, req.session.clubId!, req.session.role ?? "", match.teamId ?? null);
   if (!canManage) { res.status(403).json({ error: "Non autorizzato a modificare le convocazioni" }); return; }
-  const [player] = await db.select({ id: playersTable.id, status: playersTable.status }).from(playersTable).where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!)));
+  const [player] = await db.select({ id: playersTable.id, status: playersTable.status,isTest:playersTable.isTest }).from(playersTable).where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, req.session.clubId!)));
   if (!player) { res.status(400).json({ error: "Giocatore non valido per questa societa" }); return; }
-  if (player.status === WITHDRAWN_PLAYER_STATUS) { res.status(409).json({ error: "Il giocatore è ritirato." }); return; }
+  if (isArchivedPlayer(player)||player.isTest) { res.status(409).json({ error: "Il giocatore è ritirato." }); return; }
   const scopeFailure = await trainingOnlyCallupFailure(match, [Number(playerId)]);
   if (scopeFailure) { res.status(409).json({ error: scopeFailure }); return; }
   const ruleFailure = callupRuleFailure(await activeMatchEligibility(match), [Number(playerId)]);
@@ -1101,14 +1102,14 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
 
   if (desiredPlayerIds.length > 0) {
     const validPlayers = await db
-      .select({ id: playersTable.id, status: playersTable.status })
+      .select({ id: playersTable.id, status: playersTable.status,isTest:playersTable.isTest })
       .from(playersTable)
       .where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, desiredPlayerIds)));
     if (validPlayers.length !== desiredPlayerIds.length) {
       res.status(400).json({ error: "Uno o piu giocatori non appartengono a questa societa" });
       return;
     }
-    if (validPlayers.some(player => player.status === WITHDRAWN_PLAYER_STATUS)) {
+    if (validPlayers.some(player => isArchivedPlayer(player)||player.isTest)) {
       res.status(409).json({ error: "Rimuovi dalla convocazione i giocatori ritirati." }); return;
     }
     const conflicts = await sameDayCallupConflicts(clubId, existingMatch, desiredPlayerIds);
@@ -1234,9 +1235,9 @@ router.post("/matches/:id/callups/publish", requireAuth, async (req, res): Promi
       SELECT snapshot FROM match_callup_publications WHERE match_id = ${matchId}`))[0]?.snapshot ?? {};
     const blocked = eligibility?.rows.filter(row => row.state === "blocked") ?? [];
     const ids = [...new Set([...Object.keys(past).map(Number), ...playerIds, ...blocked.map(row => row.id)])];
-    const players = await tx.select({ id: playersTable.id, firstName: playersTable.firstName, lastName: playersTable.lastName, status: playersTable.status })
+    const players = await tx.select({ id: playersTable.id, firstName: playersTable.firstName, lastName: playersTable.lastName, status: playersTable.status,isTest:playersTable.isTest })
       .from(playersTable).where(and(eq(playersTable.clubId, clubId), inArray(playersTable.id, ids)));
-    if (players.some(player => playerIds.includes(player.id) && player.status === WITHDRAWN_PLAYER_STATUS)) return null;
+    if (players.some(player => playerIds.includes(player.id) && (isArchivedPlayer(player)||player.isTest))) return null;
     const snapshot: typeof past = {};
     const deliveries: { parentUserId: number; playerId: number; title: string; message: string }[] = [];
     for (const player of players) {

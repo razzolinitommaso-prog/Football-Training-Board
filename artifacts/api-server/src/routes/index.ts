@@ -1,3 +1,6 @@
+import { enforceSocietyAccess } from "../lib/society-access";
+import societyManagementRouter from "./society-management";
+import playerFinanceRouter from "./player-finance";
 import parentTournamentsRouter from "./parent-tournaments";
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
@@ -37,6 +40,9 @@ import { restrictTeamManagerApi } from "../lib/team-manager-access";
 import { refreshClubPaymentAvailability } from "../lib/payment-availability";
 
 const router: IRouter = Router();
+router.use(enforceSocietyAccess);
+router.use(societyManagementRouter);
+router.use(playerFinanceRouter);
 router.use(restrictTeamManagerApi);
 router.use(refreshClubPaymentAvailability);
 router.use(teamManagerRouter);

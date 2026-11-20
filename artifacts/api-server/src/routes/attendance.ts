@@ -1,3 +1,4 @@
+import { isArchivedPlayer } from "@workspace/api-zod";
 import { conductLabels, type Conduct } from "../lib/callup-rules";
 import { ensureCallupRulesStorage, notifyChild, sqlRows } from "../lib/callup-rule-storage";
 import { sendParentNotificationEmail } from "../lib/parent-email";
@@ -95,7 +96,7 @@ async function playerIsValidForSession(playerId: number, clubId: number, session
     .where(and(eq(playersTable.id, playerId), eq(playersTable.clubId, clubId)))
     .limit(1);
   if (!player) return false;
-  if (player.status === WITHDRAWN_PLAYER_STATUS) {
+  if (isArchivedPlayer(player)) {
     const [record] = await db.select({ id: trainingAttendancesTable.id }).from(trainingAttendancesTable)
       .where(and(eq(trainingAttendancesTable.clubId, clubId), eq(trainingAttendancesTable.trainingSessionId, sessionId),
         eq(trainingAttendancesTable.playerId, playerId), staffAttendance));

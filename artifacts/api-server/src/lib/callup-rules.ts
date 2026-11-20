@@ -1,3 +1,4 @@
+import { isArchivedPlayer } from "@workspace/api-zod";
 import { db, playersTable, trainingAttendancesTable, trainingSessionsTable } from "@workspace/db";
 import { trainingLocalDate, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
@@ -59,7 +60,7 @@ export async function evaluateCallupRule(clubId: number, teamId: number, kickoff
         sql`coalesce(${trainingSessionsTable.notes}, '') NOT IN ('[FTB_AUTO_TRAINING] GROUPED', '[FTB_AUTO_TRAINING] PROGRAM')`))
       .orderBy(desc(trainingSessionsTable.scheduledAt), desc(trainingSessionsTable.id)),
   ]);
-  const roster = rosterMembers(clubPlayers, [teamId]).filter(player => player.status !== WITHDRAWN_PLAYER_STATUS && player.status !== "training_trial");
+  const roster = rosterMembers(clubPlayers, [teamId]).filter(player => !isArchivedPlayer(player) && player.status !== "training_trial");
   const sessionIds = training.map(session => session.id);
   const weekly = [...new Map(training.filter(session => trainingLocalDate(session.scheduledAt) >= weekStart)
     .reverse().map(session => [session.scheduledAt.toISOString(), session])).values()].reverse().slice(0, rule.sessions);

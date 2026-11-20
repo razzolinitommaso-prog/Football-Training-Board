@@ -31,9 +31,9 @@ const MEMBER_ROLE_ORDER: Record<string, number> = {
   team_manager: 6,
 };
 
-const STAFF_MANAGED_ROLES = new Set(["coach", "fitness_coach", "athletic_director", "team_manager"]);
+const STAFF_MANAGED_ROLES = new Set(["warehouse_keeper","maintenance","groundskeeper","driver","physiotherapist","doctor","communications","event_manager","administrative_manager","other","coach", "fitness_coach", "athletic_director", "team_manager"]);
 
-function canAssignMemberRole(actorRole?: string | null, targetRole?: string | null): boolean {
+export function canAssignMemberRole(actorRole?: string | null, targetRole?: string | null): boolean {
   const actor = actorRole ?? "";
   const target = targetRole ?? "";
   if (actor === "admin" || actor === "presidente") return true;
@@ -382,7 +382,10 @@ router.patch("/clubs/me/members/:userId", requireAuth, async (req, res): Promise
   const { firstName, lastName, email, newPassword, role, clubSection, staffRole, registered, registrationNumber, phone, licenseType, specialization, degreeScienzeMoto, degreeScienzeMotoType, teamIds } = parsed.data;
   if (!(await validManagerTeams(role,teamIds,clubSection,req.session.clubId!))) { res.status(400).json({ error: "Squadre non valide per società e sezioni selezionate" }); return; }
 
-  const currentTargetRole = await getClubMemberRole(userId, req.session.clubId!);
+  const memberships=await db.select().from(clubMembershipsTable).where(and(eq(clubMembershipsTable.userId,userId),eq(clubMembershipsTable.clubId,req.session.clubId!)));
+  if(memberships.some(m=>!canAssignMemberRole(req.session.role,m.role))){res.status(403).json({error:"Non puoi modificare un account con incarichi superiori al tuo."});return;}
+  if(memberships.length>1&&!memberships.some(m=>m.role===role)){res.status(409).json({error:"Sono presenti più ruoli. Aggiungi il nuovo incarico e concludi quello precedente da Società e incarichi."});return;}
+  const currentTargetRole = memberships.find(m=>m.role===role)?.role??memberships[0]?.role;
   if (!currentTargetRole) {
     res.status(404).json({ error: "Member not found" });
     return;
@@ -426,14 +429,15 @@ router.patch("/clubs/me/members/:userId", requireAuth, async (req, res): Promise
       degreeScienzeMoto: degreeScienzeMoto ?? false,
       degreeScienzeMotoType: degreeScienzeMotoType ?? null,
     })
-    .where(and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, req.session.clubId!)));
+    .where(and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, req.session.clubId!),eq(clubMembershipsTable.role,currentTargetRole)));
 
   if (teamIds !== undefined) {
     await db
       .delete(teamStaffAssignmentsTable)
       .where(and(
         eq(teamStaffAssignmentsTable.userId, userId),
-        eq(teamStaffAssignmentsTable.clubId, req.session.clubId!)
+        eq(teamStaffAssignmentsTable.clubId, req.session.clubId!),
+        eq(teamStaffAssignmentsTable.role, currentTargetRole)
       ));
 
     if (teamIds.length > 0) {
@@ -454,7 +458,7 @@ router.patch("/clubs/me/members/:userId", requireAuth, async (req, res): Promise
     })
     .from(clubMembershipsTable)
     .innerJoin(usersTable, eq(clubMembershipsTable.userId, usersTable.id))
-    .where(and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, req.session.clubId!)));
+    .where(and(eq(clubMembershipsTable.userId, userId), eq(clubMembershipsTable.clubId, req.session.clubId!),eq(clubMembershipsTable.role,role)));
 
   res.json(UpdateClubMemberRoleResponse.parse(member));
 });

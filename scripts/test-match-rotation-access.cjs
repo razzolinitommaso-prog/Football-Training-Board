@@ -37,6 +37,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       path.join(dir, "entry.ts"),
       `export {default as rules} from '../../artifacts/api-server/src/routes/callup-rules';export {default as teams} from '../../artifacts/api-server/src/routes/teams';export {default as championships} from '../../artifacts/api-server/src/routes/championships';export {default as auth} from '../../artifacts/api-server/src/routes/auth';export {default as training} from '../../artifacts/api-server/src/routes/training';export {default as attendance} from '../../artifacts/api-server/src/routes/attendance';export {default as exercises} from '../../artifacts/api-server/src/routes/exercises';export {default as players} from '../../artifacts/api-server/src/routes/players';export {default as parent} from '../../artifacts/api-server/src/routes/parent';export {default as manager} from '../../artifacts/api-server/src/routes/team-manager';export {default as matches} from '../../artifacts/api-server/src/routes/matches';export {restrictTeamManagerApi} from '../../artifacts/api-server/src/lib/team-manager-access';export {attachBearerSession} from '../../artifacts/api-server/src/lib/auth.ts';export {requireCurrentParentAccess} from '../../artifacts/api-server/src/lib/parent-delegate-access';export {readSessionEligibility} from '../../artifacts/api-server/src/lib/training-session-attendance';export * as schema from '../../lib/db/src/schema';export {getTableConfig,PgTable} from 'drizzle-orm/pg-core';`,
     );
+    fs.appendFileSync(path.join(dir,"entry.ts"),"\nexport {default as clubsRouter} from '../../artifacts/api-server/src/routes/clubs';export {ensureSocietyStorage} from '../../artifacts/api-server/src/lib/society-storage';export {enforceSocietyAccess} from '../../artifacts/api-server/src/lib/society-access';export {default as societies} from '../../artifacts/api-server/src/routes/society-management';export {default as playerFinance} from '../../artifacts/api-server/src/routes/player-finance';");
     const bundle = path.join(dir, "bundle.cjs");
     if (process.argv.includes("--member-services")) {
       fs.appendFileSync(path.join(dir,"entry.ts"),"\nexport {default as memberServices} from '../../artifacts/api-server/src/routes/member-services';export * as memberModels from '../../lib/api-zod/src/member-services';export * as memberChart from '../../artifacts/football-training-board/src/lib/member-expense-chart';");
@@ -169,6 +170,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     await pg.exec(
       `INSERT INTO call_ups(id,match_id,player_id,status,created_at) VALUES(1,501,101,'called',now()),(2,501,102,'called',now()),(3,503,201,'called',now());`,
     );
+    await routes.ensureSocietyStorage();
     const app = req("express")();
     app.use(req("express").json());
     app.use((request, _res, next) => {
@@ -187,6 +189,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       };
       next();
     });
+    app.use("/api", routes.enforceSocietyAccess,routes.societies,routes.playerFinance,routes.clubsRouter);
     app.use("/api", routes.restrictTeamManagerApi, routes.requireCurrentParentAccess, routes.parent, routes.manager, routes.rules, routes.matches, routes.players, routes.training, routes.attendance, routes.exercises, routes.auth, routes.championships, routes.teams);
     if (routes.secretary) app.use("/api", routes.secretary);
     if (routes.fitness) app.use("/api", routes.fitness);
@@ -204,6 +207,9 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
 
+    if(process.argv.includes("--societies")) {
+      await require("./test-society-lifecycle.cjs")({pg,base,call,models:routes.memberModels});return;
+    }
     if(process.argv.includes("--member-services")) {
       await require("./test-member-services.cjs")({pg,base,call,models:routes.memberModels,chart:routes.memberChart});
       return;

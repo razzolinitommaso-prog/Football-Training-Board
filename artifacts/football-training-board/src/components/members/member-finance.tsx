@@ -1,3 +1,5 @@
+import { createContext,useContext,type ReactNode } from "react";
+import { customFetch } from "@workspace/api-client-react/custom-fetch";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -37,7 +39,10 @@ import {
   type MemberExpenses,
 } from "@/lib/member-services";
 
-export function MemberMoneyInput({
+const FinanceContext=createContext<number|undefined>(undefined);
+ export function FinanceApiProvider({playerId,children}:{playerId?:number;children:ReactNode}){return <FinanceContext.Provider value={playerId}>{children}</FinanceContext.Provider>;}
+ function useFinanceApi(){const playerId=useContext(FinanceContext);return {financeScope:playerId===undefined?'members':'players:'+playerId,api:playerId===undefined?memberApi:<T,>(path:string,method='GET',body?:unknown)=>customFetch<T>('/api/player-finance'+path+(path==='/expenses'?'?playerId='+playerId:''),{method,...(body===undefined?{}:{body:JSON.stringify(body)})})};}
+ export function MemberMoneyInput({
   value,
   onChange,
   disabled,
@@ -74,6 +79,8 @@ export function MemberAttachment({
   kind: "medical" | "contract" | "receipt";
   onUploaded: (id: number) => void;
 }) {
+ const {api:memberApi,financeScope}=useFinanceApi();
+
   const [file, setFile] = useState<File | null>(null),
     { toast } = useToast(),
     cache = useQueryClient();
@@ -134,6 +141,8 @@ export function MemberDocumentButton({
   id: number;
   label: string;
 }) {
+ const {api:memberApi,financeScope}=useFinanceApi();
+
   const { toast } = useToast(),
     [busy, setBusy] = useState(false);
   return (
@@ -178,6 +187,8 @@ export function MemberContractEditor({
   documents: MemberProfile["documents"];
   onClose: () => void;
 }) {
+ const {api:memberApi,financeScope}=useFinanceApi();
+
   const [c, setC] = useState(initial),
     [compensation, setCompensation] = useState(
       memberAmountText(initial.compensationCents),
@@ -253,7 +264,7 @@ export function MemberContractEditor({
               patch({ role: value as MemberContract["role"] })
             }
           >
-            {Object.entries(memberRoleLabels).map(([key, label]) => (
+            {Object.entries(memberRoleLabels).filter(([key])=>financeScope.startsWith("players:")?key==="player":key!=="player").map(([key, label]) => (
               <option key={key} value={key}>
                 {label}
               </option>
@@ -537,11 +548,13 @@ export function MemberExpensesPanel({
   userId?: number;
   onOpenMember?: (id: number) => void;
 }) {
+ const {api:memberApi,financeScope}=useFinanceApi();
+
   const { club, user, role } = useAuth(),
     cache = useQueryClient(),
     { toast } = useToast();
   const data = useQuery({
-    queryKey: ["member-services", club?.id, user?.id, role, "expenses"],
+    queryKey: ["member-services", financeScope,club?.id, user?.id, role, "expenses"],
     queryFn: () => memberApi<MemberExpenses>("/expenses"),
   });
   const [search, setSearch] = useState(""),
@@ -611,7 +624,7 @@ export function MemberExpensesPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">
-          Compensi e rimborsi membri · uscite
+          {financeScope.startsWith("players:")?"Compensi e rimborsi giocatori Prima Squadra · uscite":"Compensi e rimborsi membri · uscite"}
         </h2>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -622,7 +635,7 @@ export function MemberExpensesPanel({
             onClick={() =>
               exportMultiSheet(
                 [{ name: "Uscite membri", rows }],
-                "uscite-membri.xlsx",
+                financeScope.startsWith("players:")?"uscite-prima-squadra.xlsx":"uscite-membri.xlsx",
               )
             }
           >
@@ -648,7 +661,7 @@ export function MemberExpensesPanel({
               const url = URL.createObjectURL(blob),
                 a = document.createElement("a");
               a.href = url;
-              a.download = "uscite-membri.pdf";
+              a.download = financeScope.startsWith("players:")?"uscite-prima-squadra.pdf":"uscite-membri.pdf";
               a.click();
               window.setTimeout(() => URL.revokeObjectURL(url), 30000);
             }}
@@ -659,7 +672,7 @@ export function MemberExpensesPanel({
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="text-sm">
-          Cerca membro o incarico
+          {financeScope.startsWith("players:")?"Cerca giocatore o accordo":"Cerca membro o incarico"}
           <Input value={search} onChange={(e) => setSearch(e.target.value)} />
         </label>
         <label className="text-sm">

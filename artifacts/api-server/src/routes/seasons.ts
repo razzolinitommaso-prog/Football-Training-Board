@@ -1,3 +1,5 @@
+import { archiveStatusForTransition } from "@workspace/api-zod";
+import { isArchivedPlayer } from "@workspace/api-zod";
 import { Router, type IRouter } from "express";
 import { db, seasonsTable, teamsTable, playersTable, matchesTable, playerSeasonStatusTable, observedPlayersTable } from "@workspace/db";
 import { WITHDRAWN_PLAYER_STATUS, playerStatusAfterWithdrawal } from "@workspace/api-zod";
@@ -65,9 +67,9 @@ router.patch("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
         .from(playerSeasonStatusTable).innerJoin(playersTable, and(eq(playersTable.clubId, clubId), eq(playersTable.id, playerSeasonStatusTable.playerId)))
         .where(and(eq(playerSeasonStatusTable.seasonId, id), eq(playerSeasonStatusTable.clubId, clubId)));
       for (const { status, player } of statuses) {
-        if (status === WITHDRAWN_PLAYER_STATUS || (status === "confirmed" && player.status === WITHDRAWN_PLAYER_STATUS)) {
+        if (archiveStatusForTransition(status) || (status === "confirmed" && isArchivedPlayer(player) && player.status!=="retired_definitive")) {
           await tx.update(playersTable).set({
-            status: status === WITHDRAWN_PLAYER_STATUS ? WITHDRAWN_PLAYER_STATUS : playerStatusAfterWithdrawal(player),
+            status: archiveStatusForTransition(status) || playerStatusAfterWithdrawal(player),
           }).where(and(eq(playersTable.id, player.id), eq(playersTable.clubId, clubId)));
         }
       }
@@ -120,7 +122,7 @@ router.get("/seasons/:id/export", requireAuth, async (req, res): Promise<void> =
     exportedAt: new Date().toISOString(),
     season,
     teams,
-    players: players.filter(p => teams.some(t => t.id === p.teamId)),
+    players: players.filter(p => !p.isTest && (isArchivedPlayer(p) || teams.some(t => t.id === p.teamId))),
     matches,
     playerStatuses,
     observedPlayers,

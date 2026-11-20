@@ -1,3 +1,4 @@
+import { ensureSocietyStorage } from "../lib/society-storage";
 import { Router, type IRouter, type Request, type Response, type RequestHandler } from "express";
 import bcrypt from "bcryptjs";
 import { db, usersTable, clubsTable, clubMembershipsTable, seasonsTable, subscriptionsTable, playerParentDelegatesTable } from "@workspace/db";
@@ -267,6 +268,9 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       )
       .orderBy(desc(clubMembershipsTable.id));
 
+    await ensureSocietyStorage();
+    const dismissed=(await db.execute<{club_id:number;role:string}>(sql`SELECT club_id,role FROM member_dismissals WHERE user_id=${user.id} AND effective_date<=CURRENT_DATE`)).rows;
+    memberships=memberships.filter(m=>!dismissed.some(d=>d.club_id===m.clubId&&d.role===m.role));
     const pendingClubs = await pendingStaffClubIds(user.id, memberships.map(item => item.clubId));
     if (pendingClubs.length) {
       memberships = memberships.filter(item => !pendingClubs.includes(item.clubId));

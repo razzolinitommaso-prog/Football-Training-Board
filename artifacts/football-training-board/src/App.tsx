@@ -90,6 +90,7 @@ function DashboardRedirect() {
 function ProtectedAppRoutes() {
   const {role,isLoading}=useAuth();
   const [location]=useLocation();
+  if(["warehouse_keeper","maintenance","groundskeeper","driver","physiotherapist","doctor","communications","event_manager","administrative_manager","other","collaborator"].includes(role??"")&&location!=="/profilo") return <AppLayout><div className="p-6 space-y-3"><h1 className="text-2xl font-semibold">Area incarico societario</h1><p>Il tuo incarico è registrato nella società. Per lavorare in altre aree seleziona un profilo esplicitamente abilitato da Società e incarichi.</p></div></AppLayout>;
   if (!isLoading && role === "team_manager" && !["/profilo","/dirigenti","/dirigenti/calendario","/dirigenti/convocazioni","/dirigenti/squadra","/dirigenti/presenze"].includes(location)) return <Redirect to="/dirigenti" />;
   return (
     <AppLayout>

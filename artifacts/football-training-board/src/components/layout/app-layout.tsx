@@ -1,3 +1,4 @@
+import { SocietyWorkspace } from "@/components/society-workspace";
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useGetMyClub } from "@workspace/api-client-react";
 import { AppSidebar } from "./app-sidebar";
@@ -463,6 +464,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </div>
             </div>
           </header>
+          <div className="px-3 py-2"><SocietyWorkspace/></div>
 
           <main
             onScroll={

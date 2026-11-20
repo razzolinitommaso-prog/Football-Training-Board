@@ -193,7 +193,7 @@ async function getTeamsWithCounts(clubId: number, filterTeamIds?: number[], sect
       const playerCountResult = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(playersTable)
-        .where(and(eq(playersTable.teamId, team.id), sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}`));
+        .where(and(eq(playersTable.teamId, team.id), sql`${playersTable.status} NOT IN ('withdrawn','not_renewed','transferred','retired_definitive') AND NOT ${playersTable.isTest}`));
 
       let coachName: string | null = null;
       if (team.coachId) {
@@ -340,7 +340,7 @@ router.get("/teams/:id", requireAuth, async (req, res): Promise<void> => {
   const playerCountResult = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(playersTable)
-    .where(and(eq(playersTable.teamId, team.id), sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}`));
+    .where(and(eq(playersTable.teamId, team.id), sql`${playersTable.status} NOT IN ('withdrawn','not_renewed','transferred','retired_definitive') AND NOT ${playersTable.isTest}`));
 
   let coachName: string | null = null;
   if (team.coachId) {
@@ -454,7 +454,7 @@ router.patch("/teams/:id", requireAuth, async (req, res): Promise<void> => {
   const playerCountResult = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(playersTable)
-    .where(and(eq(playersTable.teamId, team.id), sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}`));
+    .where(and(eq(playersTable.teamId, team.id), sql`${playersTable.status} NOT IN ('withdrawn','not_renewed','transferred','retired_definitive') AND NOT ${playersTable.isTest}`));
 
   let coachName: string | null = null;
   if (team.coachId) {
@@ -528,7 +528,7 @@ router.get("/teams/:id/members", requireAuth, async (req, res): Promise<void> =>
       available: playersTable.available,
     })
     .from(playersTable)
-    .where(and(eq(playersTable.clubId, req.session.clubId!), sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}`));
+    .where(and(eq(playersTable.clubId, req.session.clubId!), sql`${playersTable.status} NOT IN ('withdrawn','not_renewed','transferred','retired_definitive') AND NOT ${playersTable.isTest}`));
 
   const teamPlayers = players
     .map((p) => ({ ...p, isSupplemental: p.teamId !== teamId && extractSupplementalTeamId(p.notes) === teamId }))

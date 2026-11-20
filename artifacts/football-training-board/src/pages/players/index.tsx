@@ -1,3 +1,5 @@
+import { PlayerOperations } from "@/components/player-operations";
+import { isArchivedPlayer,playerArchiveLabels } from "@workspace/api-zod";
 import { MotorTestResults } from "@/components/training/MotorTestResults";
 import { type MotorTestHistory } from "@workspace/api-zod";
 import { DocumentFilePicker } from "@/components/document-file-picker";
@@ -3375,7 +3377,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
     if (status === "active") return t.active;
     if (status === "injured") return t.injured;
     if (status === "inactive") return t.inactive;
-    if (status === "withdrawn") return "Ritirato";
+    if (playerArchiveLabels[status]) return playerArchiveLabels[status];
     if (status === "suspended") return "Sospeso";
     if (status === "pending_transfer") return "In attesa trasferimento";
     return status;
@@ -3912,6 +3914,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           <DialogHeader>
             <DialogTitle>{playerDialogMode === "edit" ? t.editPlayer : "Scheda giocatore"}</DialogTitle>
           </DialogHeader>
+          {editingPlayer && <PlayerOperations key={editingPlayer.id} player={editingPlayer}/>}
           {editingPlayer && (
             playerDialogMode === "view" ? (
             <form onSubmit={editForm.handleSubmit(handleEditSubmit, handlePlayerFormInvalid)} onInvalidCapture={handlePlayerNativeInvalid} className="space-y-4 pt-2">
@@ -5826,7 +5829,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           {/* Status */}
           <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border bg-card px-2 py-1">
             <span className="shrink-0 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Stato</span>
-            {[{ v: "all", l: "Tutti" }, { v: "active", l: t.active }, { v: "injured", l: t.injured }, { v: "inactive", l: t.inactive }, { v: "withdrawn", l: "Ritirato" }].map(o => (
+            {[{ v: "all", l: "Tutti" }, { v: "active", l: t.active }, { v: "injured", l: t.injured }, { v: "inactive", l: t.inactive }, ...Object.entries(playerArchiveLabels).map(([v,l])=>({v,l}))].map(o => (
               <button key={o.v} type="button" onClick={() => setStatusFilter(o.v)}
                 className={`shrink-0 px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${statusFilter === o.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
                 {o.l}

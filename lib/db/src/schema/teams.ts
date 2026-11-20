@@ -13,6 +13,8 @@ export const teamsTable = pgTable("teams", {
   name: text("name").notNull(),
   ageGroup: text("age_group"),
   category: text("category"),
+  discipline: text("discipline").notNull().default("football11"),
+  gender: text("gender").notNull().default("male"),
   clubSection: text("club_section").notNull().default("scuola_calcio"),
   seasonTrainingStartDate: date("season_training_start_date"),
   officialTrainingEndDate: date("official_training_end_date"),

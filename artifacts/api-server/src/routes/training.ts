@@ -1,3 +1,4 @@
+import { isArchivedPlayer } from "@workspace/api-zod";
 import { stationSources, TRAINING_METHOD_GUIDES } from "@workspace/api-zod";
 import { programParticipants, PROGRAM_MARKER } from "../lib/joint-training-program";
 import { trainingLocalDate, trainingProgramLeader, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
@@ -707,7 +708,7 @@ router.get("/training-sessions/:id/roster",requireAuth,async(req,res):Promise<vo
  roster.push(...players.filter(player => guests.has(player.id)));
  if (req.query.includeRecorded === "1") {
    const recorded = new Set((await readSessionAttendance(session.clubId, session.id)).recordedPlayerIds);
-   roster.push(...players.filter(player => player.status === WITHDRAWN_PLAYER_STATUS && recorded.has(player.id)));
+   roster.push(...players.filter(player => isArchivedPlayer(player) && recorded.has(player.id)));
  }
  if(req.query.groups==="1"){
    const ids=sessionTeamIds(session.teamId,session.notes);

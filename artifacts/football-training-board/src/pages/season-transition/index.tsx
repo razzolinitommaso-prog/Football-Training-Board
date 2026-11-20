@@ -25,7 +25,7 @@ interface Season { id: number; name: string; startDate: string; endDate: string;
 interface PlayerStatus {
   playerId: number; firstName: string; lastName: string;
   teamId: number | null; clubSection: string; position: string | null; dateOfBirth: string | null;
-  statusId: number | null; status: string;
+  statusId: number | null; status: string; archived?:boolean;
   transferAmount: number | null;
   swapPlayerData: {
     firstName?: string; lastName?: string; age?: number; height?: number; weight?: number;
@@ -49,7 +49,8 @@ interface ObservedPlayer {
 const STATUS_OPTIONS = [
   { value: "pending",         label: "In attesa",              color: "bg-gray-100 text-gray-700 border-gray-200",       icon: "⏳" },
   { value: "confirmed",       label: "Riconfermato",           color: "bg-green-100 text-green-700 border-green-200",    icon: "✓" },
-  { value: "withdrawn", label: "Ritirato", color: "bg-slate-100 text-slate-800 border-slate-200", icon: "–" },
+  { value: "retired_definitive", label: "Ritiro definitivo", color: "bg-slate-100 text-slate-800 border-slate-200", icon: "–" },
+  { value: "withdrawn", label: "Ritirato · possibile rientro", color: "bg-slate-100 text-slate-800 border-slate-200", icon: "–" },
   { value: "not_confirmed",   label: "Non confermato",         color: "bg-red-100 text-red-700 border-red-200",          icon: "✗" },
   { value: "transfer_free",   label: "Trasf. gratuito",        color: "bg-blue-100 text-blue-700 border-blue-200",       icon: "→" },
   { value: "transfer_paid",   label: "Trasf. oneroso",         color: "bg-purple-100 text-purple-700 border-purple-200", icon: "€" },
@@ -568,6 +569,7 @@ export default function SeasonTransitionPage() {
 
   const [fromSeasonId, setFromSeasonId] = useState<number | null>(null);
   const [toSeasonId, setToSeasonId] = useState<number | null>(null);
+  const [rosterScope,setRosterScope]=useState("all");
   const [editPlayer, setEditPlayer] = useState<PlayerStatus | null>(null);
   const [editObserved, setEditObserved] = useState<ObservedPlayer | null | "new">(null);
   const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
@@ -635,7 +637,7 @@ export default function SeasonTransitionPage() {
   const matchesFilters = (player: Pick<PlayerStatus, "dateOfBirth" | "firstName" | "lastName">) => {
     const year = playerBirthYear(player.dateOfBirth);
     const searchText = normalizePlayerSearch([player.firstName, player.lastName, year].join(" "));
-    return (birthYearFilter === "all" || year === birthYearFilter) && searchTerms.every(term => searchText.includes(term));
+    return (rosterScope==="all"||(rosterScope==="archive"?!!(player as PlayerStatus).archived:!(player as PlayerStatus).archived)) && (birthYearFilter === "all" || year === birthYearFilter) && searchTerms.every(term => searchText.includes(term));
   };
   const visibleObservedPlayers = observedPlayers.filter(matchesFilters);
 
@@ -664,6 +666,7 @@ export default function SeasonTransitionPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
+      <div className="flex flex-wrap gap-2">{[["all","Tutti"],["active","Rosa attiva"],["archive","Possibili rientri"]].map(([v,l])=><Button key={v} variant={rosterScope===v?"default":"outline"} onClick={()=>setRosterScope(v)}>{l}</Button>)}</div>
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <RefreshCw className="w-6 h-6 text-primary" />

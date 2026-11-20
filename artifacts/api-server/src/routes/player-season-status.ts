@@ -1,3 +1,5 @@
+import { archiveStatusForTransition } from "@workspace/api-zod";
+import { isArchivedPlayer } from "@workspace/api-zod";
 import { Router, type IRouter } from "express";
 import { db, playerSeasonStatusTable, playersTable, teamsTable, seasonsTable } from "@workspace/db";
 import { WITHDRAWN_PLAYER_STATUS, playerStatusAfterWithdrawal } from "@workspace/api-zod";
@@ -59,7 +61,7 @@ router.get("/seasons/:id/player-status", requireAuth, async (req, res): Promise<
 
   const statusMap = new Map(statuses.map(s => [s.playerId, s]));
 
-  const result = players.map(p => {
+  const result = players.filter(p=>p.status!=="retired_definitive"&&!p.isTest).map(p => {
     const s = statusMap.get(p.id);
     return {
       playerId: p.id,
@@ -68,9 +70,10 @@ router.get("/seasons/:id/player-status", requireAuth, async (req, res): Promise<
       teamId: p.teamId,
       clubSection: p.clubSection,
       position: p.position,
+      archived: isArchivedPlayer(p),
       dateOfBirth: p.dateOfBirth,
       statusId: s?.id ?? null,
-      status: s?.status ?? (p.status === WITHDRAWN_PLAYER_STATUS ? WITHDRAWN_PLAYER_STATUS : "pending"),
+      status: s?.status ?? (p.status==="not_renewed"?"not_confirmed":p.status==="transferred"?"transfer_free":isArchivedPlayer(p)?WITHDRAWN_PLAYER_STATUS:"pending"),
       transferAmount: s?.transferAmount ?? null,
       swapPlayerData: s?.swapPlayerData ?? null,
       notes: s?.notes ?? null,
@@ -90,6 +93,7 @@ router.post("/seasons/:id/player-status", requireAuth, async (req, res): Promise
   if (isNaN(seasonId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
   const { playerId, status, transferAmount, swapPlayerData, notes } = req.body;
+  if(!["pending","confirmed","withdrawn","retired_definitive","not_confirmed","transfer_free","transfer_paid","swap","swap_permanent","swap_loan"].includes(status)){res.status(400).json({error:"Stato non valido"});return;}
   if (!playerId || !status) { res.status(400).json({ error: "playerId and status required" }); return; }
   const clubId = req.session.clubId!;
   const result = await db.transaction(async tx => {
@@ -107,10 +111,13 @@ router.post("/seasons/:id/player-status", requireAuth, async (req, res): Promise
     const [record] = existing
       ? await tx.update(playerSeasonStatusTable).set(values).where(eq(playerSeasonStatusTable.id, existing.id)).returning()
       : await tx.insert(playerSeasonStatusTable).values({ ...values, playerId: player.id, seasonId, clubId }).returning();
-    if (season.isActive && (status === WITHDRAWN_PLAYER_STATUS || (status === "confirmed" && player.status === WITHDRAWN_PLAYER_STATUS))) {
+    if (season.isActive && (archiveStatusForTransition(status) || (status === "confirmed" && isArchivedPlayer(player)))) {
       await tx.update(playersTable).set({
-        status: status === WITHDRAWN_PLAYER_STATUS ? WITHDRAWN_PLAYER_STATUS : playerStatusAfterWithdrawal(player),
+        status: archiveStatusForTransition(status) || playerStatusAfterWithdrawal(player),
       }).where(and(eq(playersTable.id, player.id), eq(playersTable.clubId, clubId)));
+    }
+    if(season.isActive){
+      await tx.execute(sql`UPDATE player_positions SET state=${archiveStatusForTransition(status)||'active'},revision=revision+1,notes=${String(notes??'')},updated_by=${req.session.userId!} WHERE player_id=${player.id} AND club_id=${clubId}`);
     }
     return { record, created: !existing };
   });
@@ -189,10 +196,11 @@ router.post("/seasons/:id/promote", requireAuth, async (req, res): Promise<void>
 
     let promoted = 0;
     for (const player of oldPlayers) {
-      const wasWithdrawn = player.status === WITHDRAWN_PLAYER_STATUS;
+      if(player.status==="retired_definitive"||player.isTest)continue;
+      const wasWithdrawn = isArchivedPlayer(player);
       const returns = destinationStatus.get(player.id) === "confirmed";
       const returning = returns && (wasWithdrawn || withdrawnAtSource.has(player.id));
-      if (destinationStatus.get(player.id) !== WITHDRAWN_PLAYER_STATUS && (returning || (!wasWithdrawn && confirmedPlayerIds.has(player.id)))) {
+      if (!archiveStatusForTransition(destinationStatus.get(player.id)??"") && (returning || (!wasWithdrawn && confirmedPlayerIds.has(player.id)))) {
         await db.update(playersTable).set({
           teamId: newTeam.id,
           clubSection: nextSeason as string,

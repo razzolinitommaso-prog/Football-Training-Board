@@ -38,7 +38,7 @@ export async function reconcilePaymentAvailability(clubId: number, playerId?: nu
           WHEN ${canRestore} THEN NULL
           ELSE 'other'
         END
-    WHERE p.club_id = ${clubId} ${targetScope} AND p.status IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}
+    WHERE p.club_id = ${clubId} ${targetScope} AND p.status NOT IN ('withdrawn','not_renewed','transferred','retired_definitive')
       AND (
         (p.available AND (p.unavailability_reason IS NULL OR p.unavailability_reason = 'regular')
           AND EXISTS (SELECT 1 FROM overdue WHERE player_id = p.id)

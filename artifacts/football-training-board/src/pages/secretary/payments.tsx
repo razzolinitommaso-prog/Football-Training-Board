@@ -1,6 +1,7 @@
+import { isForecastPlayer } from "@workspace/api-zod";
 import { addChartDays, paymentChartKey, paymentChartWindow } from "@/lib/payment-chart-time";
 import { PlayerPaymentWorkspace } from "@/components/player-payment-register";
-import { MemberExpensesPanel } from "@/components/members/member-finance";
+import { FinanceApiProvider, MemberExpensesPanel } from "@/components/members/member-finance";
 import { MemberWorkspace } from "@/components/members/member-workspace";
 import { memberApi, memberExpenseRoles, type MemberExpenses } from "@/lib/member-services";
 import { memberExpenseMovements } from "@/lib/member-expense-chart";
@@ -36,7 +37,7 @@ type Payment = PaymentEntry & {
   teamName?: string | null;
   teamSeason?: string | null;
 };
-type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; supplementalTeamId?: number | null };
+type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; supplementalTeamId?: number | null;status?:string;registered?:boolean|null;isTest?:boolean };
 function matchesAnnata(row: { teamId?: number | null; supplementalTeamId?: number | null }, team: string) {
   if (!team) return true;
   if (team === "unassigned") return row.teamId == null && row.supplementalTeamId == null;
@@ -152,6 +153,7 @@ export default function PaymentsPage() {
     onError: error => toast({ title: "Pagamento non aggiornato", description: error.message, variant: "destructive" }),
   });
 
+  const playerExpenses=useQuery({queryKey:['member-services','senior-expenses',club?.id,user?.id,role],queryFn:()=>apiFetch<MemberExpenses>('/api/player-finance/expenses'),enabled:canFinance});
   const payments = list.data ?? [];
   const teams = new Map<number, string>();
   for (const payment of payments) {
@@ -165,7 +167,7 @@ export default function PaymentsPage() {
   const kitPotential = showKit && !kitLoadError && kitQueries.every(query => query.isSuccess)
     ? estimateKitPotential(
       (kitRoster.data ?? []).filter(player =>
-        matchesAnnata(player, team) &&
+        isForecastPlayer(player) && matchesAnnata(player, team) &&
         searchKey(`${player.firstName} ${player.lastName} ${player.lastName} ${player.firstName}`).includes(searchKey(search.trim())),
       ).map(player => player.id), kitEquipment.data ?? [], kitCatalog.data ?? [], kitRequests.data ?? [], payments,
     ) : undefined;
@@ -197,6 +199,7 @@ export default function PaymentsPage() {
   const annualForecasts = new Map([[forecastYear, 0], [nextForecastYear, 0]]);
   const yearsWithMovements = new Set([year, ...annualForecasts.keys()]);
   for (const payment of byCategoryAndName) {
+    if(payment.status!=="paid" && (payment as Payment & {forecastEligible?:boolean}).forecastEligible===false)continue;
     const date = payment.status === "paid" ? payment.paymentDate : payment.dueDate;
     if (!date) continue;
     const movementYear = date.slice(0, 4);
@@ -204,8 +207,8 @@ export default function PaymentsPage() {
     const forecast = annualForecasts.get(movementYear);
     if (forecast !== undefined) annualForecasts.set(movementYear, forecast + Math.round(payment.amount * 100));
   }
-  for (const row of expenses.data?.dues ?? []) yearsWithMovements.add(row.dueDate.slice(0,4));
-  for (const row of expenses.data?.receipts ?? []) yearsWithMovements.add(row.paidDate.slice(0,4));
+  for (const row of [...(expenses.data?.dues ?? []),...(playerExpenses.data?.dues ?? []).map(d=>({...d,id:-d.id,userId:-d.userId}))]) yearsWithMovements.add(row.dueDate.slice(0,4));
+  for (const row of [...(expenses.data?.receipts ?? []),...(playerExpenses.data?.receipts ?? []).map(r=>({...r,id:"player:"+r.id,dueId:-r.dueId,userId:-r.userId}))]) yearsWithMovements.add(row.paidDate.slice(0,4));
   const years = [...yearsWithMovements].sort().reverse();
   const startMonth = period === "custom" ? fromMonth : monthKey(year, period === "annual" ? 1 : quarter * 3 - 2);
   const endMonth = period === "custom" ? toMonth : monthKey(year, period === "annual" ? 12 : quarter * 3);
@@ -252,7 +255,7 @@ export default function PaymentsPage() {
     values[key]-=amount;periodTotals[key]-=amount;
     if(!bucketDates.has(bucket)||date<bucketDates.get(bucket)!)bucketDates.set(bucket,date);
   };
-  for(const row of memberExpenseMovements(expenses.data,team,today))addExpense(row.date,row.amount,row.key);
+  for(const row of memberExpenseMovements({dues:[...(expenses.data?.dues??[]),...(playerExpenses.data?.dues??[]).map(d=>({...d,id:-d.id}))],receipts:[...(expenses.data?.receipts??[]),...(playerExpenses.data?.receipts??[]).map(r=>({...r,dueId:-r.dueId}))]},team,today))addExpense(row.date,row.amount,row.key);
   const chartPoints = [...amounts].map(([key, values]) => ({ key, ...Object.fromEntries(chartSeries.map(series => [series.key, values[series.key] / 100])) }));
   const [selectedHour, setSelectedHour] = useState("");
   const activeHour = amounts.has(selectedHour) ? selectedHour : [...hourlyReceipts.keys()].sort()[0] ?? chartPoints[0]?.key;
@@ -293,6 +296,7 @@ export default function PaymentsPage() {
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-semibold"><Banknote className="h-6 w-6 text-primary" />Pagamenti</h1>
         <p className="mt-1 text-sm text-muted-foreground">Consulta incassi, quote e scadenze della società.</p>
+        {canFinance&&<details className="mt-3"><summary className="cursor-pointer font-medium">Compensi e rimborsi · giocatori Prima Squadra</summary><div className="mt-3"><FinanceApiProvider playerId={0}><MemberExpensesPanel/></FinanceApiProvider><a className="underline" href="/prima-squadra/players">Apri giocatori per gestire gli accordi</a></div></details>}
       </div>
       {canEdit && view === "ledger" && (
         <Button type="button" onClick={() => { setFocusPlayerSearch(true); setView("players"); }}>

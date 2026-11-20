@@ -1,3 +1,4 @@
+import { isOperationalPlayer } from "@workspace/api-zod";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useParams, Link } from "wouter";
 import { useGetTeam, useListPlayers, useDeletePlayer, useUpdatePlayer } from "@workspace/api-client-react";
@@ -319,7 +320,7 @@ export default function TeamDetail() {
 
   const { data: team, isLoading: teamLoading } = useGetTeam(teamId);
   const { data: teamPlayers, isLoading: playersLoading } = useListPlayers({ teamId });
-  const players = teamPlayers?.filter(player => player.status !== "withdrawn");
+  const players = teamPlayers?.filter(isOperationalPlayer);
 
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [playerDialogMode, setPlayerDialogMode] = useState<"view" | "edit">("view");

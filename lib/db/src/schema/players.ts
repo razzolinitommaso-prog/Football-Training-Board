@@ -32,6 +32,7 @@ export const playersTable = pgTable("players", {
   position: text("position"),
   jerseyNumber: integer("jersey_number"),
   status: text("status").notNull().default("active"),
+  isTest: boolean("is_test").notNull().default(false),
   height: doublePrecision("height"),
   weight: doublePrecision("weight"),
   profileHistory: jsonb("profile_history").$type<{ entry: PlayerProfileEntry; changes: PlayerAssignmentChange[]; entryCorrections?: { date: string; userId: number; height?: { from: number | null; to: number | null }; weight?: { from: number | null; to: number | null }; note: string }[] }>(),

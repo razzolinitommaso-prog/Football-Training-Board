@@ -1,3 +1,4 @@
+import { isArchivedPlayer } from "@workspace/api-zod";
 import { trainingOnlyAvailabilityOverride, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { activationContact, activationScope, activations, deliverActivation, ensureAccountActivations, issueActivation } from "../lib/account-activation";
 import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
@@ -621,6 +622,7 @@ function isAvailabilityOverrideActive(source: (Record<string, unknown> | PlayerA
 }
 
 function enforcePlayerAvailabilityRules(data: Record<string, unknown>, existing?: typeof playersTable.$inferSelect) {
+  if(isArchivedPlayer({status:typeof data.status==="string"?data.status:existing?.status})){data.available=false;return;}
   const registered = "registered" in data ? data.registered === true : existing?.registered === true;
   const certificate = "medicalCertificateExpiry" in data
     ? (data.medicalCertificateExpiry as string | null | undefined)
@@ -787,13 +789,14 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect, role: unkn
     secondaryContactPhone: playerContact.secondaryContactPhone ?? null,
     secondaryContactEmail: playerContact.secondaryContactEmail ?? null,
     secondaryContactRelation: playerContact.secondaryContactRelation ?? null,
+    isTest: player.isTest,
     registered: player.registered ?? null,
     registrationNumber: player.registrationNumber ?? null,
     medicalCertificateExpiry: player.medicalCertificateExpiry ?? null,
     shuttleService: player.shuttleService ?? false,
     shuttleRoute: (player as typeof player & { shuttleRoute?: string | null }).shuttleRoute ?? null,
     shuttleDirection: (player as typeof player & { shuttleDirection?: string | null }).shuttleDirection ?? null,
-    available: player.status !== WITHDRAWN_PLAYER_STATUS && !trainingOnlyAvailabilityOverride(player) && (player.available ?? true),
+    available: !isArchivedPlayer(player) && !trainingOnlyAvailabilityOverride(player) && (player.available ?? true),
     unavailabilityReason: player.unavailabilityReason ?? null,
     expectedReturn: player.expectedReturn ?? null,
     availabilityOverrideActive: availabilityOverride.availabilityOverrideActive ?? false,
@@ -867,7 +870,7 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
       : and(...conditions);
   const players = await db.select().from(playersTable).where(playerWhere);
   const filtered = players.filter((player) => {
-    if (player.status === WITHDRAWN_PLAYER_STATUS && req.query.activeRoster === "1") return false;
+    if ((isArchivedPlayer(player)||player.isTest) && (req.query.activeRoster === "1" || ["coach","fitness_coach","athletic_director","team_manager"].includes(req.session.role??""))) return false;
     const supplementalTeamId = extractSupplementalTeamId(player.notes);
     if (requestedTeamId) {
       return player.teamId === requestedTeamId || supplementalTeamId === requestedTeamId;
@@ -1448,6 +1451,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     }
   }
 
+  if(isArchivedPlayer(existingPlayer)&&typeof updateData.status==="string"&&updateData.status!==existingPlayer.status){res.status(409).json({error:"La posizione è cambiata. Gestisci il rientro da Posizione e archivio, poi riapri la scheda."});return;}
   if (PLAYER_MANAGE_ROLES.includes(role)) {
     enforcePlayerAvailabilityRules(updateData, existingPlayer);
   }
@@ -1488,7 +1492,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
     updateData.expectedReturn = null;
   }
 
-  if (existingPlayer.status === WITHDRAWN_PLAYER_STATUS || updateData.status === WITHDRAWN_PLAYER_STATUS) {
+  if (isArchivedPlayer(existingPlayer) || updateData.status === WITHDRAWN_PLAYER_STATUS) {
     for (const key of ["status", "available", "unavailabilityReason", "expectedReturn", "availabilityOverrideActive",
       "availabilityOverrideFrom", "availabilityOverrideUntil", "availabilityOverrideReason", "availabilityOverrideScope"]) delete updateData[key];
   }
@@ -1513,7 +1517,7 @@ router.patch("/players/:id", requireAuth, async (req, res): Promise<void> => {
   }
   const clubId = req.session.clubId!;
   const playerScope = and(eq(playersTable.id, params.data.id), eq(playersTable.clubId, clubId),
-    Object.hasOwn(updateData, "status") ? sql`${playersTable.status} IS DISTINCT FROM ${WITHDRAWN_PLAYER_STATUS}` : undefined);
+    Object.hasOwn(updateData, "status") ? sql`${playersTable.status} NOT IN ('withdrawn','not_renewed','transferred','retired_definitive') AND NOT ${playersTable.isTest}` : undefined);
   const affectsProfile = ["height", "weight", "position", "jerseyNumber"].some(field => Object.hasOwn(updateData, field));
   const affectsMeasurements = ["height", "weight"].some(field => Object.hasOwn(updateData, field));
   if (affectsMeasurements) await ensureMotorTestStorage();

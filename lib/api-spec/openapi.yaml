@@ -816,6 +816,12 @@ components:
     Team:
       type: object
       properties:
+        discipline:
+          type: string
+          enum: [football11, futsal, other]
+        gender:
+          type: string
+          enum: [male, female, mixed]
         updatedAt:
           type: string
           format: date-time
@@ -852,6 +858,12 @@ components:
     CreateTeamRequest:
       type: object
       properties:
+        discipline:
+          type: string
+          enum: [football11, futsal, other]
+        gender:
+          type: string
+          enum: [male, female, mixed]
         name:
           type: string
         ageGroup:
@@ -866,6 +878,12 @@ components:
     UpdateTeamRequest:
       type: object
       properties:
+        discipline:
+          type: string
+          enum: [football11, futsal, other]
+        gender:
+          type: string
+          enum: [male, female, mixed]
         name:
           type: string
         ageGroup:
@@ -878,6 +896,8 @@ components:
     Player:
       type: object
       properties:
+        isTest:
+          type: boolean
         availabilityOverrideScope:
           type: string
           enum: [training_only, training_and_matches]

@@ -25,7 +25,7 @@ router.get("/section-stats", requireAuth, async (req, res): Promise<void> => {
   const [playersCount] = await db
     .select({ count: count() })
     .from(playersTable)
-    .where(and(eq(playersTable.clubId, clubId), eq(playersTable.clubSection, section)));
+    .where(and(eq(playersTable.clubId, clubId), eq(playersTable.clubSection, section),sql`${playersTable.status} NOT IN ('withdrawn','not_renewed','transferred','retired_definitive','training_trial') AND NOT ${playersTable.isTest}`));
 
   const [membersCount] = await db
     .select({ count: count() })

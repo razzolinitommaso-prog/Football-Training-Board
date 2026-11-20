@@ -54,7 +54,7 @@ const inviteSchema = z.object({
   activationChannel: z.enum(["email", "sms", "direct"]),
   password: z.string().optional(),
   confirmPassword: z.string().optional(),
-  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager"]),
+  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager","warehouse_keeper","maintenance","groundskeeper","driver","physiotherapist","doctor","communications","event_manager","administrative_manager","other"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   staffRole: z.string().optional(),
   registered: z.boolean().optional(),
@@ -83,7 +83,7 @@ const editSchema = z.object({
   email: z.string().email("Email non valida"),
   newPassword: z.string().optional().refine(value => !value || value.length >= 6, "La password deve contenere almeno 6 caratteri"),
   confirmNewPassword: z.string().optional(),
-  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager"]),
+  role: z.enum(["coach", "secretary", "sporting_director", "technical_director", "athletic_director", "fitness_coach", "director", "admin", "team_manager","warehouse_keeper","maintenance","groundskeeper","driver","physiotherapist","doctor","communications","event_manager","administrative_manager","other"]),
   clubSection: z.array(z.enum(CLUB_SECTIONS)).min(1, "Seleziona almeno una sezione").default(["scuola_calcio"]),
   staffRole: z.string().optional(),
   registered: z.boolean().optional(),
@@ -112,7 +112,7 @@ const MEMBER_ROLE_ORDER: Record<string, number> = {
   team_manager: 6,
 };
 
-const STAFF_MANAGED_ROLES = ["coach", "fitness_coach", "athletic_director", "team_manager"] as const;
+const STAFF_MANAGED_ROLES = ["warehouse_keeper","maintenance","groundskeeper","driver","physiotherapist","doctor","communications","event_manager","administrative_manager","other","coach", "fitness_coach", "athletic_director", "team_manager"] as const;
 
 type StaffRoleBySection = Partial<Record<ClubSection, string>>;
 
@@ -168,6 +168,7 @@ export default function MembersList() {
     { value: "fitness_coach", label: t.fitnessCoach },
     { value: "coach", label: t.coach },
     { value: "team_manager", label: "Dirigente accompagnatore" },
+    ...["warehouse_keeper","maintenance","groundskeeper","driver","physiotherapist","doctor","communications","event_manager","administrative_manager","other"].map(value=>({value,label:memberRoleLabels[value as keyof typeof memberRoleLabels]})),
   ].filter((option) => {
     if (role === "admin" || role === "presidente") return true;
     if (role === "director") return option.value !== "admin" && option.value !== "presidente" && (MEMBER_ROLE_ORDER[option.value] ?? 99) > currentRoleRank;
@@ -293,7 +294,7 @@ export default function MembersList() {
 
   const roleLabel = (role: string) => {
     const map: Record<string, string> = {
-      team_manager: "Dirigente accompagnatore", presidente: "Presidente", admin: t.admin, coach: t.coach, secretary: t.secretary, sporting_director: "Direttore Sportivo",
+      ...memberRoleLabels, team_manager: "Dirigente accompagnatore", presidente: "Presidente", admin: t.admin, coach: t.coach, secretary: t.secretary, sporting_director: "Direttore Sportivo",
       technical_director: t.technicalDirector, athletic_director: t.athleticDirector,
       fitness_coach: t.fitnessCoach, director: t.director,
     };
@@ -1172,7 +1173,7 @@ export default function MembersList() {
             : ["scuola_calcio" as ClubSection];
           const memberStaffRoles = staffRoleLabelsForMember(member, memberSecs);
           return (
-          <div key={member.id} data-testid="member-card" className="member-card relative flex min-w-0 flex-col rounded-xl border border-border/50 bg-card shadow-md transition-shadow hover:shadow-lg">
+          <div key={`${member.id}:${member.role}`} data-testid="member-card" className="member-card relative flex min-w-0 flex-col rounded-xl border border-border/50 bg-card shadow-md transition-shadow hover:shadow-lg">
             <div className="flex w-full min-w-0 flex-1 items-start gap-3 p-4">
             <Avatar className="h-11 w-11 border-2 border-primary/20 shrink-0">
               <AvatarFallback className="bg-primary/5 text-primary text-lg font-bold">

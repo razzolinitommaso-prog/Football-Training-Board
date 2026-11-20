@@ -1,3 +1,4 @@
+import { SeniorTestCard } from "@/components/senior-test-card";
 import { useEffect, useState } from "react";
 import { Star, UsersRound, Users, ShieldCheck, Plus, ArrowRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,6 +37,8 @@ export default function PrimaSquadraPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      <SeniorTestCard/>
+
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-xl bg-yellow-500/10 flex items-center justify-center">

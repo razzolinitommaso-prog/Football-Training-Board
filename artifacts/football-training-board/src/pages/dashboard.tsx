@@ -1,3 +1,4 @@
+import { isOperationalPlayer } from "@workspace/api-zod";
 import { CallupRulesCard } from "@/components/dashboard/CallupRulesCard";
 import { paymentViewRoles } from "@/lib/payment-summary";
 import { PlayerTestsDashboard } from "@/components/dashboard/PlayerTestsDashboard";
@@ -1824,7 +1825,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   const dashboardPlayerSummary = useMemo(() => {
     const players = (allPlayers as any[] | undefined) ?? [];
     const hasPlayerList = players.length > 0;
-    const isActivePlayer = (player: any) => !["inactive", "withdrawn"].includes(player.status);
+    const isActivePlayer = isOperationalPlayer;
     const total = hasPlayerList
       ? players.length
       : dashboardPlayerCount;
