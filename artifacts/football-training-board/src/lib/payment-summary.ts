@@ -70,6 +70,12 @@ export function paymentStatus(payment: PaymentEntry, today: string): PaymentStat
   return "pending";
 }
 
+export function quoteBalancePayments<T extends PaymentEntry & { amount: number }>(payments: T[]): T[] {
+  return payments.filter(payment => payment.status !== "paid" && payment.amount > 0 &&
+    (payment.paymentType === "player_total_installment" ||
+      (payment.paymentType !== "player_total_deposit" && paymentCategory(payment) === "quotes")));
+}
+
 export function quotePaymentStatus(payments: PaymentEntry[], today: string) {
   const unified = payments.some(payment => ["player_total_deposit", "player_total_installment"].includes(payment.paymentType ?? ""));
   const quotes = payments.filter(payment => payment.paymentType === "player_total_installment" ||

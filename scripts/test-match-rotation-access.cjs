@@ -41,6 +41,9 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     if (process.argv.includes("--callup-rules")) {
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {evaluateCallupRule,readCallupRule} from '../../artifacts/api-server/src/lib/callup-rules';");
     }
+    if (process.argv.includes("--payment-desk")) {
+      fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {quoteBalancePayments} from '../../artifacts/football-training-board/src/lib/payment-summary';");
+    }
     const bundle = path.join(dir, "bundle.cjs");
     if (process.argv.includes("--member-services")) {
       fs.appendFileSync(path.join(dir,"entry.ts"),"\nexport {default as memberServices} from '../../artifacts/api-server/src/routes/member-services';export * as memberModels from '../../lib/api-zod/src/member-services';export * as memberChart from '../../artifacts/football-training-board/src/lib/member-expense-chart';");
@@ -770,6 +773,26 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       assert.equal(ledger.status, 200, JSON.stringify(ledger.data));
       assert.equal(ledger.data.find(row => row.id === second.id).paymentMethod, "cash");
       assert.equal(ledger.data.find(row => row.id === first.id).dueDate, newDate.dueDate);
+      const balanceAnnual = await add(101, "2098-03-01", "annual_fee_installment", 180);
+      const balanceInsurance = await add(101, "2098-03-01", "insurance_fee", 25);
+      const separateDebt = await add(101, "2098-03-01", "other", 50);
+      const beforeBalance = (await call("/player-payments", { "x-role": "secretary" })).data.filter(row => row.playerId === 101);
+      const balanceRows = routes.quoteBalancePayments(beforeBalance);
+      assert.deepEqual(balanceRows.map(row => row.id).sort((a,b)=>a-b), [balanceAnnual.id, balanceInsurance.id].sort((a,b)=>a-b));
+      assert.equal((await collect(101, balanceRows.map(row => row.id))).status, 204);
+      const afterBalance = (await call("/player-payments", { "x-role": "secretary" })).data.filter(row => row.playerId === 101);
+      assert.equal(afterBalance.length, beforeBalance.length, "Settlement updates existing rows without creating a duplicate quota");
+      assert.equal(routes.quoteBalancePayments(afterBalance).length, 0);
+      assert.equal(afterBalance.find(row => row.id === separateDebt.id).status, "pending", "Unrelated debts are not included in quote balance");
+      assert.deepEqual(routes.quoteBalancePayments([
+        {id:1,status:'pending',amount:180,paymentType:'player_total_installment',description:'Piano totale – rata 3/3'},
+        {id:2,status:'paid',amount:190,paymentType:'registration_fee'},
+        {id:3,status:'pending',amount:67,paymentType:'kit_payment'},
+        {id:4,status:'pending',amount:30,paymentType:'shuttle_monthly'},
+        {id:5,status:'pending',amount:25,paymentType:'extra_time_fee'},
+        {id:6,status:'pending',amount:0,paymentType:'annual_fee_installment'},
+        {id:7,status:'paid',amount:25,paymentType:'insurance_fee'},
+      ]).map(row=>row.id), [1], "Unified residual included, paid fees and separate services excluded");
       await pg.exec("INSERT INTO players(id,club_id,team_id,first_name,last_name) VALUES(103,1,11,'New','Player')");
       const plan = {
         playerId: 103, total: 310, alreadyPaid: 0, upfront: 25,
