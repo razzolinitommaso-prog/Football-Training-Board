@@ -1,6 +1,6 @@
 # Collaudo pre-lancio — 21 novembre 2026
 
-Aggiornamento successivo: la suite sui tre browser è stata eseguita in CI con **816/816 successi**, inclusi i download Excel. Backup società e collaudo secondario sono documentati in [prosecuzione del collaudo](club-backup-and-prelaunch-followup.md). Le limitazioni sotto descrivono lo stato della prima sessione, prima di questi interventi.
+Aggiornamento successivo: prima **816/816 successi**, poi suite estesa con **1.098/1.098 successi** sui tre browser, inclusi download Excel, anteprima importazione e scorrimento del titolo partita mobile. Backup società e collaudo secondario sono documentati in [prosecuzione del collaudo](club-backup-and-prelaunch-followup.md). Le limitazioni sotto descrivono lo stato della prima sessione, prima di questi interventi.
 
 ## Modifiche applicative
 

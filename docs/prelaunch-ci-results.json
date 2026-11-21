@@ -1,0 +1,32 @@
+{
+  "runId": 44922087605,
+  "url": "https://github.com/razzolinitommaso-prog/Football-Training-Board/actions/runs/44922087605",
+  "commit": "15ff8241a1684e79effda53ee2a79874327264dc",
+  "conclusion": "success",
+  "totalTests": 1098,
+  "testsPerBrowser": 366,
+  "data": "synthetic",
+  "jobs": [
+    {
+      "id": 136900140916,
+      "name": "verify-firefox",
+      "conclusion": "success",
+      "started_at": "2026-11-21T15:59:44Z",
+      "completed_at": "2026-11-21T16:08:06Z"
+    },
+    {
+      "id": 136900141006,
+      "name": "verify-chromium",
+      "conclusion": "success",
+      "started_at": "2026-11-21T15:59:43Z",
+      "completed_at": "2026-11-21T16:05:49Z"
+    },
+    {
+      "id": 136900141034,
+      "name": "verify-webkit",
+      "conclusion": "success",
+      "started_at": "2026-11-21T15:59:43Z",
+      "completed_at": "2026-11-21T16:08:29Z"
+    }
+  ]
+}
