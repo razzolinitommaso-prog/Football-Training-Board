@@ -1,10 +1,10 @@
 name: Prelaunch finance and responsive
 on:
   pull_request:
-    paths: ['artifacts/football-training-board/**','lib/**','scripts/prelaunch/**','scripts/test-financial-*.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
+    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/routes/club-backup.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
   push:
     branches: [main]
-    paths: ['artifacts/football-training-board/**','lib/**','scripts/prelaunch/**','scripts/test-financial-*.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
+    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/routes/club-backup.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
   workflow_dispatch:
 permissions:
   contents: read
