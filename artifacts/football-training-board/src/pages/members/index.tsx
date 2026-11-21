@@ -1093,7 +1093,7 @@ export default function MembersList() {
             <div className="flex flex-col gap-1 bg-card border rounded-lg px-3 py-2">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Incarico</span>
               <Select value={staffRoleFilter} onValueChange={setStaffRoleFilter}>
-                <SelectTrigger className="h-7 text-[11px] focus:ring-0 mt-0.5">
+                <SelectTrigger aria-label="Filtra membri per incarico" className="h-7 text-[11px] focus:ring-0 mt-0.5">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1184,7 +1184,7 @@ export default function MembersList() {
               <h3 className="text-lg font-semibold text-foreground break-words">{member.firstName} {member.lastName}</h3>
               {memberServices.data?.members.find(p=>p.id===member.id)?.duties.filter(d=>d.active).map(d=><span key={d.id} className="mr-1 mt-1 inline-block rounded-full border px-2 py-0.5 text-xs">{memberRoleLabels[d.role as keyof typeof memberRoleLabels]??d.role} · {d.title}</span>)}
               <p className="text-sm text-muted-foreground break-all">{member.email}</p>
-              <p className="text-xs text-muted-foreground/70 mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {t.joined} {format(new Date(member.joinedAt), "MMM yyyy", { locale })}
               </p>
               <div className="flex flex-col gap-1.5 mt-2">

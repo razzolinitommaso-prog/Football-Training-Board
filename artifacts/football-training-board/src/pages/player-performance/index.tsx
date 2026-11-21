@@ -368,7 +368,7 @@ export default function PlayerPerformance() {
         <div className="flex items-center gap-3">
         <Label className="shrink-0">Squadra:</Label>
         <Select value={filterTeam} onValueChange={(value) => { setFilterTeam(value); setFilterPlayer("all"); }}>
-          <SelectTrigger className="w-full sm:w-56">
+          <SelectTrigger aria-label="Filtra test per squadra" className="w-full sm:w-56">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -384,7 +384,7 @@ export default function PlayerPerformance() {
         <div className="flex items-center gap-3">
         <Label className="shrink-0">Giocatore:</Label>
         <Select value={filterPlayer} onValueChange={setFilterPlayer}>
-          <SelectTrigger className="w-full sm:w-56">
+          <SelectTrigger aria-label="Filtra test per giocatore" className="w-full sm:w-56">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

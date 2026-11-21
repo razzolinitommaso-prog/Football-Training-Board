@@ -11,9 +11,9 @@ async function apiFetch(path: string) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; icon: any; color: string }> = {
-    paid: { label: "Pagata", icon: CheckCircle, color: "text-emerald-400" },
-    pending: { label: "In sospeso", icon: Clock, color: "text-amber-400" },
-    overdue: { label: "Scaduta", icon: AlertTriangle, color: "text-red-400" },
+    paid: { label: "Pagata", icon: CheckCircle, color: "text-emerald-700 dark:text-emerald-400" },
+    pending: { label: "In sospeso", icon: Clock, color: "text-amber-800 dark:text-amber-400" },
+    overdue: { label: "Scaduta", icon: AlertTriangle, color: "text-red-700 dark:text-red-400" },
   };
   const s = map[status] ?? { label: status, icon: Clock, color: "text-muted-foreground" };
   const Icon = s.icon;
@@ -81,7 +81,7 @@ export default function ParentPayments() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
           <CheckCircle className="w-5 h-5 text-emerald-400 mb-1" />
-          <div className="text-2xl font-bold text-emerald-400">{totalPaid}</div>
+          <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">{totalPaid}</div>
           <div className="text-xs text-muted-foreground">Pagati</div>
         </div>
         <div className={`border rounded-xl p-4 ${totalPending > 0 ? "bg-red-500/10 border-red-500/20" : "bg-card"}`}>

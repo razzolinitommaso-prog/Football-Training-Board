@@ -1,0 +1,4583 @@
+[
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/dashboard?role=technical_director",
+    "bodyLength": 1614,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Cruscotto",
+      "Regole convocazioni",
+      "Test giocatori",
+      "Panoramica · Scuola Calcio",
+      "Preparazione delle sedute",
+      "Linee guida e direttive"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/dashboard?role=technical_director",
+    "bodyLength": 1614,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Cruscotto",
+      "Regole convocazioni",
+      "Test giocatori",
+      "Panoramica · Scuola Calcio",
+      "Preparazione delle sedute",
+      "Linee guida e direttive"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/dashboard?role=technical_director",
+    "bodyLength": 1614,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Cruscotto",
+      "Regole convocazioni",
+      "Test giocatori",
+      "Panoramica · Scuola Calcio",
+      "Preparazione delle sedute",
+      "Linee guida e direttive"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/dashboard?role=technical_director",
+    "bodyLength": 1614,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Cruscotto",
+      "Regole convocazioni",
+      "Test giocatori",
+      "Panoramica · Scuola Calcio",
+      "Preparazione delle sedute",
+      "Linee guida e direttive"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/dashboard?role=technical_director",
+    "bodyLength": 1723,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Cruscotto",
+      "Regole convocazioni",
+      "Test giocatori",
+      "Panoramica · Scuola Calcio",
+      "Preparazione delle sedute",
+      "Linee guida e direttive"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/dashboard?role=technical_director",
+    "bodyLength": 1723,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Cruscotto",
+      "Regole convocazioni",
+      "Test giocatori",
+      "Panoramica · Scuola Calcio",
+      "Preparazione delle sedute",
+      "Linee guida e direttive"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/dashboard?role=technical_director",
+    "bodyLength": 2023,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Cruscotto",
+      "Regole convocazioni",
+      "Test giocatori",
+      "Panoramica · Scuola Calcio",
+      "Preparazione delle sedute",
+      "Linee guida e direttive"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/dashboard?role=technical_director",
+    "bodyLength": 2023,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Cruscotto",
+      "Regole convocazioni",
+      "Test giocatori",
+      "Panoramica · Scuola Calcio",
+      "Preparazione delle sedute",
+      "Linee guida e direttive"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/dashboard?role=technical_director",
+    "bodyLength": 2088,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Cruscotto",
+      "Regole convocazioni",
+      "Test giocatori",
+      "Panoramica · Scuola Calcio",
+      "Preparazione delle sedute",
+      "Linee guida e direttive"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/teams?role=coach",
+    "bodyLength": 362,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Squadre"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/teams?role=coach",
+    "bodyLength": 362,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Squadre"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/teams?role=coach",
+    "bodyLength": 362,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Squadre"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/teams?role=coach",
+    "bodyLength": 362,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Squadre"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/teams?role=coach",
+    "bodyLength": 382,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Squadre"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/teams?role=coach",
+    "bodyLength": 382,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Squadre"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/teams?role=coach",
+    "bodyLength": 624,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Squadre"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/teams?role=coach",
+    "bodyLength": 624,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Squadre"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/teams?role=coach",
+    "bodyLength": 689,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Squadre"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=secretary",
+    "bodyLength": 406,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=secretary",
+    "bodyLength": 406,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=secretary",
+    "bodyLength": 406,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=secretary",
+    "bodyLength": 406,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=secretary",
+    "bodyLength": 426,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=secretary",
+    "bodyLength": 426,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=secretary",
+    "bodyLength": 775,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=secretary",
+    "bodyLength": 775,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=secretary",
+    "bodyLength": 840,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/members?role=director",
+    "bodyLength": 868,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/members?role=director",
+    "bodyLength": 868,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/members?role=director",
+    "bodyLength": 868,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/members?role=director",
+    "bodyLength": 868,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/members?role=director",
+    "bodyLength": 888,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/members?role=director",
+    "bodyLength": 888,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/members?role=director",
+    "bodyLength": 1282,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/members?role=director",
+    "bodyLength": 1282,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/members?role=director",
+    "bodyLength": 1347,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/players?role=secretary",
+    "bodyLength": 948,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Elenco Giocatori",
+      "Annate e giocatori assegnati"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/players?role=secretary",
+    "bodyLength": 948,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Elenco Giocatori",
+      "Annate e giocatori assegnati"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/players?role=secretary",
+    "bodyLength": 948,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Elenco Giocatori",
+      "Annate e giocatori assegnati"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/players?role=secretary",
+    "bodyLength": 948,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Elenco Giocatori",
+      "Annate e giocatori assegnati"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/players?role=secretary",
+    "bodyLength": 968,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Elenco Giocatori",
+      "Annate e giocatori assegnati"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/players?role=secretary",
+    "bodyLength": 968,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Elenco Giocatori",
+      "Annate e giocatori assegnati"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/players?role=secretary",
+    "bodyLength": 1317,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Elenco Giocatori",
+      "Annate e giocatori assegnati"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/players?role=secretary",
+    "bodyLength": 1347,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Elenco Giocatori",
+      "Annate e giocatori assegnati"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/players?role=secretary",
+    "bodyLength": 1412,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Elenco Giocatori",
+      "Annate e giocatori assegnati"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/training?role=coach",
+    "bodyLength": 1609,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Le mie Sedute",
+      "Le mie sedute (0/0)",
+      "novembre 2026 · Primi Calci 1° anno · Squadra con nome esteso",
+      "Linee guida metodologiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/training?role=coach",
+    "bodyLength": 1609,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Le mie Sedute",
+      "Le mie sedute (0/0)",
+      "novembre 2026 · Primi Calci 1° anno · Squadra con nome esteso",
+      "Linee guida metodologiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/training?role=coach",
+    "bodyLength": 1609,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Le mie Sedute",
+      "Le mie sedute (0/0)",
+      "novembre 2026 · Primi Calci 1° anno · Squadra con nome esteso",
+      "Linee guida metodologiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/training?role=coach",
+    "bodyLength": 1609,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Le mie Sedute",
+      "Le mie sedute (0/0)",
+      "novembre 2026 · Primi Calci 1° anno · Squadra con nome esteso",
+      "Linee guida metodologiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/training?role=coach",
+    "bodyLength": 1629,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Le mie Sedute",
+      "Le mie sedute (0/0)",
+      "novembre 2026 · Primi Calci 1° anno · Squadra con nome esteso",
+      "Linee guida metodologiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/training?role=coach",
+    "bodyLength": 1629,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Le mie Sedute",
+      "Le mie sedute (0/0)",
+      "novembre 2026 · Primi Calci 1° anno · Squadra con nome esteso",
+      "Linee guida metodologiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/training?role=coach",
+    "bodyLength": 1871,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Le mie Sedute",
+      "Le mie sedute (0/0)",
+      "novembre 2026 · Primi Calci 1° anno · Squadra con nome esteso",
+      "Linee guida metodologiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/training?role=coach",
+    "bodyLength": 1871,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Le mie Sedute",
+      "Le mie sedute (0/0)",
+      "novembre 2026 · Primi Calci 1° anno · Squadra con nome esteso",
+      "Linee guida metodologiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/training?role=coach",
+    "bodyLength": 1936,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Le mie Sedute",
+      "Le mie sedute (0/0)",
+      "novembre 2026 · Primi Calci 1° anno · Squadra con nome esteso",
+      "Linee guida metodologiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/attendance?role=technical_director",
+    "bodyLength": 912,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Presenze e minutaggi",
+      "Confronto per giocatore",
+      "Totali della stagione"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/attendance?role=technical_director",
+    "bodyLength": 912,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Presenze e minutaggi",
+      "Confronto per giocatore",
+      "Totali della stagione"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/attendance?role=technical_director",
+    "bodyLength": 912,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Presenze e minutaggi",
+      "Confronto per giocatore",
+      "Totali della stagione"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/attendance?role=technical_director",
+    "bodyLength": 912,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Presenze e minutaggi",
+      "Confronto per giocatore",
+      "Totali della stagione"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/attendance?role=technical_director",
+    "bodyLength": 874,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Presenze e minutaggi",
+      "Confronto per giocatore",
+      "Totali della stagione"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/attendance?role=technical_director",
+    "bodyLength": 874,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Presenze e minutaggi",
+      "Confronto per giocatore",
+      "Totali della stagione"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/attendance?role=technical_director",
+    "bodyLength": 1174,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Presenze e minutaggi",
+      "Confronto per giocatore",
+      "Totali della stagione"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/attendance?role=technical_director",
+    "bodyLength": 1174,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Presenze e minutaggi",
+      "Confronto per giocatore",
+      "Totali della stagione"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/attendance?role=technical_director",
+    "bodyLength": 1239,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Presenze e minutaggi",
+      "Confronto per giocatore",
+      "Totali della stagione"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/exercises?role=coach",
+    "bodyLength": 599,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Libreria Stazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/exercises?role=coach",
+    "bodyLength": 599,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Libreria Stazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/exercises?role=coach",
+    "bodyLength": 599,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Libreria Stazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/exercises?role=coach",
+    "bodyLength": 599,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Libreria Stazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/exercises?role=coach",
+    "bodyLength": 619,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Libreria Stazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/exercises?role=coach",
+    "bodyLength": 619,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Libreria Stazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/exercises?role=coach",
+    "bodyLength": 861,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Libreria Stazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/exercises?role=coach",
+    "bodyLength": 861,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Libreria Stazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/exercises?role=coach",
+    "bodyLength": 926,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Libreria Stazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/player-performance?role=fitness_coach",
+    "bodyLength": 405,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Performance Giocatori",
+      "Sessioni di test motori"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/player-performance?role=fitness_coach",
+    "bodyLength": 405,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Performance Giocatori",
+      "Sessioni di test motori"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/player-performance?role=fitness_coach",
+    "bodyLength": 405,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Performance Giocatori",
+      "Sessioni di test motori"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/player-performance?role=fitness_coach",
+    "bodyLength": 405,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Performance Giocatori",
+      "Sessioni di test motori"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/player-performance?role=fitness_coach",
+    "bodyLength": 425,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Performance Giocatori",
+      "Sessioni di test motori"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/player-performance?role=fitness_coach",
+    "bodyLength": 425,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Performance Giocatori",
+      "Sessioni di test motori"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/player-performance?role=fitness_coach",
+    "bodyLength": 754,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Performance Giocatori",
+      "Sessioni di test motori"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/player-performance?role=fitness_coach",
+    "bodyLength": 754,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Performance Giocatori",
+      "Sessioni di test motori"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/player-performance?role=fitness_coach",
+    "bodyLength": 819,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Performance Giocatori",
+      "Sessioni di test motori"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/season-transition?role=secretary",
+    "bodyLength": 560,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Transizione Stagionale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/season-transition?role=secretary",
+    "bodyLength": 560,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Transizione Stagionale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/season-transition?role=secretary",
+    "bodyLength": 560,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Transizione Stagionale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/season-transition?role=secretary",
+    "bodyLength": 560,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Transizione Stagionale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/season-transition?role=secretary",
+    "bodyLength": 580,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Transizione Stagionale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/season-transition?role=secretary",
+    "bodyLength": 580,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Transizione Stagionale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/season-transition?role=secretary",
+    "bodyLength": 929,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Transizione Stagionale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/season-transition?role=secretary",
+    "bodyLength": 929,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Transizione Stagionale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/season-transition?role=secretary",
+    "bodyLength": 994,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Transizione Stagionale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/secretary/warehouse?role=secretary",
+    "bodyLength": 636,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Magazzino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/secretary/warehouse?role=secretary",
+    "bodyLength": 636,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Magazzino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/secretary/warehouse?role=secretary",
+    "bodyLength": 636,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Magazzino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/secretary/warehouse?role=secretary",
+    "bodyLength": 636,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Magazzino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/secretary/warehouse?role=secretary",
+    "bodyLength": 656,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Magazzino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/secretary/warehouse?role=secretary",
+    "bodyLength": 656,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Magazzino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/secretary/warehouse?role=secretary",
+    "bodyLength": 1005,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Magazzino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/secretary/warehouse?role=secretary",
+    "bodyLength": 1005,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Magazzino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/secretary/warehouse?role=secretary",
+    "bodyLength": 1070,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Magazzino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/secretary/fee-list?role=secretary",
+    "bodyLength": 419,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Listino quote",
+      "Iscrizione",
+      "Assicurazione",
+      "Quota annuale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/secretary/fee-list?role=secretary",
+    "bodyLength": 419,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Listino quote",
+      "Iscrizione",
+      "Assicurazione",
+      "Quota annuale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/secretary/fee-list?role=secretary",
+    "bodyLength": 419,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Listino quote",
+      "Iscrizione",
+      "Assicurazione",
+      "Quota annuale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/secretary/fee-list?role=secretary",
+    "bodyLength": 419,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Listino quote",
+      "Iscrizione",
+      "Assicurazione",
+      "Quota annuale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/secretary/fee-list?role=secretary",
+    "bodyLength": 439,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Listino quote",
+      "Iscrizione",
+      "Assicurazione",
+      "Quota annuale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/secretary/fee-list?role=secretary",
+    "bodyLength": 439,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Listino quote",
+      "Iscrizione",
+      "Assicurazione",
+      "Quota annuale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/secretary/fee-list?role=secretary",
+    "bodyLength": 788,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Listino quote",
+      "Iscrizione",
+      "Assicurazione",
+      "Quota annuale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/secretary/fee-list?role=secretary",
+    "bodyLength": 788,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Listino quote",
+      "Iscrizione",
+      "Assicurazione",
+      "Quota annuale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/secretary/fee-list?role=secretary",
+    "bodyLength": 853,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Listino quote",
+      "Iscrizione",
+      "Assicurazione",
+      "Quota annuale"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/secretary/documents?role=secretary",
+    "bodyLength": 163,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/secretary/documents?role=secretary",
+    "bodyLength": 163,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/secretary/documents?role=secretary",
+    "bodyLength": 163,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/secretary/documents?role=secretary",
+    "bodyLength": 163,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/secretary/documents?role=secretary",
+    "bodyLength": 183,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/secretary/documents?role=secretary",
+    "bodyLength": 183,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/secretary/documents?role=secretary",
+    "bodyLength": 532,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/secretary/documents?role=secretary",
+    "bodyLength": 532,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/secretary/documents?role=secretary",
+    "bodyLength": 597,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/secretary/extra-time?role=secretary",
+    "bodyLength": 550,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Extra Time",
+      "Listino Extra Time"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/secretary/extra-time?role=secretary",
+    "bodyLength": 550,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Extra Time",
+      "Listino Extra Time"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/secretary/extra-time?role=secretary",
+    "bodyLength": 550,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Extra Time",
+      "Listino Extra Time"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/secretary/extra-time?role=secretary",
+    "bodyLength": 550,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Extra Time",
+      "Listino Extra Time"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/secretary/extra-time?role=secretary",
+    "bodyLength": 570,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Extra Time",
+      "Listino Extra Time"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/secretary/extra-time?role=secretary",
+    "bodyLength": 570,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Extra Time",
+      "Listino Extra Time"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/secretary/extra-time?role=secretary",
+    "bodyLength": 919,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Extra Time",
+      "Listino Extra Time"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/secretary/extra-time?role=secretary",
+    "bodyLength": 919,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Extra Time",
+      "Listino Extra Time"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/secretary/extra-time?role=secretary",
+    "bodyLength": 984,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Extra Time",
+      "Listino Extra Time"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/dirigenti?role=team_manager",
+    "bodyLength": 324,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Area Dirigenti",
+      ""
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/dirigenti?role=team_manager",
+    "bodyLength": 324,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Area Dirigenti",
+      ""
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/dirigenti?role=team_manager",
+    "bodyLength": 324,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Area Dirigenti",
+      ""
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/dirigenti?role=team_manager",
+    "bodyLength": 324,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Area Dirigenti",
+      ""
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/dirigenti?role=team_manager",
+    "bodyLength": 344,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Area Dirigenti",
+      ""
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/dirigenti?role=team_manager",
+    "bodyLength": 344,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Area Dirigenti",
+      ""
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/dirigenti?role=team_manager",
+    "bodyLength": 512,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Area Dirigenti",
+      ""
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/dirigenti?role=team_manager",
+    "bodyLength": 512,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Area Dirigenti",
+      ""
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/dirigenti?role=team_manager",
+    "bodyLength": 577,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Area Dirigenti",
+      ""
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/parent/player-card?role=parent",
+    "bodyLength": 325,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Alessandro Giocatore dal cognome molto lungo"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/parent/player-card?role=parent",
+    "bodyLength": 325,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Alessandro Giocatore dal cognome molto lungo"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/parent/player-card?role=parent",
+    "bodyLength": 325,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Alessandro Giocatore dal cognome molto lungo"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/parent/player-card?role=parent",
+    "bodyLength": 325,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Alessandro Giocatore dal cognome molto lungo"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/parent/player-card?role=parent",
+    "bodyLength": 345,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Alessandro Giocatore dal cognome molto lungo"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/parent/player-card?role=parent",
+    "bodyLength": 345,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Alessandro Giocatore dal cognome molto lungo"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/parent/player-card?role=parent",
+    "bodyLength": 622,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Alessandro Giocatore dal cognome molto lungo"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/parent/player-card?role=parent",
+    "bodyLength": 622,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Alessandro Giocatore dal cognome molto lungo"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/parent/player-card?role=parent",
+    "bodyLength": 687,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Alessandro Giocatore dal cognome molto lungo"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/parent/payments?role=parent",
+    "bodyLength": 353,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/parent/payments?role=parent",
+    "bodyLength": 353,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/parent/payments?role=parent",
+    "bodyLength": 353,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/parent/payments?role=parent",
+    "bodyLength": 353,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/parent/payments?role=parent",
+    "bodyLength": 373,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/parent/payments?role=parent",
+    "bodyLength": 373,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/parent/payments?role=parent",
+    "bodyLength": 650,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/parent/payments?role=parent",
+    "bodyLength": 650,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/parent/payments?role=parent",
+    "bodyLength": 715,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=presidente",
+    "bodyLength": 406,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=presidente",
+    "bodyLength": 406,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=presidente",
+    "bodyLength": 406,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=presidente",
+    "bodyLength": 406,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=presidente",
+    "bodyLength": 426,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=presidente",
+    "bodyLength": 426,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=presidente",
+    "bodyLength": 903,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=presidente",
+    "bodyLength": 903,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=presidente",
+    "bodyLength": 968,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=admin",
+    "bodyLength": 410,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=admin",
+    "bodyLength": 410,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=admin",
+    "bodyLength": 410,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=admin",
+    "bodyLength": 410,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=admin",
+    "bodyLength": 430,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=admin",
+    "bodyLength": 430,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=admin",
+    "bodyLength": 930,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=admin",
+    "bodyLength": 930,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/secretary/payments?role=admin",
+    "bodyLength": 995,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Pagamenti",
+      "Compensi e rimborsi giocatori Prima Squadra · uscite",
+      "1 giocatore"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/members?role=sporting_director",
+    "bodyLength": 762,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/members?role=sporting_director",
+    "bodyLength": 762,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/members?role=sporting_director",
+    "bodyLength": 762,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/members?role=sporting_director",
+    "bodyLength": 762,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/members?role=sporting_director",
+    "bodyLength": 782,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/members?role=sporting_director",
+    "bodyLength": 782,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/members?role=sporting_director",
+    "bodyLength": 1132,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/members?role=sporting_director",
+    "bodyLength": 1132,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/members?role=sporting_director",
+    "bodyLength": 1197,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Staff e Membri"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/fitness-programs?role=fitness_coach",
+    "bodyLength": 270,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Programmi atletici"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/fitness-programs?role=fitness_coach",
+    "bodyLength": 270,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Programmi atletici"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/fitness-programs?role=fitness_coach",
+    "bodyLength": 270,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Programmi atletici"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/fitness-programs?role=fitness_coach",
+    "bodyLength": 270,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Programmi atletici"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/fitness-programs?role=fitness_coach",
+    "bodyLength": 290,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Programmi atletici"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/fitness-programs?role=fitness_coach",
+    "bodyLength": 290,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Programmi atletici"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/fitness-programs?role=fitness_coach",
+    "bodyLength": 619,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Programmi atletici"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/fitness-programs?role=fitness_coach",
+    "bodyLength": 619,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Programmi atletici"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/fitness-programs?role=fitness_coach",
+    "bodyLength": 684,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Programmi atletici"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/secretary/registrations?role=secretary",
+    "bodyLength": 169,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Iscrizioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/secretary/registrations?role=secretary",
+    "bodyLength": 169,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Iscrizioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/secretary/registrations?role=secretary",
+    "bodyLength": 169,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Iscrizioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/secretary/registrations?role=secretary",
+    "bodyLength": 169,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Iscrizioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/secretary/registrations?role=secretary",
+    "bodyLength": 189,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Iscrizioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/secretary/registrations?role=secretary",
+    "bodyLength": 189,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Iscrizioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/secretary/registrations?role=secretary",
+    "bodyLength": 538,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Iscrizioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/secretary/registrations?role=secretary",
+    "bodyLength": 538,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Iscrizioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/secretary/registrations?role=secretary",
+    "bodyLength": 603,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Iscrizioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/secretary/shuttle?role=secretary",
+    "bodyLength": 289,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Pulmino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/secretary/shuttle?role=secretary",
+    "bodyLength": 289,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Pulmino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/secretary/shuttle?role=secretary",
+    "bodyLength": 289,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Pulmino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/secretary/shuttle?role=secretary",
+    "bodyLength": 289,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Pulmino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/secretary/shuttle?role=secretary",
+    "bodyLength": 309,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Pulmino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/secretary/shuttle?role=secretary",
+    "bodyLength": 309,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Pulmino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/secretary/shuttle?role=secretary",
+    "bodyLength": 658,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Pulmino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/secretary/shuttle?role=secretary",
+    "bodyLength": 658,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Pulmino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/secretary/shuttle?role=secretary",
+    "bodyLength": 723,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Pulmino"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/parent/callups?role=parent",
+    "bodyLength": 174,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Convocazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/parent/callups?role=parent",
+    "bodyLength": 174,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Convocazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/parent/callups?role=parent",
+    "bodyLength": 174,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Convocazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/parent/callups?role=parent",
+    "bodyLength": 174,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Convocazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/parent/callups?role=parent",
+    "bodyLength": 194,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Convocazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/parent/callups?role=parent",
+    "bodyLength": 194,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Convocazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/parent/callups?role=parent",
+    "bodyLength": 471,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Convocazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/parent/callups?role=parent",
+    "bodyLength": 471,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Convocazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/parent/callups?role=parent",
+    "bodyLength": 536,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Convocazioni"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/parent/documents?role=parent",
+    "bodyLength": 118,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/parent/documents?role=parent",
+    "bodyLength": 118,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/parent/documents?role=parent",
+    "bodyLength": 118,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/parent/documents?role=parent",
+    "bodyLength": 118,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/parent/documents?role=parent",
+    "bodyLength": 138,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/parent/documents?role=parent",
+    "bodyLength": 138,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/parent/documents?role=parent",
+    "bodyLength": 415,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/parent/documents?role=parent",
+    "bodyLength": 415,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/parent/documents?role=parent",
+    "bodyLength": 480,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Documenti"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/parent/notifications?role=parent",
+    "bodyLength": 133,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Notifiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/parent/notifications?role=parent",
+    "bodyLength": 133,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Notifiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/parent/notifications?role=parent",
+    "bodyLength": 133,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Notifiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/parent/notifications?role=parent",
+    "bodyLength": 133,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Notifiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/parent/notifications?role=parent",
+    "bodyLength": 153,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Notifiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/parent/notifications?role=parent",
+    "bodyLength": 153,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Notifiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/parent/notifications?role=parent",
+    "bodyLength": 430,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Notifiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/parent/notifications?role=parent",
+    "bodyLength": 430,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Notifiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/parent/notifications?role=parent",
+    "bodyLength": 495,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Notifiche"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "width": 320,
+    "actualUrl": "http://127.0.0.1:5203/parent/kit?role=parent",
+    "bodyLength": 158,
+    "documentWidth": 320,
+    "headings": [
+      "Società di collaudo",
+      "Kit"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 320,
+    "passed": true
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "width": 360,
+    "actualUrl": "http://127.0.0.1:5203/parent/kit?role=parent",
+    "bodyLength": 158,
+    "documentWidth": 360,
+    "headings": [
+      "Società di collaudo",
+      "Kit"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 360,
+    "passed": true
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "width": 390,
+    "actualUrl": "http://127.0.0.1:5203/parent/kit?role=parent",
+    "bodyLength": 158,
+    "documentWidth": 390,
+    "headings": [
+      "Società di collaudo",
+      "Kit"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 390,
+    "passed": true
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "width": 430,
+    "actualUrl": "http://127.0.0.1:5203/parent/kit?role=parent",
+    "bodyLength": 158,
+    "documentWidth": 430,
+    "headings": [
+      "Società di collaudo",
+      "Kit"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 430,
+    "passed": true
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "width": 768,
+    "actualUrl": "http://127.0.0.1:5203/parent/kit?role=parent",
+    "bodyLength": 178,
+    "documentWidth": 768,
+    "headings": [
+      "Società di collaudo",
+      "Kit"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 768,
+    "passed": true
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "width": 820,
+    "actualUrl": "http://127.0.0.1:5203/parent/kit?role=parent",
+    "bodyLength": 178,
+    "documentWidth": 820,
+    "headings": [
+      "Società di collaudo",
+      "Kit"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 820,
+    "passed": true
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "width": 1024,
+    "actualUrl": "http://127.0.0.1:5203/parent/kit?role=parent",
+    "bodyLength": 455,
+    "documentWidth": 1024,
+    "headings": [
+      "Società di collaudo",
+      "Kit"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1024,
+    "passed": true
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "width": 1280,
+    "actualUrl": "http://127.0.0.1:5203/parent/kit?role=parent",
+    "bodyLength": 455,
+    "documentWidth": 1280,
+    "headings": [
+      "Società di collaudo",
+      "Kit"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1280,
+    "passed": true
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "width": 1440,
+    "actualUrl": "http://127.0.0.1:5203/parent/kit?role=parent",
+    "bodyLength": 520,
+    "documentWidth": 1440,
+    "headings": [
+      "Società di collaudo",
+      "Kit"
+    ],
+    "narrow": [],
+    "overflow": [],
+    "renderError": false,
+    "viewport": 1440,
+    "passed": true
+  }
+]

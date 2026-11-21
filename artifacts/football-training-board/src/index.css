@@ -105,19 +105,19 @@
   --popover-foreground: 222 47% 11%;
   --popover-border: 214 32% 91%;
 
-  --primary: 160 84% 39%; /* Vibrant Teal */
+  --primary: 160 84% 24%; /* Readable links and white button labels on light surfaces */
   --primary-foreground: 0 0% 100%;
 
   --secondary: 210 40% 96%;
   --secondary-foreground: 222 47% 11%;
 
   --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
+  --muted-foreground: 215 16% 42%;
 
   --accent: 210 40% 96%;
   --accent-foreground: 222 47% 11%;
 
-  --destructive: 0 84% 60%;
+  --destructive: 0 75% 44%;
   --destructive-foreground: 210 40% 98%;
 
   --input: 214 32% 91%;
@@ -187,7 +187,7 @@
   --popover-border: 217 32% 17%;
 
   --primary: 160 84% 39%;
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 222 47% 11%;
 
   --secondary: 217 32% 17%;
   --secondary-foreground: 210 40% 98%;

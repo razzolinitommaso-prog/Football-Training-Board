@@ -71,14 +71,18 @@ export function exportToExcel(rows: Record<string, any>[], filename: string, she
   void downloadWorkbook(wb, filename, options?.preferSavePicker);
 }
 
-export function exportMultiSheet(sheets: { name: string; rows: Record<string, any>[] }[], filename: string) {
+export function createExcelWorkbook(sheets: { name: string; rows: Record<string, any>[] }[]) {
   const wb = XLSX.utils.book_new();
   for (const sheet of sheets) {
     const ws = XLSX.utils.json_to_sheet(sheet.rows);
     autoFitColumns(ws, sheet.rows);
     XLSX.utils.book_append_sheet(wb, ws, sheet.name);
   }
-  downloadWorkbook(wb, filename);
+  return wb;
+}
+
+export function exportMultiSheet(sheets: { name: string; rows: Record<string, any>[] }[], filename: string) {
+  return downloadWorkbook(createExcelWorkbook(sheets), filename);
 }
 
 // --- Data mappers ---

@@ -1,4 +1,5 @@
 import { isForecastPlayer } from "@workspace/api-zod";
+import { FinancialReconciliation } from "@/components/financial-reconciliation";
 import { addChartDays, paymentChartKey, paymentChartWindow } from "@/lib/payment-chart-time";
 import { PlayerPaymentWorkspace } from "@/components/player-payment-register";
 import { FinanceApiProvider, MemberExpensesPanel } from "@/components/members/member-finance";
@@ -58,9 +59,9 @@ const chartSeries = [
   { key: "otherMethod", label: "Altro o senza metodo", color: "#64748b", stack: "incassato" },
   { key: "pending", label: ledgerStatusLabels.pending, color: "#d97706", stack: "da-incassare" },
   { key: "overdue", label: "Scaduto", color: "#dc2626", stack: "da-incassare" },
-  { key: "memberPaid", label: "Uscite membri · pagate", color: "#0f766e", stack: "uscite" },
-  { key: "memberPending", label: "Uscite membri · da pagare", color: "#b45309", stack: "uscite" },
-  { key: "memberOverdue", label: "Uscite membri · scadute", color: "#be123c", stack: "uscite" },
+  { key: "memberPaid", label: "Uscite membri e Prima Squadra · pagate", color: "#0f766e", stack: "uscite" },
+  { key: "memberPending", label: "Uscite membri e Prima Squadra · da pagare", color: "#b45309", stack: "uscite" },
+  { key: "memberOverdue", label: "Uscite membri e Prima Squadra · scadute", color: "#be123c", stack: "uscite" },
 ] as const;
 const emptyMonth = { cash: 0, card: 0, bank_transfer: 0, otherMethod: 0, pending: 0, overdue: 0, memberPaid: 0, memberPending: 0, memberOverdue: 0 };
 type MonthlyAmounts = typeof emptyMonth;
@@ -216,6 +217,8 @@ export default function PaymentsPage() {
   const chartWindow = validRange ? paymentChartWindow(startMonth, endMonth, zoom, focus || today) : null;
   // Player-specific filters keep the existing income-only meaning.
   const showExpenses = canFinance && includeExpenses && !category && !search.trim() && !status && !method;
+  const expensesReady = expenses.isSuccess && playerExpenses.isSuccess;
+  const chartReady = !showExpenses || expensesReady;
   const seriesForView = zoom === 3 ? receiptSeries : chartSeries.filter(series=>showExpenses || series.stack!=="uscite");
   const amounts = new Map(chartWindow?.keys.map(key => [key, { ...emptyMonth }]));
   const bucketDates = new Map<string, string>();
@@ -310,8 +313,8 @@ export default function PaymentsPage() {
       <Button type="button" aria-pressed={view === "ledger"} variant={view === "ledger" ? "default" : "outline"} onClick={() => setView("ledger")}>Registro e grafici</Button>
       {canFinance&&<Button type="button" aria-pressed={view==="members"} variant={view==="members"?"default":"outline"} onClick={()=>setView("members")}>Compensi e rimborsi membri</Button>}
     </div>
-    {view==="ledger"&&canFinance&&<div className="space-y-2 rounded-xl border bg-card p-3 text-sm"><label className="flex items-center gap-2"><input type="checkbox" checked={includeExpenses} onChange={event=>setIncludeExpenses(event.target.checked)}/>Mostra nel grafico anche le uscite membri</label><p className="text-xs text-muted-foreground">Uscite sotto lo zero: pagamenti alla data effettiva, residui alla scadenza. Il filtro annata segue la ripartizione del contratto. I filtri giocatore, categoria, stato e metodo mostrano soltanto gli incassi giocatori.</p>{expenses.isPending?<p role="status">Caricamento uscite membri…</p>:expenses.isError?<p role="alert">Uscite membri non disponibili. <Button variant="outline" size="sm" onClick={()=>void expenses.refetch()}>Riprova</Button></p>:null}{zoom===3&&untimedExpenses>0&&<p>Uscite pagate senza orario, escluse dal dettaglio orario: {money.format(untimedExpenses/100)}</p>}</div>}
-    {view === "ledger" && <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-3 md:grid-cols-3 xl:grid-cols-6">
+    {view==="ledger"&&canFinance&&<div className="space-y-2 rounded-xl border bg-card p-3 text-sm"><label className="flex items-center gap-2"><input type="checkbox" checked={includeExpenses} onChange={event=>setIncludeExpenses(event.target.checked)}/>Mostra nel grafico anche le uscite membri e Prima Squadra</label><p className="text-xs text-muted-foreground">Uscite sotto lo zero: pagamenti alla data effettiva, residui alla scadenza. Il filtro annata segue la ripartizione del contratto. I filtri giocatore, categoria, stato e metodo mostrano soltanto gli incassi giocatori.</p>{!showExpenses&&includeExpenses&&<p role="status">Uscite nascoste dai filtri incassi attivi.</p>}{[{query:expenses,label:"membri"},{query:playerExpenses,label:"Prima Squadra"}].map(({query,label})=>query.isError?<p key={label} role="alert">Uscite {label} non disponibili: riepilogo incompleto. <Button variant="outline" size="sm" onClick={()=>void query.refetch()}>Riprova uscite {label}</Button></p>:query.isPending?<p key={label} role="status">Caricamento uscite {label}…</p>:null)}{zoom===3&&untimedExpenses>0&&<p>Uscite pagate senza orario, escluse dal dettaglio orario: {money.format(untimedExpenses/100)}</p>}</div>}
+    {view === "ledger" && <div className="finance-filter-grid gap-2 rounded-xl border bg-card p-3">
       <label className="min-w-0 space-y-1 text-xs font-medium">Giocatore o descrizione
         <Input placeholder="Cerca…" value={search} onChange={event => setSearch(event.target.value)} />
       </label>
@@ -367,7 +370,7 @@ export default function PaymentsPage() {
               </div>
             ))}
           </dl>
-          <p className="mt-1 text-xs text-muted-foreground">Incassato + da riscuotere con scadenza nell’anno</p>
+          <p className="mt-1 text-xs text-muted-foreground">Incassato + da riscuotere con scadenza nell’anno. Segue annata, categoria e ricerca; non segue mese, stato o metodo. Esclude dalla previsione futura inattivi e non tesserati.</p>
         </CardContent></Card>
       </div>
 
@@ -423,7 +426,7 @@ export default function PaymentsPage() {
             </ScrollableSelect>
           </label>}
         </div>
-        {chartWindow ? <>
+        {!chartReady ? <p role="alert" className="mt-3 text-sm text-destructive">Grafico sospeso: completa il caricamento delle uscite o riprova le sorgenti segnalate. Nessun totale parziale viene presentato come completo.</p> : chartWindow ? <>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-xs font-medium">Tipo di grafico<ScrollableSelect aria-label="Tipo di grafico" value={chartType} onValueChange={value => setChartType(value as typeof chartType)}><option value="bars">Barre</option><option value="lines">Linee</option></ScrollableSelect></label>
             <label className="space-y-1 text-xs font-medium">Scala temporale<ScrollableSelect aria-label="Scala temporale" value={String(zoom)} onValueChange={value => changeZoom(Number(value))}>{["Mesi", "Settimane", "Giorni", "Ore"].map((label, index) => <option value={index} key={label}>{label}</option>)}</ScrollableSelect></label>
@@ -436,7 +439,7 @@ export default function PaymentsPage() {
           </div>
           {zoom > 0 && <label className="mt-2 flex flex-wrap items-center gap-2 text-xs font-medium">Vai al giorno<Input type="date" className="w-auto" min={startMonth + "-01"} max={paymentChartWindow(startMonth, endMonth, 0, today).to} value={chartWindow.anchor} onChange={event => { if (event.target.value) { setFocus(event.target.value); setSelectedHour(""); } }} /></label>}
           <p className="mt-3 text-sm" aria-live="polite">{displayDate(chartWindow.from)}{chartWindow.from === chartWindow.to ? "" : " – " + displayDate(chartWindow.to)} · {zoom === 3 ? "Incassato con orario" : "Incassato"} <strong className="tabular-nums">{money.format(chartTotal / 100)}</strong></p>
-          <div className="mt-2 h-56 min-w-0 touch-pan-y" aria-label="Incassi e somme da riscuotere nel periodo visibile"
+          <div className="mt-2 h-56 min-w-0 touch-pan-y" role="region" aria-label="Incassi e somme da riscuotere nel periodo visibile"
             onPointerDown={event => { dragStart.current = event.clientX; dragged.current = false; }} onPointerCancel={() => { dragStart.current = null; }}
             onPointerUp={event => { const distance = dragStart.current === null ? 0 : event.clientX - dragStart.current; dragStart.current = null; if (Math.abs(distance) > 36) { dragged.current = true; pan(distance < 0 ? 1 : -1); } }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -463,13 +466,14 @@ export default function PaymentsPage() {
             {selectedReceipts.length ? <ul className="space-y-1">{selectedReceipts.map(row => <li key={row.id} className="flex flex-wrap justify-between gap-2"><span>{row.time} · {row.method}</span><strong>{money.format(row.amount / 100)}</strong></li>)}</ul> : <p className="text-muted-foreground">Nessun incasso con orario in questa fascia.</p>}
             {untimedReceipts > 0 && <p className="text-muted-foreground">Incassi del giorno senza orario: {money.format(untimedReceipts / 100)}.</p>}
           </div>}
-          <p className="mt-2 text-xs text-muted-foreground">Gli incassi sono sopra lo zero; le uscite membri sono sotto lo zero quando abilitate. Le schede riepilogative in alto riguardano gli incassi giocatori.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Gli incassi sono sopra lo zero; le uscite membri e Prima Squadra sono sotto lo zero quando abilitate. Le schede riepilogative in alto riguardano gli incassi giocatori. Il grafico segue il periodo selezionato qui e non il mese del riepilogo in alto.</p>
         </> : <p role="status" className="mt-3 text-sm text-muted-foreground">Scegli un mese iniziale e uno finale in ordine cronologico.</p>}
         {undatedReceipts > 0 && <p className="mt-2 text-xs text-muted-foreground">Incassi senza data da attribuire a un mese: {money.format(undatedReceipts / 100)}.</p>}
         {undatedDues > 0 && <p className="mt-2 text-xs text-muted-foreground">Somme da riscuotere senza scadenza: {money.format(undatedDues / 100)}.</p>}
       </section>
 
-      {chartWindow && <section className="space-y-3 rounded-xl border bg-card p-3 sm:p-4" aria-labelledby="payment-period-heading">
+      <FinancialReconciliation payments={payments} members={canFinance?expenses.data:undefined} senior={canFinance?playerExpenses.data:undefined} today={today} complete={list.isSuccess&&(!canFinance||expensesReady)} />
+      {chartWindow && chartReady && <section className="space-y-3 rounded-xl border bg-card p-3 sm:p-4" aria-labelledby="payment-period-heading">
         <div>
           <h2 id="payment-period-heading" className="text-sm font-medium">Incassi per metodo e somme da riscuotere</h2>
           <p className="mt-1 text-xs text-muted-foreground">Stesso periodo visibile nel grafico</p>

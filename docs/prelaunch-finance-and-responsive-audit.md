@@ -27,3 +27,5 @@ Strumenti proposti: Playwright per emulazione e confronti visivi ripetibili; axe
 Criterio di chiusura: registro pagine/ruoli/dispositivi verificati, schermate approvate, difetti critici risolti, scarti contabili spiegati, prove automatiche ripetibili dopo gli aggiornamenti e limiti residui dichiarati. Nessuno strumento garantisce da solo l'assenza futura di difetti.
 
 Riferimenti ufficiali: https://playwright.dev/docs/emulation ; https://playwright.dev/docs/test-snapshots ; https://www.browserstack.com/docs/testing-toolkit/responsive-testing ; https://www.browserstack.com/docs/percy ; https://www.deque.com/axe/devtools/extension/ .
+
+Implementazione e risultati del lavoro approvato: [verifica del 21/11/2026](prelaunch-verification.md). Questa analisi resta il riferimento iniziale; il resoconto distingue le prove eseguite da quelle ancora da completare.

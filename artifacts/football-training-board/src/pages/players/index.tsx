@@ -5792,7 +5792,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           <div className="flex min-w-0 items-center gap-2 px-2 sm:w-[220px]">
             <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
             <Select value={teamFilter} onValueChange={setTeamFilter}>
-              <SelectTrigger className="min-w-0 border-0 shadow-none focus:ring-0">
+              <SelectTrigger aria-label="Filtra giocatori per squadra" className="min-w-0 border-0 shadow-none focus:ring-0">
                 <SelectValue placeholder={t.filterByTeam} />
               </SelectTrigger>
               <SelectContent>
@@ -5805,7 +5805,7 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
 
         <div className="flex max-w-full flex-col gap-2 px-1 sm:flex-row sm:flex-wrap sm:items-center">
           {/* Position */}
-          <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border bg-card px-2 py-1">
+          <div className="flex max-w-full flex-wrap items-center gap-1 rounded-lg border bg-card px-2 py-1">
             <span className="shrink-0 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Ruolo</span>
             {[{ v: "all", l: "Tutti" }, { v: "GK", l: t.goalkeeper }, { v: "DEF", l: t.defender }, { v: "MID", l: t.midfielder }, { v: "FWD", l: t.forward }].map(o => (
               <button key={o.v} type="button" onClick={() => setPositionFilter(o.v)}
@@ -5840,11 +5840,11 @@ export default function PlayersList({ section: pageSection }: PlayersListProps =
           {/* Height range */}
           <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg border bg-card px-2 py-1">
             <span className="shrink-0 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mr-1">Altezza (cm)</span>
-            <input type="number" placeholder="Min" value={heightMin} onChange={e => setHeightMin(e.target.value)}
-              className="w-14 text-[11px] border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
+            <input type="number" placeholder="Min" aria-label="Altezza minima in cm" value={heightMin} onChange={e => setHeightMin(e.target.value)}
+              className="min-h-9 w-20 max-w-full text-sm border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
             <span className="text-[11px] text-muted-foreground">–</span>
-            <input type="number" placeholder="Max" value={heightMax} onChange={e => setHeightMax(e.target.value)}
-              className="w-14 text-[11px] border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
+            <input type="number" placeholder="Max" aria-label="Altezza massima in cm" value={heightMax} onChange={e => setHeightMax(e.target.value)}
+              className="min-h-9 w-20 max-w-full text-sm border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/30" />
           </div>
 
           {/* Reset */}

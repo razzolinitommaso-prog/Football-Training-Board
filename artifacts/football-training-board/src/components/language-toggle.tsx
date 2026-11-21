@@ -5,7 +5,7 @@ export function LanguageToggle({ compact = false }: { compact?: boolean }) {
   const { language, setLanguage } = useLanguage();
 
   return (
-    <div className="flex items-center gap-1 bg-muted/60 rounded-lg p-0.5 border border-border/40">
+    <div className="flex items-center gap-1 bg-background rounded-lg p-0.5 border border-border/40">
       <Button
         variant="ghost"
         size="sm"

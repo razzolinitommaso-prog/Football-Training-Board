@@ -25,6 +25,11 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
   }
+  .finance-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  }
+  .finance-filter-grid > * { min-width: 0; }
   .responsive-card-grid > *,
   .responsive-form-grid > *,
   .app-dialog > * {

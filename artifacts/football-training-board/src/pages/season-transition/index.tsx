@@ -687,7 +687,7 @@ export default function SeasonTransitionPage() {
         <div className="flex items-center gap-2">
           <Label className="text-sm font-medium whitespace-nowrap">Stagione di partenza:</Label>
           <Select value={fromSeasonId?.toString() ?? ""} onValueChange={v => { setFromSeasonId(Number(v)); setBirthYearFilter("all"); }}>
-            <SelectTrigger className="w-[150px] h-8 text-sm"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
+            <SelectTrigger aria-label="Stagione di partenza" className="w-[150px] h-8 text-sm"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
             <SelectContent>
               {seasons.map(s => (
                 <SelectItem key={s.id} value={s.id.toString()}>{s.name}{s.isActive ? " ★" : ""}</SelectItem>
@@ -699,7 +699,7 @@ export default function SeasonTransitionPage() {
         <div className="flex items-center gap-2">
           <Label className="text-sm font-medium whitespace-nowrap">Stagione destinazione:</Label>
           <Select value={toSeasonId?.toString() ?? ""} onValueChange={v => setToSeasonId(Number(v))}>
-            <SelectTrigger className="w-[150px] h-8 text-sm"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
+            <SelectTrigger aria-label="Stagione di destinazione" className="w-[150px] h-8 text-sm"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
             <SelectContent>
               {seasons.filter(s => s.id !== fromSeasonId).map(s => (
                 <SelectItem key={s.id} value={s.id.toString()}>{s.name}{s.isActive ? " ★" : ""}</SelectItem>

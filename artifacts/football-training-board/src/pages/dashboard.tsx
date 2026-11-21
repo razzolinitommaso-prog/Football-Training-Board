@@ -2847,7 +2847,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                 </Button>
               )}
               {nr!=="secretary"&&<Button asChild variant="outline" size="sm"><Link href="/attendance">Presenze</Link></Button>}
-              <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => subMonths(m, 1))}>
+              <Button type="button" variant="outline" size="icon" aria-label="Mese precedente" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => subMonths(m, 1))}>
                 <ChevronLeft className="w-4 h-4" />
               </Button>
               <Button
@@ -2862,13 +2862,13 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
               >
                 Oggi
               </Button>
-              <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => addMonths(m, 1))}>
+              <Button type="button" variant="outline" size="icon" aria-label="Mese successivo" className="h-8 w-8" onClick={() => setDashboardCalendarMonth((m) => addMonths(m, 1))}>
                 <ChevronRight className="w-4 h-4" />
               </Button>
               <div className="flex items-center gap-1 rounded-md border bg-background px-2 py-1">
                 <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Prima fascia</span>
                 <Select value={trainingFirstBandTone} onValueChange={(value) => setTrainingFirstBandTone(value as DashboardTrainingBandTone)}>
-                  <SelectTrigger className="h-7 w-[92px] border-0 px-1 text-xs shadow-none focus:ring-0">
+                  <SelectTrigger aria-label="Colore prima fascia allenamenti" className="h-7 w-[92px] border-0 px-1 text-xs shadow-none focus:ring-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -2886,7 +2886,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
               <div className="flex items-center gap-1 rounded-md border bg-background px-2 py-1">
                 <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Seconda fascia</span>
                 <Select value={trainingSecondBandTone} onValueChange={(value) => setTrainingSecondBandTone(value as DashboardTrainingBandTone)}>
-                  <SelectTrigger className="h-7 w-[92px] border-0 px-1 text-xs shadow-none focus:ring-0">
+                  <SelectTrigger aria-label="Colore seconda fascia allenamenti" className="h-7 w-[92px] border-0 px-1 text-xs shadow-none focus:ring-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

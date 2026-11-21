@@ -704,8 +704,8 @@ export default function ExercisesPage() {
       </div>
 
       {!scope.enabled && <div className="grid gap-4 rounded-xl border bg-card p-4 sm:grid-cols-2">
-        <div className="space-y-2"><Label>Settore</Label><Select value={librarySection} onValueChange={value => { setLibrarySection(value); setLibraryTeam("all"); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tutti i settori assegnati</SelectItem>{Object.entries(technicalSections).filter(([key]) => myTeams.some(team => team.clubSection === key)).map(([key,label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent></Select></div>
-        <div className="space-y-2"><Label>Annata</Label><Select value={libraryTeamId ? String(libraryTeamId) : "all"} onValueChange={setLibraryTeam}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Scegli un’annata</SelectItem>{catalogTeams.map(team => <SelectItem key={team.id} value={String(team.id)}>{team.name}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-2"><Label>Settore</Label><Select value={librarySection} onValueChange={value => { setLibrarySection(value); setLibraryTeam("all"); }}><SelectTrigger aria-label="Settore delle stazioni"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tutti i settori assegnati</SelectItem>{Object.entries(technicalSections).filter(([key]) => myTeams.some(team => team.clubSection === key)).map(([key,label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-2"><Label>Annata</Label><Select value={libraryTeamId ? String(libraryTeamId) : "all"} onValueChange={setLibraryTeam}><SelectTrigger aria-label="Annata delle stazioni"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Scegli un’annata</SelectItem>{catalogTeams.map(team => <SelectItem key={team.id} value={String(team.id)}>{team.name}</SelectItem>)}</SelectContent></Select></div>
       </div>}
       {needsTeamChoice && <p className="rounded-lg border bg-muted/30 p-4 text-sm">Seleziona prima un’annata per consultare le sue stazioni.</p>}
       <label className="flex items-center gap-2 text-sm"><Checkbox checked={includeCommon} onCheckedChange={value => setIncludeCommon(value === true)} />Includi stazioni comuni, senza annata assegnata</label>
@@ -722,8 +722,8 @@ export default function ExercisesPage() {
         {/* ── TAB ESERCIZI ─────────────────────────────────────────── */}
         <TabsContent value="exercises" className="space-y-4 pt-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2"><Label>Fase</Label><Select value={phaseFilter} onValueChange={setPhaseFilter}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tutte le fasi</SelectItem>{PHASES.map(phase=><SelectItem key={phase.value} value={phase.value}>{phase.label}</SelectItem>)}</SelectContent></Select></div>
-            <div className="space-y-2"><Label>Principio</Label><Select value={principleFilter} onValueChange={setPrincipleFilter}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tutti i principi</SelectItem>{principleOptions.map(value=><SelectItem key={value} value={value}>{getPrincipioLabel(value)}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-2"><Label>Fase</Label><Select value={phaseFilter} onValueChange={setPhaseFilter}><SelectTrigger aria-label="Fase delle stazioni"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tutte le fasi</SelectItem>{PHASES.map(phase=><SelectItem key={phase.value} value={phase.value}>{phase.label}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-2"><Label>Principio</Label><Select value={principleFilter} onValueChange={setPrincipleFilter}><SelectTrigger aria-label="Principio delle stazioni"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tutti i principi</SelectItem>{principleOptions.map(value=><SelectItem key={value} value={value}>{getPrincipioLabel(value)}</SelectItem>)}</SelectContent></Select></div>
           </div>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex gap-1.5 flex-wrap">

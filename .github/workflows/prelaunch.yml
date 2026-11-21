@@ -1,0 +1,34 @@
+name: Prelaunch finance and responsive
+on:
+  pull_request:
+    paths: ['artifacts/football-training-board/**','lib/**','scripts/prelaunch/**','scripts/test-financial-*.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
+  push:
+    branches: [main]
+    paths: ['artifacts/football-training-board/**','lib/**','scripts/prelaunch/**','scripts/test-financial-*.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:finance
+      - run: pnpm run build:web
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - run: pnpm run test:prelaunch
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prelaunch-report
+          path: .tools/prelaunch-report
+          retention-days: 14

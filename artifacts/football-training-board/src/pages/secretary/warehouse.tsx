@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
@@ -601,12 +600,10 @@ export default function WarehousePage() {
         </div>
       </div>
 
-      <Tabs value={section} onValueChange={(value) => setSection(value as WarehouseSection)}>
-        <TabsList className="grid w-full grid-cols-2 sm:w-[420px]">
-          <TabsTrigger value="apparel" className="gap-2"><Shirt className="h-4 w-4" />Abbigliamento</TabsTrigger>
-          <TabsTrigger value="field" className="gap-2"><Goal className="h-4 w-4" />Materiale da campo</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div role="group" aria-label="Sezione magazzino" className="flex flex-wrap gap-2">
+        <Button type="button" variant={section === "apparel" ? "default" : "outline"} aria-pressed={section === "apparel"} onClick={() => setSection("apparel")}><Shirt className="h-4 w-4" />Abbigliamento</Button>
+        <Button type="button" variant={section === "field" ? "default" : "outline"} aria-pressed={section === "field"} onClick={() => setSection("field")}><Goal className="h-4 w-4" />Materiale da campo</Button>
+      </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Card>

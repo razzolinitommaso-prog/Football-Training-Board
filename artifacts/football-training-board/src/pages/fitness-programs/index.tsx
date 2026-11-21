@@ -220,7 +220,7 @@ export default function FitnessPrograms() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">{t.fitnessPrograms}</h1>
           <p className="text-muted-foreground mt-1">{t.fitnessProgramsDesc}</p>
@@ -236,8 +236,8 @@ export default function FitnessPrograms() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>{t.programTitle} *</Label>
-                  <Input {...form.register("title", { required: true })} />
+                  <Label htmlFor="fitness-program-title">{t.programTitle} *</Label>
+                  <Input id="fitness-program-title" {...form.register("title", { required: true })} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t.assignedTo}</Label>
@@ -246,7 +246,7 @@ export default function FitnessPrograms() {
                     name="teamId"
                     render={({ field }) => (
                       <Select value={String(field.value)} onValueChange={(v) => field.onChange(v === "all" ? "" : parseInt(v))}>
-                        <SelectTrigger><SelectValue placeholder={t.allTeamsProgram} /></SelectTrigger>
+                        <SelectTrigger aria-label={t.assignedTo}><SelectValue placeholder={t.allTeamsProgram} /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">{t.allTeamsProgram}</SelectItem>
                           {teams?.map((team) => <SelectItem key={team.id} value={String(team.id)}>{team.name}</SelectItem>)}
@@ -259,13 +259,13 @@ export default function FitnessPrograms() {
 
               <div className="space-y-2">
                 <Label>{t.description}</Label>
-                <Textarea {...form.register("description")} rows={3} placeholder="Obiettivo del programma, fase della stagione, carichi generali..." />
+                <Textarea aria-label={t.description} {...form.register("description")} rows={3} placeholder="Obiettivo del programma, fase della stagione, carichi generali..." />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>{t.durationWeeks}</Label>
-                  <Input type="number" min={1} max={12} {...form.register("durationWeeks")} />
+                  <Input aria-label={t.durationWeeks} type="number" min={1} max={12} {...form.register("durationWeeks")} />
                 </div>
                 <div className="space-y-2">
                   <Label>{t.intensityLevel}</Label>
@@ -274,7 +274,7 @@ export default function FitnessPrograms() {
                     name="intensityLevel"
                     render={({ field }) => (
                       <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger aria-label={t.intensityLevel}><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="low">{t.low}</SelectItem>
                           <SelectItem value="medium">{t.medium}</SelectItem>
@@ -297,7 +297,7 @@ export default function FitnessPrograms() {
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <Label className="text-base font-semibold">Programmazione settimane e giorni</Label>
                   <Button type="button" variant="outline" size="sm" asChild>
                     <Link href="/exercises"><ClipboardList className="w-4 h-4 mr-2" />Libreria stazioni</Link>
@@ -314,7 +314,7 @@ export default function FitnessPrograms() {
                     {days.map((day) => (
                       <div key={day.originalIndex} className="grid grid-cols-1 md:grid-cols-[150px_1fr_110px] gap-2 rounded-md bg-muted/20 p-2">
                         <Select value={day.day} onValueChange={(value) => updatePlanDay(day.originalIndex, { day: value })}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectTrigger aria-label={`Giorno della settimana ${week}, attività ${day.originalIndex+1}`}><SelectValue /></SelectTrigger>
                           <SelectContent>{WEEK_DAYS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
                         </Select>
                         <Input value={day.title} onChange={(e) => updatePlanDay(day.originalIndex, { title: e.target.value })} placeholder="Attività o lavoro atletico" />

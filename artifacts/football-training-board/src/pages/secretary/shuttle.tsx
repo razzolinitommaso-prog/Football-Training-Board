@@ -548,7 +548,7 @@ export default function ShuttlePage() {
           <div className="space-y-2">
             <Label className="flex items-center gap-2"><Filter className="h-4 w-4" />Annata/Squadra</Label>
             <Select value={teamFilter} onValueChange={setTeamFilter}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Filtra pulmino per squadra"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tutte</SelectItem>
                 {teams.map((team) => <SelectItem key={team.id} value={String(team.id)}>{team.name}</SelectItem>)}
@@ -558,7 +558,7 @@ export default function ShuttlePage() {
           <div className="space-y-2">
             <Label>Tratta</Label>
             <Select value={routeFilter} onValueChange={setRouteFilter}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Filtra pulmino per tratta"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tutte</SelectItem>
                 {routes.map((route) => <SelectItem key={route} value={route}>{route}</SelectItem>)}
@@ -568,7 +568,7 @@ export default function ShuttlePage() {
           <div className="space-y-2">
             <Label>Tipo tratta</Label>
             <Select value={directionFilter} onValueChange={setDirectionFilter}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Tipo tratta pulmino"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tutte</SelectItem>
                 <SelectItem value="outbound">Solo andata</SelectItem>

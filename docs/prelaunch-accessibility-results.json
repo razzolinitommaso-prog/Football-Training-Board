@@ -1,0 +1,191 @@
+[
+  {
+    "path": "/dashboard",
+    "role": "technical_director",
+    "name": "Cruscotto DT",
+    "violations": [],
+    "passes": 24
+  },
+  {
+    "path": "/teams",
+    "role": "coach",
+    "name": "Squadre",
+    "violations": [],
+    "passes": 25
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "secretary",
+    "name": "Pagamenti",
+    "violations": [],
+    "passes": 26
+  },
+  {
+    "path": "/members",
+    "role": "director",
+    "name": "Membri",
+    "violations": [],
+    "passes": 25
+  },
+  {
+    "path": "/players",
+    "role": "secretary",
+    "name": "Giocatori",
+    "violations": [],
+    "passes": 28
+  },
+  {
+    "path": "/training",
+    "role": "coach",
+    "name": "Sedute",
+    "violations": [],
+    "passes": 24
+  },
+  {
+    "path": "/attendance",
+    "role": "technical_director",
+    "name": "Presenze",
+    "violations": [],
+    "passes": 27
+  },
+  {
+    "path": "/exercises",
+    "role": "coach",
+    "name": "Stazioni",
+    "violations": [],
+    "passes": 27
+  },
+  {
+    "path": "/player-performance",
+    "role": "fitness_coach",
+    "name": "Test motori",
+    "violations": [],
+    "passes": 22
+  },
+  {
+    "path": "/season-transition",
+    "role": "secretary",
+    "name": "Transizione",
+    "violations": [],
+    "passes": 28
+  },
+  {
+    "path": "/secretary/warehouse",
+    "role": "secretary",
+    "name": "Magazzino",
+    "violations": [],
+    "passes": 24
+  },
+  {
+    "path": "/secretary/fee-list",
+    "role": "secretary",
+    "name": "Listino",
+    "violations": [],
+    "passes": 23
+  },
+  {
+    "path": "/secretary/documents",
+    "role": "secretary",
+    "name": "Documenti",
+    "violations": [],
+    "passes": 23
+  },
+  {
+    "path": "/secretary/extra-time",
+    "role": "secretary",
+    "name": "Extra Time",
+    "violations": [],
+    "passes": 25
+  },
+  {
+    "path": "/dirigenti",
+    "role": "team_manager",
+    "name": "Dirigenti",
+    "violations": [],
+    "passes": 22
+  },
+  {
+    "path": "/parent/player-card",
+    "role": "parent",
+    "name": "Scheda genitore",
+    "violations": [],
+    "passes": 22
+  },
+  {
+    "path": "/parent/payments",
+    "role": "parent",
+    "name": "Pagamenti genitore",
+    "violations": [],
+    "passes": 22
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "presidente",
+    "name": "Pagamenti Presidente",
+    "violations": [],
+    "passes": 26
+  },
+  {
+    "path": "/secretary/payments",
+    "role": "admin",
+    "name": "Pagamenti Amministratore",
+    "violations": [],
+    "passes": 26
+  },
+  {
+    "path": "/members",
+    "role": "sporting_director",
+    "name": "Membri DS",
+    "violations": [],
+    "passes": 25
+  },
+  {
+    "path": "/fitness-programs",
+    "role": "fitness_coach",
+    "name": "Programmi atletici",
+    "violations": [],
+    "passes": 22
+  },
+  {
+    "path": "/secretary/registrations",
+    "role": "secretary",
+    "name": "Iscrizioni",
+    "violations": [],
+    "passes": 23
+  },
+  {
+    "path": "/secretary/shuttle",
+    "role": "secretary",
+    "name": "Pulmino",
+    "violations": [],
+    "passes": 23
+  },
+  {
+    "path": "/parent/callups",
+    "role": "parent",
+    "name": "Convocazioni genitore",
+    "violations": [],
+    "passes": 22
+  },
+  {
+    "path": "/parent/documents",
+    "role": "parent",
+    "name": "Documenti genitore",
+    "violations": [],
+    "passes": 22
+  },
+  {
+    "path": "/parent/notifications",
+    "role": "parent",
+    "name": "Notifiche genitore",
+    "violations": [],
+    "passes": 22
+  },
+  {
+    "path": "/parent/kit",
+    "role": "parent",
+    "name": "Kit genitore",
+    "violations": [],
+    "passes": 22
+  }
+]

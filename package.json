@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
+    "test:finance": "node scripts/test-financial-reconciliation.cjs && node scripts/test-financial-export.cjs",
+    "test:prelaunch": "playwright test --config playwright.prelaunch.config.ts",
+    "preview:prelaunch": "node scripts/prelaunch/preview.cjs",
     "setup-local": "node ./scripts/setup-local.mjs",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "build:web": "pnpm --filter @workspace/football-training-board build",
@@ -24,8 +27,10 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.4",
+    "@playwright/test": "^1.65.1",
     "@rollup/rollup-win32-x64-msvc": "^4.60.1",
     "@tailwindcss/oxide-win32-x64-msvc": "^4.2.2",
+    "axe-core": "^4.14.1",
     "lightningcss-win32-x64-msvc": "^1.32.0",
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
