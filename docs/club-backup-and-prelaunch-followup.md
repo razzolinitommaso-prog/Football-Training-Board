@@ -30,6 +30,8 @@ L'intestazione della partita è nel normale flusso sotto 1024 px; il comportamen
 
 La suite estesa enumera **1.098 casi**, da confermare con il suo job. La prova manuale del file chooser CUA si è bloccata e non va registrata come importazione superata; la prova con file è invece esplicita nella CI. Il controllo geometrico locale ha osservato i moduli aggiuntivi, ma non certifica tutte le combinazioni dell'app.
 
+Regressioni eseguite separatamente sugli handler reali con PostgreSQL isolato: `--document-files` (staff/genitore, riapertura, ambito e allegati partita), `--payment-desk` (KIT/pagamenti, richieste/arrivi/consegne, idempotenza magazzino), `--member-services` (contratti, centesimi/FM, ricevute, documenti e presenze) e `--societies` (società, archivi/rientri, compensi senior e accessi). Tutte superate. Generatore PDF motori verificato con `scripts/test-motor-pdf.cjs`: nove pagine, tentativi, misure zero, note lunghe e accenti. Render Poppler ispezionati sulle pagine 1, 2 e 5; nessun taglio o sovrapposizione osservato in questo campione. Non è una prova di stampa su ogni modello di stampante.
+
 ## Accessi e dispositivi
 
 All'avvio del controllo nessun dispositivo era connesso via `adb devices -l`. Le prove fisiche iPhone/Android restano da eseguire con dispositivi collegati; nessun abbonamento BrowserStack è stato attivato.

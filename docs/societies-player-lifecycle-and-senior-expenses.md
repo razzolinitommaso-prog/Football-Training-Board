@@ -32,6 +32,8 @@ Il cambio società verifica l'associazione, aggiorna sessione/token, cancella le
 
 ## Persistenza e collaudo
 
+Dal 21/11 è disponibile anche un backup distinto di tutti i dati della società e degli allegati conservati nel database, con manifesto e verifica d'integrità: [backup e collaudo](club-backup-and-prelaunch-followup.md). L'export JSON della singola stagione conserva il suo formato precedente.
+
 Migrazioni additive al primo accesso autenticato, con advisory lock: tabelle gruppo, collegamenti, gestori, esoneri, posizioni e audit; campo `players.is_test` e campi disciplina/ambito sulle squadre. Riconciliazione dei soli stati espliciti di uscita presenti nella transizione attiva, senza archiviare i semplici problemi amministrativi. Registri compensi senior separati `player_finance_*`, revisioni e idempotenza dei pagamenti. Nessuna cancellazione o trasferimento massivo di dati esistenti.
 
 Suite HTTP con PostgreSQL isolato:

@@ -1,5 +1,7 @@
 # Collaudo pre-lancio — 21 novembre 2026
 
+Aggiornamento successivo: la suite sui tre browser è stata eseguita in CI con **816/816 successi**, inclusi i download Excel. Backup società e collaudo secondario sono documentati in [prosecuzione del collaudo](club-backup-and-prelaunch-followup.md). Le limitazioni sotto descrivono lo stato della prima sessione, prima di questi interventi.
+
 ## Modifiche applicative
 
 - Pagamenti: errore/caricamento distinto per uscite membri e Prima Squadra. Il grafico combinato e il suo riepilogo restano sospesi se manca una sorgente richiesta, anche se sono disponibili dati precedenti in cache. Le card entrate conservano il proprio significato. Le etichette e le descrizioni dichiarano quali filtri agiscono su previsioni, incassi e grafico.
