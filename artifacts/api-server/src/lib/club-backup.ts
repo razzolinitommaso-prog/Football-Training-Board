@@ -12,7 +12,7 @@ export const canBackupClub = (role?: string | null) => ["admin", "presidente"].i
 /** Consumed inside one REPEATABLE READ READ ONLY transaction. All seasons, no writes. */
 export async function* clubBackup(reader: BackupReader, clubId: number) {
   if (!Number.isSafeInteger(clubId) || clubId <= 0) throw Error("Società non valida");
-  const columns = await reader.query(`SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public' ORDER BY table_name,ordinal_position`);
+  const columns = await reader.query(`SELECT c.table_name,c.column_name FROM information_schema.columns c JOIN information_schema.tables t ON t.table_schema=c.table_schema AND t.table_name=c.table_name WHERE c.table_schema='public' AND t.table_type='BASE TABLE' ORDER BY c.table_name,c.ordinal_position`);
   const tables = new Map<string, Table>();
   for (const row of columns.rows) {
     const name = String(row.table_name);
