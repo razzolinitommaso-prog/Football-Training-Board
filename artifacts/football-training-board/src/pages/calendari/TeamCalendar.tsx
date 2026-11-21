@@ -4018,7 +4018,7 @@ function MatchCard({
               onClick={() => switchWorkspaceSection(section.id)}>{section.label}</Button>)}
           </nav>
           <label className="flex items-center gap-3 text-sm sm:hidden">Sezione
-            <select className="min-w-0 flex-1 rounded-md border bg-muted px-3 py-2 font-medium" value={workspaceSection}
+            <select aria-label="Sezione della partita" className="min-w-0 flex-1 rounded-md border bg-muted px-3 py-2 font-medium" value={workspaceSection}
               onChange={event => switchWorkspaceSection(event.target.value as MatchWorkspaceSection)}>
               {workspaceSections.map(section => <option key={section.id} value={section.id}>{section.label}</option>)}
             </select>

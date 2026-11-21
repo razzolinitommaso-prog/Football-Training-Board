@@ -30,8 +30,12 @@ for(const width of [320,390,768,1024]) test(`Titolo partita non sovrapposto ${wi
   const header=page.getByTestId('match-workspace-header');await expect(header).toBeVisible();
   const position=await header.evaluate(el=>getComputedStyle(el).position);
   expect(position).toBe(width<1024?'relative':'sticky');
-  if(width<640) await page.getByLabel('Sezione',{exact:true}).selectOption('schieramenti');
+  if(width<640) await page.getByRole('combobox',{name:'Sezione della partita',exact:true}).selectOption('schieramenti');
   else await page.getByRole('button',{name:'Schieramenti',exact:true}).click();
   await expect(page.getByRole('heading',{name:"L'app non ha completato il caricamento"})).toHaveCount(0);
+  if(width<1024) {
+    await page.locator('main').evaluate(el=>el.scrollTo({top:600}));
+    await expect.poll(()=>header.evaluate(el=>el.getBoundingClientRect().bottom)).toBeLessThan(100);
+  }
   await test.info().attach('schieramenti-mobile',{body:await page.screenshot({fullPage:true}),contentType:'image/png'});
 });
