@@ -10,6 +10,11 @@ permissions:
   contents: read
 jobs:
   verify:
+    name: verify-${{ matrix.browser }}
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -25,11 +30,11 @@ jobs:
       - run: pnpm run test:finance
       - run: node scripts/test-club-backup.cjs
       - run: pnpm run build:web
-      - run: pnpm exec playwright install --with-deps chromium firefox webkit
-      - run: pnpm run test:prelaunch
+      - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+      - run: pnpm run test:prelaunch --project=${{ matrix.browser }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: prelaunch-report
+          name: prelaunch-report-${{ matrix.browser }}
           path: .tools/prelaunch-report
           retention-days: 14

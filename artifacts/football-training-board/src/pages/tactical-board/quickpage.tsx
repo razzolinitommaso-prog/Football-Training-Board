@@ -3778,7 +3778,7 @@ const QuickPage = () => {
       {/* MAIN */}
       <div className="flex flex-1 overflow-hidden">
         {/* CENTER AREA */}
-        <main className="flex-1 flex flex-col bg-[#0B1220]">
+        <section aria-label="Area di disegno lavagna" className="flex-1 flex flex-col bg-[#0B1220]">
           {/* CANVAS TOP BAR */}
           <details open={!isMobileViewport} className="border-b border-white/10">
           <DisclosureSummary className="cursor-pointer px-3 py-3 text-sm font-semibold md:hidden">Campo e modulo · {boardFormat}</DisclosureSummary>
@@ -6433,7 +6433,7 @@ const QuickPage = () => {
               </aside>
             </div>
           </div>
-        </main>
+        </section>
 
         {/* RIGHT SIDEBAR */}
         {showRightSidebar && !focusMode && rightOpen && (
