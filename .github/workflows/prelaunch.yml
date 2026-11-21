@@ -23,6 +23,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test:finance
+      - run: node scripts/test-club-backup.cjs
       - run: pnpm run build:web
       - run: pnpm exec playwright install --with-deps chromium firefox webkit
       - run: pnpm run test:prelaunch

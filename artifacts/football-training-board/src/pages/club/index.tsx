@@ -75,6 +75,7 @@ function ColorPicker({
       <div className="flex items-center gap-3">
         <input
           id={inputId}
+          aria-label={label}
           type="color"
           value={value}
           onChange={(e) => onChange(e.target.value)}

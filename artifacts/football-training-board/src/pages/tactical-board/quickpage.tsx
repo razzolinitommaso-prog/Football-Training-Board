@@ -3614,7 +3614,7 @@ const QuickPage = () => {
   title={boardTitle}
   className="w-full max-w-[58rem] truncate bg-transparent text-center text-sm font-semibold outline-none md:text-base"
 />
-          <span className="text-xs text-white/40">Seduta / Allenamento</span>
+          <span className="text-xs text-white/65">Seduta / Allenamento</span>
         </div>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
@@ -3785,6 +3785,7 @@ const QuickPage = () => {
           <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-white/10 bg-[#0B1220] md:px-6 md:py-3">
             <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <ScrollableSelect
+                aria-label="Modulo di gioco"
                 value={selectedPreset ?? ""}
                 onValueChange={(e) => applyPreset(e)}
                 className="h-10 min-w-0 rounded-xl border border-white/10 bg-[#111827] px-2 text-sm text-white outline-none sm:px-3"
@@ -3849,6 +3850,7 @@ const QuickPage = () => {
                 )}
               </div>
               <ScrollableSelect
+                aria-label="Squadra della lavagna"
                 value={boardMode === "assigned" && boardTeamId ? String(boardTeamId) : ""}
                 onValueChange={(e) => loadTeamById(e)}
                 className={`h-10 min-w-0 rounded-xl border px-2 text-sm outline-none transition sm:px-3 ${

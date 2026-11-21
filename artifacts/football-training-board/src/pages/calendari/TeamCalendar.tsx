@@ -4002,7 +4002,7 @@ function MatchCard({
   return (<>
     {workspace ? (
       <div className="mx-auto max-w-6xl space-y-4">
-        <header ref={workspaceHeader} className="sticky top-0 z-20 space-y-2 rounded-xl border bg-background p-3 shadow-sm sm:p-4">
+        <header ref={workspaceHeader} data-testid="match-workspace-header" className="relative space-y-2 rounded-xl border bg-background p-3 shadow-sm sm:p-4 lg:sticky lg:top-0 lg:z-20">
           <Button type="button" variant="ghost" size="sm" className="gap-2 pl-0" onClick={workspace.onBack}>
             <ArrowLeft className="h-4 w-4" /> Torna al calendario
           </Button>

@@ -386,6 +386,9 @@ importers:
       '@capacitor/cli':
         specifier: ^7.4.4
         version: 7.4.4
+      '@electric-sql/pglite':
+        specifier: 0.5.10
+        version: 0.5.10
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
@@ -436,7 +439,7 @@ importers:
         version: 17.4.2
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
+        version: 0.45.2(@electric-sql/pglite@0.5.10)(@types/pg@8.20.0)(pg@8.20.0)
       express:
         specifier: ^5
         version: 5.2.1
@@ -984,10 +987,10 @@ importers:
         version: 17.4.2
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
+        version: 0.45.2(@electric-sql/pglite@0.5.10)(@types/pg@8.20.0)(pg@8.20.0)
       drizzle-zod:
         specifier: ^0.8.3
-        version: 0.8.3(drizzle-orm@0.45.2(@types/pg@8.20.0)(pg@8.20.0))(zod@3.25.76)
+        version: 0.8.3(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.10)(@types/pg@8.20.0)(pg@8.20.0))(zod@3.25.76)
       pg:
         specifier: ^8.20.0
         version: 8.20.0
@@ -1126,6 +1129,9 @@ packages:
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
+
+  '@electric-sql/pglite@0.5.10':
+    resolution: {integrity: sha512-tXc/25U3ulOkiRQuTFdwIv+JhBqtMdAF7Gvo6CfZZWtSB4+hgC4Wr2vwK5ngvvN5PJfAAEGIsfyCVy1JhCOBYw==}
 
   '@epic-web/invariant@1.0.0':
     resolution: {integrity: sha512-lrTPqgvfFQtR/eY/qkIzp98OGdNJu0m5ji3q/nJI8v3SXkRKEnWiOxMmbvcSoAIzv/cGiuvRy57k4suKQSAdwA==}
@@ -4408,6 +4414,8 @@ snapshots:
 
   '@drizzle-team/brocli@0.10.2': {}
 
+  '@electric-sql/pglite@0.5.10': {}
+
   '@epic-web/invariant@1.0.0': {}
 
   '@esbuild/linux-x64@0.27.7':
@@ -6161,14 +6169,15 @@ snapshots:
       esbuild: 0.27.7
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2(@types/pg@8.20.0)(pg@8.20.0):
+  drizzle-orm@0.45.2(@electric-sql/pglite@0.5.10)(@types/pg@8.20.0)(pg@8.20.0):
     optionalDependencies:
+      '@electric-sql/pglite': 0.5.10
       '@types/pg': 8.20.0
       pg: 8.20.0
 
-  drizzle-zod@0.8.3(drizzle-orm@0.45.2(@types/pg@8.20.0)(pg@8.20.0))(zod@3.25.76):
+  drizzle-zod@0.8.3(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.10)(@types/pg@8.20.0)(pg@8.20.0))(zod@3.25.76):
     dependencies:
-      drizzle-orm: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
+      drizzle-orm: 0.45.2(@electric-sql/pglite@0.5.10)(@types/pg@8.20.0)(pg@8.20.0)
       zod: 3.25.76
 
   dunder-proto@1.0.1:

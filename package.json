@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.4",
+    "@electric-sql/pglite": "0.5.10",
     "@playwright/test": "1.63.0",
     "@rollup/rollup-win32-x64-msvc": "^4.60.1",
     "@tailwindcss/oxide-win32-x64-msvc": "^4.2.2",

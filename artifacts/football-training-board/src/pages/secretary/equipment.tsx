@@ -74,7 +74,7 @@ export default function EquipmentPage() {
 
       <div className="flex gap-4">
         <Select value={selectedPlayer} onValueChange={setSelectedPlayer}>
-          <SelectTrigger className="w-64"><SelectValue placeholder="Filtra per giocatore..." /></SelectTrigger>
+          <SelectTrigger aria-label="Filtra dotazioni per giocatore" className="w-64 max-w-full"><SelectValue placeholder="Filtra per giocatore..." /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t.all ?? "All"}</SelectItem>
             {sortPlayersBySurname(players).map(p => <SelectItem key={p.id} value={String(p.id)}>{playerName(p)}</SelectItem>)}
@@ -91,7 +91,7 @@ export default function EquipmentPage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-semibold">{lastName} {firstName}</CardTitle>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit({ id, firstName, lastName })}>
+                    <Button aria-label={`Modifica dotazione di ${lastName} ${firstName}`} size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit({ id, firstName, lastName })}>
                       <Edit3 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -115,12 +115,12 @@ export default function EquipmentPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>{editPlayer?.firstName} {editPlayer?.lastName} — {t.equipment}</DialogTitle></DialogHeader>
           <form onSubmit={handleSave} className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2"><Label>{t.kitAssigned}</Label><Input value={kitAssigned} onChange={e => setKitAssigned(e.target.value)} placeholder="#10" /></div>
-              <div className="space-y-2"><Label>{t.trainingKit}</Label><Input value={trainingKit} onChange={e => setTrainingKit(e.target.value)} /></div>
-              <div className="space-y-2"><Label>{t.matchKit}</Label><Input value={matchKit} onChange={e => setMatchKit(e.target.value)} /></div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2"><Label htmlFor="equipment-kit">{t.kitAssigned}</Label><Input id="equipment-kit" value={kitAssigned} onChange={e => setKitAssigned(e.target.value)} placeholder="#10" /></div>
+              <div className="space-y-2"><Label htmlFor="equipment-training">{t.trainingKit}</Label><Input id="equipment-training" value={trainingKit} onChange={e => setTrainingKit(e.target.value)} /></div>
+              <div className="space-y-2"><Label htmlFor="equipment-match">{t.matchKit}</Label><Input id="equipment-match" value={matchKit} onChange={e => setMatchKit(e.target.value)} /></div>
             </div>
-            <div className="space-y-2"><Label>{t.notes}</Label><Input value={notes} onChange={e => setNotes(e.target.value)} /></div>
+            <div className="space-y-2"><Label htmlFor="equipment-notes">{t.notes}</Label><Input id="equipment-notes" value={notes} onChange={e => setNotes(e.target.value)} /></div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setEditPlayer(null)}>{t.cancel}</Button>
               <Button type="submit" disabled={save.isPending}>{t.saveEquipment}</Button>

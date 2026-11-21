@@ -9,6 +9,7 @@ const team = {
   seasonId: 70,
   seasonName: "2026/2027",
   playerCount: 2,
+  assignedStaff: [{ userId: 1, role: "coach" }],
 };
 const motorSession = {
   id: "12121212-1212-4212-8212-121212121212",
@@ -155,7 +156,8 @@ export async function mockResponse(
   if (scenario === "senior-error" && p === "/api/player-finance/expenses")
     return Response.json({ error: "Errore senior simulato" }, { status: 503 });
   let value: unknown = [];
-  if (p === "/api/teams/navigation-scope")
+  if (p === "/api/account/profile") value = { firstName:"Collaudo",lastName:"Nome esteso",email:"collaudo@example.test",phone:null,directParentLogin:false,sessions:[] };
+  else if (p === "/api/teams/navigation-scope")
     value = { sections: ["scuola_calcio"], teams: [team] };
   else if (p === "/api/teams") value = [team];
   else if (p === "/api/seasons") value = [season];
@@ -176,6 +178,10 @@ export async function mockResponse(
   else if (p === "/api/players") value = [player];
   else if (p === "/api/teams/11") value = team;
   else if (p === "/api/players/101") value = player;
+  else if (p === "/api/matches") value = [{id:901,clubId:999,teamId:11,seasonId:70,opponent:"BARBERINO CALCIO 1927",date:"2026-11-21T15:30:00Z",homeAway:"home",competition:"Campionato",isPostponed:false,matchPlan:null}];
+  else if (p === "/api/matches/901/callups") value = [{id:1,matchId:901,playerId:101,status:"confirmed",player}];
+  else if (p === "/api/matches/901/callup-eligibility") value = {rule:{sessions:2,minimum:1,allowUnratedConduct:true},rows:[]};
+  else if (p === "/api/teams/11/players") value = [player];
   else if (p.includes("/activity-summary"))
     value = {
       training: { present: 1, total: 2, percentage: 50, unrecorded: 0 },

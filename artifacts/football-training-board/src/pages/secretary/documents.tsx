@@ -75,7 +75,7 @@ export default function DocumentsPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><FileText className="w-6 h-6 text-primary" />{t.documents}</h1>
           <p className="text-sm text-muted-foreground mt-1">{t.documentsDesc}</p>
@@ -88,19 +88,19 @@ export default function DocumentsPage() {
               <div className="space-y-2">
                 <Label>{t.player}</Label>
                 <Select value={playerId} onValueChange={setPlayerId}>
-                  <SelectTrigger><SelectValue placeholder={t.selectPlayer ?? "Select player"} /></SelectTrigger>
+                  <SelectTrigger aria-label={t.player}><SelectValue placeholder={t.selectPlayer ?? "Select player"} /></SelectTrigger>
                   <SelectContent>{sortPlayersBySurname(players).map(p => <SelectItem key={p.id} value={String(p.id)}>{playerName(p)}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label>{t.documentType}</Label>
                 <Select value={type} onValueChange={setType}>
-                  <SelectTrigger><SelectValue placeholder={t.documentType} /></SelectTrigger>
+                  <SelectTrigger aria-label={t.documentType}><SelectValue placeholder={t.documentType} /></SelectTrigger>
                   <SelectContent>{DOC_TYPES.map(d => <SelectItem key={d} value={d}>{t[d as keyof typeof t] as string}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>{t.expiryDate}</Label><Input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} /></div>
-              <div className="space-y-2"><Label>{t.notes}</Label><Input value={notes} onChange={e => setNotes(e.target.value)} /></div>
+              <div className="space-y-2"><Label htmlFor="document-expiry">{t.expiryDate}</Label><Input id="document-expiry" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} /></div>
+              <div className="space-y-2"><Label htmlFor="document-notes">{t.notes}</Label><Input id="document-notes" value={notes} onChange={e => setNotes(e.target.value)} /></div>
               <DocumentFilePicker file={file} onChange={setFile} disabled={create.isPending} />
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t.cancel}</Button>

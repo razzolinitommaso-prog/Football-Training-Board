@@ -137,6 +137,27 @@ export default function SeasonsPage() {
   const [isActive, setIsActive] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const canBackup = ["admin", "presidente"].includes(role ?? "");
+
+  async function downloadBackup() {
+    setBackupBusy(true);
+    try {
+      const response = await fetch(withApi("/api/club-backup"), { credentials: "include" });
+      if (!response.ok) throw new Error("Backup non completato");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? `backup-societa-${new Date().toISOString().slice(0,10)}.ndjson.gz`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      toast({ title: "Backup generato: download avviato", description: "Conserva il file e verificane l’integrità prima di usarlo per un ripristino." });
+    } catch { toast({ title: "Backup non completato. Riprova.", variant: "destructive" }); }
+    finally { setBackupBusy(false); }
+  }
 
   const { data: seasons = [], isLoading } = useQuery<Season[]>({
     queryKey: ["/api/seasons"],
@@ -211,7 +232,12 @@ export default function SeasonsPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      {canBackup && <section className="rounded-xl border bg-card p-4 space-y-2" aria-label="Backup dati società">
+        <h2 className="font-semibold">Backup dati società · tutte le stagioni</h2>
+        <p className="text-sm text-muted-foreground">Include registri, storico e allegati conservati nel database della società, anche dei giocatori archiviati. Credenziali e sessioni escluse. I collegamenti a file esterni sono elencati nel manifesto: i relativi file vanno conservati separatamente.</p>
+        <Button variant="outline" disabled={backupBusy} onClick={downloadBackup}>{backupBusy ? "Generazione backup…" : "Scarica backup società"}</Button>
+      </section>}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Layers className="w-6 h-6 text-primary" />
@@ -316,8 +342,8 @@ export default function SeasonsPage() {
         <div className="text-xs text-muted-foreground bg-muted/40 rounded-lg px-4 py-3 flex items-start gap-2">
           <Download className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
           <span>
-            Il download produce un file <strong>.json</strong> con tutti i dati della stagione: squadre, giocatori, partite,
-            presenze, stati di transizione e giocatori in osservazione. Archivia le stagioni concluse per mantenerle visibili
+            L’export stagione produce un file <strong>.json</strong> con squadre, giocatori, partite,
+            stati di transizione e giocatori in osservazione. Per registri e allegati usa il backup società. Archivia le stagioni concluse per mantenerle visibili
             ma separate da quelle correnti.
           </span>
         </div>

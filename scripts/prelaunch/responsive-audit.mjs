@@ -1,6 +1,12 @@
 // Runs with the documented CUA tab + viewport APIs. No alternate browser driver.
 export const auditWidths = [320, 360, 390, 430, 768, 820, 1024, 1280, 1440];
 export const auditCases = [
+  { path: "/seasons", role: "admin", name: "Stagioni e backup" },
+  { path: "/tactical-board", role: "coach", name: "Lavagna tattica" },
+  { path: "/secretary/equipment", role: "secretary", name: "Dotazioni" },
+  { path: "/club", role: "admin", name: "Impostazioni società" },
+  { path: "/profilo", role: "coach", name: "Profilo" },
+  { path: "/fitness-dashboard", role: "fitness_coach", name: "Cruscotto atletico" },
   { path: "/dashboard", role: "technical_director", name: "Cruscotto DT" },
   { path: "/teams", role: "coach", name: "Squadre" },
   { path: "/secretary/payments", role: "secretary", name: "Pagamenti" },
@@ -56,7 +62,7 @@ export async function inspectLayout(tab) {
       };
     const narrow = [
       ...document.querySelectorAll(
-        "input:not([type=checkbox]):not([type=radio]):not([type=hidden]),textarea,button[role=combobox]",
+        "input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=color]),textarea,button[role=combobox]",
       ),
     ]
       .filter(visible)
