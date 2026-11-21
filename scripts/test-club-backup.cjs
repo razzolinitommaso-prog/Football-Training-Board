@@ -26,8 +26,24 @@ const root=path.resolve(__dirname,'..'),web=createRequire(path.join(root,'artifa
     const zipped=gzipSync(text);fs.writeFileSync(path.join(dir,'backup.ndjson.gz'),zipped);
     const result=await verifyBackup(Readable.from([gunzipSync(zipped)]));assert.equal(result.valid,true);assert.equal(result.externalReferences,2);
     const records=text.trim().split('\n').map(JSON.parse);assert.equal(records.filter(r=>r.type==='rows'&&r.table==='player_payments').flatMap(r=>r.rows).length,27);assert(text.includes('nested.pdf'));assert(!text.includes('OTHER_CLUB'));assert(!records[0].tables.includes('player_summary'));
+    const audit=await require('./audit-club-backup.cjs').auditBackup(path.join(dir,'backup.ndjson.gz'),'2026-11-21');assert.equal(audit.income.registered,15500);assert.equal(audit.income.records,27);assert.equal(audit.members.available,false);assert(audit.income.issues.length>0);
     await assert.rejects(()=>verifyBackup(Readable.from([text.slice(0,text.lastIndexOf('{"type":"manifest"'))])),/incompleto/);
     await assert.rejects(()=>verifyBackup(Readable.from([text.replace('Kit A','Kit X')])),/Integrità/);
+    // Exercise the actual HTTP route and streamed gzip, not just its generator.
+    globalThis.backupTestPg=pg;
+    fs.writeFileSync(path.join(dir,'db.ts'),`export const pool={connect:async()=>({query:(q:string,v?:unknown[])=>globalThis.backupTestPg.query(q,v),release(){}})};`);
+    fs.writeFileSync(path.join(dir,'auth.ts'),`export function requireAuth(req:any,res:any,next:any){if(!req.headers['x-role'])return res.status(401).end();req.session={role:req.headers['x-role'],clubId:Number(req.headers['x-club']||1)};next();}`);
+    const api=createRequire(path.join(root,'artifacts/api-server/package.json'));
+    await createRequire(web.resolve('vite'))('esbuild').build({entryPoints:[path.join(root,'artifacts/api-server/src/routes/club-backup.ts')],outfile:path.join(dir,'route.cjs'),bundle:true,platform:'node',format:'cjs',plugins:[{name:'isolated-backup',setup(b){b.onResolve({filter:/^@workspace\/db$/},()=>({path:path.join(dir,'db.ts')}));b.onResolve({filter:/\/lib\/auth$/},()=>({path:path.join(dir,'auth.ts')}));}}],nodePaths:[path.join(root,'artifacts/api-server/node_modules')]});
+    const app=api('express')();app.use(require(path.join(dir,'route.cjs')).default);
+    const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+    try {
+      const url='http://127.0.0.1:'+server.address().port+'/club-backup';
+      assert.equal((await fetch(url)).status,401);
+      for(const role of ['parent','coach','secretary','director','technical_director'])assert.equal((await fetch(url,{headers:{'x-role':role}})).status,403);
+      const response=await fetch(url,{headers:{'x-role':'presidente'}});assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+      const payload=Buffer.from(await response.arrayBuffer());assert.equal((await verifyBackup(Readable.from([gunzipSync(payload)]))).valid,true);
+    } finally {await new Promise(r=>server.close(r));delete globalThis.backupTestPg;}
     console.log('PASS backup: club isolation, dependent KIT rows, archived players, attachment bytes, credential exclusion, gzip round trip, truncation and tamper rejection');
   } finally {await pg.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

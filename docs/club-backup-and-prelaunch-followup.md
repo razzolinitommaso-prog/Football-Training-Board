@@ -12,10 +12,11 @@ Verifica locale:
 
 ```powershell
 node scripts/verify-club-backup.cjs <backup.ndjson.gz>
+node scripts/audit-club-backup.cjs <backup.ndjson.gz> 2026-11-21
 node scripts/test-club-backup.cjs
 ```
 
-Test con PostgreSQL isolato: separazione società, giocatori archiviati, contenuti base64 integri, relazioni KIT, esclusione credenziali, compressione/rilettura, rifiuto file troncati o alterati. Il test è incluso nella CI.
+Test con PostgreSQL isolato e handler HTTP: separazione società, giocatori archiviati, contenuti base64 integri, relazioni KIT, esclusione credenziali, paginazione, compressione/rilettura, rifiuto file troncati o alterati, permessi e risposta gzip effettivamente ricevuta. Il test è incluso nella CI. Il comando di audit legge tutti i movimenti del backup, indipendentemente dai filtri UI; segnala registri mancanti, riferimenti orfani e anomalie senza correggerli automaticamente. Verificato su dati sintetici, non ancora sul backup reale della società.
 
 ## Browser e moduli secondari
 
