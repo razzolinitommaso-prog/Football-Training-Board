@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { Link } from "wouter";
 import { trainingLocalDate } from "@workspace/api-zod";
+import { standaloneAnnualBalance, standaloneQuoteRows, registrationAnnualAdjustment } from "@workspace/api-zod";
 import { paymentKitSlot } from "@workspace/api-zod";
 import { PaymentKitOrderButton, PaymentKitOrderDialog, kitOrderCacheKeys } from "./payment-kit-order";
 import { Badge } from "@/components/ui/badge";
@@ -17,12 +18,12 @@ import { withApi } from "@/lib/api-base";
 import { listFeesForType, MAX_PLAYER_PAYMENT_AMOUNT, type FeeItem, type FeeType } from "@/lib/fee-list";
 import { isReceiptMethod, paymentCategories, paymentCategory, paymentStatus, paymentStatuses, paymentStatusTone, quoteBalancePayments, receiptMethodLabel, type PaymentEntry } from "@/lib/payment-summary";
 
-export type PlayerLedgerPayment = PaymentEntry & { id: number; amount: number; paymentDate?: string | null; paymentTime?: string | null; installmentNumber?: number | null };
+export type PlayerLedgerPayment = PaymentEntry & { id: number; amount: number; annualFeeTotal?: number | null; paymentDate?: string | null; paymentTime?: string | null; installmentNumber?: number | null };
 type LedgerPayment = PlayerLedgerPayment & { playerId: number };
 type Player = { id: number; firstName: string; lastName: string; teamId?: number | null; supplementalTeamId?: number | null; clubSection?: string };
 type Team = { id: number; name: string; clubSection: string };
-type Editor = { action: "due" | "settle" | "quote-balance" | "add" | "kit-link"; ids: number[]; date: string; time?: string; method: string; amount?: string; tariffId?: string; kitItemId?: string; kitQuantity?: string; paymentType: string; status: "paid" | "pending"; description: string };
-const paymentTypes = { registration_fee: "Iscrizione · prima rata", annual_fee_installment: "Quota annuale", insurance_fee: "Assicurazione", kit_payment: "Kit", shuttle_monthly: "Pulmino", other: "Altro" };
+type Editor = { action: "due" | "settle" | "quote-balance" | "add" | "annual-total" | "kit-link"; ids: number[]; date: string; time?: string; method: string; amount?: string; tariffId?: string; kitItemId?: string; kitQuantity?: string; paymentType: string; status: "paid" | "pending"; description: string };
+const paymentTypes = { registration_fee: "Iscrizione · prima rata", annual_fee_installment: "Totale quota annuale", insurance_fee: "Assicurazione", kit_payment: "Kit", shuttle_monthly: "Pulmino", other: "Altro" };
 const tariffTypes: Partial<Record<string, FeeType>> = {
   annual_fee_installment: "annual_fee", registration_fee: "registration_fee", insurance_fee: "insurance_fee",
 };
@@ -49,7 +50,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
   const [error, setError] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [kitOrderId, setKitOrderId] = useState<number>();
-  const tariffType = editor?.action === "add" ? tariffTypes[editor.paymentType] : undefined;
+  const tariffType = editor?.action === "add" || editor?.action === "annual-total" ? tariffTypes[editor.paymentType] : undefined;
   const feeList = useQuery({
     queryKey: ["/api/fee-list", club?.id, user?.id, role],
     queryFn: () => request<{ items: FeeItem[] }>("/api/fee-list"),
@@ -70,6 +71,18 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
   const tariff = tariffs.find(item => String(item.id) === tariffId);
   const suggestedPrice = needsKitArticle ? kitItem?.price == null ? undefined : kitItem.price * Number(editor?.kitQuantity ?? 1) : tariff?.price;
   const amount = editor?.amount ?? (suggestedPrice == null ? "" : String(suggestedPrice));
+  let annualPreview: ReturnType<typeof standaloneAnnualBalance> | undefined;
+  let annualError = "";
+  if (editor?.action === "annual-total" && amount) {
+    try { annualPreview = standaloneAnnualBalance(payments, Number(amount)); }
+    catch (error) { annualError = error instanceof Error ? error.message : "Verifica il piano quote."; }
+  }
+  let registrationPreview: ReturnType<typeof registrationAnnualAdjustment> = undefined;
+  let registrationError = "";
+  if (editor?.action === "add" && editor.paymentType === "registration_fee" && amount) {
+    try { registrationPreview = registrationAnnualAdjustment(payments,Number(amount)); }
+    catch(error) { registrationError = error instanceof Error ? error.message : "Verifica il piano quote."; }
+  }
   const today = trainingLocalDate();
   const openPayments = payments.filter(payment => payment.status !== "paid" && payment.amount > 0);
   const quotePayments = quoteBalancePayments(payments);
@@ -77,7 +90,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
   const save = useMutation({
     mutationFn: ({ path, method, body }: { path: string; method: string; body: object }) => request<{ id?: number; kitArticle?: unknown } | undefined>(path, method, body),
     onSuccess: async record => {
-      setConfirmation(editor?.action === "quote-balance" ? "Saldo quote registrato correttamente." : "Pagamento aggiornato correttamente.");
+      setConfirmation(editor?.action === "annual-total" ? "Totale annuale e residuo aggiornati. Incassi conservati." : editor?.action === "quote-balance" ? "Saldo quote registrato correttamente." : "Pagamento aggiornato correttamente.");
       setEditor(undefined);
       if (record?.kitArticle && record.id) setKitOrderId(record.id);
       await Promise.all([...kitOrderCacheKeys, "/api/players", "/api/extra-time"].map(key => cache.invalidateQueries({ queryKey: [key] })));
@@ -87,14 +100,15 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
   function open(action: Editor["action"], rows: PlayerLedgerPayment[] = []) {
     setError("");
     setConfirmation("");
-    setEditor({ action, ids: rows.map(payment => payment.id), date: action === "due" ? rows[0]?.dueDate ?? "" : today,
+    setEditor({ action: action === "add" ? "annual-total" : action, ids: rows.map(payment => payment.id), date: action === "due" ? rows[0]?.dueDate ?? "" : action === "annual-total" ? rows[0]?.dueDate ?? "" : today,
       method: "", paymentType: action === "quote-balance" ? "quote_balance" : "annual_fee_installment", status: "paid", description: "" });
   }
   const requiresMethod = editor?.action === "settle" || editor?.action === "quote-balance" || (editor?.action === "add" && editor.status === "paid");
   const invalid = !editor || (needsKitArticle && (!kitItem || kitCatalog.isError || !Number.isSafeInteger(Number(editor.kitQuantity ?? 1)) || Number(editor.kitQuantity ?? 1) < 1 || Number(editor.kitQuantity ?? 1) > 1000)) ||
     (editor.action !== "kit-link" && !editor.date) || (requiresMethod && !isReceiptMethod(editor.method)) ||
     (editor.action === "quote-balance" && editor.ids.length === 0) ||
-    (editor.action === "add" && !(Number(amount) >= 0.01 && Number(amount) <= MAX_PLAYER_PAYMENT_AMOUNT));
+    (editor.action === "annual-total" && (!annualPreview || !!annualError || !annualPreview.residual)) ||
+    (editor.action === "add" && (!!registrationError || !(Number(amount) >= 0.01 && Number(amount) <= MAX_PLAYER_PAYMENT_AMOUNT)));
   const kitPicker = editor && needsKitArticle && <label className="block text-sm">Articolo kit
     <ScrollableSelect aria-label="Articolo kit" className="mt-1 w-full" value={editor.kitItemId ?? ""}
       onValueChange={kitItemId => setEditor({ ...editor, kitItemId, kitQuantity: "1", amount: undefined })}>
@@ -128,6 +142,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
           </div>
           <strong className="tabular-nums">{money.format(payment.amount)}</strong>
           {payment.status !== "paid" && canReschedule && <Button type="button" size="sm" variant="outline" onClick={() => open("due", [payment])}>Modifica scadenza</Button>}
+          {payment.status !== "paid" && canCollect && ["annual_fee", "annual_fee_installment"].includes(payment.paymentType ?? "") && payment.installmentNumber == null && <Button type="button" size="sm" variant="outline" onClick={() => open("annual-total", [payment])}>Correggi totale annuale</Button>}
           {payment.status !== "paid" && canCollect && payment.amount > 0 && <Button type="button" size="sm" onClick={() => open("settle", [payment])}>Incassa rata</Button>}
           {canCollect && payment.paymentType === "kit_payment" && payment.installmentNumber == null &&
             <Button type="button" size="sm" variant="outline" onClick={() => open("kit-link", [payment])}>Collega articolo</Button>}
@@ -138,13 +153,15 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
     </div>
     <Dialog open={!!editor} onOpenChange={value => { if (!value && !save.isPending) setEditor(undefined); }}>
       <DialogContent>
-        <DialogHeader><DialogTitle>{editor?.action === "quote-balance" ? "Incassa saldo quote" : editor?.action === "kit-link" ? "Collega articolo kit" : editor?.action === "due" ? "Modifica scadenza" : editor?.action === "settle" ? "Registra incasso" : "Aggiungi voce"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{editor?.action === "annual-total" ? "Totale quota annuale" : editor?.action === "quote-balance" ? "Incassa saldo quote" : editor?.action === "kit-link" ? "Collega articolo kit" : editor?.action === "due" ? "Modifica scadenza" : editor?.action === "settle" ? "Registra incasso" : "Aggiungi voce"}</DialogTitle></DialogHeader>
         {editor && <form className="space-y-3" onSubmit={event => {
           event.preventDefault();
           event.stopPropagation();
           if (invalid || save.isPending) return;
           setError("");
-          if (editor.action === "due") {
+          if (editor.action === "annual-total") {
+            save.mutate({ path: "/api/player-payments/annual-total", method: "POST", body: { playerId,total:Number(amount),dueDate:editor.date,expectedQuoteRows:standaloneQuoteRows(payments).map(({id,amount,status})=>({id,amount,status})),description:editor.description.trim() || tariff?.name } });
+          } else if (editor.action === "due") {
             save.mutate({ path: `/api/player-payments/${editor.ids[0]}/due-date`, method: "PATCH", body: { dueDate: editor.date } });
           } else if (editor.action === "settle" || editor.action === "quote-balance") {
             save.mutate({ path: "/api/player-payments/settle", method: "POST", body: { playerId, ids: editor.ids, paymentDate: editor.date, paymentTime: editor.time || null, paymentMethod: editor.method } });
@@ -153,6 +170,8 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
           } else {
             save.mutate({ path: "/api/player-payments", method: "POST", body: {
               playerId, amount: Number(amount), status: editor.status, paymentType: editor.paymentType,
+              registrationWithinAnnual: editor.paymentType === "registration_fee",
+              expectedQuoteRows: standaloneQuoteRows(payments).map(({id,amount,status})=>({id,amount,status})),
               kitItemId: kitItem?.id,
               kitQuantity: needsKitArticle ? Number(editor.kitQuantity ?? 1) : undefined,
               kitSlot: kitItem ? paymentKitSlot(kitItem) : undefined,
@@ -162,9 +181,9 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
             } });
           }
         }}>
-          {(editor.action === "add" || editor.action === "quote-balance") && <label className="block text-sm">Voce<ScrollableSelect aria-label="Voce" className="mt-1 w-full" value={editor.paymentType} onValueChange={paymentType => {
+          {(editor.action === "add" || editor.action === "annual-total" || editor.action === "quote-balance") && <label className="block text-sm">Voce<ScrollableSelect aria-label="Voce" className="mt-1 w-full" value={editor.paymentType} onValueChange={paymentType => {
             if (paymentType === "quote_balance") open("quote-balance", quotePayments);
-            else setEditor({ ...editor, action: "add", ids: [], paymentType, kitItemId: undefined, tariffId: undefined, amount: undefined });
+            else setEditor({ ...editor, action: paymentType === "annual_fee_installment" ? "annual-total" : "add", ids: [], paymentType, kitItemId: undefined, tariffId: undefined, amount: undefined });
           }}>
             {Object.entries(paymentTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             <option value="quote_balance">Saldo quote</option>
@@ -174,7 +193,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
             <p>Saldo delle quote e delle rate del piano già registrate. L’incasso aggiorna le stesse voci anche nella scheda giocatore.</p>
             {editor.ids.length ? <ul className="divide-y">{payments.filter(payment => editor.ids.includes(payment.id)).map(payment => <li key={payment.id} className="flex justify-between gap-3 py-2"><span>{payment.description || "Quota"}</span><strong className="shrink-0 tabular-nums">{money.format(payment.amount)}</strong></li>)}</ul> : <p role="status">Nessuna quota residua da incassare. Se manca il piano quote, registralo prima nella scheda giocatore.</p>}
           </div>}
-          {editor.action === "add" && <div className="grid gap-2 sm:grid-cols-2">
+          {(editor.action === "add" || editor.action === "annual-total") && <div className="grid gap-2 sm:grid-cols-2">
             {tariffType && <label className="block text-sm">Tariffa di listino
               <ScrollableSelect aria-label="Tariffa di listino" className="mt-1 w-full" value={tariffId} onValueChange={value => setEditor({ ...editor, tariffId: value, amount: undefined })}>
                 <option value="">{feeList.isError ? "Listino non disponibile · Manuale" : feeList.isPending ? "Caricamento tariffe…" : "Scegli tariffa o inserisci a mano"}</option>
@@ -183,19 +202,26 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
             </label>}
             {kitPicker}
             {needsKitArticle && <label className="block text-sm">Pezzi<Input type="number" min={1} max={1000} step={1} value={editor.kitQuantity ?? "1"} onChange={event => setEditor({ ...editor, kitQuantity: event.target.value, amount: undefined })} /></label>}
-            <label className="block text-sm">Importo (€)<Input type="number" min="0.01" max={MAX_PLAYER_PAYMENT_AMOUNT} step="0.01" value={amount} onChange={event => setEditor({ ...editor, amount: event.target.value })} /></label>
-            <label className="block text-sm">Stato<ScrollableSelect aria-label="Stato nuova voce" className="mt-1 w-full" value={editor.status} onValueChange={value => setEditor({ ...editor, status: value === "pending" ? "pending" : "paid", date: value === "pending" ? "" : today })}>
+            <label className="block text-sm">{editor.action === "annual-total" ? "Totale annuale, iscrizione inclusa (€)" : "Importo (€)"}<Input type="number" min="0.01" max={MAX_PLAYER_PAYMENT_AMOUNT} step="0.01" value={amount} onChange={event => setEditor({ ...editor, amount: event.target.value })} /></label>
+            {editor.action === "add" && <label className="block text-sm">Stato<ScrollableSelect aria-label="Stato nuova voce" className="mt-1 w-full" value={editor.status} onValueChange={value => setEditor({ ...editor, status: value === "pending" ? "pending" : "paid", date: value === "pending" ? "" : today })}>
               <option value="paid">Incassato subito</option><option value="pending">Da incassare</option>
-            </ScrollableSelect></label>
+            </ScrollableSelect></label>}
             <label className="block text-sm">Descrizione<Input value={editor.description} onChange={event => setEditor({ ...editor, description: event.target.value })} /></label>
           </div>}
+          {editor.action === "annual-total" && <div className="rounded-lg border p-3 text-sm space-y-2">
+            <p>L’iscrizione è compresa nel totale annuale. Assicurazione e servizi restano separati. Gli incassi già registrati non vengono modificati.</p>
+            {annualPreview && <><p>Quote già registrate: <strong>{money.format(annualPreview.allocated)}</strong></p><p>Residuo annuale da registrare: <strong>{money.format(annualPreview.residual)}</strong></p><p>Per pagarlo subito, dopo il salvataggio usa Incassa rata o Saldo quote.</p></>}
+            {annualError && <p role="alert" className="text-destructive">{annualError}</p>}
+          </div>}
+          {registrationPreview && <p className="text-sm">L’iscrizione è inclusa nel totale: il residuo annuale diventerà <strong>{money.format(registrationPreview.residual)}</strong>.</p>}
+          {registrationError && <p role="alert" className="text-sm text-destructive">{registrationError}</p>}
           {editor.action === "kit-link" && kitPicker}
           {needsKitArticle && kitCatalog.isError && <p role="alert" className="text-sm text-destructive">
             Impossibile caricare gli articoli del kit. <button type="button" className="underline" onClick={() => void kitCatalog.refetch()}>Riprova</button>
           </p>}
           {needsKitArticle && kitCatalog.isSuccess && kitItems.length === 0 && <p className="text-sm text-muted-foreground">Nessun articolo attivo in Magazzino → Abbigliamento.</p>}
           {editor.action === "add" && (tariffType === "annual_fee" || tariffType === "registration_fee") && (
-            <p className="text-xs text-muted-foreground">L’iscrizione è la prima rata della quota annuale. Per ripartire la quota tra acconto e rate, usa il piano quote nella scheda giocatore.</p>
+            <p className="text-xs text-muted-foreground">L’iscrizione è la prima rata della quota annuale. Se il totale annuale è confermato, il residuo viene ridotto automaticamente. Per più rate usa il piano quote nella scheda giocatore.</p>
           )}
           {editor.action !== "kit-link" && <label className="block text-sm">{editor.action === "due" ? "Nuova scadenza" : requiresMethod ? "Data d’incasso" : "Scadenza"}
             <Input type="date" required value={editor.date} onChange={event => setEditor({ ...editor, date: event.target.value })} />
@@ -203,7 +229,7 @@ export function PlayerPaymentRegister({ playerId, payments, allowSecretaryEdit =
           {requiresMethod && <label className="block text-sm">Orario d’incasso (facoltativo)<Input type="time" className="mt-1" value={editor.time ?? ""} onChange={event => setEditor({ ...editor, time: event.target.value })} /></label>}
           {requiresMethod && <ReceiptMethodSelect value={editor.method} onChange={method => setEditor({ ...editor, method })} />}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" disabled={invalid || save.isPending}>{editor.action === "kit-link" ? "Collega articolo" : editor.action === "due" ? "Salva scadenza" : editor.action === "add" ? "Registra voce" : "Salva incasso"}</Button>
+          <Button type="submit" disabled={invalid || save.isPending}>{editor.action === "annual-total" ? "Conferma totale e residuo" : editor.action === "kit-link" ? "Collega articolo" : editor.action === "due" ? "Salva scadenza" : editor.action === "add" ? "Registra voce" : "Salva incasso"}</Button>
         </form>}
       </DialogContent>
     </Dialog>

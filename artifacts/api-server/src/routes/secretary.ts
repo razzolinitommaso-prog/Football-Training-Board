@@ -1,4 +1,4 @@
-import { isForecastPlayer } from "@workspace/api-zod";
+import { isForecastPlayer, standaloneAnnualBalance, standaloneQuoteRows, registrationAnnualAdjustment } from "@workspace/api-zod";
 import { supplementalTrainingTeam } from "../lib/training-roster-policy";
 import { parseDocumentUpload } from "../lib/document-upload";
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -379,6 +379,7 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
   const [player] = await db.select({ id: playersTable.id }).from(playersTable)
     .where(and(eq(playersTable.id, Number(playerId)), eq(playersTable.clubId, clubId))).limit(1);
   if (!player) { res.status(404).json({ error: "Giocatore non trovato." }); return; }
+  const guardedQuote = ["registration_fee", "annual_fee", "annual_fee_installment"].includes(paymentType ?? "annual_fee_installment");
   const paidDate = status === "paid" ? paymentDate || new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" }) : null;
   if (paidDate !== null && !isPaymentPlanDate(paidDate)) {
     res.status(400).json({ error: "Data di incasso non valida." });
@@ -407,7 +408,24 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
   if (article) await Promise.all([ensurePaymentKitSchema(), ensureWarehouseKitSchema()]);
   if (paymentTime) await ensureReceiptTimeSchema();
   try {
-  const record = article || paymentTime ? await db.transaction(async tx => {
+  const record = article || paymentTime || guardedQuote ? await db.transaction(async tx => {
+    if (guardedQuote) {
+      await tx.select({id:playersTable.id}).from(playersTable).where(and(eq(playersTable.clubId,clubId),eq(playersTable.id,player.id))).for("update");
+      const quotes = await tx.select().from(playerPaymentsTable).where(and(eq(playerPaymentsTable.clubId,clubId),eq(playerPaymentsTable.playerId,player.id)));
+      const conflicting = paymentType === "registration_fee"
+        ? standaloneQuoteRows(quotes).some(row => row.paymentType !== "registration_fee")
+        : quotes.some(row => row.paymentType === "registration_fee");
+      if (conflicting && paymentType === "registration_fee" && req.body.registrationWithinAnnual === true) {
+        const signature = (rows: {id:number;amount:number;status:string}[]) => JSON.stringify(rows.map(row=>[row.id,Math.round(Number(row.amount)*100),row.status]).sort((a,b)=>Number(a[0])-Number(b[0])));
+        if (!Array.isArray(req.body.expectedQuoteRows) || signature(standaloneQuoteRows(quotes)) !== signature(req.body.expectedQuoteRows)) throw new KitRequestError(409,"Le quote sono cambiate: ricarica prima di registrare l’iscrizione.");
+        try {
+          if (!(paymentPlanCents(amount)>0)) throw new Error("Importo iscrizione non valido.");
+          const adjustment = registrationAnnualAdjustment(quotes,Number(amount));
+          if (!adjustment?.pendingId) throw new Error("Nessun residuo annuale da ripartire: verifica il piano quote.");
+          await tx.update(playerPaymentsTable).set({amount:adjustment.residual}).where(eq(playerPaymentsTable.id,adjustment.pendingId));
+        } catch(error) { throw new KitRequestError(409,error instanceof Error ? error.message : "Iscrizione non registrata."); }
+      } else if (conflicting) throw new KitRequestError(409,"L’iscrizione è inclusa nell’annuale. Usa Totale quota annuale oppure aggiorna il piano quote: non aggiungere due debiti indipendenti.");
+    }
     if (article) await lockKitPlayer(tx, clubId, player.id);
     const [payment] = await tx.insert(playerPaymentsTable).values(values).returning();
     const linked = article ? await syncPaymentKitRow(tx, clubId, payment, article, { quantity: kitQuantity, slotKey: kitSlot }) : undefined;
@@ -417,6 +435,38 @@ router.post("/player-payments", requireAuth, async (req, res): Promise<void> => 
   await reconcilePaymentAvailability(clubId, player.id, undefined, status === "paid");
   res.status(201).json(record);
   } catch (error) { if (!sendKitError(res, error)) throw error; }
+});
+
+router.post("/player-payments/annual-total", requireAuth, async (req, res): Promise<void> => {
+  if (!canEditFinancials(req.session.role)) { res.sendStatus(403); return; }
+  const clubId = req.session.clubId!;
+  const { playerId, total, dueDate, expectedQuoteRows, description } = req.body ?? {};
+  if (!validKitId(playerId) || !(paymentPlanCents(total) > 0) || !isPaymentPlanDate(dueDate) || !Array.isArray(expectedQuoteRows)) {
+    res.status(400).json({ error: "Controlla totale annuale, giocatore e scadenza." }); return;
+  }
+  const scope = await getScopedPlayerIds(req, clubId);
+  if (scope && !scope.includes(playerId)) { res.sendStatus(404); return; }
+  const fingerprint = (rows: { id: number; amount: number; status: string }[]) => JSON.stringify(rows.map(row => [row.id, Math.round(Number(row.amount) * 100), row.status]).sort((a,b) => Number(a[0])-Number(b[0])));
+  try {
+    const record = await db.transaction(async tx => {
+      // Lock the parent so two annual-total requests cannot create duplicate residuals.
+      const [player] = await tx.select({ id: playersTable.id }).from(playersTable).where(and(eq(playersTable.clubId, clubId),eq(playersTable.id,playerId))).for("update");
+      if (!player) throw new Error("Giocatore non trovato.");
+      const rows = await tx.select().from(playerPaymentsTable).where(and(eq(playerPaymentsTable.clubId,clubId),eq(playerPaymentsTable.playerId,playerId))).for("update");
+      if (fingerprint(standaloneQuoteRows(rows)) !== fingerprint(expectedQuoteRows)) throw new Error("Le quote sono cambiate: ricarica i pagamenti prima di confermare.");
+      const balance = standaloneAnnualBalance(rows, Number(total));
+      if (!balance.residual) throw new Error("La quota annuale è già interamente registrata: non occorre aggiungere un movimento.");
+      if (balance.pendingId) {
+        return (await tx.update(playerPaymentsTable).set({ amount:balance.residual,annualFeeTotal:Number(total),dueDate })
+          .where(and(eq(playerPaymentsTable.clubId,clubId),eq(playerPaymentsTable.id,balance.pendingId))).returning())[0];
+      }
+      return (await tx.insert(playerPaymentsTable).values({clubId,playerId,amount:balance.residual,annualFeeTotal:Number(total),dueDate,status:"pending",paymentType:"annual_fee_installment",description:typeof description === "string" ? description.trim() || "Saldo quota annuale" : "Saldo quota annuale",availabilityBlocking:1}).returning())[0];
+    });
+    await reconcilePaymentAvailability(clubId,playerId);
+    res.json(record);
+  } catch (error) {
+    res.status(409).json({error:error instanceof Error ? error.message : "Totale annuale non aggiornato."});
+  }
 });
 
 router.patch("/player-payments/:id/kit-item", requireAuth, async (req, res): Promise<void> => {

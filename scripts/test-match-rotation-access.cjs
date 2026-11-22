@@ -794,6 +794,42 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         {id:7,status:'paid',amount:25,paymentType:'insurance_fee'},
       ]).map(row=>row.id), [1], "Unified residual included, paid fees and separate services excluded");
       await pg.exec("INSERT INTO players(id,club_id,team_id,first_name,last_name) VALUES(103,1,11,'New','Player')");
+      await pg.exec("INSERT INTO players(id,club_id,team_id,first_name,last_name) VALUES(104,1,11,'Annual','Example')");
+      const firstFee = await send('/player-payments','POST',{playerId:104,amount:170,paymentType:'registration_fee',status:'paid',paymentDate:'2026-10-22',paymentMethod:'bank_transfer'});
+      assert.equal(firstFee.status,201);
+      const feeReceipt = await firstFee.json();
+      const insuranceFee = await send('/player-payments','POST',{playerId:104,amount:25,paymentType:'insurance_fee',status:'paid',paymentDate:'2026-11-01',paymentMethod:'card'});
+      assert.equal(insuranceFee.status,201);
+      const totalBody={playerId:104,total:335,dueDate:'2098-01-30',expectedQuoteRows:[feeReceipt]};
+      assert.equal((await send('/player-payments/annual-total','POST',totalBody,'presidente')).status,403);
+      assert.equal((await send('/player-payments','POST',{playerId:104,amount:335,paymentType:'annual_fee_installment',status:'pending',dueDate:'2098-01-30'})).status,409,'Raw annual plus registration must not double-charge');
+      const totalResponse=await send('/player-payments/annual-total','POST',totalBody);
+      assert.equal(totalResponse.status,200,await totalResponse.clone().text());
+      const annualDue=await totalResponse.json();
+      assert.equal(annualDue.amount,165,'Annual total 335 less registration 170; insurance separate');
+      assert.equal(annualDue.annualFeeTotal,335);
+      assert.equal((await send('/player-payments/annual-total','POST',totalBody)).status,409,'Stale retry cannot duplicate residual');
+      const annualSnapshot=(await call('/player-payments',{'x-role':'secretary'})).data.filter(row=>row.playerId===104);
+      assert.equal(annualSnapshot.reduce((n,row)=>n+row.amount,0),360);
+      assert.deepEqual(annualSnapshot.find(row=>row.id===feeReceipt.id),{...annualSnapshot.find(row=>row.id===feeReceipt.id),amount:170,status:'paid',paymentMethod:'bank_transfer',paymentDate:'2026-10-22'});
+      const expectedQuoteRows=annualSnapshot.filter(row=>row.paymentType!=='insurance_fee');
+      assert.equal((await send('/player-payments/annual-total','POST',{...totalBody,total:100,expectedQuoteRows})).status,409,'Cannot erase or reduce paid receipts');
+      await pg.query('UPDATE player_payments SET amount=335,annual_fee_total=NULL WHERE id=$1',[annualDue.id]);
+      const legacyRows=(await call('/player-payments',{'x-role':'secretary'})).data.filter(row=>row.playerId===104&&row.paymentType!=='insurance_fee');
+      const repair=await send('/player-payments/annual-total','POST',{...totalBody,expectedQuoteRows:legacyRows});
+      assert.equal(repair.status,200);
+      assert.equal((await repair.json()).amount,165,'Correct existing unpaid annual row without replacing receipts');
+      assert.equal((await send('/player-payments','POST',{playerId:104,amount:10,paymentType:'registration_fee',status:'pending'})).status,409,'First installment cannot be added on top of an existing annual debt');
+      await pg.exec("INSERT INTO players(id,club_id,team_id,first_name,last_name) VALUES(105,1,11,'Annual first','Example')");
+      const annualFirstResponse=await send('/player-payments/annual-total','POST',{playerId:105,total:335,dueDate:'2098-01-30',expectedQuoteRows:[]});
+      assert.equal(annualFirstResponse.status,200);
+      const annualFirst=await annualFirstResponse.json();
+      const registrationBody={playerId:105,amount:170,paymentType:'registration_fee',status:'paid',paymentDate:'2026-10-22',paymentMethod:'bank_transfer',registrationWithinAnnual:true,expectedQuoteRows:[annualFirst]};
+      assert.equal((await send('/player-payments','POST',registrationBody)).status,201);
+      assert.equal((await send('/player-payments','POST',registrationBody)).status,409,'Stale first-installment retry does not add another receipt');
+      const annualFirstRows=(await call('/player-payments',{'x-role':'secretary'})).data.filter(row=>row.playerId===105);
+      assert.equal(annualFirstRows.reduce((n,row)=>n+row.amount,0),335,'Annual-first workflow keeps total unchanged');
+      assert.equal(annualFirstRows.find(row=>row.id===annualFirst.id).amount,165);
       const plan = {
         playerId: 103, total: 310, alreadyPaid: 0, upfront: 25,
         deposits: [{ amount: 25, purpose: "Assicurazione", paymentMethod: "cash", paymentDate: "2026-11-12" }],

@@ -57,3 +57,11 @@ Verificata la nuova sessione Segreteria e ricalcolato il registro renderizzato. 
 Individuato un caso da chiarire: quota annuale e iscrizione registrate come voci indipendenti. Se l'importo annuale comprende la prima rata, la somma delle righe può essere aritmeticamente corretta ma il dovuto sovrastimato. Richiesta conferma del significato dell'importo all'utente; nessuna rettifica automatica. Il pannello di quadratura non certifica questa correttezza contrattuale.
 
 Comando export controllo Excel azionato, ma consegna del file non confermata: nessun nuovo file individuato nella cartella Downloads locale. Restano DG, audit completo del backup reale e le altre limitazioni già elencate. Evidenze nominali conservate solo negli output privati; nessun dato contabile reale pubblicato qui.
+
+## Totale annuale e iscrizione inclusa
+
+Chiarita la regola con l'utente: l'iscrizione è una prima rata dell'annuale; l'assicurazione resta aggiuntiva. Nel registro individuale, Totale quota annuale calcola il residuo sottraendo le iscrizioni già registrate e gli incassi annuali. Correggi totale annuale aggiorna la singola quota aperta senza sostituire o modificare le ricevute. Per pagare il residuo si usano i comandi Incassa rata/Saldo quote già esistenti.
+
+La registrazione della prima rata dopo un totale annuale esplicitamente confermato riduce il relativo residuo nella stessa transazione. Il server rifiuta la somma cieca di iscrizione e annuale, le conferme su dati cambiati e gli importi sotto le quote già registrate. Lock sul giocatore per serializzare le due operazioni. Con piani globali, più quote aperte o dati storici ambigui rimanda al piano quote: nessuna migrazione massiva o inferenza automatica del totale contrattuale.
+
+Regressioni HTTP con database isolato: entrambi gli ordini di inserimento, assicurazione separata, rettifica di quota manuale aperta, ricevute conservate, ripetizioni rifiutate e ruolo Presidente in sola lettura. Verifica UI locale su dati sintetici: anteprima del residuo e blocco sotto l'incassato. Controlli di tipo librerie/server/frontend. Le registrazioni reali non sono state rettificate durante questo intervento; il nuovo comando richiede conferma esplicita del totale. Nessuna attesa deploy.
