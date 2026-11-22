@@ -65,3 +65,9 @@ Chiarita la regola con l'utente: l'iscrizione è una prima rata dell'annuale; l'
 La registrazione della prima rata dopo un totale annuale esplicitamente confermato riduce il relativo residuo nella stessa transazione. Il server rifiuta la somma cieca di iscrizione e annuale, le conferme su dati cambiati e gli importi sotto le quote già registrate. Lock sul giocatore per serializzare le due operazioni. Con piani globali, più quote aperte o dati storici ambigui rimanda al piano quote: nessuna migrazione massiva o inferenza automatica del totale contrattuale.
 
 Regressioni HTTP con database isolato: entrambi gli ordini di inserimento, assicurazione separata, rettifica di quota manuale aperta, ricevute conservate, ripetizioni rifiutate e ruolo Presidente in sola lettura. Verifica UI locale su dati sintetici: anteprima del residuo e blocco sotto l'incassato. Controlli di tipo librerie/server/frontend. Le registrazioni reali non sono state rettificate durante questo intervento; il nuovo comando richiede conferma esplicita del totale. Nessuna attesa deploy.
+
+## Procedura di verifica Direttore Generale
+
+Per confrontare i profili, acquisire separatamente il registro corrente e ricalcolare gli importi in centesimi. Confrontare le differenze fra letture prima di attribuirle al ruolo: il dataset può essere cambiato nel frattempo. Verificare filtri, scadenze delle uscite e visibilità dei comandi senza effettuare scritture su record reali.
+
+La ricerca di descrizioni annuale/iscrizione e righe identiche è solo un controllo preliminare. Per i piani generici occorrono totale contrattuale e legami fra rate/ricevute; il registro visuale non sostituisce l'audit dell'intero backup. Conservare le evidenze contabili esclusivamente in archivi privati. In questo documento pubblico sono descritte soltanto procedure generali, senza esiti o dati di una società.
