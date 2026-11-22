@@ -39,3 +39,13 @@ Regressioni eseguite separatamente sugli handler reali con PostgreSQL isolato: `
 All'avvio del controllo nessun dispositivo era connesso via `adb devices -l`. Le prove fisiche iPhone/Android restano da eseguire con dispositivi collegati; nessun abbonamento BrowserStack è stato attivato.
 
 Per la riconciliazione di tutti i dati reali servono le risposte contabili autorizzate. Le sessioni visibili erano Allenatore (IAB) e DT (Chrome); è stato richiesto di aprire Pagamenti con Segreteria/Presidente/DG. Non sono stati acquisiti token dal browser, inventati accessi o modificati i registri reali. Le prove su dati sintetici e le quadrature disponibili non certificano i record che non sono stati letti.
+
+## Verifica manuale Presidente — 22/11/2026
+
+Eseguita in sola lettura sulla sessione Presidente/Amministratore resa disponibile dall'utente. Ricalcolati al centesimo i movimenti effettivamente renderizzati nel registro e confrontati con incassato, residuo, scaduto, metodi di incasso e anni del grafico. Verificati anche i filtri KIT, scaduti, non scaduti, bonifico, mese, annata e ricerca giocatore. Riepiloghi coerenti nel campione di filtri osservato; nessun errore aritmetico rilevato nei registri caricati.
+
+Verificate le mensilità dei compensi membri e la ripartizione del residuo nel grafico secondo la scadenza, distinta dalla competenza. Prima Squadra senza compensi nei dati caricati. Le esclusioni dalla previsione riscontrate corrispondono a giocatori con mancato rinnovo; i relativi crediti rimangono nel registro. Uno stato di indisponibilità temporanea non è stato trasformato in archiviazione.
+
+Evidenze con nominativi, importi e righe conservate soltanto negli output privati locali, escluse da questo repository pubblico. Nessun inserimento, incasso, uscita, modifica o cancellazione di dati reali. Nessuna modifica di prodotto necessaria in questo passaggio.
+
+Restano distinti: confronto degli ambiti Segreteria/DG, audit dell'intero backup reale per record orfani/non esposti in UI, verifica articolo per articolo del potenziale KIT e download del controllo Excel nella sessione reale. Non verificata la completezza rispetto a documenti esterni né l'assenza di duplicati semanticamente equivalenti. I dispositivi fisici restano rinviati su indicazione dell'utente. Nessuna attesa o verifica deploy.
