@@ -49,3 +49,11 @@ Verificate le mensilità dei compensi membri e la ripartizione del residuo nel g
 Evidenze con nominativi, importi e righe conservate soltanto negli output privati locali, escluse da questo repository pubblico. Nessun inserimento, incasso, uscita, modifica o cancellazione di dati reali. Nessuna modifica di prodotto necessaria in questo passaggio.
 
 Restano distinti: confronto degli ambiti Segreteria/DG, audit dell'intero backup reale per record orfani/non esposti in UI, verifica articolo per articolo del potenziale KIT e download del controllo Excel nella sessione reale. Non verificata la completezza rispetto a documenti esterni né l'assenza di duplicati semanticamente equivalenti. I dispositivi fisici restano rinviati su indicazione dell'utente. Nessuna attesa o verifica deploy.
+
+## Confronto Segreteria — 22/11/2026
+
+Verificata la nuova sessione Segreteria e ricalcolato il registro renderizzato. Tutte le righe lette come Presidente sono ancora presenti; la variazione dei totali corrisponde esattamente a nuove registrazioni intervenute fra le due letture. Quadratura entrate/residui coerente e compensi membri invariati. I comandi di inserimento, scadenza e incasso sono visibili nel dettaglio giocatore; aperto e richiuso il modulo senza inviare alcun dato. Questa osservazione non equivale a provare modifiche o dinieghi server su registri reali.
+
+Individuato un caso da chiarire: quota annuale e iscrizione registrate come voci indipendenti. Se l'importo annuale comprende la prima rata, la somma delle righe può essere aritmeticamente corretta ma il dovuto sovrastimato. Richiesta conferma del significato dell'importo all'utente; nessuna rettifica automatica. Il pannello di quadratura non certifica questa correttezza contrattuale.
+
+Comando export controllo Excel azionato, ma consegna del file non confermata: nessun nuovo file individuato nella cartella Downloads locale. Restano DG, audit completo del backup reale e le altre limitazioni già elencate. Evidenze nominali conservate solo negli output privati; nessun dato contabile reale pubblicato qui.
