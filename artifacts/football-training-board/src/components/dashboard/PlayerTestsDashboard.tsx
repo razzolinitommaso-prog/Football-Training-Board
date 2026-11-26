@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Activity } from "lucide-react";
 import { Link } from "wouter";
 import { customFetch } from "@workspace/api-client-react/custom-fetch";
-import { FITNESS_DASHBOARD_ROLES } from "@workspace/api-zod";
+import { FITNESS_DASHBOARD_ROLES, type MotorTestSession } from "@workspace/api-zod";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -29,6 +29,9 @@ export function PlayerTestsDashboard({ role, scopeLabel, section, teamId }: {
   if (section) filters.set("section", section);
   if (teamId) filters.set("teamId", String(teamId));
   const search = filters.toString();
+  const motors=useQuery({queryKey:["/api/motor-tests",club?.id,user?.id,role],queryFn:()=>customFetch<{teams:{id:number;name:string;clubSection?:string}[];sessions:MotorTestSession[]}>("/api/motor-tests"),enabled:allowed&&!!user});
+  const motorTeams=(motors.data?.teams??[]).filter(team=>(!teamId||team.id===teamId)&&(!section||team.clubSection===section.replace(/-/g,"_")));
+  const motorSessions=(motors.data?.sessions??[]).filter(session=>motorTeams.some(team=>team.id===session.teamId));
   const tests = useQuery({
     queryKey: ["/api/player-fitness-data", "dashboard", club?.id, user?.id, role, search],
     queryFn: () => customFetch<{ total: number; entries: TestResult[] }>(
@@ -45,10 +48,11 @@ export function PlayerTestsDashboard({ role, scopeLabel, section, teamId }: {
       </div>
       <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">Sola lettura</span>
     </div>
-    {tests.isPending ? <p role="status" className="text-sm text-muted-foreground">Caricamento test…</p>
-      : tests.isError ? <p role="alert" className="text-sm text-muted-foreground">Risultati non disponibili.{" "}
-        <button type="button" className="underline" onClick={() => void tests.refetch()}>Riprova</button></p>
-      : tests.data.entries.length === 0 ? <p className="text-sm text-muted-foreground">Nessun test registrato.</p>
+    {!!motorSessions.length&&<><p className="text-sm font-medium">{motorSessions.length} sessioni di test motori</p><ul className="divide-y">{motorSessions.slice(0,3).map(session=><li key={session.id} className="py-2 text-sm"><Link className="text-primary underline" href={"/player-performance?view=tests&motorSession="+session.id}>{motorTeams.find(team=>team.id===session.teamId)?.name} · {formatDate(session.date)}</Link><p className="text-xs text-muted-foreground">{Object.keys(session.results).length} giocatori con rilevazioni</p></li>)}</ul></>}
+    {tests.isPending || motors.isPending ? <p role="status" className="text-sm text-muted-foreground">Caricamento test…</p>
+      : tests.isError || motors.isError ? <p role="alert" className="text-sm text-muted-foreground">Risultati non disponibili.{" "}
+        <button type="button" className="underline" onClick={() => {void tests.refetch();void motors.refetch();}}>Riprova</button></p>
+      : tests.data.entries.length === 0 ? !motorSessions.length&&<p className="text-sm text-muted-foreground">Nessun test registrato.</p>
       : <>
         <p className="text-xs text-muted-foreground">{tests.data.total} {tests.data.total === 1 ? "test registrato" : "test registrati"} · Ultimo test {formatDate(tests.data.entries[0].date)}</p>
         <ul className="divide-y">
@@ -66,5 +70,6 @@ export function PlayerTestsDashboard({ role, scopeLabel, section, teamId }: {
         </ul>
         <Link href={"/player-performance?view=tests" + (search ? "&" + search : "")} className="inline-block text-sm font-medium text-primary hover:underline">Vedi tutti i risultati</Link>
       </>}
+    <Link href={"/player-performance?view=tests"+(search?"&"+search:"")} className="inline-block text-sm font-medium text-primary hover:underline">Apri test e crescita</Link>
   </CardContent></Card>;
 }

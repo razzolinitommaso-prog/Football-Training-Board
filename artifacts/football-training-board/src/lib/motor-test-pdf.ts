@@ -70,6 +70,8 @@ export function buildMotorTestPdf(session: MotorTestSession, roster: Player[], t
   }
   newPage();
   section("Riepilogo sessione");
+  row("Appello della giornata", session.workingDate??session.date);
+  if(session.days?.length) row("Giornate di rilevazione", [...new Set(session.days.map(day=>day.date))].sort().join(" | "));
   row("Programma", `${session.tests.length} prove | ${session.tests.reduce((n, t) => n + t.minutes, 0)} minuti complessivi`);
   for (const [i, test] of session.tests.entries()) {
     const info = motorTestCatalog.find(t => t.id === test.id)!;
@@ -91,12 +93,14 @@ export function buildMotorTestPdf(session: MotorTestSession, roster: Player[], t
     section("Situazione del test");
     row("Stato", `${motorCompletionLabels[completion.status]} | ${completion.completed}/${completion.total} prove eseguite | ${completion.assessed}/${completion.total} valutazioni complete`);
     row("Statura / peso", `${result.height ?? "-"} cm | ${result.weight ?? "-"} kg`);
+    if(result.heightDate||result.weightDate) row("Date statura / peso", `${result.heightDate??session.date} | ${result.weightDate??session.date}`);
     const historicalIndex = summarizeMotorTests([{ id: session.id, date: session.date, cycle: session.cycle, result }]).index;
     if (historicalIndex != null) row("Indice dei voti storici (non TGMD-3)", `${historicalIndex}%`);
     for (const [i, test] of session.tests.entries()) {
       if (test.id === "anthropometry") continue;
       const info = motorTestCatalog.find(t => t.id === test.id)!, value = result.tests[test.id];
       y -= 12; section(`${i + 1}. ${info.title}`);
+      if(value) row("Data rilevazione", value.recordedOn ?? session.date);
       const measure = value?.assessment ? motorAssessmentMeasurement(test.id, value.assessment) ?? value.measurement : value?.measurement;
       row("Misura di riepilogo", measure != null ? `${measure} ${info.unit}` : "Da rilevare / completare");
       if ((test.id === "high-jump" || test.id === "long-jump") && result.height && measure != null) row("Misura relativa alla statura", `${Math.round(1000 * measure / result.height) / 10}%`);

@@ -17,11 +17,13 @@ export const trainingExerciseStationsMarker = "\n\n[FTB_EXERCISE_STATIONS]";
 
 export const motorTestCycles = { start: "Inizio stagione", middle: "Metà stagione", end: "Fine stagione" } as const;
 const ids = motorTestCatalog.map(item => item.id);
-const result = z.object({ measurement: z.number().min(0).max(10000).nullable(), score: z.number().int().min(1).max(10).nullable(), notes: z.string().max(1000), assessment: motorAssessmentSchema.optional() });
+const result = z.object({ recordedOn: z.iso.date().optional(), measurement: z.number().min(0).max(10000).nullable(), score: z.number().int().min(1).max(10).nullable(), notes: z.string().max(1000), assessment: motorAssessmentSchema.optional() });
 export const motorTestSessionInput = z.object({
   revision: z.number().int().nonnegative(),
   teamId: z.number().int().positive(),
   date: z.iso.date(),
+  workingDate: z.iso.date().optional(),
+  workingTrainingSessionId: z.number().int().positive().nullable().optional(),
   cycle: z.enum(["start", "middle", "end"]),
   trainingSessionId: z.number().int().positive().nullable(),
   linkProgram: z.boolean().optional(),
@@ -29,10 +31,13 @@ export const motorTestSessionInput = z.object({
   tests: z.array(z.object({ id: z.enum(ids), minutes: z.number().int().min(1).max(180), link: z.boolean(), phase: z.enum(["iniziale", "centrale", "finale"]) })).min(1).max(ids.length),
   results: z.record(z.string().regex(/^[1-9]\d*$/), z.object({
     height: z.number().positive().max(300).nullable(),
+    heightDate: z.iso.date().optional(),
     weight: z.number().positive().max(400).nullable(),
+    weightDate: z.iso.date().optional(),
     tests: z.partialRecord(z.enum(ids), result),
   })),
 }).refine(input => new Set(input.tests.map(test => test.id)).size === input.tests.length, { message: "Una prova compare più di una volta." }).superRefine((input, ctx) => {
+  if(input.workingDate && input.workingDate<input.date) ctx.addIssue({code:"custom",path:["workingDate"],message:"La giornata di rilevazione non può precedere l’inizio del test."});
   for (const [playerId, player] of Object.entries(input.results)) for (const [id, row] of Object.entries(player.tests)) {
     if (id !== "long-jump" && row?.assessment?.tgmd) ctx.addIssue({ code: "custom", path: ["results", playerId, "tests", id], message: "La valutazione TGMD-3 configurata riguarda soltanto il salto in lungo da fermo." });
   }
@@ -42,7 +47,8 @@ export type MotorTestInput = z.infer<typeof motorTestSessionInput>;
 export type MotorTestId = (typeof ids)[number];
 export type MotorTestResult = z.infer<typeof result>;
 export type MotorPlayerResult = MotorTestInput["results"][string];
-export type MotorTestSession = MotorTestInput & { id: string; stationId?: number; exerciseIds: Partial<Record<MotorTestId, number>> };
+export type MotorTestDay = { date: string; trainingSessionId: number | null; results: MotorTestInput["results"] };
+export type MotorTestSession = MotorTestInput & { id: string; stationId?: number; exerciseIds: Partial<Record<MotorTestId, number>>; days?: MotorTestDay[] };
 export type MotorTestHistory = { id: string; date: string; cycle: MotorTestInput["cycle"]; result: MotorPlayerResult; tests?: MotorTestInput["tests"]; trainingSessionId?: number | null };
 
 export function summarizeMotorTests(history: MotorTestHistory[]) {

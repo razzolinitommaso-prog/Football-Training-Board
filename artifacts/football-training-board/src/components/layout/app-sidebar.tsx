@@ -1,3 +1,4 @@
+import { FITNESS_RESULTS_ROLES } from "@workspace/api-zod";
 import { Link, useLocation, useSearch } from "wouter";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -171,7 +172,7 @@ export function AppSidebar({ rolePreview, onRolePreviewChange, roleLabels }: {
     // Fitness (DT: solo lettura a livello funzionale se esposto altrove; non gestisce programmi fitness dalla sidebar)
     { titleKey: "fitnessDashboard",  url: "/fitness-dashboard",  icon: Activity,  roles: ["fitness_coach", "athletic_director", "director"], group: "fitness" },
     { titleKey: "fitnessPrograms",   url: "/fitness-programs",   icon: Dumbbell,  roles: ["fitness_coach", "athletic_director", "director"], group: "fitness" },
-    { titleKey: "playerPerformance", url: "/player-performance", icon: BarChart3, roles: ["admin", "presidente", "fitness_coach"], group: "fitness" },
+    { label: "Test e crescita", url: "/player-performance", icon: BarChart3, roles: FITNESS_RESULTS_ROLES, group: "fitness" },
     // Admin
     { titleKey: "billing",       url: "/billing",       icon: CreditCard, roles: ["admin", "presidente"], group: "admin" },
     { label: "Accesso Genitori", url: "/admin/parents", icon: Heart,      roles: ["admin", "presidente"], group: "admin" },

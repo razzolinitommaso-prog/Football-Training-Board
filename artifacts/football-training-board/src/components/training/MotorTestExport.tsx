@@ -26,6 +26,7 @@ export function motorReportSheets(draft: MotorTestSession, roster: ExportPlayer[
       Materiali: item.info.materials, "Allestimento ed esecuzione": item.info.instructions,
     })) },
     { name: "Presenze", rows: players.map(player => ({
+      "Giornata appello": draft.workingDate??draft.date,
       Giocatore: player.name, "Disponibilità famiglia": (player.family && familyLabels[player.family]) || "",
       "Appello del mister": (player.coach && coachLabels[player.coach]) || "",
     })) },
@@ -40,7 +41,7 @@ export function motorReportSheets(draft: MotorTestSession, roster: ExportPlayer[
           Giocatore: player.name, "Stato test": motorCompletionLabels[completion.status], "Prove eseguite": completion.completed + "/" + completion.total, "Valutazioni complete": completion.assessed + "/" + completion.total, Prova: item.info.title,
           "Statura (cm)": item.id === "anthropometry" ? results?.height ?? "" : "",
           "Peso (kg)": item.id === "anthropometry" ? results?.weight ?? "" : "",
-          Misura: value?.measurement ?? "", "Unità": item.info.unit,
+          "Data rilevazione": value?.recordedOn ?? draft.date, "Data statura": results?.heightDate ?? draft.date, "Data peso": results?.weightDate ?? draft.date, Misura: value?.measurement ?? "", "Unità": item.info.unit,
           "% statura": jump && results?.height && value?.measurement != null ? Math.round(1000 * value.measurement / results.height) / 10 : "",
           "Voto storico (1–10)": value?.score ?? "", "Indice storico (%)": index ?? "", Note: value?.notes ?? "",
           "Tentativi, condizioni e osservazioni": motorResultLines(item.id,value).join("\n"),
@@ -55,6 +56,7 @@ export function MotorTestExport({ session, roster, team }: { session: MotorTestS
   const [pdfUrl, setPdfUrl] = useState<string>();
   const [error, setError] = useState("");
   useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
+  useEffect(()=>setPdfUrl(undefined),[session]);
   const filename = "test-motori-" + session.date;
   function exportPdf() {
     setError("");
@@ -73,7 +75,8 @@ export function MotorTestExport({ session, roster, team }: { session: MotorTestS
   return <div className="space-y-2">
     <div className="flex flex-wrap gap-2">
       <Button type="button" size="sm" variant="outline" onClick={() => {setError("");try{exportMultiSheet(motorReportSheets(session, roster, team), filename + ".xlsx")}catch{setError("Excel non generato. Riprova con Esporta Excel.")}}}>Esporta Excel</Button>
-      <Button type="button" size="sm" variant="outline" onClick={exportPdf}>Esporta PDF</Button>
+      <Button type="button" size="sm" variant="outline" onClick={exportPdf}>Scarica PDF</Button>
+      {pdfUrl && <a href={pdfUrl} download={filename+".pdf"} className="inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium text-primary">Scarica di nuovo PDF</a>}
       {pdfUrl && <a className="inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium text-primary" href={pdfUrl} target="_blank" rel="noopener noreferrer">Apri PDF e stampa</a>}
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

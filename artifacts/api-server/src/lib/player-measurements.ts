@@ -41,17 +41,20 @@ export async function refreshPlayerMeasurements(tx: Tx, clubId: number, ids: num
     .orderBy(asc(playersTable.id)).for("update");
   for (const player of players) {
     const key = String(player.id);
-    const observations = await tx.execute<{ date: string; height: number | null; weight: number | null }>(sql`
-      SELECT date, height, weight FROM (
-        SELECT test_date::text AS date,
-          CASE WHEN jsonb_typeof(data->'results'->${key}::text->'height')='number' THEN (data->'results'->${key}::text->>'height')::double precision END AS height,
-          CASE WHEN jsonb_typeof(data->'results'->${key}::text->'weight')='number' THEN (data->'results'->${key}::text->>'weight')::double precision END AS weight,
-          0 AS origin, created_at, id::text AS stable_id
-        FROM motor_test_sessions WHERE club_id=${clubId} AND (data->'results') ? ${key}
+    const observations = await tx.execute<{ date: string; height_date: string; weight_date: string; height: number | null; weight: number | null }>(sql`
+      SELECT date, height_date, weight_date, height, weight FROM (
+        SELECT day->>'date' AS date,
+          coalesce(day->'results'->${key}::text->>'heightDate',day->>'date') AS height_date,
+          coalesce(day->'results'->${key}::text->>'weightDate',day->>'date') AS weight_date,
+          CASE WHEN jsonb_typeof(day->'results'->${key}::text->'height')='number' THEN (day->'results'->${key}::text->>'height')::double precision END AS height,
+          CASE WHEN jsonb_typeof(day->'results'->${key}::text->'weight')='number' THEN (day->'results'->${key}::text->>'weight')::double precision END AS weight,
+          0 AS origin, created_at, id::text AS stable_id, ordinal
+        FROM motor_test_sessions, LATERAL jsonb_array_elements(jsonb_build_array(jsonb_build_object('date',test_date::text,'results',data->'results')) || coalesce(data->'days','[]'::jsonb)) WITH ORDINALITY AS days(day,ordinal)
+        WHERE club_id=${clubId} AND (day->'results') ? ${key}
         UNION ALL
-        SELECT date::text, height_cm::double precision, weight_kg::double precision, 1, created_at, id::text
+        SELECT date::text, date::text, date::text, height_cm::double precision, weight_kg::double precision, 1, created_at, id::text, 0
         FROM player_fitness_data WHERE club_id=${clubId} AND player_id=${player.id}
-      ) m ORDER BY date DESC, origin, created_at DESC, stable_id DESC
+      ) m ORDER BY date DESC, origin, created_at DESC, stable_id DESC, ordinal DESC
     `);
     const valid = (n: number | null | undefined) => typeof n === "number" && Number.isFinite(n) && n > 0;
     const history = player.profileHistory;
@@ -60,8 +63,8 @@ export async function refreshPlayerMeasurements(tx: Tx, clubId: number, ids: num
     const entry = { ...original,
       height: valid(original.height) ? original.height : oldest.find(row => valid(row.height))?.height ?? null,
       weight: valid(original.weight) ? original.weight : oldest.find(row => valid(row.weight))?.weight ?? null };
-    const height = observations.rows.find(row => valid(row.height))?.height ?? entry.height;
-    const weight = observations.rows.find(row => valid(row.weight))?.weight ?? entry.weight;
+    const height = [...observations.rows].sort((a,b)=>b.height_date.localeCompare(a.height_date)).find(row => valid(row.height))?.height ?? entry.height;
+    const weight = [...observations.rows].sort((a,b)=>b.weight_date.localeCompare(a.weight_date)).find(row => valid(row.weight))?.weight ?? entry.weight;
     await tx.update(playersTable).set({ height, weight, profileHistory: { ...history, entry, changes: history?.changes ?? [] } })
       .where(and(eq(playersTable.id, player.id), eq(playersTable.clubId, clubId)));
   }

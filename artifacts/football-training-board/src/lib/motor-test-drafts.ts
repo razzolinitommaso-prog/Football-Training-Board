@@ -60,8 +60,8 @@ export function mergeMotorDraft(base: MotorTestSession, local: MotorTestSession,
     return l;
   }
   // These fields are assigned by the server, rather than entered by an operator.
-  const metadata = { revision: remote.revision, stationId: remote.stationId, exerciseIds: remote.exerciseIds };
-  const comparable = (s: MotorTestSession) => ({ ...s, revision: 0, stationId: undefined, exerciseIds: {} });
+  const metadata = { revision: remote.revision, stationId: remote.stationId, exerciseIds: remote.exerciseIds, days: remote.days };
+  const comparable = (s: MotorTestSession) => ({ ...s, revision: 0, stationId: undefined, exerciseIds: {}, days: undefined });
   const draft = { ...(merge(comparable(base), comparable(local), comparable(remote), "") as MotorTestSession), ...metadata };
   return { draft, conflicts };
 }

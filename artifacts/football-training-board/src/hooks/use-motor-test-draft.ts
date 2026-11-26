@@ -60,6 +60,7 @@ export function useMotorTestDraft(allowed: (session: MotorTestSession) => boolea
     if (activeRef.current?.scope === scope) void store.flush(activeRef.current.id);
     const value = store.open(server);
     setActive({ scope, id: value.id });
+    return {session:value,dirty:store.status(value.id).dirty};
   }
   function setDraft(value: MotorTestSession | undefined) {
     if (!value) {

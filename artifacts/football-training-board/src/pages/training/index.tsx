@@ -1832,7 +1832,8 @@ function SessionDetailsDialog({
     if ((metadataDirty || recoveriesDirty || rotationDirty || exerciseFormOpen) && !window.confirm("Ci sono modifiche non salvate. Aprire le presenze e abbandonarle?")) return;
     const teamSection = normalizeClubSection(teams.find(team => team.id === session.teamId)?.clubSection);
     const base = teamSection ? `/${teamSection.replace(/_/g, "-")}` : "";
-    const returnTo = `${window.location.pathname}?sessionId=${session.id}`;
+    const returnParams = new URLSearchParams(window.location.search); returnParams.set("sessionId",String(session.id));
+    const returnTo = `${window.location.pathname}?${returnParams}`;
     navigate(`${base}/attendance?sessionId=${session.id}&returnTo=${encodeURIComponent(returnTo)}`);
   }
 
@@ -2912,6 +2913,9 @@ type TrainingPageProps = {
 export default function TrainingPage({ section: pageSection }: TrainingPageProps = {}) {
   const technicalScope = useTechnicalScope();
   const pageSearch = useSearch();
+  const [,navigateBack]=useLocation();
+  const motorReturn = new URLSearchParams(pageSearch).get("returnTo");
+  const returnToTests = motorReturn?.startsWith("/player-performance?") && !motorReturn.includes("\\") ? motorReturn : null;
   const tdGuidelinesView = new URLSearchParams(pageSearch).get("view") === "guidelines";
   const [tdTab, setTdTab] = useState(tdGuidelinesView ? "tipo" : "all");
   useEffect(() => setTdTab(tdGuidelinesView ? "tipo" : "all"), [tdGuidelinesView]);
@@ -3532,7 +3536,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
           />
         )}
         {detailsSession && (
-          <SessionDetailsDialog onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)} initialAddPhase={createdPhase} session={detailsSession} onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}} teams={teams}
+          <SessionDetailsDialog onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)} initialAddPhase={createdPhase} session={detailsSession} onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);if(returnToTests)navigateBack(returnToTests);}} teams={teams}
             readOnly={isTD ? !(detailsSession.sessionKind === "tipo" && detailsSession.createdByUserId === userId) : detailsSession.sessionKind === "tipo" || !(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
             onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }} />
         )}
@@ -3615,7 +3619,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
             onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)}
             initialAddPhase={createdPhase}
             session={detailsSession}
-            onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}
+            onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);if(returnToTests)navigateBack(returnToTests);}}
             teams={teams}
             readOnly
           />
@@ -3759,7 +3763,7 @@ export default function TrainingPage({ section: pageSection }: TrainingPageProps
             onDeleteSession={()=>deleteMutation.mutate(detailsSession.id)}
             initialAddPhase={createdPhase}
           session={detailsSession}
-          onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);}}
+          onClose={() => {setDetailsSession(null);setCreatedPhase(undefined);if(returnToTests)navigateBack(returnToTests);}}
           teams={teams}
           readOnly={isTD ? !(detailsSession.sessionKind === "tipo" && detailsSession.createdByUserId === userId) : detailsSession.sessionKind === "tipo" || !(detailsSession.canEdit === true || detailsSession.createdByUserId === userId)}
           onEditSession={() => { setEditingSession(detailsSession); setDetailsSession(null); }}

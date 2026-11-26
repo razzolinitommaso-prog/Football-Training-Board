@@ -2,7 +2,8 @@
 const user = { id: 1, firstName: "Collaudo", lastName: "Nome molto lungo del responsabile", email: "collaudo@example.test" };
 const club = { id: 999, name: "Società di collaudo con denominazione molto lunga" };
 export function useAuth() {
-  const role = new URLSearchParams(location.search).get("role") || "secretary";
+  const params=new URLSearchParams(location.search);const returning=new URL(params.get("returnTo")||"/",location.origin);
+  const role = params.get("role") || returning.searchParams.get("role") || "secretary";
   return {
     user,
     club,

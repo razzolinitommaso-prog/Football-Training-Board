@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { Router, type Request } from "express";
-import { db, clubMembershipsTable, teamStaffAssignmentsTable, exercisesTable, playersTable, teamsTable, trainingAttendancesTable, trainingSessionExercisesTable, trainingSessionsTable } from "@workspace/db";
+import { db, exercisesTable, playersTable, teamsTable, trainingAttendancesTable, trainingSessionExercisesTable, trainingSessionsTable } from "@workspace/db";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { FITNESS_RESULTS_ROLES, motorTestCatalog, motorTestSessionInput, normalizeMotorResults, composeMotorStation, motorTestBoard, sessionTeamIds, trainingLocalSlot, trainingExerciseStationsMarker, type MotorPlayerResult, type MotorTestSession } from "@workspace/api-zod";
 import { requireAuth } from "../lib/auth";
@@ -17,7 +17,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function allowedTeams(req: Request) {
   if (!req.session.clubId || !FITNESS_RESULTS_ROLES.includes(normalizeSessionRole(req.session.role))) return [];
   const [scope, sections] = await Promise.all([getPlayerMeasurementTeamScope(req), resolveAllowedClubSections(req, undefined)]);
-  const rows = await db.select({ id: teamsTable.id, name: teamsTable.name }).from(teamsTable).where(and(
+  const rows = await db.select({ id: teamsTable.id, name: teamsTable.name, clubSection: teamsTable.clubSection }).from(teamsTable).where(and(
     eq(teamsTable.clubId, req.session.clubId),
     scope ? (scope.size ? inArray(teamsTable.id, [...scope]) : sql`false`) : undefined,
     sections ? (sections.length ? inArray(teamsTable.clubSection, sections) : sql`false`) : undefined,
@@ -32,19 +32,6 @@ function eligibleSession(session: typeof trainingSessionsTable.$inferSelect, tea
 
 export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
   const router = Router();
-  async function canRecordAsCoach(req: Request) {
-    if(normalizeSessionRole(req.session.role)!=="coach" || !req.session.userId || !req.session.clubId) return false;
-    const memberships=await db.select({staffRole:clubMembershipsTable.staffRole}).from(clubMembershipsTable).where(and(eq(clubMembershipsTable.clubId,req.session.clubId),eq(clubMembershipsTable.userId,req.session.userId)));
-    return !memberships.some(member=>["collaboratore","stagista"].includes(normalizeSessionRole(member.staffRole)));
-  }
-  async function coachTeamIds(req: Request): Promise<number[]> {
-    if(!await canRecordAsCoach(req)) return [];
-    const [direct,assigned]=await Promise.all([
-      db.select({id:teamsTable.id}).from(teamsTable).where(and(eq(teamsTable.clubId,req.session.clubId!),eq(teamsTable.coachId,req.session.userId!))),
-      db.select({id:teamStaffAssignmentsTable.teamId}).from(teamStaffAssignmentsTable).where(and(eq(teamStaffAssignmentsTable.clubId,req.session.clubId!),eq(teamStaffAssignmentsTable.userId,req.session.userId!),eq(teamStaffAssignmentsTable.role,"coach"))),
-    ]);
-    return [...new Set([...direct,...assigned].map(row=>row.id))];
-  }
   router.get("/motor-tests", requireAuth, async (req, res) => {
     if (!FITNESS_RESULTS_ROLES.includes(normalizeSessionRole(req.session.role))) { res.sendStatus(403); return; }
     const teams = await allowedTeams(req);
@@ -53,7 +40,7 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
       SELECT data FROM motor_test_sessions WHERE club_id=${req.session.clubId}
         AND team_id IN (${sql.join(teams.map(team => sql`${team.id}`), sql`,`)})
       ORDER BY test_date DESC, id DESC`)).map(row => row.data) : [];
-    const recordTeamIds=(await coachTeamIds(req)).filter(id=>teams.some(team=>team.id===id));
+    const recordTeamIds=await canEdit(req) ? teams.map(team=>team.id) : [];
     res.json({ teams, sessions, canRecord: recordTeamIds.length>0, recordTeamIds });
   });
 
@@ -69,6 +56,12 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
         sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date = ${date}::date`)).orderBy(asc(trainingSessionsTable.scheduledAt)),
     ]);
     const roster = rosterMembers(players, [teamId]).filter(player => player.status !== "training_trial");
+    const motorSession=String(req.query.motorSession??"");
+    if(uuid.test(motorSession)){
+      await ensureMotorTestStorage();
+      const [saved]=motorRows<{data:MotorTestSession}>(await db.execute(sql`SELECT data FROM motor_test_sessions WHERE id=${motorSession}::uuid AND club_id=${clubId} AND team_id=${teamId}`));
+      if(saved) for(const player of players) if(saved.data.results[player.id]&&!roster.some(row=>row.id===player.id)) roster.push(player);
+    }
     const sessions = clubSessions.filter(session => eligibleSession(session, teamId, date));
     const selected = linked ? sessions.find(session => session.id === linked) : sessions.length === 1 ? sessions[0] : undefined;
     if (linked && !selected) { res.status(400).json({ error: "La seduta collegata non appartiene al giorno o all’annata." }); return; }
@@ -80,23 +73,23 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
     ]) : [null, [] as { id: number; status: string }[]] as const;
     res.json({
       trainingSessionId: selected?.id ?? null,
-      presentCount: roster.filter(player => coach.find(row => row.id === player.id)?.status === "present").length,
+      presentCount: roster.filter(player => [...coach].reverse().find(row => row.id === player.id)?.status === "present").length,
       sessions: sessions.map(session => ({ id: session.id, title: session.title, time: trainingLocalSlot(session.scheduledAt).start })),
       players: roster.map(player => ({ id: player.id, name: player.lastName + " " + player.firstName,
         family: family?.records.find(item => item.playerId === player.id)?.status ?? null,
-        coach: coach.find(item => item.id === player.id)?.status ?? null })),
+        coach: [...coach].reverse().find(item => item.id === player.id)?.status ?? null })),
     });
   });
 
   router.put("/motor-tests/:id", requireAuth, async (req, res) => {
     const programEditor = await canEdit(req);
-    if (!programEditor && !await canRecordAsCoach(req)) { res.sendStatus(403); return; }
+    if (!programEditor) { res.status(403).json({error:"I test sono consultabili dal mister. Le rilevazioni si modificano dall’area preparatori."}); return; }
     const id = String(req.params.id);
     const parsed = motorTestSessionInput.safeParse(req.body);
     if (!uuid.test(id) || !parsed.success) { res.status(400).json({ error: !parsed.success ? parsed.error.issues.map(issue => issue.message).slice(0,4).join(" · ") : "Identificativo della sessione non valido." }); return; }
     const input = normalizeMotorResults(parsed.data), clubId = req.session.clubId!, userId = req.session.userId!;
     if (!(await allowedTeams(req)).some(team => team.id === input.teamId)) { res.sendStatus(403); return; }
-    if(!programEditor && !(await coachTeamIds(req)).includes(input.teamId)) { res.sendStatus(403);return; }
+
     if (Object.keys(input.results).length > 150 || (!input.linkProgram && input.tests.some(test => test.link) && !input.trainingSessionId)) {
       res.status(400).json({ error: "Scegli la seduta del mister per le prove da aggiungere." }); return;
     }
@@ -108,10 +101,6 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
       if ((previous?.data.revision ?? 0) !== input.revision || (previous && (previous.clubId !== clubId || previous.data.teamId !== input.teamId || previous.data.date !== input.date || previous.data.cycle !== input.cycle))) {
         return { status: 409, error: "La sessione è cambiata. Ricarica prima di salvare." };
       }
-      if (!programEditor && (!previous || !isDeepStrictEqual(
-        { teamId: input.teamId, date: input.date, cycle: input.cycle, trainingSessionId: input.trainingSessionId, tests: input.tests, linkProgram: input.linkProgram, programPhase: input.programPhase },
-        { teamId: previous.data.teamId, date: previous.data.date, cycle: previous.data.cycle, trainingSessionId: previous.data.trainingSessionId, tests: previous.data.tests, linkProgram: previous.data.linkProgram, programPhase: previous.data.programPhase },
-      ))) return { status: 403, error: "Il mister può registrare i risultati del programma esistente; il preparatore gestisce sessione e programma." };
       const exerciseIds = { ...previous?.data.exerciseIds };
       let stationId = previous?.data.stationId;
       if (input.linkProgram && Object.keys(exerciseIds).length) {
@@ -136,7 +125,7 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
         Object.keys(exerciseIds).some(key => !input.tests.some(test => test.id === key && test.link)))) {
         return { status: 409, error: "Le prove già inserite nella seduta vanno gestite dalla pagina Sedute." };
       }
-      if (!input.trainingSessionId) {
+      if (!input.trainingSessionId && (!previous || (input.workingDate??input.date)===input.date)) {
         const sameDay = (await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId, clubId),
           sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date = ${input.date}::date`)))
           .filter(session => eligibleSession(session, input.teamId, input.date));
@@ -158,18 +147,28 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
           return { status: 400, error: "Una valutazione riguarda una prova rimossa." };
         }
       }
+      // A campaign keeps its original date and station. Attendance is checked on the
+      // actual measurement day; unchanged historical results remain admissible.
+      const workingDate = input.workingDate ?? input.date;
+      let workingSessionId = workingDate === input.date ? input.trainingSessionId : input.workingTrainingSessionId ?? null;
+      if (workingDate !== input.date) {
+        const candidates = (await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId,clubId),
+          sql`(${trainingSessionsTable.scheduledAt} AT TIME ZONE 'Europe/Rome')::date = ${workingDate}::date`)))
+          .filter(session=>eligibleSession(session,input.teamId,workingDate));
+        if (!workingSessionId && candidates.length === 1) workingSessionId=candidates[0].id;
+        if (!workingSessionId || !candidates.some(session=>session.id===workingSessionId)) return {status:409,error:"Scegli la seduta della giornata di rilevazione e registra l’appello prima di completare i test."};
+      }
+      const changedIds=playerIds.filter(playerId=>!isDeepStrictEqual(input.results[playerId],knownResults[playerId]));
+      if (workingSessionId) {
+        const recorded=await tx.select({playerId:trainingAttendancesTable.playerId,status:trainingAttendancesTable.status}).from(trainingAttendancesTable)
+          .where(and(eq(trainingAttendancesTable.clubId,clubId),eq(trainingAttendancesTable.trainingSessionId,workingSessionId),staffAttendance)).orderBy(asc(trainingAttendancesTable.id));
+        const present=new Map(recorded.map(row=>[row.playerId,row.status]));
+        if(changedIds.some(playerId=>present.get(playerId)!=="present")) return {status:409,error:"Puoi valutare solo i presenti nell’appello della giornata di rilevazione. I risultati delle altre giornate sono conservati."};
+      }
       if (input.trainingSessionId) {
         const [session] = await tx.select().from(trainingSessionsTable).where(and(eq(trainingSessionsTable.clubId, clubId),
           eq(trainingSessionsTable.id, input.trainingSessionId))).for("update");
         if (!session || !eligibleSession(session, input.teamId, input.date)) return { status: 400, error: "La seduta deve appartenere all’annata e al giorno selezionati." };
-        const recorded = await tx.select({ playerId: trainingAttendancesTable.playerId, status: trainingAttendancesTable.status })
-          .from(trainingAttendancesTable).where(and(eq(trainingAttendancesTable.clubId, clubId),
-            eq(trainingAttendancesTable.trainingSessionId, session.id), staffAttendance)).orderBy(asc(trainingAttendancesTable.id));
-        const staffByPlayer = new Map([...recorded].reverse().map(row => [row.playerId, row.status]));
-        const present = new Set([...staffByPlayer].filter(([, status]) => status === "present").map(([playerId]) => playerId));
-        if (playerIds.some(playerId => !present.has(playerId) && !isDeepStrictEqual(input.results[playerId], knownResults[playerId]))) {
-          return { status: 409, error: "Puoi valutare solo i presenti nell’appello della seduta. Aggiorna le presenze con il mister." };
-        }
         if (stationId && programEditor) {
           const [station] = await tx.select().from(exercisesTable).where(and(eq(exercisesTable.id,stationId),eq(exercisesTable.clubId,clubId))).for("update");
           const [link] = await tx.select().from(trainingSessionExercisesTable).where(and(eq(trainingSessionExercisesTable.trainingSessionId,session.id),eq(trainingSessionExercisesTable.exerciseId,stationId)));
@@ -206,7 +205,23 @@ export function motorTestsRouter(canEdit: (req: Request) => Promise<boolean>) {
           }
         }
       }
-      const data: MotorTestSession = { ...input, revision: input.revision + 1, id, exerciseIds, stationId };
+      const days = structuredClone(previous?.data.days ?? (previous && Object.keys(knownResults).length ? [{date:previous.data.date,trainingSessionId:previous.data.trainingSessionId,results:knownResults}] : []));
+      for(const playerId of playerIds){
+        const player=input.results[playerId],old=knownResults[playerId];
+        for(const field of ["height","weight"] as const) player[`${field}Date`]=player[field]!==old?.[field] ? workingDate : old?.[`${field}Date`] ?? input.date;
+        for(const [testId,row] of Object.entries(player.tests)){
+          if(!row)continue;
+          const prior=old?.tests[testId as keyof typeof player.tests];
+          const comparable=(value:typeof row|undefined)=>value ? {...value,recordedOn:undefined}:value;
+          row.recordedOn=isDeepStrictEqual(comparable(row),comparable(prior)) ? prior?.recordedOn ?? input.date : workingDate;
+        }
+      }
+      if(changedIds.length){
+        let day=days.find(day=>day.date===workingDate&&day.trainingSessionId===workingSessionId);
+        if(!day){day={date:workingDate,trainingSessionId:workingSessionId,results:{}};days.push(day);}
+        for(const playerId of changedIds) day.results[playerId]=structuredClone(input.results[playerId]);
+      }
+      const data: MotorTestSession = { ...input, workingTrainingSessionId:workingSessionId, revision: input.revision + 1, id, exerciseIds, stationId, days };
       await tx.execute(sql`INSERT INTO motor_test_sessions(id, club_id, team_id, test_date, data)
         VALUES(${id}::uuid,${clubId},${input.teamId},${input.date}::date,${JSON.stringify(data)}::jsonb)
         ON CONFLICT(id) DO UPDATE SET test_date=excluded.test_date, data=excluded.data`);

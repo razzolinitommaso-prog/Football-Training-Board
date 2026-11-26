@@ -1,8 +1,8 @@
 import { MotorTestExport } from "./MotorTestExport";
 import { MotorTestAssessmentEditor, MotorTestGuide, MotorTestReferences } from "./MotorTestAssessment";
 import { MotorTestProgram } from "./MotorTestProgram";
-import { Link, useSearch } from "wouter";
-import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useSearch } from "wouter";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { customFetch } from "@workspace/api-client-react/custom-fetch";
 import { motorTestCatalog, motorTestCycles, motorTestCompletion, motorCompletionLabels, summarizeMotorTests, trainingLocalDate, type MotorPlayerResult, type MotorTestId, type MotorTestResult, type MotorTestSession } from "@workspace/api-zod";
@@ -25,15 +25,18 @@ const emptyTest: MotorTestResult = { measurement: null, score: null, notes: "" }
 const numberValue = (value: string) => value === "" ? null : Number(value);
 const dateLabel = (value: string) => value.split("-").reverse().join("/");
 
-export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; scopedTeam?: number }) {
+export function MotorTestSessions({ canEdit, scopedTeam, playerFilter="all" }: { canEdit: boolean; scopedTeam?: number; playerFilter?: string }) {
   const { club, user, role } = useAuth();
   const search=useSearch();const openedFromLink=useRef("");
+  const [,navigate]=useLocation();
   const [playerId, setPlayerId] = useState<number>();
   const [stage, setStage] = useState<"session" | "results" | "references">("session");
   const [activeTest,setActiveTest] = useState<MotorTestId>();
   const [newItem, setNewItem] = useState<MotorTestId>();
   const [showAllPlayers, setShowAllPlayers] = useState(false);
   const [notice, setNotice] = useState("");
+  const [workingDate,setWorkingDate]=useState(trainingLocalDate());
+  const [workingSession,setWorkingSession]=useState<number|null>(null);
   const [focusIssue, setFocusIssue] = useState<MotorDraftIssue>();
   const collection = useQuery({
     queryKey: ["/api/motor-tests", club?.id, user?.id, role],
@@ -41,26 +44,27 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
     enabled: !!user,
   });
   const { draft, setDraft, open: openDraft, save, status: saveStatus, recovered, retry, issues } = useMotorTestDraft(session =>
-    (canEdit || collection.data?.recordTeamIds?.includes(session.teamId) === true) &&
+    canEdit &&
     (!scopedTeam || session.teamId === scopedTeam) &&
     (!session.linkProgram || !!session.trainingSessionId || context.data?.sessions.length === 1));
   const context = useQuery({
-    queryKey: ["/api/motor-tests/context", club?.id, user?.id, role, draft?.teamId, draft?.date, draft?.trainingSessionId],
+    queryKey: ["/api/motor-tests/context", club?.id, user?.id, role, draft?.teamId, workingDate, workingDate===draft?.date?draft?.trainingSessionId:workingSession],
     queryFn: () => customFetch<Context>("/api/motor-tests/context?" + new URLSearchParams({
-      teamId: String(draft!.teamId), date: draft!.date, trainingSessionId: draft!.trainingSessionId ? String(draft!.trainingSessionId) : "",
+      motorSession:draft!.id, teamId: String(draft!.teamId), date: workingDate, trainingSessionId: String((workingDate===draft!.date?draft!.trainingSessionId:workingSession) ?? ""),
     })),
     enabled: !!draft?.teamId && !!draft.date,
     refetchOnWindowFocus: "always",
     refetchInterval: 15000,
   });
   const teams = (collection.data?.teams ?? []).filter(team => !scopedTeam || team.id === scopedTeam);
-  useEffect(()=>{const params=new URLSearchParams(search),id=params.get("motorSession");if(!id||openedFromLink.current===id||!collection.data)return;const session=collection.data.sessions.find(s=>s.id===id&&(!scopedTeam||s.teamId===scopedTeam));if(!session)return;openedFromLink.current=id;openDraft(session);setStage("results");const test=params.get("test");if(session.tests.some(t=>t.id===test))setActiveTest(test as MotorTestId)},[search,collection.data,scopedTeam]);
+  useEffect(()=>{const params=new URLSearchParams(search),id=params.get("motorSession");if(!id||openedFromLink.current===id||!collection.data)return;const session=collection.data.sessions.find(s=>s.id===id&&(!scopedTeam||s.teamId===scopedTeam));if(!session)return;openedFromLink.current=id;const opened=openDraft(session);setWorkingDate(opened.dirty?opened.session.workingDate??opened.session.date:params.get("workDate")??trainingLocalDate());setWorkingSession(opened.dirty?opened.session.workingTrainingSessionId??null:Number(params.get("workSession"))||null);setPlayerId(Number(params.get("player"))||undefined);setShowAllPlayers(params.get("all")==="1");setStage(params.get("stage")==="session"?"session":params.get("stage")==="references"?"references":"results");const test=params.get("test");if(session.tests.some(t=>t.id===test))setActiveTest(test as MotorTestId)},[search,collection.data,scopedTeam]);
   const names = new Map(teams.map(team => [team.id, team.name]));
   const sessions = collection.data?.sessions.filter(session => names.has(session.teamId)) ?? [];
   const otherTests = motorTestCatalog.filter(item => !draft?.tests.some(test => test.id === item.id));
   const roster = context.data?.players ?? [];
-  const effectiveSession = draft?.trainingSessionId ?? context.data?.trainingSessionId;
-  const selectable = effectiveSession && !showAllPlayers ? roster.filter(player => player.coach === "present") : roster;
+  const effectiveSession = (workingDate===draft?.date?draft?.trainingSessionId:workingSession) ?? context.data?.trainingSessionId;
+  const exportSession=useMemo(()=>draft?{...draft,workingDate,workingTrainingSessionId:effectiveSession??null}:undefined,[draft,workingDate,effectiveSession]);
+  const selectable = !showAllPlayers && (effectiveSession || workingDate!==draft?.date) ? roster.filter(player => player.coach === "present" || !!draft?.results[player.id]) : roster;
   const selected = selectable.find(player => player.id === playerId) ?? selectable[0];
   useEffect(() => {
     if (!focusIssue || selected?.id !== focusIssue.playerId || stage !== "results") return;
@@ -78,22 +82,32 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
       .map(session => ({ date: session.date, id: session.id, cycle: session.cycle, result: session.results[selected.id] })),
   ] : []);
   const readOnly = !canEdit || save.isPending;
-  const canRecord = canEdit || (!!draft&&collection.data?.recordTeamIds?.includes(draft.teamId)===true);
-  const assessmentReadOnly = !canRecord || save.isPending || context.isError || (!!effectiveSession && selected?.coach !== "present");
+  const canRecord = canEdit;
+  const assessmentReadOnly = !canRecord || save.isPending || !context.isSuccess || ((workingDate!==draft?.date || !!effectiveSession) && (!effectiveSession || selected?.coach !== "present"));
   const legacyLinks = !!draft && Object.keys(draft.exerciseIds).length > 0;
   const linked = legacyLinks || !!draft?.stationId;
   const canSave = !!draft?.teamId && !!draft.date && !!draft.tests.length && (!draft.tests.some(test => test.link) || !!draft.trainingSessionId || !!draft.linkProgram) &&
     (!draft.linkProgram || !!draft.trainingSessionId || context.data?.sessions.length === 1);
   function open(session: MotorTestSession) {
-    openDraft(session); setPlayerId(undefined); setStage("session"); setShowAllPlayers(false); setNewItem(undefined); setActiveTest(undefined); setNotice("");
+    openedFromLink.current=session.id;
+    const opened=openDraft(session);
+    setWorkingDate(opened.dirty ? opened.session.workingDate??opened.session.date : session.revision>0?trainingLocalDate():session.date);
+    setWorkingSession(opened.dirty ? opened.session.workingTrainingSessionId??null : null);
+    setPlayerId(undefined); setStage("session"); setShowAllPlayers(false); setNewItem(undefined); setActiveTest(undefined); setNotice("");
   }
   function updatePlayer(patch: Partial<MotorPlayerResult>) {
-    if (draft && selected && !assessmentReadOnly) setDraft({ ...draft, results: { ...draft.results, [selected.id]: { ...result, ...patch } } });
+    if (draft && selected && !assessmentReadOnly) setDraft({ ...draft, workingDate, workingTrainingSessionId:effectiveSession??null, results: { ...draft.results, [selected.id]: { ...result, ...patch } } });
   }
   function updateTest(id: MotorTestId, patch: Partial<MotorTestResult>) {
     updatePlayer({ tests: { ...result.tests, [id]: { ...(result.tests[id] ?? emptyTest), ...patch } } });
   }
   const selectClass = "mt-1 block w-full";
+  const returnParams=new URLSearchParams(search);
+  if(scopedTeam)returnParams.set("teamId",String(scopedTeam));else returnParams.delete("teamId");returnParams.set("playerFilter",playerFilter);
+  if(draft){returnParams.set("motorSession",draft.id);returnParams.set("workDate",workingDate);returnParams.set("stage",stage);returnParams.set("all",showAllPlayers?"1":"0");if(selected)returnParams.set("player",String(selected.id));if(activeTest)returnParams.set("test",activeTest);if(effectiveSession)returnParams.set("workSession",String(effectiveSession));else returnParams.delete("workSession");}
+  const returnUrl=window.location.pathname+"?"+returnParams.toString();
+  useEffect(()=>{if(draft&&openedFromLink.current===draft.id&&returnUrl!==window.location.pathname+window.location.search)navigate(returnUrl,{replace:true});},[returnUrl,draft?.id,navigate]);
+  function close(){setDraft(undefined);setNotice("");const params=new URLSearchParams(search);for(const key of ["motorSession","workDate","workSession","stage","all","player","test"])params.delete(key);navigate(window.location.pathname+"?"+params.toString(),{replace:true});}
   return <section className="space-y-4 rounded-xl border bg-card p-4 sm:p-5">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h2 className="text-lg font-semibold">Sessioni di test motori</h2>
@@ -135,26 +149,33 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
         <Button type="button" size="sm" variant={stage === "results" ? "default" : "outline"} aria-pressed={stage === "results"} onClick={() => setStage("results")}>Presenze e valutazioni</Button>
         <Button type="button" size="sm" variant={stage === "references" ? "default" : "outline"} aria-pressed={stage === "references"} onClick={() => setStage("references")}>Riferimenti e risultati</Button>
         </div>
-        {context.isSuccess && <MotorTestExport session={draft} roster={roster} team={names.get(draft.teamId) ?? "Annata"} />}
+        {context.isSuccess && exportSession && <MotorTestExport session={exportSession} roster={roster} team={names.get(draft.teamId) ?? "Annata"} />}
       </div>
       <div className="space-y-3 rounded-lg border p-3 text-sm">
+        <p className="font-medium">Test iniziato il {dateLabel(draft.date)} · {motorTestCycles[draft.cycle]}</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label>Giornata di rilevazione<Input type="date" disabled={saveStatus?.dirty || saveStatus?.saving} min={draft.date} max={trainingLocalDate()} value={workingDate} onChange={event=>{if(event.target.value){setWorkingDate(event.target.value);setWorkingSession(null);}}}/></label>
+          {workingDate!==draft.date&&<label>Seduta della giornata<ScrollableSelect aria-label="Seduta della giornata" disabled={saveStatus?.dirty || saveStatus?.saving} className={selectClass} value={workingSession??""} onValueChange={value=>setWorkingSession(Number(value)||null)}><option value="">{context.data?.sessions.length===1?"Seduta del giorno (automatica)":"Seleziona la seduta"}</option>{context.data?.sessions.map(session=><option key={session.id} value={session.id}>{session.time} · {session.title}</option>)}</ScrollableSelect></label>}
+        </div>
+        <p className="text-xs text-muted-foreground">L’appello riguarda la giornata selezionata. Restano consultabili anche i giocatori già valutati nelle giornate precedenti.</p>
+        {!!draft.days?.length&&<p className="text-xs">Giornate registrate: {[...new Set(draft.days.map(day=>day.date))].sort().map(dateLabel).join(" · ")}</p>}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div><p className="text-xs text-muted-foreground">Appello del mister</p>
           <p>{effectiveSession ? <>Seduta delle {context.data?.sessions.find(session => session.id === effectiveSession)?.time ?? ""} · <strong>{context.data?.presentCount ?? "…"} presenti</strong></> : "Scegli una seduta del giorno per collegare le presenze."}</p></div>
-          {!!effectiveSession && <Link className="text-primary underline" href={"/training?sessionId=" + effectiveSession}>Apri seduta</Link>}
+          {!!effectiveSession && <Link className="text-primary underline" href={"/training?sessionId=" + effectiveSession + "&returnTo=" + encodeURIComponent(returnUrl)}>Apri seduta</Link>}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
           <div><p className="text-xs text-muted-foreground">Programma nella seduta</p>
           <strong className={draft.stationId ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}>
             {draft.stationId ? "Stazione Test motori inserita" : legacyLinks ? "Prove singole inserite" : "Programma ancora da inserire"}
           </strong></div>
-          {canEdit && !draft.stationId && !legacyLinks && <Button type="button" size="sm"
+          {canEdit && workingDate===draft.date && !draft.stationId && !legacyLinks && <Button type="button" size="sm"
             disabled={readOnly || !effectiveSession || !canSave || context.isFetching || context.isError}
             onClick={() => { setNotice(""); save.mutate({ ...draft, trainingSessionId: effectiveSession ?? null, linkProgram: true, programPhase: draft.programPhase ?? "centrale" }); }}>
             {save.isPending ? "Inserimento…" : "Inserisci programma nella seduta"}
           </Button>}
         </div>
-        {!canEdit && !draft.stationId && !legacyLinks && <p className="text-xs text-muted-foreground">Il preparatore può inserire il programma dalla sessione test.</p>}
+        {!canEdit && workingDate===draft.date && !draft.stationId && !legacyLinks && <p className="text-xs text-muted-foreground">Il preparatore può inserire il programma dalla sessione test.</p>}
       </div>
       {stage === "references" ? <MotorTestReferences/> : stage === "session" ? <>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -162,13 +183,13 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
             onValueChange={value => { setDraft({ ...draft, teamId: Number(value), trainingSessionId: null }); setPlayerId(undefined); }} className={selectClass}>
             {teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}
           </ScrollableSelect></label>
-          <label className="text-sm">Giorno<Input className="mt-1" type="date" value={draft.date} disabled={readOnly || draft.revision > 0} onChange={event => setDraft({ ...draft, date: event.target.value, trainingSessionId: null })} /></label>
+          <label className="text-sm">Giorno<Input className="mt-1" type="date" value={draft.date} disabled={readOnly || draft.revision > 0} onChange={event => {setWorkingDate(event.target.value);setDraft({ ...draft, date: event.target.value, workingDate:event.target.value, trainingSessionId: null });}} /></label>
           <label className="text-sm">Ciclo<ScrollableSelect aria-label="Ciclo dei test" value={draft.cycle} className={selectClass} disabled={readOnly || draft.revision > 0}
             onValueChange={value => setDraft({ ...draft, cycle: value as MotorTestSession["cycle"] })}>
             {Object.entries(motorTestCycles).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
           </ScrollableSelect></label>
           <label className="text-sm">Seduta del mister<ScrollableSelect aria-label="Seduta del mister" value={draft.trainingSessionId ?? ""} className={selectClass}
-            disabled={readOnly || linked || context.isError} onValueChange={value => setDraft({ ...draft, trainingSessionId: Number(value) || null,
+            disabled={readOnly || linked || context.isError || workingDate!==draft.date} onValueChange={value => setDraft({ ...draft, trainingSessionId: Number(value) || null,
               tests: draft.tests.map(test => value ? test : { ...test, link: false }) })}>
             <option value="">{context.data?.trainingSessionId || draft.linkProgram ? "Seduta del giorno (automatica)" : "Sessione autonoma"}</option>
             {draft.trainingSessionId && !context.data?.sessions.some(session => session.id === draft.trainingSessionId) && <option value={draft.trainingSessionId}>Seduta collegata</option>}
@@ -215,7 +236,8 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
             <p>Disponibilità famiglia <strong className="block">{selected.family ? familyLabels[selected.family] ?? selected.family : "—"}</strong></p>
             <p>Appello del mister <strong className="block">{selected.coach ? coachLabels[selected.coach] ?? selected.coach : "Da registrare"}</strong></p>
           </div>
-          {!!effectiveSession && selected.coach !== "present" && <p role="status" className="text-sm text-amber-700">Giocatore non presente nell’appello. Risultati consultabili. Il mister deve correggere la presenza prima di inserire valutazioni.</p>}
+          {assessmentReadOnly && canRecord && <p role="status" className="text-sm text-amber-700">Risultati precedenti conservati. Per aggiungere rilevazioni serve la presenza nell’appello della giornata selezionata.</p>}
+          {!!draft.days?.some(day=>!!day.results[selected.id])&&<details className="rounded-lg border p-3 text-sm"><summary className="cursor-pointer font-medium">Rilevazioni delle giornate precedenti</summary>{draft.days.filter(day=>!!day.results[selected.id]).sort((a,b)=>b.date.localeCompare(a.date)).map(day=><div key={day.date+":"+day.trainingSessionId} className="mt-2 border-t pt-2"><strong>{dateLabel(day.date)}</strong><MotorTestExport session={{...draft,date:day.date,workingDate:day.date,workingTrainingSessionId:day.trainingSessionId,results:day.results,days:undefined}} roster={roster} team={names.get(draft.teamId)??"Annata"}/></div>)}</details>}
           <label className="block text-sm">Esercizio da rilevare<ScrollableSelect aria-label="Esercizio da rilevare" className={selectClass} value={activeTest&&draft.tests.some(t=>t.id===activeTest)?activeTest:draft.tests[0]?.id} onValueChange={v=>setActiveTest(v as MotorTestId)}>{draft.tests.map((test,index)=><option key={test.id} value={test.id}>{index+1}. {motorTestCatalog.find(item=>item.id===test.id)!.title}</option>)}</ScrollableSelect></label>
           <ul className="grid gap-2">
             {draft.tests.filter(test=>test.id===(activeTest&&draft.tests.some(t=>t.id===activeTest)?activeTest:draft.tests[0]?.id)).map(test => {
@@ -223,6 +245,7 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
               const value = result.tests[test.id] ?? emptyTest;
               return <li key={test.id} data-motor-test-id={test.id} className="grid gap-3 rounded-lg border p-3">
                 <MotorTestGuide id={test.id} minutes={test.minutes}/>
+                {(result.tests[test.id] || (test.id==="anthropometry"&&(result.height!=null||result.weight!=null)))&&<p className="text-xs text-muted-foreground">{test.id==="anthropometry" ? `Statura rilevata il ${dateLabel(result.heightDate??draft.date)} · Peso rilevato il ${dateLabel(result.weightDate??draft.date)}` : `Ultima rilevazione: ${dateLabel(value.recordedOn??draft.date)}`}</p>}
                 <div className="grid gap-2 max-sm:grid-cols-[minmax(0,1fr)_6rem] sm:grid-cols-[minmax(0,1fr)_9rem_7rem]">
                   <div className="max-sm:col-span-2"><strong className="text-sm">{definition.title}</strong><p className="text-xs text-muted-foreground">{definition.principle}</p></div>
                   {test.id === "anthropometry" ? <>
@@ -243,8 +266,8 @@ export function MotorTestSessions({ canEdit, scopedTeam }: { canEdit: boolean; s
       {context.isError && <p role="alert" className="text-sm text-destructive">Rosa e sedute non disponibili. <button type="button" className="underline" onClick={() => void context.refetch()}>Riprova</button></p>}
       {notice && <p role={save.isError ? "alert" : "status"} className={save.isError ? "text-sm text-destructive" : "text-sm text-primary"}>{notice}</p>}
       <div className="flex flex-wrap justify-end gap-2">
-        <Button type="button" variant="outline" disabled={save.isPending} onClick={() => { setDraft(undefined); setNotice(""); }}>Chiudi</Button>
-        {canRecord && <Button type="button" disabled={!canSave || save.isPending || context.isFetching || context.isError} onClick={() => { setNotice(""); save.mutate({ ...draft, trainingSessionId: canEdit ? effectiveSession ?? null : draft.trainingSessionId }); }}>{save.isPending ? "Salvataggio…" : canEdit ? "Salva sessione" : "Salva rilevazioni"}</Button>}
+        <Button type="button" variant="outline" disabled={save.isPending} onClick={close}>Chiudi</Button>
+        {canRecord && <Button type="button" disabled={!canSave || save.isPending || context.isFetching || context.isError} onClick={() => { setNotice(""); save.mutate({ ...draft, workingDate, workingTrainingSessionId: effectiveSession ?? null }); }}>{save.isPending ? "Salvataggio…" : canEdit ? "Salva sessione" : "Salva rilevazioni"}</Button>}
       </div>
     </>}
   </section>;

@@ -152,7 +152,18 @@ export async function mockResponse(
       },
       { status: 409 },
     );
-  const scenario = new URLSearchParams(location.search).get("scenario");
+  const pageParams=new URLSearchParams(location.search);
+  const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario");
+  if(scenario==="motor-multiday"){
+    const scheduledAt=new Date().toISOString().slice(0,10)+"T16:00:00Z";
+    const session={id:910,clubId:999,teamId:11,title:"Recupero test motori",scheduledAt,durationMinutes:75,status:"scheduled",sessionKind:"regular",notes:"",createdByUserId:1,location:"Campo test",sessionNumber:1};
+    if(p==="/api/training-sessions")return Response.json([session]);
+    if(p==="/api/training-sessions/910")return Response.json(session);
+    if(p==="/api/training-rosters/config")return Response.json({sharedGroups:[]});
+    if(p==="/api/training-sessions/910/participants")return Response.json({blockedPlayerIds:[101],presentPlayerIds:[102],recordedPlayerIds:[101,102],total:2,beforeAppello:{available:1,parentUnavailable:0,secretaryUnavailable:0,pending:1,total:2},afterAppello:{present:1,absent:1,injured:0,pending:0}});
+    if(p==="/api/training-sessions/910/planning")return Response.json({recoveries:[0,0],rotations:{},timings:{}});
+    if(p==="/api/motor-tests/context")return Response.json({trainingSessionId:910,presentCount:1,sessions:[{id:910,title:session.title,time:"17:00"}],players:[{id:101,name:player.lastName+" "+player.firstName,coach:"absent",family:null},{id:102,name:"Nuovo presente della seconda giornata",coach:"present",family:"available"}]});
+  }
   if (p === "/api/club-backup" && scenario === "backup-server-error")
     return Response.json({ error: "Errore simulato", code: "BACKUP_PREPARATION_FAILED" }, { status: 500 });
   if (p === "/api/club-backup" && scenario === "backup-empty")
@@ -252,6 +263,7 @@ export async function mockResponse(
       ],
     };
   else if (p === "/api/fee-list") value = { items: [] };
+  else if(p==="/api/player-fitness-data/capabilities")value={canEdit:["fitness_coach","athletic_director"].includes(new URLSearchParams(location.search).get("role")??"")};
   else if (p.includes("motor-tests"))
     value = p.endsWith("/context")
       ? {

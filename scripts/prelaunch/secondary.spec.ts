@@ -1,5 +1,19 @@
 import { test, expect } from "@playwright/test";
 import { inspectLayout } from "./responsive-audit.mjs";
+for(const width of [390,1024]) test(`Motor tests retain past results and offer PDF download ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:900});
+  await page.goto('/player-performance?role=coach&scenario=motor-multiday');
+  if(width>=768)await expect(page.getByRole('link',{name:'Test e crescita',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Consulta',exact:true}).click();
+  await page.getByRole('button',{name:'Presenze e valutazioni',exact:true}).click();
+  await expect(page.getByRole('combobox',{name:'Giocatore da valutare'})).toContainText('Test parziale');
+  await expect(page.getByRole('spinbutton',{name:'Statura · cm',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Salva sessione',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Scarica PDF',exact:true}).click();
+  await expect(page.getByRole('link',{name:'Scarica di nuovo PDF',exact:true})).toHaveAttribute('download',/\.pdf$/);
+  await expect(page.getByRole('link',{name:'Apri PDF e stampa',exact:true})).toBeVisible();
+  const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);expect(layout.renderError).toBe(false);
+});
 import { createRequire } from "node:module";
 const XLSX = createRequire(process.cwd()+"/artifacts/football-training-board/package.json")("xlsx");
 for (const width of [390,1024]) test(`Callup minimum reached can be selected ${width}px`,async({page})=>{
