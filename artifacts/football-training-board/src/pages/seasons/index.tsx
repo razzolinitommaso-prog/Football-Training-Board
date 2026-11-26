@@ -138,14 +138,25 @@ export default function SeasonsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [backupNotice, setBackupNotice] = useState<{ error: boolean; message: string }>();
   const canBackup = ["admin", "presidente"].includes(role ?? "");
 
   async function downloadBackup() {
     setBackupBusy(true);
+    setBackupNotice(undefined);
+    let failureMessage = "Backup non completato: trasferimento interrotto o server non raggiungibile. Nessun file valido è stato confermato.";
     try {
       const response = await fetch(withApi("/api/club-backup"), { credentials: "include" });
-      if (!response.ok) throw new Error("Backup non completato");
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        const code = detail?.code === "BACKUP_PREPARATION_FAILED" ? " · BACKUP_PREPARATION_FAILED" : "";
+        failureMessage = response.status === 401 ? "Sessione scaduta: accedi nuovamente prima di scaricare il backup."
+          : response.status === 403 ? "Il backup completo richiede il profilo Presidente o Amministratore."
+          : `Backup non completato sul server (HTTP ${response.status}${code}). Riprova; se persiste comunica questo codice.`;
+        throw new Error("Backup response failed");
+      }
       const blob = await response.blob();
+      if (!blob.size) { failureMessage = "Il server ha restituito un backup vuoto. Non usarlo: riprova il download."; throw new Error("Empty backup"); }
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -154,8 +165,12 @@ export default function SeasonsPage() {
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      setBackupNotice({ error: false, message: "Backup generato, download avviato. Verifica che il file .ndjson.gz sia presente nei download: l’avvio non conferma il salvataggio sul dispositivo." });
       toast({ title: "Backup generato: download avviato", description: "Conserva il file e verificane l’integrità prima di usarlo per un ripristino." });
-    } catch { toast({ title: "Backup non completato. Riprova.", variant: "destructive" }); }
+    } catch {
+      setBackupNotice({ error: true, message: failureMessage });
+      toast({ title: "Backup non completato", description: failureMessage, variant: "destructive" });
+    }
     finally { setBackupBusy(false); }
   }
 
@@ -236,6 +251,7 @@ export default function SeasonsPage() {
         <h2 className="font-semibold">Backup dati società · tutte le stagioni</h2>
         <p className="text-sm text-muted-foreground">Include registri, storico e allegati conservati nel database della società, anche dei giocatori archiviati. Credenziali e sessioni escluse. I collegamenti a file esterni sono elencati nel manifesto: i relativi file vanno conservati separatamente.</p>
         <Button variant="outline" disabled={backupBusy} onClick={downloadBackup}>{backupBusy ? "Generazione backup…" : "Scarica backup società"}</Button>
+        {backupNotice && <p role={backupNotice.error ? "alert" : "status"} className={`rounded-lg border p-3 text-sm break-words ${backupNotice.error ? "border-destructive/40 text-destructive" : "text-muted-foreground"}`}>{backupNotice.message}</p>}
       </section>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

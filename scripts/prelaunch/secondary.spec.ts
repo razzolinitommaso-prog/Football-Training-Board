@@ -2,6 +2,17 @@ import { test, expect } from "@playwright/test";
 import { inspectLayout } from "./responsive-audit.mjs";
 import { createRequire } from "node:module";
 const XLSX = createRequire(process.cwd()+"/artifacts/football-training-board/package.json")("xlsx");
+for (const width of [320,390,1024]) for (const scenario of ["backup-server-error","backup-empty"]) test(`Backup error remains visible ${scenario} ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:900});
+  await page.goto(`/seasons?role=admin&scenario=${scenario}`);
+  const section=page.getByRole('region',{name:'Backup dati società'});
+  await section.getByRole('button',{name:'Scarica backup società',exact:true}).click();
+  await expect(section.getByRole('alert')).toContainText(scenario==='backup-empty'?'backup vuoto':'BACKUP_PREPARATION_FAILED');
+  await expect(section.getByRole('button',{name:'Scarica backup società',exact:true})).toBeEnabled();
+  const layout=await inspectLayout({playwright:page});
+  expect(layout.documentWidth).toBeLessThanOrEqual(width+2);
+  await test.info().attach('backup-error',{body:await page.screenshot({fullPage:true}),contentType:'image/png'});
+});
 const dialogs = [
   {path:"/players",role:"secretary",button:"Importa Excel"},
   {path:"/players",role:"secretary",button:"Aggiungi Giocatore"},

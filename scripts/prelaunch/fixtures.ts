@@ -153,6 +153,10 @@ export async function mockResponse(
       { status: 409 },
     );
   const scenario = new URLSearchParams(location.search).get("scenario");
+  if (p === "/api/club-backup" && scenario === "backup-server-error")
+    return Response.json({ error: "Errore simulato", code: "BACKUP_PREPARATION_FAILED" }, { status: 500 });
+  if (p === "/api/club-backup" && scenario === "backup-empty")
+    return new Response(new Blob([], {type:"application/gzip"}));
   if (scenario === "senior-error" && p === "/api/player-finance/expenses")
     return Response.json({ error: "Errore senior simulato" }, { status: 503 });
   let value: unknown = [];

@@ -19,9 +19,10 @@ export async function* clubBackup(reader: BackupReader, clubId: number) {
     if (!tables.has(name)) tables.set(name, { name, columns: [] });
     tables.get(name)!.columns.push(String(row.column_name));
   }
+  // node-postgres decodes text[]; catalog name[] (OID 1003) otherwise stays a string.
   const foreign = await reader.query(`SELECT c.relname AS child,p.relname AS parent,
-    ARRAY(SELECT a.attname FROM unnest(k.conkey) WITH ORDINALITY v(n,o) JOIN pg_attribute a ON a.attrelid=k.conrelid AND a.attnum=v.n ORDER BY v.o) AS columns,
-    ARRAY(SELECT a.attname FROM unnest(k.confkey) WITH ORDINALITY v(n,o) JOIN pg_attribute a ON a.attrelid=k.confrelid AND a.attnum=v.n ORDER BY v.o) AS targets
+    ARRAY(SELECT a.attname::text FROM unnest(k.conkey) WITH ORDINALITY v(n,o) JOIN pg_attribute a ON a.attrelid=k.conrelid AND a.attnum=v.n ORDER BY v.o) AS columns,
+    ARRAY(SELECT a.attname::text FROM unnest(k.confkey) WITH ORDINALITY v(n,o) JOIN pg_attribute a ON a.attrelid=k.confrelid AND a.attnum=v.n ORDER BY v.o) AS targets
     FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_class p ON p.oid=k.confrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE k.contype='f' AND n.nspname='public'`);
   const links = foreign.rows as unknown as Link[];
   const scoped = new Set([...tables.values()].filter(t => t.columns.includes("club_id") && !excluded.test(t.name)).map(t => t.name));

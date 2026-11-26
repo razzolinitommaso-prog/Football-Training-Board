@@ -71,3 +71,11 @@ Regressioni HTTP con database isolato: entrambi gli ordini di inserimento, assic
 Per confrontare i profili, acquisire separatamente il registro corrente e ricalcolare gli importi in centesimi. Confrontare le differenze fra letture prima di attribuirle al ruolo: il dataset può essere cambiato nel frattempo. Verificare filtri, scadenze delle uscite e visibilità dei comandi senza effettuare scritture su record reali.
 
 La ricerca di descrizioni annuale/iscrizione e righe identiche è solo un controllo preliminare. Per i piani generici occorrono totale contrattuale e legami fra rate/ricevute; il registro visuale non sostituisce l'audit dell'intero backup. Conservare le evidenze contabili esclusivamente in archivi privati. In questo documento pubblico sono descritte soltanto procedure generali, senza esiti o dati di una società.
+
+## Correzione compatibilità del generatore backup — 26/11/2026
+
+Riprodotto un difetto del catalogo PostgreSQL: gli array di `pg_attribute.attname` hanno tipo `name[]` (OID 1003), che il parser `pg` usato dall'applicazione restituisce come stringa. Il generatore chiamava `.map` su tale valore. PGlite restituiva invece un array, mascherando il problema nel primo test. Le due query del catalogo convertono ora i nomi in `text`, ottenendo `text[]` correttamente decodificati; nessuna modifica ai dati o ai parser globali.
+
+La regressione attraversa il parser reale di node-postgres usando i tipi restituiti dal database isolato: prima della correzione riproduce `l.columns.map is not a function`, dopo verifica il backup, le somme di controllo, le relazioni dipendenti e il download HTTP gzip. Il catalogo viene preparato prima di avviare lo stream: un errore in questa fase restituisce JSON con `BACKUP_PREPARATION_FAILED`, senza SQL, credenziali o dati di record. Anche il fallimento di connessione è intercettato.
+
+La pagina Stagioni conserva l'avviso di errore con stato HTTP/codice, distingue sessione scaduta e ruolo non abilitato, rifiuta un file vuoto e non confonde download avviato con salvataggio verificato sul dispositivo. Aggiunte prove UI per errore server/file vuoto alle larghezze 320, 390 e 1024. La verifica integrale dei dati reali resta distinta: richiede un nuovo backup effettivamente scaricato, non viene dichiarata completata da questi test sintetici.
