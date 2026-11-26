@@ -146,6 +146,7 @@ export function MatchCallupRoster({ roster, onCallup }: {
           {all ? "Mostra convocati" : "Modifica convocati"}
         </Button>}
       </div>
+      {!onCallup && <p role="status" className="mb-2 text-xs text-muted-foreground">Convocazione in sola lettura: questo profilo non può modificare i convocati di questa squadra.</p>}
       {(showChecks || all || !called.length) && (
         <Input
           className="mb-2 h-8 text-xs"
@@ -163,10 +164,10 @@ export function MatchCallupRoster({ roster, onCallup }: {
         }
       >
         {rosterVisible?.map((p) => showChecks ? (
-          <label key={p.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_8rem_6rem]">
-            <span className="min-w-0 break-words"><strong>{p.name}</strong>{p.note && <span className="block text-xs text-muted-foreground">{p.note}</span>}</span>
+          <label key={p.id} title={p.disabled && !p.called ? p.note || "Giocatore non convocabile: verifica la disponibilità e le regole." : undefined} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_8rem_6rem]">
+            <span className="min-w-0 break-words"><strong>{p.name}</strong>{p.note && <span id={`callup-reason-${p.id}`} className="block text-xs text-muted-foreground">{p.note}</span>}</span>
             <span className={"justify-self-start rounded-full px-2 py-1 text-xs " + (p.state === "eligible" ? "bg-emerald-100 text-emerald-800" : p.state === "blocked" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-900")}>{p.state && eligibilityLabels[p.state]}</span>
-            <span className="col-start-2 flex items-center gap-2 justify-self-end text-xs sm:col-start-auto"><Checkbox checked={p.called} disabled={(p.disabled && !p.called) || !onCallup} aria-label={"Convoca " + p.name} onCheckedChange={value => onCallup?.(p.id, value === true)} />Convoca</span>
+            <span className="col-start-2 flex items-center gap-2 justify-self-end text-xs sm:col-start-auto"><Checkbox checked={p.called} disabled={(p.disabled && !p.called) || !onCallup} aria-label={"Convoca " + p.name} aria-describedby={p.note ? `callup-reason-${p.id}` : undefined} onCheckedChange={value => onCallup?.(p.id, value === true)} />Convoca</span>
           </label>
         ) : (
           <label

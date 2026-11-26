@@ -184,7 +184,7 @@ export async function mockResponse(
   else if (p === "/api/players/101") value = player;
   else if (p === "/api/matches") value = [{id:901,clubId:999,teamId:11,seasonId:70,opponent:"BARBERINO CALCIO 1927",date:"2026-11-21T15:30:00Z",homeAway:"home",competition:"Campionato",isPostponed:false,matchPlan:null}];
   else if (p === "/api/matches/901/callups") value = [{id:1,matchId:901,playerId:101,status:"confirmed",player}];
-  else if (p === "/api/matches/901/callup-eligibility") value = {weekStart:"2026-11-16",rule:{sessions:2,minimum:1,allowUnratedConduct:true},rows:[]};
+  else if (p === "/api/matches/901/callup-eligibility") value = {weekStart:"2026-11-16",rule:{sessions:2,minimum:1,allowUnratedConduct:true},rows:scenario === 'callup-minimum-reached' ? [{id:101,name:player.lastName+' '+player.firstName,present:1,recorded:1,conduct:null,state:'eligible',reasons:['Sedute valide prima della gara: 1/2 · minimo richiesto già raggiunto (1/1)','Condotta da registrare: ammessa dalla regola']}] : []};
   else if (p === "/api/teams/11/players") value = [player];
   else if (p.includes("/activity-summary"))
     value = {

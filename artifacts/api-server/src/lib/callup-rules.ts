@@ -85,11 +85,13 @@ export async function evaluateCallupRule(clubId: number, teamId: number, kickoff
     const reasons: string[] = [];
     if (lastConduct === "insufficiente") reasons.push("Ultima condotta insufficiente");
     const incomplete = recorded < rule.sessions;
+    const attendanceMet = present >= rule.minimum;
     if (!incomplete && present < rule.minimum) reasons.push(`Presenze insufficienti: ${present}/${rule.sessions}, minimo ${rule.minimum}`);
-    const state = reasons.length ? "blocked" : incomplete || (!lastConduct && !rule.allowUnratedConduct) ? "pending" : "eligible";
-    if (incomplete) reasons.push(weekly.length < rule.sessions
+    // An unrecorded/future session cannot undo a minimum already met by real presences.
+    const state = reasons.length ? "blocked" : !attendanceMet || (!lastConduct && !rule.allowUnratedConduct) ? "pending" : "eligible";
+    if (incomplete) reasons.push((weekly.length < rule.sessions
       ? `Sedute valide prima della gara: ${weekly.length}/${rule.sessions}`
-      : `Appelli da completare: ${rule.sessions - recorded}`);
+      : `Appelli da completare: ${rule.sessions - recorded}`) + (attendanceMet ? ` · minimo richiesto già raggiunto (${present}/${rule.minimum})` : ` · minimo richiesto non ancora raggiunto (${present}/${rule.minimum})`));
     if (!lastConduct) reasons.push(rule.allowUnratedConduct
       ? "Condotta da registrare: ammessa dalla regola" : "Condotta da registrare");
     return { id: player.id, name: player.lastName + " " + player.firstName,

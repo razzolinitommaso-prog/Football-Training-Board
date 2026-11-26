@@ -2,6 +2,19 @@ import { test, expect } from "@playwright/test";
 import { inspectLayout } from "./responsive-audit.mjs";
 import { createRequire } from "node:module";
 const XLSX = createRequire(process.cwd()+"/artifacts/football-training-board/package.json")("xlsx");
+for (const width of [390,1024]) test(`Callup minimum reached can be selected ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:900});
+  await page.goto('/calendari/11?role=coach&openMatchId=901&scenario=callup-minimum-reached');
+  if(width<640) await page.getByRole('combobox',{name:'Sezione della partita',exact:true}).selectOption('convocati');
+  else await page.getByRole('button',{name:'Convocati',exact:true}).click();
+  const checkbox=page.getByRole('checkbox',{name:/^Convoca /}).first();
+  await expect(checkbox).toBeEnabled();
+  await expect(page.getByRole('region',{name:'Convocati',exact:true})).toContainText('minimo richiesto già raggiunto');
+  await checkbox.check();
+  await expect(checkbox).toBeChecked();
+  await checkbox.uncheck();
+  await expect(checkbox).toBeEnabled();
+});
 for (const width of [320,390,1024]) for (const scenario of ["backup-server-error","backup-empty"]) test(`Backup error remains visible ${scenario} ${width}px`,async({page})=>{
   await page.setViewportSize({width,height:900});
   await page.goto(`/seasons?role=admin&scenario=${scenario}`);

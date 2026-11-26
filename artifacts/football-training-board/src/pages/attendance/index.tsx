@@ -275,6 +275,7 @@ function AttendanceSheet({ section }: { section?: ClubSection } = {}) {
       });
       qc.invalidateQueries({ queryKey: key });
       qc.invalidateQueries({ queryKey: ["/api/attendance-summary"] });
+      void qc.invalidateQueries({ queryKey: ["/api/matches"] });
       void qc.invalidateQueries({ queryKey: ["/api/motor-tests/context"] });
       qc.invalidateQueries({ queryKey: ["attendance-register"] });
       qc.invalidateQueries({queryKey:["training-session-participants"]});
