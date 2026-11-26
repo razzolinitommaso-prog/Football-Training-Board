@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "test:finance": "node scripts/test-financial-reconciliation.cjs && node scripts/test-financial-export.cjs",
+    "test:finance": "node scripts/test-financial-reconciliation.cjs && node scripts/test-financial-export.cjs && node scripts/test-kit-potential-detail.cjs",
     "test:prelaunch": "playwright test --config playwright.prelaunch.config.ts",
     "preview:prelaunch": "node scripts/prelaunch/preview.cjs",
     "setup-local": "node ./scripts/setup-local.mjs",

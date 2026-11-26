@@ -168,6 +168,9 @@ export async function mockResponse(
     return Response.json({ error: "Errore simulato", code: "BACKUP_PREPARATION_FAILED" }, { status: 500 });
   if (p === "/api/club-backup" && scenario === "backup-empty")
     return new Response(new Blob([], {type:"application/gzip"}));
+  // Transport fixture only. Archive integrity is checked by the separate database suite.
+  if(p==="/api/club-backup"&&scenario==="backup-download")return new Response(new Uint8Array([31,139,8,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0]),{headers:{"Content-Type":"application/gzip"}});
+  if(p==="/api/club-backup"&&scenario==="backup-invalid")return Response.json({error:"Unexpected body"});
   if (scenario === "senior-error" && p === "/api/player-finance/expenses")
     return Response.json({ error: "Errore senior simulato" }, { status: 503 });
   let value: unknown = [];

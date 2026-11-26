@@ -6,6 +6,7 @@ import { paymentCategory, type PaymentEntry } from "./payment-summary";
 
 export type KitPotentialItem = KitCatalogItem & { price?: number | null; isActive?: number | null; itemType?: string };
 export type KitPotentialEquipment = { playerId: number; trainingKit?: string | null; matchKit?: string | null };
+export type KitPotentialLine = {key:string;label:string;quantity:number;unitCents:number|null;cents:number};
 type KitPayment = PaymentEntry & { playerId: number; amount: number };
 const fullSuit = "rep_tracksuit";
 const suitParts = REPRESENTATION_COMPONENTS.map(part => part.key);
@@ -73,18 +74,19 @@ export function estimateKitPotential(
     if (slots.length === 1) coveredFor(row.playerId).add(slots[0]);
     else booked.set(row.playerId, (booked.get(row.playerId) ?? 0) + Math.round(row.amount * 100));
   }
-  const result = { withoutKit: 0, partialKit: 0, cents: 0, unpricedItems: 0, toVerify: 0 };
+  const result = { withoutKit: 0, partialKit: 0, cents: 0, unpricedItems: 0, toVerify: 0, breakdown:[] as KitPotentialLine[] };
+  const breakdown=new Map<string,KitPotentialLine>();
   for (const id of playerIds) {
     const covered = coveredByPlayer.get(id) ?? new Set<string>();
-    const missing = ordinaryRows.filter(row => !covered.has(row.key)).map(row => prices.get(row.key));
+    const missing: {key:string;label:string;price:number|undefined}[] = ordinaryRows.filter(row => !covered.has(row.key)).map(row => ({key:row.key,label:row.label,price:prices.get(row.key)}));
     if (!covered.has(fullSuit)) {
       const missingParts = suitParts.filter(slot => !covered.has(slot));
       if (missingParts.length === suitParts.length) {
         const partsPrice = missingParts.reduce((total, slot) => total + (prices.get(slot) ?? Infinity), 0);
         const suitPrice = Math.min(prices.get(fullSuit) ?? Infinity, partsPrice);
-        missing.push(Number.isFinite(suitPrice) ? suitPrice : undefined);
+        missing.push({key:fullSuit,label:"Rappresentanza · tuta completa o pantalone e felpa",price:Number.isFinite(suitPrice) ? suitPrice : undefined});
       } else {
-        missing.push(...missingParts.map(slot => prices.get(slot)));
+        missing.push(...missingParts.map(slot => ({key:slot,label:"Rappresentanza · "+REPRESENTATION_COMPONENTS.find(part=>part.key===slot)!.label,price:prices.get(slot)})));
       }
     }
     if (!missing.length) continue;
@@ -94,10 +96,13 @@ export function estimateKitPotential(
     }
     if (covered.size) result.partialKit++;
     else result.withoutKit++;
-    for (const price of missing) {
+    for (const {key,label,price} of missing) {
       if (price === undefined) result.unpricedItems++;
       else result.cents += price;
+      const line=breakdown.get(key)??{key,label,quantity:0,unitCents:price??null,cents:0};
+      line.quantity++;line.cents+=price??0;breakdown.set(key,line);
     }
   }
+  result.breakdown=[...breakdown.values()].sort((a,b)=>a.label.localeCompare(b.label,"it"));
   return result;
 }

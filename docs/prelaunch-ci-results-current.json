@@ -1,0 +1,27 @@
+{
+  "checkedOn": "2026-11-26",
+  "runId": 45820089975,
+  "url": "https://github.com/razzolinitommaso-prog/Football-Training-Board/actions/runs/45820089975",
+  "commit": "e313948377d1cc5e1a2bec9ab19786ff8e195bc0",
+  "conclusion": "success",
+  "data": "synthetic",
+  "source": "GitHub public Actions REST API",
+  "jobs": [
+    {
+      "id": 139909814990,
+      "name": "verify-firefox",
+      "conclusion": "success"
+    },
+    {
+      "id": 139909815471,
+      "name": "verify-webkit",
+      "conclusion": "success"
+    },
+    {
+      "id": 139909816439,
+      "name": "verify-chromium",
+      "conclusion": "success"
+    }
+  ],
+  "scope": "Existing completed run only. Changes made after this commit require their own CI outcome. No deploy check."
+}

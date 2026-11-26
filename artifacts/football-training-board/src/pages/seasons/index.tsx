@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useDownloadArtifact } from "@/hooks/use-download-artifact";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -127,7 +128,8 @@ function SeasonCard({
 }
 
 export default function SeasonsPage() {
-  const { role } = useAuth();
+  const { role,club,user,profileKey,section } = useAuth();
+  const {artifact:backupFile,prepare:prepareBackup,clear:clearBackup}=useDownloadArtifact(JSON.stringify([club?.id,user?.id,role,profileKey,section]));
   const { toast } = useToast();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -142,6 +144,7 @@ export default function SeasonsPage() {
   const canBackup = ["admin", "presidente"].includes(role ?? "");
 
   async function downloadBackup() {
+    clearBackup();
     setBackupBusy(true);
     setBackupNotice(undefined);
     let failureMessage = "Backup non completato: trasferimento interrotto o server non raggiungibile. Nessun file valido è stato confermato.";
@@ -157,14 +160,10 @@ export default function SeasonsPage() {
       }
       const blob = await response.blob();
       if (!blob.size) { failureMessage = "Il server ha restituito un backup vuoto. Non usarlo: riprova il download."; throw new Error("Empty backup"); }
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? `backup-societa-${new Date().toISOString().slice(0,10)}.ndjson.gz`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      const magic=new Uint8Array(await blob.slice(0,2).arrayBuffer());
+      if(magic[0]!==0x1f||magic[1]!==0x8b){failureMessage="Il file ricevuto non è un archivio gzip valido. Riprova il backup.";throw new Error("Invalid backup format");}
+      const filename=response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? `backup-societa-${new Date().toISOString().slice(0,10)}.ndjson.gz`;
+      prepareBackup(blob,filename);
       setBackupNotice({ error: false, message: "Backup generato, download avviato. Verifica che il file .ndjson.gz sia presente nei download: l’avvio non conferma il salvataggio sul dispositivo." });
       toast({ title: "Backup generato: download avviato", description: "Conserva il file e verificane l’integrità prima di usarlo per un ripristino." });
     } catch {
@@ -250,7 +249,9 @@ export default function SeasonsPage() {
       {canBackup && <section className="rounded-xl border bg-card p-4 space-y-2" aria-label="Backup dati società">
         <h2 className="font-semibold">Backup dati società · tutte le stagioni</h2>
         <p className="text-sm text-muted-foreground">Include registri, storico e allegati conservati nel database della società, anche dei giocatori archiviati. Credenziali e sessioni escluse. I collegamenti a file esterni sono elencati nel manifesto: i relativi file vanno conservati separatamente.</p>
-        <Button variant="outline" disabled={backupBusy} onClick={downloadBackup}>{backupBusy ? "Generazione backup…" : "Scarica backup società"}</Button>
+        <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={backupBusy} onClick={downloadBackup}>{backupBusy ? "Generazione backup…" : "Scarica backup società"}</Button>
+        {backupFile&&<a className="inline-flex min-h-9 items-center rounded-md border px-3 py-2 text-sm font-medium text-primary" href={backupFile.url} download={backupFile.filename}>Salva backup generato</a>}
+        </div>
         {backupNotice && <p role={backupNotice.error ? "alert" : "status"} className={`rounded-lg border p-3 text-sm break-words ${backupNotice.error ? "border-destructive/40 text-destructive" : "text-muted-foreground"}`}>{backupNotice.message}</p>}
       </section>}
       <div className="flex flex-wrap items-center justify-between gap-3">

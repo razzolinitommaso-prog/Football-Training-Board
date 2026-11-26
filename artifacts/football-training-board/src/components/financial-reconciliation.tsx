@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   financialExportSheets,
   reconcileExpenses,
   reconcileIncome,
   type AuditIncome,
 } from "@/lib/financial-reconciliation";
-import { exportMultiSheet } from "@/lib/excel-export";
+import { createExcelFile } from "@/lib/excel-export";
+import { useAuth } from "@/hooks/use-auth";
+import { useDownloadArtifact } from "@/hooks/use-download-artifact";
 import type { MemberExpenses } from "@/lib/member-services";
 import { Button } from "@/components/ui/button";
 const money = (cents: number) =>
@@ -26,6 +28,9 @@ export function FinancialReconciliation({
   complete: boolean;
 }) {
   const [exportState, setExportState] = useState("");
+  const {club,user,role,profileKey,section}=useAuth();
+  const {artifact,prepare,clear}=useDownloadArtifact(JSON.stringify([club?.id,user?.id,role,profileKey,section,today]));
+  useEffect(()=>{clear();setExportState("");},[payments,members,senior,today,clear]);
   const [exporting, setExporting] = useState(false);
   const income = reconcileIncome(payments, today);
   const expenses = [
@@ -70,19 +75,21 @@ export function FinancialReconciliation({
                   : "Scarto da verificare."}
               </p>
             ))}
-            <Button
+            <div className="flex flex-wrap gap-2"><Button
               type="button"
               size="sm"
               variant="outline"
               disabled={exporting}
               onClick={async () => {
+                clear();
                 setExporting(true);
                 setExportState("");
                 try {
-                  await exportMultiSheet(
+                  const file=createExcelFile(
                     financialExportSheets(payments, members, senior, today),
                     `controllo-contabile-${today}`,
                   );
+                  prepare(file.blob,file.filename);
                   setExportState(
                     "Esportazione Excel avviata. Controlla i download del dispositivo.",
                   );
@@ -95,6 +102,8 @@ export function FinancialReconciliation({
             >
               Esporta controllo Excel
             </Button>
+            {artifact&&<a className="inline-flex min-h-9 items-center rounded-md border px-3 py-2 text-sm font-medium text-primary" href={artifact.url} download={artifact.filename}>Scarica Excel generato</a>}
+            </div>
             {exportState && (
               <p
                 role={exportState.includes("non riuscita") ? "alert" : "status"}

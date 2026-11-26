@@ -26,12 +26,17 @@ function autoFitColumns(ws: XLSX.WorkSheet, data: Record<string, any>[]) {
   ws["!cols"] = colWidths;
 }
 
-async function downloadWorkbook(wb: XLSX.WorkBook, filename: string, preferSavePicker = false) {
+function workbookFile(wb: XLSX.WorkBook, filename: string) {
   const safeFilename = filename.toLowerCase().endsWith(".xlsx") ? filename : `${filename}.xlsx`;
   const workbookArray = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([workbookArray], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
+  return {blob,filename:safeFilename};
+}
+
+async function downloadWorkbook(wb: XLSX.WorkBook, filename: string, preferSavePicker = false) {
+  const {blob,filename:safeFilename}=workbookFile(wb,filename);
   const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
   if (preferSavePicker && showSaveFilePicker) {
     try {
@@ -83,6 +88,10 @@ export function createExcelWorkbook(sheets: { name: string; rows: Record<string,
 
 export function exportMultiSheet(sheets: { name: string; rows: Record<string, any>[] }[], filename: string) {
   return downloadWorkbook(createExcelWorkbook(sheets), filename);
+}
+
+export function createExcelFile(sheets: {name:string;rows:Record<string,any>[]}[],filename:string){
+  return workbookFile(createExcelWorkbook(sheets),filename);
 }
 
 // --- Data mappers ---

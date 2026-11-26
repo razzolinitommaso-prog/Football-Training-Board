@@ -396,6 +396,7 @@ export default function PaymentsPage() {
           </div>
           {kitPotential.unpricedItems > 0 && <p className="text-xs text-muted-foreground">Voci senza prezzo utilizzabile, escluse dalla stima: {kitPotential.unpricedItems}.</p>}
           {kitPotential.toVerify > 0 && <p className="text-xs text-muted-foreground">Giocatori con kit o pagamenti da verificare: {kitPotential.toVerify}.</p>}
+          {!!kitPotential.breakdown.length&&<details className="rounded-lg border p-3 text-sm"><summary className="cursor-pointer font-medium">Dettaglio potenziale per articolo</summary><ul className="mt-2 divide-y">{kitPotential.breakdown.map(line=><li key={line.key} className="grid gap-1 py-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-4"><div className="min-w-0"><p className="break-words font-medium">{line.label}</p><p className="text-xs text-muted-foreground">{line.quantity} {line.quantity===1?"voce mancante":"voci mancanti"} · {line.unitCents==null?"Prezzo non disponibile: escluse dalla stima":`Prezzo di riferimento ${money.format(line.unitCents/100)}`}</p></div><strong className="tabular-nums">{line.unitCents==null?"Da valorizzare":money.format(line.cents/100)}</strong></li>)}</ul></details>}
           <p className="text-xs text-muted-foreground">Una unità per voce mancante al prezzo di listino più basso. La stima segue annata e nome del giocatore e resta separata dagli incassi e dalla previsione annuale.</p>
         </> : <p role="status" className="text-sm text-muted-foreground">Calcolo del potenziale kit…</p>}
       </CardContent></Card>}

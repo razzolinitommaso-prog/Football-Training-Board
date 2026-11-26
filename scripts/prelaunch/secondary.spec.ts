@@ -15,7 +15,39 @@ for(const width of [390,1024]) test(`Motor tests retain past results and offer P
   const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);expect(layout.renderError).toBe(false);
 });
 import { createRequire } from "node:module";
+import {readFile} from "node:fs/promises";
 const XLSX = createRequire(process.cwd()+"/artifacts/football-training-board/package.json")("xlsx");
+for(const width of [390,1024])test(`Backup retains explicit download link ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:900});
+  await page.goto('/seasons?role=admin&scenario=backup-download');
+  await page.getByRole('button',{name:'Scarica backup società',exact:true}).click();
+  const link=page.getByRole('link',{name:'Salva backup generato',exact:true});
+  await expect(link).toBeVisible();await expect(link).toHaveAttribute('download',/\.ndjson\.gz$/);
+  await expect(link).toHaveAttribute('href',/^blob:/);
+  const download=page.waitForEvent('download');await link.click();
+  const result=await download;const file=await result.path();expect(file).toBeTruthy();const bytes=await readFile(file!);
+  expect([...bytes.subarray(0,2)]).toEqual([31,139]);
+  const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);
+});
+test('Retained reconciliation Excel contains source totals',async({page})=>{
+  await page.goto('/secretary/payments?role=admin');
+  await page.getByRole('button',{name:'Registro e grafici',exact:true}).click();
+  await page.locator('summary').filter({hasText:'Controllo quadrature e dati mancanti'}).click();
+  await page.getByRole('button',{name:'Esporta controllo Excel',exact:true}).click();
+  const link=page.getByRole('link',{name:'Scarica Excel generato',exact:true});await expect(link).toBeVisible();
+  const download=page.waitForEvent('download');await link.click();
+  const result=await download;const file=await result.path();expect(file).toBeTruthy();
+  const workbook=XLSX.read(await readFile(file!),{type:'buffer'});
+  expect(workbook.SheetNames).toHaveLength(7);
+  expect(XLSX.utils.sheet_to_json(workbook.Sheets.Quadrature).find((row:any)=>row.Voce==='Entrate registrate').Importo).toBe(370);
+});
+test('Invalid backup body does not become a downloadable archive',async({page})=>{
+  await page.goto('/seasons?role=admin&scenario=backup-invalid');
+  const region=page.getByRole('region',{name:'Backup dati società',exact:true});
+  await region.getByRole('button',{name:'Scarica backup società',exact:true}).click();
+  await expect(region.getByRole('alert')).toContainText('gzip');
+  await expect(region.getByRole('link',{name:'Salva backup generato',exact:true})).toHaveCount(0);
+});
 for (const width of [390,1024]) test(`Callup minimum reached can be selected ${width}px`,async({page})=>{
   await page.setViewportSize({width,height:900});
   await page.goto('/calendari/11?role=coach&openMatchId=901&scenario=callup-minimum-reached');

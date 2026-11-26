@@ -12,7 +12,7 @@ const entry = path.join(root, ".tools/financial-export-test.ts"),
 fs.mkdirSync(path.dirname(entry), { recursive: true });
 fs.writeFileSync(
   entry,
-  `export {createExcelWorkbook} from '../artifacts/football-training-board/src/lib/excel-export';export {financialExportSheets} from '../artifacts/football-training-board/src/lib/financial-reconciliation';export * as XLSX from 'xlsx';`,
+  `export {createExcelWorkbook,createExcelFile} from '../artifacts/football-training-board/src/lib/excel-export';export {financialExportSheets} from '../artifacts/football-training-board/src/lib/financial-reconciliation';export * as XLSX from 'xlsx';`,
 );
 esbuild.buildSync({
   entryPoints: [entry],
@@ -22,7 +22,7 @@ esbuild.buildSync({
   format: "cjs",
   alias: { xlsx: web.resolve("xlsx") },
 });
-const { createExcelWorkbook, financialExportSheets, XLSX } = require(out);
+const { createExcelWorkbook, createExcelFile, financialExportSheets, XLSX } = require(out);
 const income = [
   {
     id: 1,
@@ -91,3 +91,12 @@ fs.writeFileSync(
 console.log(
   "PASS financial XLSX: seven sheets, round trip, numeric totals, source ledger and partial expense receipts",
 );
+const downloadFile=createExcelFile(financialExportSheets(income,costs,{dues:[],receipts:[]},"2026-11-21"),"controllo-download");
+assert.equal(downloadFile.filename,"controllo-download.xlsx");
+assert.equal(downloadFile.blob.type,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+downloadFile.blob.arrayBuffer().then(bytes=>{
+  const downloaded=XLSX.read(bytes,{type:"array"});
+  assert.equal(downloaded.SheetNames.length,7);
+  assert.equal(XLSX.utils.sheet_to_json(downloaded.Sheets.Quadrature).find(row=>row.Voce==="Entrate registrate").Importo,370);
+  console.log("PASS retained Excel download: actual Blob round trip and source totals");
+}).catch(error=>{console.error(error);process.exitCode=1;});
