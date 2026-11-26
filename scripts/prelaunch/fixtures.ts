@@ -183,7 +183,7 @@ export async function mockResponse(
   else if (p === "/api/teams/navigation-scope")
     value = { sections: ["scuola_calcio"], teams: [team] };
   else if (p === "/api/teams") value = [team];
-  else if (p === "/api/seasons") value = [season];
+  else if (p === "/api/seasons") value = scenario==="season-invalid"?[{...season,startDate:"2027-09-01",endDate:"2026-11-12"}]:[season];
   else if (p === "/api/clubs/me")
     value = { id: 999, name: "Società di collaudo", logoUrl: null };
   else if (p.includes("society-management"))

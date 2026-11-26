@@ -101,3 +101,11 @@ Le quadrature sono condivise tra pagina Pagamenti, Excel e controllo completo at
 Il controllo dello snapshot sul server non dimostra che il file scaricato sia integro sul dispositivo. Per quel file restano necessari il verificatore locale e la conservazione separata dei contenuti esterni. Il controllo non riconcilia banca/cassa e non ricostruisce il significato contrattuale di descrizioni ambigue.
 
 Regressioni: diniego dei ruoli non abilitati, isolamento società ignorando un parametro esterno, firme/hash errati, riferimenti fuori dal perimetro esportato, registri assenti e risposta di errore senza diagnostica riservata. UI con dati sintetici verificata a 320/390/768 px, con avviso di fonte mancante e errore server. La disponibilità del comando in una nuova versione non costituisce da sola un esito del controllo sui dati reali: tale esito va registrato separatamente.
+
+## Validazione e rettifica delle date stagionali
+
+Le date della stagione si modificano con **Stagioni → Modifica date**. La scheda segnala gli intervalli già incoerenti; creazione, rettifica e attivazione rifiutano date non valide o fine precedente all'inizio. La validazione precede il cambio della stagione attiva. È ancora possibile archiviare/disattivare uno storico incoerente. Nessuna rettifica automatica dei dati esistenti.
+
+Regressioni HTTP/PGlite superate: creazione e attivazione rifiutate senza disattivare la stagione corrente, modifica parziale, date impossibili/nulle, isolamento società e diniego del ruolo allenatore. Typecheck librerie, API e frontend superati. Verifica manuale su fixture a 320/390/768 px: avviso visibile, salvataggio disabilitato con intervallo errato e abilitato correggendolo, nessuna eccedenza orizzontale. Aggiunti quattro casi CI alle larghezze 320/390/768/1024; il loro esito richiede un nuovo run.
+
+Chiusa la lettura del run 45880732713 sul commit 08ee6ef: successo per Chromium, Firefox e WebKit. Non equivale all'esito delle modifiche successive. Nessuna verifica deploy. Le rettifiche a importi, prezzi o date reali richiedono il dato corretto; non sono dedotte da un possibile duplicato o da una data incoerente. Non disponibili dispositivi Android collegati al momento della verifica; prove fisiche Android/iPhone ancora aperte.

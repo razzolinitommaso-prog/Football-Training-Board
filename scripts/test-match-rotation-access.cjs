@@ -685,6 +685,15 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         method, headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
       });
       const transition = (season, status) => send("/seasons/" + season + "/player-status", "POST", { playerId: 101, status });
+      assert.equal((await send('/seasons','POST',{name:'Invalid range',startDate:'2027-09-01',endDate:'2026-11-12',isActive:true})).status,400);
+      assert.equal((await pg.query('SELECT is_active FROM seasons WHERE id=12001')).rows[0].is_active,true,'invalid creation must not deactivate the current season');
+      assert.equal((await send('/seasons/12002','PATCH',{endDate:'2026-11-12',isActive:true})).status,400);
+      assert.equal((await send('/seasons/12002','PATCH',{endDate:null})).status,400);
+      assert.equal((await send('/seasons/12002','PATCH',{endDate:'2028-02-30'})).status,400);
+      assert.equal((await send('/seasons/12002','PATCH',{endDate:'2028-08-31'},{'x-role':'coach'})).status,403);
+      assert.equal((await send('/seasons/12002','PATCH',{endDate:'2028-08-31'},{'x-role':'admin','x-club':'2'})).status,404);
+      const correctedSeason=await send('/seasons/12002','PATCH',{endDate:'2028-08-31'});assert.equal(correctedSeason.status,200);assert.equal((await correctedSeason.json()).isActive,false);
+      assert.equal((await send('/seasons/12002','PATCH',{endDate:'2028-06-30'})).status,200);
       assert.equal((await transition(12001, "withdrawn")).status, 201);
       const directory = await call("/players?teamId=11", admin);
       assert.equal(directory.status, 200, JSON.stringify(directory.data));

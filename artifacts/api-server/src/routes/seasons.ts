@@ -1,4 +1,5 @@
 import { archiveStatusForTransition } from "@workspace/api-zod";
+import {seasonDateError} from "@workspace/api-zod";
 import { isArchivedPlayer } from "@workspace/api-zod";
 import { Router, type IRouter } from "express";
 import { db, seasonsTable, teamsTable, playersTable, matchesTable, playerSeasonStatusTable, observedPlayersTable } from "@workspace/db";
@@ -26,6 +27,8 @@ router.post("/seasons", requireAuth, async (req, res): Promise<void> => {
   }
   const { name, startDate, endDate, isActive } = req.body;
   if (!name || !startDate || !endDate) { res.status(400).json({ error: "name, startDate, endDate required" }); return; }
+  const invalidDates=seasonDateError(startDate,endDate);
+  if(invalidDates){res.status(400).json({error:invalidDates});return;}
 
   if (isActive) {
     await db.update(seasonsTable).set({ isActive: false }).where(eq(seasonsTable.clubId, req.session.clubId!));
@@ -56,9 +59,13 @@ router.patch("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
   const season = await db.transaction(async tx => {
     if (isActive) await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('season-roster'), ${clubId})`);
-    const [existing] = await tx.select({ id: seasonsTable.id }).from(seasonsTable)
-      .where(and(eq(seasonsTable.id, id), eq(seasonsTable.clubId, clubId)));
+    const [existing] = await tx.select().from(seasonsTable)
+      .where(and(eq(seasonsTable.id, id), eq(seasonsTable.clubId, clubId))).for("update");
     if (!existing) return null;
+    if(startDate!==undefined||endDate!==undefined||isActive===true){
+      const invalidDates=seasonDateError(startDate!==undefined?startDate:existing.startDate,endDate!==undefined?endDate:existing.endDate);
+      if(invalidDates)return {error:invalidDates};
+    }
     if (isActive) await tx.update(seasonsTable).set({ isActive: false }).where(eq(seasonsTable.clubId, clubId));
     const [updated] = await tx.update(seasonsTable).set(updates)
       .where(and(eq(seasonsTable.id, id), eq(seasonsTable.clubId, clubId))).returning();
@@ -77,6 +84,7 @@ router.patch("/seasons/:id", requireAuth, async (req, res): Promise<void> => {
     return updated;
   });
   if (!season) { res.status(404).json({ error: "Season not found" }); return; }
+  if("error" in season){res.status(400).json(season);return;}
   res.json(season);
 });
 

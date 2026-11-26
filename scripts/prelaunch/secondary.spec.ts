@@ -17,6 +17,16 @@ for(const width of [390,1024]) test(`Motor tests retain past results and offer P
 import { createRequire } from "node:module";
 import {readFile} from "node:fs/promises";
 const XLSX = createRequire(process.cwd()+"/artifacts/football-training-board/package.json")("xlsx");
+for(const width of [320,390,768,1024])test(`Season date correction is explicit ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:900});await page.goto('/seasons?role=admin&scenario=season-invalid');
+  await expect(page.getByRole('alert')).toContainText('Date da correggere');
+  await page.getByRole('button',{name:'Modifica date stagione 2026/2027',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Modifica date stagione',exact:true});
+  await expect(dialog.getByRole('button',{name:'Salva date',exact:true})).toBeDisabled();
+  await dialog.getByLabel('Data fine',{exact:true}).fill('2028-06-30');
+  await expect(dialog.getByRole('button',{name:'Salva date',exact:true})).toBeEnabled();
+  const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);expect(layout.renderError).toBe(false);
+});
 for(const width of [320,390,768,1024])test(`Complete club audit shows missing registries ${width}px`,async({page})=>{
   await page.setViewportSize({width,height:900});await page.goto('/seasons?role=admin');
   const panel=page.getByRole('region',{name:'Verifica completa dati società',exact:true});

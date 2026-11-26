@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useDownloadArtifact } from "@/hooks/use-download-artifact";
 import {ClubDataAuditPanel} from "@/components/club-data-audit";
+import {seasonDateError} from "@workspace/api-zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -35,7 +36,7 @@ async function apiFetch(url: string, options?: RequestInit) {
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {const detail=await res.json().catch(()=>null);throw new Error(typeof detail?.error==="string"?detail.error:"Operazione non riuscita.");}
   if (res.status === 204) return null;
   return res.json();
 }
@@ -46,7 +47,7 @@ function formatDate(d: string) {
 }
 
 function SeasonCard({
-  season, canManage, onSetActive, onArchive, onDelete, onDownload, isDownloading,
+  season, canManage, onSetActive, onArchive, onDelete, onDownload, onEditDates, isDownloading,
 }: {
   season: Season;
   canManage: boolean;
@@ -54,15 +55,16 @@ function SeasonCard({
   onArchive: () => void;
   onDelete: () => void;
   onDownload: () => void;
+  onEditDates: () => void;
   isDownloading: boolean;
 }) {
   return (
     <Card className={`transition-all ${season.isActive ? "border-primary/60 shadow-md bg-primary/[0.02]" : season.isArchived ? "opacity-80 bg-muted/20" : ""}`}>
       <CardHeader className="pb-2 pt-4 px-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 basis-full items-center gap-2 flex-wrap">
             {season.isActive && <Star className="w-4 h-4 text-amber-500 fill-amber-500 flex-shrink-0" />}
-            <CardTitle className="text-lg">{season.name}</CardTitle>
+            <CardTitle className="break-words text-lg">{season.name}</CardTitle>
             {season.isActive && (
               <Badge className="bg-green-100 text-green-700 border border-green-200 text-xs font-medium">
                 Attiva
@@ -75,7 +77,8 @@ function SeasonCard({
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex max-w-full flex-wrap items-center gap-1.5">
+            {canManage&&<Button size="sm" variant="outline" className="h-7 text-xs" onClick={onEditDates} aria-label={`Modifica date stagione ${season.name}`}>Modifica date</Button>}
             {canManage && !season.isActive && !season.isArchived && (
               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onSetActive}>
                 Imposta attiva
@@ -117,12 +120,13 @@ function SeasonCard({
         </div>
       </CardHeader>
       <CardContent className="px-5 pb-4">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <CalendarDays className="w-3.5 h-3.5" />
           <span>{formatDate(season.startDate)}</span>
           <span className="text-muted-foreground/40">→</span>
           <span>{formatDate(season.endDate)}</span>
         </div>
+        {seasonDateError(season.startDate,season.endDate)&&<p role="alert" className="mt-2 text-sm text-destructive">Date da correggere: {seasonDateError(season.startDate,season.endDate)}</p>}
       </CardContent>
     </Card>
   );
@@ -139,6 +143,7 @@ export default function SeasonsPage() {
   const [endDate, setEndDate] = useState("");
   const [isActive, setIsActive] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [editingDates,setEditingDates]=useState<{id:number;name:string;startDate:string;endDate:string}|null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupNotice, setBackupNotice] = useState<{ error: boolean; message: string }>();
@@ -187,7 +192,7 @@ export default function SeasonsPage() {
       resetForm();
       toast({ title: "Stagione creata" });
     },
-    onError: () => toast({ title: "Errore", variant: "destructive" }),
+    onError: (error:Error) => toast({ title: "Stagione non creata", description:error.message,variant: "destructive" }),
   });
 
   const patchMutation = useMutation({
@@ -195,9 +200,10 @@ export default function SeasonsPage() {
       apiFetch(`/api/seasons/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/seasons"] });
+      setEditingDates(null);
       toast({ title: "Stagione aggiornata" });
     },
-    onError: () => toast({ title: "Errore", variant: "destructive" }),
+    onError: (error:Error) => toast({ title: "Modifiche non salvate",description:error.message,variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -237,6 +243,7 @@ export default function SeasonsPage() {
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!name || !startDate || !endDate) return;
+    const invalid=seasonDateError(startDate,endDate);if(invalid){toast({title:"Date da correggere",description:invalid,variant:"destructive"});return;}
     createMutation.mutate({ name, startDate, endDate, isActive });
   }
 
@@ -315,6 +322,7 @@ export default function SeasonsPage() {
                 if (confirm(`Eliminare la stagione "${s.name}"? L'operazione è irreversibile.`))
                   deleteMutation.mutate(s.id);
               }}
+              onEditDates={() => {patchMutation.reset();setEditingDates({id:s.id,name:s.name,startDate:s.startDate,endDate:s.endDate});}}
               onDownload={() => handleDownload(s)}
               isDownloading={downloadingId === s.id}
             />
@@ -347,7 +355,8 @@ export default function SeasonsPage() {
                     if (confirm(`Eliminare definitivamente la stagione "${s.name}"?`))
                       deleteMutation.mutate(s.id);
                   }}
-                  onDownload={() => handleDownload(s)}
+                  onEditDates={() => {patchMutation.reset();setEditingDates({id:s.id,name:s.name,startDate:s.startDate,endDate:s.endDate});}}
+              onDownload={() => handleDownload(s)}
                   isDownloading={downloadingId === s.id}
                 />
               ))}
@@ -369,6 +378,18 @@ export default function SeasonsPage() {
       )}
 
       {/* Create dialog */}
+      <Dialog open={!!editingDates} onOpenChange={value=>{if(!value&&!patchMutation.isPending)setEditingDates(null);}}>
+        <DialogContent className="sm:max-w-[420px]"><DialogHeader><DialogTitle>Modifica date stagione</DialogTitle></DialogHeader>
+          {editingDates&&<form className="space-y-4" onSubmit={event=>{event.preventDefault();if(!seasonDateError(editingDates.startDate,editingDates.endDate))patchMutation.mutate({id:editingDates.id,data:{startDate:editingDates.startDate,endDate:editingDates.endDate}});}}>
+            <p className="break-words text-sm">{editingDates.name}</p>
+            <label className="block text-sm">Data inizio<Input type="date" required value={editingDates.startDate} onChange={event=>setEditingDates({...editingDates,startDate:event.target.value})}/></label>
+            <label className="block text-sm">Data fine<Input type="date" required min={editingDates.startDate} value={editingDates.endDate} onChange={event=>setEditingDates({...editingDates,endDate:event.target.value})}/></label>
+            {seasonDateError(editingDates.startDate,editingDates.endDate)&&<p role="alert" className="text-sm text-destructive">{seasonDateError(editingDates.startDate,editingDates.endDate)}</p>}
+            {patchMutation.isError&&<p role="alert" className="text-sm text-destructive">{patchMutation.error.message}</p>}
+            <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" disabled={patchMutation.isPending} onClick={()=>setEditingDates(null)}>Annulla</Button><Button type="submit" disabled={patchMutation.isPending||!!seasonDateError(editingDates.startDate,editingDates.endDate)}>Salva date</Button></div>
+          </form>}
+        </DialogContent>
+      </Dialog>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
@@ -376,8 +397,9 @@ export default function SeasonsPage() {
           </DialogHeader>
           <form onSubmit={handleCreate} className="space-y-4 pt-2">
             <div className="space-y-2">
-              <Label>Nome stagione</Label>
+              <Label htmlFor="season-name">Nome stagione</Label>
               <Input
+                id="season-name"
                 value={name}
                 onChange={e => setName(e.target.value)}
                 placeholder="Es. 2026/2027"
@@ -386,23 +408,24 @@ export default function SeasonsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Data inizio</Label>
-                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required />
+                <Label htmlFor="season-start">Data inizio</Label>
+                <Input id="season-start" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required />
               </div>
               <div className="space-y-2">
-                <Label>Data fine</Label>
-                <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required />
+                <Label htmlFor="season-end">Data fine</Label>
+                <Input id="season-end" type="date" min={startDate||undefined} value={endDate} onChange={e => setEndDate(e.target.value)} required />
               </div>
             </div>
             <div className="flex items-center gap-3">
               <Switch checked={isActive} onCheckedChange={setIsActive} id="is-active" />
               <Label htmlFor="is-active">Imposta come stagione attiva</Label>
             </div>
+            {startDate&&endDate&&seasonDateError(startDate,endDate)&&<p role="alert" className="text-sm text-destructive">{seasonDateError(startDate,endDate)}</p>}
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="ghost" onClick={() => { setOpen(false); resetForm(); }}>
                 Annulla
               </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
+              <Button type="submit" disabled={createMutation.isPending||!!seasonDateError(startDate,endDate)}>
                 {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 Crea
               </Button>
