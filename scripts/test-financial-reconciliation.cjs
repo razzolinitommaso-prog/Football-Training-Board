@@ -20,6 +20,7 @@ createRequire(web.resolve("vite"))("esbuild").buildSync({
   platform: "node",
   format: "cjs",
   packages: "external",
+  alias: {"@workspace/api-zod":path.join(root,"lib/api-zod/src/financial-reconciliation.ts")},
 });
 const m = new Module(out, module);
 m.filename = out;

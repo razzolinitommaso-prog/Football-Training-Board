@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useDownloadArtifact } from "@/hooks/use-download-artifact";
+import {ClubDataAuditPanel} from "@/components/club-data-audit";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -246,6 +247,7 @@ export default function SeasonsPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       {/* Header */}
+      {canBackup&&<ClubDataAuditPanel key={JSON.stringify([club?.id,user?.id,role,profileKey,section])}/>}
       {canBackup && <section className="rounded-xl border bg-card p-4 space-y-2" aria-label="Backup dati società">
         <h2 className="font-semibold">Backup dati società · tutte le stagioni</h2>
         <p className="text-sm text-muted-foreground">Include registri, storico e allegati conservati nel database della società, anche dei giocatori archiviati. Credenziali e sessioni escluse. I collegamenti a file esterni sono elencati nel manifesto: i relativi file vanno conservati separatamente.</p>

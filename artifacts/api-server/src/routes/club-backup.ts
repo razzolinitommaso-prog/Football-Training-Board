@@ -6,8 +6,25 @@ import type { PoolClient } from "pg";
 import { pool } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
 import { canBackupClub, clubBackup } from "../lib/club-backup";
+import {auditClubData} from "../lib/club-data-audit";
+import {trainingLocalDate} from "@workspace/api-zod";
 
 const router = Router();
+router.get("/club-backup/audit",requireAuth,async(req,res)=>{
+  if(!canBackupClub(req.session.role)){res.status(403).json({error:"Verifica completa riservata a Presidente e Amministratore"});return;}
+  res.setHeader("Cache-Control","no-store");
+  let client:PoolClient|undefined;
+  try{
+    client=await pool.connect();
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    await client.query("SET LOCAL statement_timeout='60s'");
+    const report=await auditClubData(clubBackup(client,req.session.clubId!),req.session.clubId!,trainingLocalDate());
+    await client.query("COMMIT");res.json(report);
+  }catch{
+    await client?.query("ROLLBACK").catch(()=>{});
+    res.status(500).json({error:"Verifica completa non riuscita. Nessun dato modificato.",code:"CLUB_AUDIT_FAILED"});
+  }finally{client?.release();}
+});
 router.get("/club-backup", requireAuth, async (req, res) => {
   if (!canBackupClub(req.session.role)) { res.status(403).json({ error: "Backup completo riservato a Presidente e Amministratore" }); return; }
   let client: PoolClient | undefined;

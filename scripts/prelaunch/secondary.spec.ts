@@ -17,6 +17,18 @@ for(const width of [390,1024]) test(`Motor tests retain past results and offer P
 import { createRequire } from "node:module";
 import {readFile} from "node:fs/promises";
 const XLSX = createRequire(process.cwd()+"/artifacts/football-training-board/package.json")("xlsx");
+for(const width of [320,390,768,1024])test(`Complete club audit shows missing registries ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:900});await page.goto('/seasons?role=admin');
+  const panel=page.getByRole('region',{name:'Verifica completa dati società',exact:true});
+  await panel.getByRole('button',{name:'Verifica dati completi',exact:true}).click();
+  await expect(panel).toContainText('12 tabelle');await expect(panel).toContainText('Registro non disponibile: verifica incompleta');
+  await expect(panel).toContainText('File scaricato sul dispositivo: integrità non verificata');
+  const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);expect(layout.renderError).toBe(false);
+});
+test('Complete club audit reports a server failure',async({page})=>{
+  await page.goto('/seasons?role=admin&scenario=audit-failure');const panel=page.getByRole('region',{name:'Verifica completa dati società',exact:true});
+  await panel.getByRole('button',{name:'Verifica dati completi',exact:true}).click();await expect(panel.getByRole('alert')).toContainText('Verifica non disponibile');
+});
 for(const width of [390,1024])test(`Backup retains explicit download link ${width}px`,async({page})=>{
   await page.setViewportSize({width,height:900});
   await page.goto('/seasons?role=admin&scenario=backup-download');

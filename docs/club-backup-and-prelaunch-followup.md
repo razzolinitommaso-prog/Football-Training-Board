@@ -91,3 +91,13 @@ Il potenziale KIT espone quantità mancanti, prezzo minimo di riferimento, subto
 Eseguiti test di quadratura, round trip del Blob Excel a sette fogli, dettaglio KIT e regressione backup con database isolato. Nell’anteprima CUA verificati collegamenti e layout a 320/390/768 px, nonché l’avviso su risposta di formato errato. Aggiunte regressioni CI per i collegamenti di download, contenuto Excel e file backup errato. I controlli CI di queste nuove modifiche richiedono un proprio esito.
 
 Il recupero del download nel browser collegato non ha consegnato file locali, anche con una fixture sintetica. Non equivale a un fallimento dimostrato del download in ogni browser, né a un file realmente salvato. Il backup reale e il workbook reale devono essere salvati sul dispositivo e poi verificati. Restano aperti audit integrale del backup, verifica nominativa/articolo dei dati reali e dispositivi fisici. Le segnalazioni di possibili duplicati non provocano cancellazioni automatiche.
+
+## Verifica completa direttamente in Stagioni
+
+Presidente e Amministratore possono usare **Verifica dati completi** senza scaricare un file. La nuova API `/api/club-backup/audit` consuma tutto lo snapshot nella stessa transazione `REPEATABLE READ READ ONLY`, ne ricalcola conteggi e SHA-256 e confronta i riferimenti tra tabelle incluse. Conserva per i calcoli economici soltanto i registri necessari; non salva copie dei documenti e non modifica registrazioni.
+
+Le quadrature sono condivise tra pagina Pagamenti, Excel e controllo completo attraverso una libreria pura comune. Registri mancanti restano esplicitamente incompleti, anche se gli array restituiti sono vuoti. I movimenti TEST sono esclusi dai totali economici; quelli degli archiviati restano nel registro. I possibili duplicati e i riferimenti mancanti sono segnalati, senza rettifiche automatiche.
+
+Il controllo dello snapshot sul server non dimostra che il file scaricato sia integro sul dispositivo. Per quel file restano necessari il verificatore locale e la conservazione separata dei contenuti esterni. Il controllo non riconcilia banca/cassa e non ricostruisce il significato contrattuale di descrizioni ambigue.
+
+Regressioni: diniego dei ruoli non abilitati, isolamento società ignorando un parametro esterno, firme/hash errati, riferimenti fuori dal perimetro esportato, registri assenti e risposta di errore senza diagnostica riservata. UI con dati sintetici verificata a 320/390/768 px, con avviso di fonte mancante e errore server. La disponibilità del comando in una nuova versione non costituisce da sola un esito del controllo sui dati reali: tale esito va registrato separatamente.

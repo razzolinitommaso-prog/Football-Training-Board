@@ -154,6 +154,11 @@ export async function mockResponse(
     );
   const pageParams=new URLSearchParams(location.search);
   const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario");
+  if(p==="/api/club-backup/audit"){
+    if(scenario==="audit-failure")return Response.json({code:"CLUB_AUDIT_FAILED"},{status:500});
+    const costs={due:10000,paid:3000,residual:7000,balanced:true,issues:[],available:true,records:1,receipts:1};
+    return Response.json({clubId:999,asOf:"2026-11-26",tables:12,rows:40,integrity:true,externalReferences:2,scope:"Snapshot sintetico di collaudo; tutte le stagioni.",income:{available:true,records:2,missingPlayers:0,registered:37000,paid:19000,pending:18000,overdue:0,residual:18000,balanced:true,issues:[]},members:costs,senior:{...costs,available:false,records:0,receipts:0,due:0,paid:0,residual:0},references:{checked:30,missing:0,issues:[]},warnings:["Il file sul dispositivo richiede una verifica separata."]});
+  }
   if(scenario==="motor-multiday"){
     const scheduledAt=new Date().toISOString().slice(0,10)+"T16:00:00Z";
     const session={id:910,clubId:999,teamId:11,title:"Recupero test motori",scheduledAt,durationMinutes:75,status:"scheduled",sessionKind:"regular",notes:"",createdByUserId:1,location:"Campo test",sessionNumber:1};

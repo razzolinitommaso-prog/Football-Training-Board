@@ -42,6 +42,17 @@ const root=path.resolve(__dirname,'..'),web=createRequire(path.join(root,'artifa
     assert(!text.includes('HASH_A'));assert(!text.includes('secretA'));assert(!text.includes('privateB'));assert(!text.includes('Kit B'));assert(!text.includes('b@example.test'));assert(text.includes('Kit A'));assert(text.includes('retired_definitive'));assert(text.includes('QUJD'));
     const zipped=gzipSync(text);fs.writeFileSync(path.join(dir,'backup.ndjson.gz'),zipped);
     const result=await verifyBackup(Readable.from([gunzipSync(zipped)]));assert.equal(result.valid,true);assert.equal(result.externalReferences,2);
+    await createRequire(web.resolve('vite'))('esbuild').build({entryPoints:[path.join(root,'artifacts/api-server/src/lib/club-data-audit.ts')],outfile:path.join(dir,'audit.cjs'),bundle:true,platform:'node',format:'cjs'});
+    const {auditClubData}=require(path.join(dir,'audit.cjs'));
+    const auditText=()=>auditClubData((async function*(){yield text;})(),1,'2026-11-26');
+    const fullAudit=await auditText();assert.equal(fullAudit.integrity,true);assert.equal(fullAudit.income.records,27);assert.equal(fullAudit.income.registered,15500);assert.equal(fullAudit.members.available,false);assert.equal(fullAudit.references.missing,0);assert(fullAudit.references.checked>0);
+    await pg.exec('BEGIN; INSERT INTO player_payments VALUES(9901,1,2,7)');
+    let crossScope='';for await(const chunk of clubBackup(reader,1))crossScope+=chunk;
+    const orphanAudit=await auditClubData((async function*(){yield crossScope;})(),1,'2026-11-26');
+    assert.equal(orphanAudit.integrity,true);assert.equal(orphanAudit.income.missingPlayers,1);assert.equal(orphanAudit.references.missing,1);assert.equal(orphanAudit.income.registered,16200);
+    await pg.exec('ROLLBACK');
+    await assert.rejects(()=>auditClubData((async function*(){yield text.replace('Kit A','Kit X');})(),1,'2026-11-26'),/Integrità/);
+    await assert.rejects(()=>auditClubData((async function*(){yield text;})(),2,'2026-11-26'),/Intestazione/);
     const records=text.trim().split('\n').map(JSON.parse);assert.equal(records.filter(r=>r.type==='rows'&&r.table==='player_payments').flatMap(r=>r.rows).length,27);assert(text.includes('nested.pdf'));assert(!text.includes('OTHER_CLUB'));assert(!records[0].tables.includes('player_summary'));
     const audit=await require('./audit-club-backup.cjs').auditBackup(path.join(dir,'backup.ndjson.gz'),'2026-11-21');assert.equal(audit.income.registered,15500);assert.equal(audit.income.records,27);assert.equal(audit.members.available,false);assert(audit.income.issues.length>0);
     await assert.rejects(()=>verifyBackup(Readable.from([text.slice(0,text.lastIndexOf('{"type":"manifest"'))])),/incompleto/);
@@ -55,6 +66,9 @@ const root=path.resolve(__dirname,'..'),web=createRequire(path.join(root,'artifa
     const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
     try {
       const url='http://127.0.0.1:'+server.address().port+'/club-backup';
+      assert.equal((await fetch(url+'/audit')).status,401);
+      for(const role of ['parent','coach','secretary','director','technical_director'])assert.equal((await fetch(url+'/audit',{headers:{'x-role':role}})).status,403);
+      const completeResponse=await fetch(url+'/audit?clubId=2',{headers:{'x-role':'presidente','x-club':'1'}});assert.equal(completeResponse.status,200);assert.equal(completeResponse.headers.get('cache-control'),'no-store');const completeReport=await completeResponse.json();assert.equal(completeReport.clubId,1);assert.equal(completeReport.income.registered,15500);assert.equal(completeReport.references.missing,0);assert(!JSON.stringify(completeReport).includes('HASH_A'));
       assert.equal((await fetch(url)).status,401);
       for(const role of ['parent','coach','secretary','director','technical_director'])assert.equal((await fetch(url,{headers:{'x-role':role}})).status,403);
       const response=await fetch(url,{headers:{'x-role':'presidente'}});assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
@@ -64,6 +78,7 @@ const root=path.resolve(__dirname,'..'),web=createRequire(path.join(root,'artifa
       assert.equal(failure.status,500,'Metadata failures return JSON rather than destroying the response');
       assert.equal(failure.headers.get('content-disposition'),null);
       const failureBody=await failure.json();assert.equal(failureBody.code,'BACKUP_PREPARATION_FAILED');
+      const auditFailure=await fetch(url+'/audit',{headers:{'x-role':'presidente'}});assert.equal(auditFailure.status,500);assert.equal((await auditFailure.json()).code,'CLUB_AUDIT_FAILED');
       assert(!JSON.stringify(failureBody).includes('PRIVATE_SQL_DIAGNOSTIC'));
       globalThis.backupTestPg=reader;
     } finally {await new Promise(r=>server.close(r));delete globalThis.backupTestPg;}

@@ -49,6 +49,7 @@ export async function* clubBackup(reader: BackupReader, clubId: number) {
   }
   const selected = [...tables.keys()].filter(name => condition(name, "r"));
   yield JSON.stringify({ type: "header", format: "ftb-club-backup", version: 1, clubId, exportedAt: new Date().toISOString(), scope: "all-seasons", tables: selected,
+    relationships: links.filter(link=>selected.includes(link.child)&&selected.includes(link.parent)&&![...link.columns,...link.targets].some(column=>secret.test(column))),
     exclusions: [...tables.keys()].filter(name => !selected.includes(name)),
     credentialsIncluded: false, attachmentPolicy: "Contenuti salvati nel database inclusi senza trasformazioni; riferimenti esterni elencati nel manifesto, non scaricati." }) + "\n";
   const manifest: { table: string; rows: number; sha256: string; omittedColumns: string[] }[] = [];
