@@ -1,29 +1,29 @@
 {
   "checkedOn": "2026-11-27",
-  "runId": 45900932599,
-  "url": "https://github.com/razzolinitommaso-prog/Football-Training-Board/actions/runs/45900932599",
-  "commit": "3f5344e4d8a395fa25829c94ad37075ccdea8826",
+  "runId": 45957998083,
+  "url": "https://github.com/razzolinitommaso-prog/Football-Training-Board/actions/runs/45957998083",
+  "commit": "185f3f48aec4a4af5e7af868d5118b222e20f2a7",
   "conclusion": "success",
   "data": "synthetic",
   "source": "GitHub public Actions REST API",
   "jobs": [
     {
-      "id": 140186226965,
-      "conclusion": "success",
+      "id": 140368860756,
+      "name": "verify-webkit",
       "status": "completed",
-      "name": "verify-chromium"
+      "conclusion": "success"
     },
     {
-      "id": 140186227233,
-      "conclusion": "success",
+      "id": 140368861061,
+      "name": "verify-chromium",
       "status": "completed",
-      "name": "verify-webkit"
+      "conclusion": "success"
     },
     {
-      "id": 140186227330,
-      "conclusion": "success",
+      "id": 140368861117,
+      "name": "verify-firefox",
       "status": "completed",
-      "name": "verify-firefox"
+      "conclusion": "success"
     }
   ],
   "scope": "Completed run for this commit only; newer changes require their own CI outcome. No deploy check."

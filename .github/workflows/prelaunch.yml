@@ -1,10 +1,10 @@
 name: Prelaunch finance and responsive
 on:
   pull_request:
-    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/lib/club-data-audit.ts','artifacts/api-server/src/routes/club-backup.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
+    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/lib/club-data-audit.ts','artifacts/api-server/src/routes/club-backup.ts','artifacts/api-server/src/routes/players.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','scripts/test-kit-potential-detail.cjs','scripts/test-match-rotation-access.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
   push:
     branches: [main]
-    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/lib/club-data-audit.ts','artifacts/api-server/src/routes/club-backup.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
+    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/lib/club-data-audit.ts','artifacts/api-server/src/routes/club-backup.ts','artifacts/api-server/src/routes/players.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','scripts/test-kit-potential-detail.cjs','scripts/test-match-rotation-access.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -29,6 +29,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test:finance
       - run: node scripts/test-club-backup.cjs
+      - run: node scripts/test-match-rotation-access.cjs @electric-sql/pglite --withdrawals
+        if: matrix.browser == 'chromium'
       - run: pnpm run build:web
       - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
       - run: pnpm run test:prelaunch --project=${{ matrix.browser }}

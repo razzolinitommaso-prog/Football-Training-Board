@@ -1,4 +1,4 @@
-import { isOperationalPlayer } from "@workspace/api-zod";
+import { isOperationalPlayer, canViewUnavailablePlayersAlert } from "@workspace/api-zod";
 import { CallupRulesCard } from "@/components/dashboard/CallupRulesCard";
 import { paymentViewRoles } from "@/lib/payment-summary";
 import { PlayerTestsDashboard } from "@/components/dashboard/PlayerTestsDashboard";
@@ -466,6 +466,7 @@ function notificationKey(notification: Pick<ClubNotification, "id" | "source">) 
 }
 
 function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof useLanguage>["t"]) {
+  if (reason === "payment") return t.payments;
   if (reason === "illness") return t.illness;
   if (reason === "injury") return t.injuryReason;
   if (reason === "vacation") return t.vacationReason;
@@ -2192,14 +2193,21 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
   );
   const unreadRecipientNotesCount = recipientNoteNotifications.filter((n) => !n.isRead).length;
 
-  const showUnavailableAlert = !alertDismissed && (
-    nr === "coach" || nr === "technical_director" || nr === "fitness_coach" ||
-    nr === "admin" || nr === "presidente" || nr === "athletic_director"
-  );
-
-  const unavailablePlayers = (allPlayers as any[] | undefined)?.filter(
-    (p: any) => !["inactive", "withdrawn"].includes(p.status) && p.available === false
-  ) ?? [];
+  const canViewUnavailableAlert = canViewUnavailablePlayersAlert(nr);
+  const { data: unavailableAlertData = [], isError: unavailableAlertError, refetch: retryUnavailableAlert } = useQuery<any[]>({
+    queryKey: ["/api/players/unavailable-alerts", clubIdNum, user?.id, nr, dashboardSectionsKey],
+    queryFn: async () => {
+      const urls = dashboardSections.length
+        ? dashboardSections.map(section => `/api/players/unavailable-alerts?section=${encodeURIComponent(section)}`)
+        : ["/api/players/unavailable-alerts"];
+      const rows = (await Promise.all(urls.map(url => fetchJsonOrThrow<any[]>(url)))).flat();
+      return Array.from(new Map(rows.map(player => [player.id, player])).values());
+    },
+    enabled: Boolean(user && canViewUnavailableAlert),
+  });
+  const showUnavailableAlert = canViewUnavailableAlert && !alertDismissed;
+  const visiblePlayerIds = new Set(allPlayers.map(player => Number(player.id)));
+  const unavailablePlayers = canViewUnavailableAlert ? unavailableAlertData.filter(player => visiblePlayerIds.has(Number(player.id))) : [];
 
   const unavailablePlayersByAnnata = useMemo(() => {
     const groups = new Map<string, any[]>();
@@ -4120,8 +4128,9 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
       )}
 
       {/* Unavailable Players Alert */}
+      {showUnavailableAlert && unavailableAlertError && <div role="alert" className="rounded-xl border p-4 text-sm">Elenco indisponibili non disponibile. <Button variant="outline" size="sm" onClick={() => void retryUnavailableAlert()}>Riprova elenco indisponibili</Button></div>}
       {showUnavailableAlert && unavailablePlayers.length > 0 && (
-        <div className="relative bg-amber-50 border border-amber-200 rounded-xl p-4 dark:bg-amber-950/30 dark:border-amber-800 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div role="region" aria-label="Avviso giocatori indisponibili" className="relative bg-amber-50 border border-amber-200 rounded-xl p-4 dark:bg-amber-950/30 dark:border-amber-800 animate-in fade-in slide-in-from-top-2 duration-300">
           <Button
             variant="ghost"
             size="icon"

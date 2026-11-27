@@ -675,6 +675,19 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         INSERT INTO player_payments(id,club_id,player_id,amount,status,due_date)
           VALUES (6001,1,101,20,'pending','2020-01-01'), (6002,1,101,30,'overdue','2020-01-01'), (6003,1,102,70,'paid','2020-01-01');`);
       const admin = { "x-role": "admin" };
+      const unavailableAlerts = "/players/unavailable-alerts";
+      for (const role of ["coach","fitness_coach","athletic_director","team_manager","secretary","parent"]) {
+        assert.equal((await call(unavailableAlerts, {"x-role":role})).status,403,role);
+      }
+      await pg.exec("UPDATE players SET available=false, unavailability_reason='payment' WHERE id=101");
+      for (const role of ["admin","presidente","director","sporting_director","technical_director"]) {
+        const alertRows=await call(unavailableAlerts,{"x-role":role});
+        assert.equal(alertRows.status,200,role+JSON.stringify(alertRows.data));
+        assert.ok(alertRows.data.some(row=>row.id===101),role);
+        assert.ok(alertRows.data.every(row=>!('phone' in row)&&!('notes' in row)&&!('height' in row)));
+      }
+      assert.ok(!(await call(unavailableAlerts,{'x-role':'admin','x-club':'2'})).data.some(row=>row.id===101));
+      await pg.exec("UPDATE players SET available=true, unavailability_reason=NULL WHERE id=101");
       const ledger = "/player-payments/overdue-players?seasonId=12001";
       assert.equal((await call(ledger, { "x-role": "coach" })).status, 403);
       const before = await call(ledger, admin);

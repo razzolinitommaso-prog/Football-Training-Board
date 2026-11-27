@@ -18,3 +18,13 @@ result=estimate([{id:11,playerId:2,paymentType:'kit_payment',amount:30,status:'p
 assert.equal(result.toVerify,1);assert.equal(result.withoutKit,1);assert.equal(result.cents,800);
 assert.equal(result.breakdown.find(line=>line.key==='training_shirt').quantity,1);
 console.log('PASS KIT detail: subtotal, missing prices, free articles, lowest active price, linked receipts and ambiguous receipts');
+const winter=estimateKitPotential([1],[],[
+  {id:20,name:'Pinocchietto invernale',category:'Pinocchietto invernale',price:12.5,itemType:'kit'},
+  {id:21,name:'Tuta invernale allenamento',price:37.5,itemType:'kit'},
+],[],[]);
+assert.equal(winter.breakdown.find(line=>line.key==='winter_pinocchietto').unitCents,1250);
+assert.equal(winter.breakdown.find(line=>line.key==='winter_tracksuit').unitCents,3750);
+assert.equal(winter.cents,5000);
+const excluded=estimateKitPotential([1],[],[{id:22,name:'Pinocchietto invernale',price:12.5,kitSlots:[]}],[],[]);
+assert.equal(excluded.breakdown.find(line=>line.key==='winter_pinocchietto').unitCents,null,'explicit empty links must remain authoritative');
+console.log('PASS canonical winter catalog categories and explicit exclusions');

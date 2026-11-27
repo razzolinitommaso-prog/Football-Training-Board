@@ -154,6 +154,7 @@ export async function mockResponse(
     );
   const pageParams=new URLSearchParams(location.search);
   const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario");
+  if(p==="/api/players/unavailable-alerts")return Response.json(scenario==="unavailable-alert"?[{id:101,firstName:player.firstName,lastName:player.lastName,teamId:11,teamName:team.name,unavailabilityReason:"payment",expectedReturn:null}]:[]);
   if(p==="/api/club-backup/audit"){
     if(scenario==="audit-failure")return Response.json({code:"CLUB_AUDIT_FAILED"},{status:500});
     const costs={due:10000,paid:3000,residual:7000,balanced:true,issues:[],available:true,records:1,receipts:1};

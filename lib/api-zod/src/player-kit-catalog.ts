@@ -53,6 +53,8 @@ function normalize(value?: string | null): string {
 // Suggestions for catalogs created before explicit links were available.
 export function suggestKitSlots(item: KitCatalogItem): string[] {
   const name = normalize(item.name);
+  // This is the canonical warehouse category, without the word "allenamento".
+  if (name === "pinocchietto invernale" || normalize(item.category) === "pinocchietto invernale") return ["winter_pinocchietto"];
   const description = `${name} ${normalize(item.category)}`;
   if (description.includes("rappresentanza")) {
     if (/^pantalone\b/.test(name)) return [REPRESENTATION_COMPONENTS[0].key];

@@ -1,4 +1,4 @@
-import { isArchivedPlayer } from "@workspace/api-zod";
+import { isArchivedPlayer, canViewUnavailablePlayersAlert } from "@workspace/api-zod";
 import { trainingOnlyAvailabilityOverride, WITHDRAWN_PLAYER_STATUS } from "@workspace/api-zod";
 import { activationContact, activationScope, activations, deliverActivation, ensureAccountActivations, issueActivation } from "../lib/account-activation";
 import { TRAINING_TRIAL_STATUS } from "../lib/training-trials";
@@ -808,7 +808,12 @@ async function enrichPlayer(player: typeof playersTable.$inferSelect, role: unkn
   };
 }
 
-router.get("/players", requireAuth, async (req, res): Promise<void> => {
+router.get(["/players", "/players/unavailable-alerts"], requireAuth, async (req, res): Promise<void> => {
+  const alertsOnly = req.path === "/players/unavailable-alerts";
+  if (alertsOnly && !canViewUnavailablePlayersAlert(req.session.role)) {
+    res.status(403).json({ error: "Avviso riservato alla direzione della società" });
+    return;
+  }
   const ids = requireClubAndUserIds(req);
   if (!ids) {
     res.status(400).json({ error: "Club context required" });
@@ -913,6 +918,15 @@ router.get("/players", requireAuth, async (req, res): Promise<void> => {
       requestedMatchDate: conflict.requestedMatchDate,
     };
   }));
+  if (alertsOnly) {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(enriched.filter(player => !isArchivedPlayer(player) && !player.isTest && player.available === false).map(player => ({
+      id: player.id, firstName: player.firstName, lastName: player.lastName,
+      teamId: player.teamId, teamName: player.teamName,
+      unavailabilityReason: player.unavailabilityReason, expectedReturn: player.expectedReturn,
+    })));
+    return;
+  }
   res.json(ListPlayersResponse.parse(enriched));
 });
 
