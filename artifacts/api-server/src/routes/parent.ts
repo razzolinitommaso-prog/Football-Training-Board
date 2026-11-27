@@ -763,6 +763,7 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
       parentAvailabilityDeadline: deadline.toISOString(),
       parentAvailabilityLocked: new Date() > deadline,
       parentAvailabilityCanWithdraw: new Date() < kickoff,
+      parentAvailabilityCanEdit: new Date() < kickoff,
     };
   }));
 
@@ -883,9 +884,9 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
   const kickoff = match.isPostponed && match.rescheduleDate ? match.rescheduleDate : match.date;
   const deadline = parentAvailabilityDeadline(kickoff);
   const now = new Date();
-  const lateWithdrawal = now > deadline && status === "unavailable" && now < kickoff;
-  if (now > deadline && !lateWithdrawal) {
-    res.status(409).json({ error: now >= kickoff ? "La partita è già iniziata: contatta lo staff per una rettifica." : "Dopo il termine puoi ancora comunicare Non più disponibile, indicando il motivo. Una nuova disponibilità va concordata con lo staff." }); return;
+  const lateChange = now > deadline && ["available", "unavailable"].includes(status) && now < kickoff;
+  if (now > deadline && !lateChange) {
+    res.status(409).json({ error: now >= kickoff ? "La partita è già iniziata: contatta lo staff per una rettifica." : "Scegli Disponibile oppure Non disponibile. Le modifiche dopo la scadenza vengono segnalate allo staff." }); return;
   }
 
   await ensureParentAvailabilityColumns();
@@ -927,13 +928,13 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
     record = rows[0];
   }
   const previousStatus = existing?.parentAvailabilityStatus ?? existing?.status;
-  if (lateWithdrawal && previousStatus !== "unavailable" && match.teamId) {
+  if (lateChange && previousStatus !== status && match.teamId) {
     const staff = await tx.select({userId:teamStaffAssignmentsTable.userId}).from(teamStaffAssignmentsTable)
       .where(and(eq(teamStaffAssignmentsTable.clubId,clubId),eq(teamStaffAssignmentsTable.teamId,match.teamId)));
     const [team] = await tx.select({coachId:teamsTable.coachId}).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),eq(teamsTable.id,match.teamId)));
     const recipients = [...new Set([...staff.map(row=>row.userId),team?.coachId].filter((id):id is number=>typeof id === "number"))];
-    if (recipients.length) await tx.insert(clubNotificationsTable).values({clubId,title:"Disponibilità ritirata dopo la scadenza",type:"warning",targetAudience:"staff",targetRoles:[],targetUserIds:recipients,
-      message:`${player.firstName} ${player.lastName} non è più disponibile per ${match.opponent} del ${kickoff.toLocaleString("it-IT",{timeZone:"Europe/Rome"})}. Motivo: ${parentAvailabilityReasonLabel(reason)}${notes ? ` · ${notes}` : ""}. Verifica la convocazione.`});
+    if (recipients.length) await tx.insert(clubNotificationsTable).values({clubId,title:status === "available" ? "Disponibilità confermata dopo la scadenza" : "Disponibilità ritirata dopo la scadenza",type:"warning",targetAudience:"staff",targetRoles:[],targetUserIds:recipients,
+      message:`${player.firstName} ${player.lastName} ${status === "available" ? "è disponibile" : "non è più disponibile"} per ${match.opponent} del ${kickoff.toLocaleString("it-IT",{timeZone:"Europe/Rome"})}.${status === "unavailable" ? ` Motivo: ${parentAvailabilityReasonLabel(reason)}${notes ? ` · ${notes}` : ""}.` : ""} Verifica la convocazione.`});
   }
   return record;
   });

@@ -51,7 +51,7 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
   const [reason, setReason] = useState(match.parentAvailability?.reason ?? "illness");
   const [notes, setNotes] = useState(match.parentAvailability?.notes ?? "");
   const locked = match.parentAvailabilityLocked === true;
-  const canWithdraw = locked && match.parentAvailabilityCanWithdraw === true;
+  const canEditAfterDeadline = locked && match.parentAvailabilityCanEdit === true;
   const [success, setSuccess] = useState("");
 
   useEffect(() => {
@@ -62,7 +62,7 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
   async function save(status: "available" | "unavailable") {
     setError("");
     setSuccess("");
-    if (locked && !(canWithdraw && status === "unavailable")) return;
+    if (locked && !canEditAfterDeadline) return;
     setSaving(true);
     try {
       const updated = await apiFetch(`/parent/availability/${match.id}/${match.parentPlayerId}`, {
@@ -96,7 +96,7 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
         </Badge>
         <span className="text-[11px] text-muted-foreground">
           {locked ? (
-            <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3" /> {canWithdraw ? "Termine scaduto · ritiro consentito" : "Termine scaduto"}</span>
+            <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3" /> {canEditAfterDeadline ? "Termine scaduto · modifiche consentite" : "Termine scaduto"}</span>
           ) : (
             <>Modificabile fino a {fmtDeadline(match.parentAvailabilityDeadline)}</>
           )}
@@ -110,8 +110,8 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
         </p>
       )}
 
-      {canWithdraw && <p className="text-xs text-muted-foreground">Puoi ancora comunicare che tuo figlio non è più disponibile, indicando il motivo. Per tornare disponibile dopo la scadenza contatta lo staff.</p>}
-      {(!locked || canWithdraw) && (
+      {canEditAfterDeadline && <p className="text-xs text-muted-foreground">Fino all’inizio della partita puoi cambiare la risposta in entrambe le direzioni. Le modifiche dopo la scadenza vengono segnalate allo staff. La convocazione resta una scelta del mister.</p>}
+      {(!locked || canEditAfterDeadline) && (
         <div className="space-y-2">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]">
             <Select value={reason} onValueChange={setReason}>
@@ -124,13 +124,13 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
                 ))}
               </SelectContent>
             </Select>
-            <Button type="button" variant="outline" className="gap-2" disabled={saving || locked} onClick={() => void save("available")}>
+            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("available")}>
               <CheckCircle className="h-4 w-4" />
               Disponibile
             </Button>
             <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("unavailable")}>
               <XCircle className="h-4 w-4" />
-              {canWithdraw ? "Non più disponibile" : "Non disponibile"}
+              Non disponibile
             </Button>
           </div>
           {reason === "other" && (
