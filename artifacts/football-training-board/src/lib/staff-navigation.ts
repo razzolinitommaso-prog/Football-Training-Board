@@ -50,7 +50,7 @@ export function staffNavigation(role: string) {
   if (technical)
     items.push({ label: "Stazioni", url: "/exercises", icon: BookOpen });
   items.push({
-    label: role === "secretary" ? "Programmazione gare" : "Partite",
+    label: role === "secretary" ? "Supporto gare" : "Partite",
     url: role === "secretary" ? "/programmazione-gare" : "/partite",
     icon: Trophy,
   });

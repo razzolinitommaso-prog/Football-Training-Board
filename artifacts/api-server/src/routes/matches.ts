@@ -1,4 +1,5 @@
 import { isArchivedPlayer } from "@workspace/api-zod";
+import { createHash } from "node:crypto";
 import { syncMatchTournamentReply } from "../lib/parent-tournament-availability";
 import { activeMatchEligibility, callupRuleFailure, matchKickoff } from "../lib/callup-rules";
 import { ensureCallupRulesStorage, notifyChild } from "../lib/callup-rule-storage";
@@ -497,7 +498,7 @@ async function userIsAssignedToMatchTeam(userId: number, clubId: number, teamId:
 }
 
 async function userCanViewMatchPlan(userId: number, clubId: number, role: string, teamId: number | null): Promise<boolean> {
-  if (["admin", "presidente", "director", "secretary", "sporting_director"].includes(role)) return true;
+  if (["admin", "presidente", "director", "sporting_director"].includes(role)) return true;
   if (role === "technical_director") return true;
   if (!MATCH_PLAN_VIEW_ROLES.includes(role)) return false;
   return userIsAssignedToMatchTeam(userId, clubId, teamId);
@@ -525,6 +526,7 @@ async function enrichMatch(match: typeof matchesTable.$inferSelect) {
 }
 
 router.get("/match-callup-summary", requireAuth, async (req, res): Promise<void> => {
+  if(req.session.role==="secretary"){res.status(403).json({error:"Usa Supporto gare per la gestione organizzativa"});return;}
   const clubId = req.session.clubId;
   const userId = req.session.userId;
   const role = normalizeSessionRole(req.session.role);
@@ -604,7 +606,46 @@ router.get("/matches", requireAuth, async (req, res): Promise<void> => {
   }
   const matches = await db.select().from(matchesTable).where(and(...conditions)).orderBy(desc(matchesTable.date));
   const enriched = await Promise.all(matches.map(enrichMatch));
-  res.json(enriched);
+  res.json(req.session.role === "secretary" ? enriched.map(({matchPlan, preMatchNotes, postMatchNotes, result, ...schedule})=>schedule) : enriched);
+});
+
+// Parser output stays unchanged. Applying a reviewed import is atomic and retry-safe.
+router.post("/match-schedule-import",requireAuth,async(req,res)=>{
+  const clubId=req.session.clubId!,role=req.session.role??"",{id,teamId,rows}=req.body;
+  if(!MATCH_CREATE_DELETE_ROLES.includes(role)){res.status(403).json({error:"Non autorizzato a importare gare"});return;}
+  if(typeof id!=="string"||!/^[-0-9a-f]{36}$/i.test(id)||!Number.isSafeInteger(teamId)||!Array.isArray(rows)||!rows.length||rows.length>500||rows.some(r=>!r||typeof r.opponent!=="string"||!r.opponent.trim()||typeof r.date!=="string"||!Number.isFinite(Date.parse(r.date))||!["home","away"].includes(r.homeAway)||r.updateId!==undefined&&!Number.isSafeInteger(r.updateId))){res.status(400).json({error:"Controlla righe, avversari, date e squadra dell’importazione"});return;}
+  const targets=rows.filter(r=>r.updateId).map(r=>r.updateId);
+  if(new Set(targets).size!==targets.length){res.status(400).json({error:"Due righe aggiornano la stessa gara"});return;}
+  const signature=createHash("sha256").update(JSON.stringify({teamId,rows})).digest("hex");
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS match_schedule_imports(id uuid PRIMARY KEY,club_id integer NOT NULL REFERENCES clubs(id),signature text NOT NULL,match_ids jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now())`);
+  try{
+    const ids=await db.transaction(async tx=>{
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${id}))`);
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'match-import:'+clubId+':'+teamId}))`);
+      const prior=(await tx.execute(sql`SELECT * FROM match_schedule_imports WHERE id=${id}::uuid`)).rows[0];
+      if(prior){if(prior.club_id!==clubId||prior.signature!==signature)throw Error("Identificativo import già utilizzato: ricarica l’anteprima");return prior.match_ids as number[];}
+      const [team]=await tx.select().from(teamsTable).where(and(eq(teamsTable.id,teamId),eq(teamsTable.clubId,clubId)));
+      if(!team)throw Error("Squadra non valida per questa società");
+      const ids:number[]=[];
+      for(const row of rows){
+        const values={opponent:row.opponent.trim(),date:new Date(row.date),homeAway:row.homeAway,competition:row.competition??null,location:row.location??null};
+        if(row.updateId){
+          const [old]=await tx.select().from(matchesTable).where(and(eq(matchesTable.id,row.updateId),eq(matchesTable.clubId,clubId),eq(matchesTable.teamId,teamId)));
+          if(!old)throw Error("Gara da aggiornare non trovata nella squadra selezionata");
+          if(row.expectedDate&&old.date.toISOString()!==new Date(row.expectedDate).toISOString())throw Error("Una gara è cambiata: ricarica l’anteprima prima di aggiornarla");
+          await tx.update(matchesTable).set(values).where(eq(matchesTable.id,old.id));ids.push(old.id);
+        }else{
+          const [duplicate]=await tx.select({id:matchesTable.id}).from(matchesTable).where(and(eq(matchesTable.clubId,clubId),eq(matchesTable.teamId,teamId),eq(matchesTable.date,values.date),eq(matchesTable.opponent,values.opponent),eq(matchesTable.homeAway,values.homeAway)));
+          if(duplicate){ids.push(duplicate.id);continue;}
+          const [created]=await tx.insert(matchesTable).values({...values,clubId,teamId,seasonId:team.seasonId,notes:publicMatchNotesInput(row.notes)}).returning({id:matchesTable.id});ids.push(created.id);
+        }
+      }
+      await tx.execute(sql`INSERT INTO match_schedule_imports(id,club_id,signature,match_ids) VALUES(${id}::uuid,${clubId},${signature},${JSON.stringify(ids)}::jsonb)`);return ids;
+    });
+    const imported=ids.length?await db.select({id:matchesTable.id,competition:matchesTable.competition}).from(matchesTable).where(and(eq(matchesTable.clubId,clubId),inArray(matchesTable.id,ids))):[];
+    for(const match of imported)if(/^torneo\b/i.test(match.competition??""))await syncMatchTournamentReply(match.id);
+    res.json({count:ids.length});
+  }catch(e){res.status(409).json({error:e instanceof Error&&!("cause" in e)?e.message:"Importazione non completata. Riprova dalla stessa anteprima."});}
 });
 
 router.post("/matches", requireAuth, async (req, res): Promise<void> => {
@@ -638,6 +679,7 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   const clubId = req.session.clubId!;
   const { opponent, date, teamId, competition, location, homeAway, result, notes, preMatchNotes, postMatchNotes, matchPlan } = req.body;
   const updates: Record<string, unknown> = {};
+  if(role==="secretary" && [matchPlan,preMatchNotes,postMatchNotes,result].some(value=>value!==undefined)){res.status(403).json({error:"La Segreteria gestisce il programma gare, non il resoconto tecnico"});return;}
 
   const [existing] = await db.select().from(matchesTable).where(and(eq(matchesTable.id, id), eq(matchesTable.clubId, clubId)));
   if (!existing) { res.status(404).json({ error: "Match not found" }); return; }
@@ -714,7 +756,7 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
 
   if (Object.keys(updates).length === 0) {
     const enrichedCurrent = await enrichMatch(existing);
-    res.json(enrichedCurrent);
+    res.json(role === "secretary" ? (({matchPlan,preMatchNotes,postMatchNotes,result,...schedule})=>schedule)(enrichedCurrent) : enrichedCurrent);
     return;
   }
 
@@ -725,7 +767,7 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   if (!match) { res.status(404).json({ error: "Match not found" }); return; }
   if ((competition !== undefined || teamId !== undefined || date !== undefined) && /^torneo\b/i.test(match.competition ?? "")) await syncMatchTournamentReply(match.id);
   const enriched = await enrichMatch(match);
-  res.json(enriched);
+  res.json(role === "secretary" ? (({matchPlan,preMatchNotes,postMatchNotes,result,...schedule})=>schedule)(enriched) : enriched);
 });
 
 router.post("/matches/:id/report-confirmation", requireAuth, async (req, res): Promise<void> => {

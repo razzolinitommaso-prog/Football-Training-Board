@@ -184,8 +184,8 @@ for(const width of [320,768])test(`Document attachment survives failed submissio
 for(const role of ['technical_director','sporting_director','director','presidente','admin','coach','fitness_coach','athletic_director','team_manager','secretary'])test(`Unavailable dashboard alert role ${role}`,async({page})=>{
   await page.setViewportSize({width:390,height:900});await page.goto('/dashboard?role='+role+'&scenario=unavailable-alert');
   const region=page.getByRole('region',{name:'Avviso giocatori indisponibili',exact:true});
-  if(['technical_director','sporting_director','director','presidente','admin'].includes(role)){
-    await expect(region).toBeVisible();await expect(region).toContainText('Giocatori Indisponibili');
+  if(['technical_director','sporting_director','director','presidente','admin','secretary'].includes(role)){
+    await expect(region).toBeVisible();await expect(region).toContainText('Disponibilità giocatori');
   }else{
     await expect(page.locator('main')).toBeVisible();await expect(region).toHaveCount(0);
   }

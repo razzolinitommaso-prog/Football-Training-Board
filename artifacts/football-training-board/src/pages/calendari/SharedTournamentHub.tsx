@@ -54,18 +54,23 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return data;
 }
 export default function SharedTournamentHub({
-  teamId,
+  teamId: initialTeamId,
   teams,
   canManage,
   open,
   onOpenChange,
+  inlineNavigation = false,
 }: {
   teamId: number;
+  inlineNavigation?: boolean;
   teams: Team[];
   canManage: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const [localTeamId,setLocalTeamId]=useState(initialTeamId);
+  const [localTournament,setLocalTournament]=useState(0);
+  const teamId=inlineNavigation?localTeamId:initialTeamId;
   const { club, user, role } = useAuth();
   const qc = useQueryClient();
   const current = teams.find((t) => t.id === teamId);
@@ -82,7 +87,7 @@ export default function SharedTournamentHub({
   const selectedId = Number(
     new URLSearchParams(window.location.search).get("sharedTournament"),
   );
-  const selected = query.data?.find((t) => t.id === selectedId);
+  const selected = query.data?.find((t) => t.id === (inlineNavigation?localTournament:selectedId));
   const [name, setName] = useState(""),
     [location, setLocation] = useState("");
   const [phases, setPhases] = useState<SharedTournamentPhase[]>(() => [
@@ -170,6 +175,7 @@ export default function SharedTournamentHub({
             {t.teams.map((participant) => (
               <a
                 key={participant.id}
+                onClick={inlineNavigation?e=>{e.preventDefault();setLocalTeamId(participant.id);setLocalTournament(t.id);}:undefined}
                 href={`${base(participant.id)}?phase=tornei&sharedTournament=${t.id}`}
                 className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-3 text-sm font-medium hover:bg-muted ${selected?.id === t.id && participant.id === teamId ? "border-primary bg-primary/5" : ""}`}
               >

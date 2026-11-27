@@ -1,3 +1,4 @@
+import { ScheduleSupport } from "@/components/calendar/ScheduleSupport";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useTechnicalScope } from "@/components/technical-scope";
@@ -505,6 +506,8 @@ function MatchCalendarTeamCard({
   programming?: boolean;
 }) {
   const { toast } = useToast();
+  const {role}=useAuth();
+  const [supportOpen,setSupportOpen]=useState(false);
   const qc = useQueryClient();
   const { data: myClub } = useGetMyClub();
   const clubLabel = myClub?.name?.trim() || DEFAULT_CLUB_LABEL;
@@ -512,7 +515,7 @@ function MatchCalendarTeamCard({
   const pdfFileRef = useRef<HTMLInputElement>(null);
   const pdfKeepPendingWhilePickerRef = useRef(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewRows, setPreviewRows] = useState<MatchImportRow[]>([]);
+  const [previewRows, setPreviewRows] = useState<(MatchImportRow & {updateId?:number})[]>([]);
   const [selectedRows, setSelectedRows] = useState<boolean[]>([]);
   const [previewSource, setPreviewSource] = useState<"excel" | "pdf">("excel");
   const [pdfFilterOpen, setPdfFilterOpen] = useState(false);
@@ -524,7 +527,7 @@ function MatchCalendarTeamCard({
   const [pdfSectionCandidates, setPdfSectionCandidates] = useState<string[]>([]);
   const [pdfSectionChoice, setPdfSectionChoice] = useState("");
   const [duplicateImportOpen, setDuplicateImportOpen] = useState(false);
-  const [pendingImportRows, setPendingImportRows] = useState<MatchImportRow[] | null>(null);
+  const [pendingImportRows, setPendingImportRows] = useState<(MatchImportRow & {updateId?:number})[] | null>(null);
   const [pendingImportConflictIds, setPendingImportConflictIds] = useState<number[]>([]);
   const [duplicateImportExamples, setDuplicateImportExamples] = useState<string[]>([]);
 
@@ -616,31 +619,17 @@ function MatchCalendarTeamCard({
     },
   });
 
+  const importAttempt=useRef<{key:string;id:string}|null>(null);
   const applyImportMutation = useMutation({
-    mutationFn: async (input: { rows: MatchImportRow[]; replaceConflictIds?: number[] }) => {
+    mutationFn: async (input: { rows: (MatchImportRow & {updateId?:number})[]; replaceConflictIds?: number[] }) => {
       const { rows, replaceConflictIds } = input;
-      if (replaceConflictIds?.length) {
-        for (const id of replaceConflictIds) {
-          await apiFetch(`/api/matches/${id}`, { method: "DELETE" });
-        }
-      }
-      let ok = 0;
-      for (const m of rows) {
-        await apiFetch("/api/matches", {
-          method: "POST",
-          body: JSON.stringify({
-            opponent: m.opponent,
-            date: m.date,
-            teamId: team.id,
-            homeAway: m.homeAway,
-            competition: m.competition ?? undefined,
-            location: m.location ?? undefined,
-            notes: m.notes ?? undefined,
-          }),
-        });
-        ok++;
-      }
-      return ok;
+      if(!rows.length)return 0;
+      const mapped=rows.map(m=>{const existingId=m.updateId ?? (replaceConflictIds?.length ? teamMatches.find(old=>replaceConflictIds.includes(old.id)&&matchImportFingerprint(old)===matchImportFingerprint(m))?.id : undefined),old=teamMatches.find(row=>row.id===existingId);return {...m,updateId:existingId,expectedDate:old?.date,competition:m.competition??old?.competition,location:m.location??old?.location};});
+      const key=JSON.stringify(mapped);
+      if(importAttempt.current?.key!==key)importAttempt.current={key,id:crypto.randomUUID()};
+      const result=await apiFetch('/api/match-schedule-import',{method:'POST',body:JSON.stringify({id:importAttempt.current!.id,teamId:team.id,rows:mapped})}) as {count:number};
+      return result.count;
+
     },
     onSuccess: (ok) => {
       qc.invalidateQueries({ queryKey: ["/api/matches"] });
@@ -669,20 +658,21 @@ function MatchCalendarTeamCard({
 
   return (
     <div className="flex flex-col gap-2">
+      <ScheduleSupport team={team} matches={teamMatches} open={supportOpen} onOpenChange={setSupportOpen}/>
       <div
         role="button"
         tabIndex={0}
         onClick={(e) => {
           const target = e.target as HTMLElement | null;
           if (target?.closest("button,a,input,label,select,textarea")) return;
-          navigate(teamCalendarPath(team, programming));
+          role==="secretary"?setSupportOpen(true):navigate(teamCalendarPath(team, programming));
         }}
         onKeyDown={(e) => {
           const target = e.target as HTMLElement | null;
           if (target?.closest("button,a,input,label,select,textarea")) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            navigate(teamCalendarPath(team, programming));
+            role==="secretary"?setSupportOpen(true):navigate(teamCalendarPath(team, programming));
           }
         }}
         className="group text-left"
@@ -1038,7 +1028,8 @@ function MatchCalendarTeamCard({
                   <th className="text-center p-2 w-10" title="Rimuovi riga">
                     <Trash2 className="w-4 h-4 inline text-muted-foreground" aria-hidden />
                   </th>
-                  <th className="text-left p-2">Data</th>
+                  <th className="text-left p-2">Azione / prima</th>
+                  <th className="text-left p-2">Dopo: data</th>
                   <th className="text-left p-2">Avversario</th>
                   <th className="text-left p-2">Tipo</th>
                   <th className="text-left p-2">Competizione</th>
@@ -1076,6 +1067,7 @@ function MatchCalendarTeamCard({
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </td>
+                    <td className="p-2"><select className="border rounded p-2 max-w-64" aria-label={`Azione riga ${idx+1}`} value={row.updateId??""} onChange={e=>setPreviewRows(rows=>rows.map((r,i)=>i===idx?{...r,updateId:Number(e.target.value)||undefined}:r))}><option value="">Nuova gara</option>{teamMatches.map(m=><option key={m.id} value={m.id}>Aggiorna: {m.opponent} · {new Date(m.date).toLocaleString("it-IT")}</option>)}</select></td>
                     <td className="p-2 whitespace-nowrap">{format(new Date(row.date), "dd/MM/yyyy HH:mm")}</td>
                     <td className="p-2">{row.opponent}</td>
                     <td className="p-2">{row.homeAway === "home" ? "Casa" : "Trasferta"}</td>
@@ -1094,7 +1086,7 @@ function MatchCalendarTeamCard({
               disabled={selectedRows.filter(Boolean).length === 0 || applyImportMutation.isPending}
               onClick={() => {
                 const rows = previewRows.filter((_, idx) => selectedRows[idx]);
-                const { conflictIds, examples } = findImportDuplicateConflicts(rows, teamMatches);
+                const { conflictIds, examples } = findImportDuplicateConflicts(rows.filter(row=>!row.updateId), teamMatches);
                 if (conflictIds.length > 0) {
                   setPendingImportRows(rows);
                   setPendingImportConflictIds(conflictIds);
@@ -1156,10 +1148,10 @@ function MatchCalendarTeamCard({
               disabled={applyImportMutation.isPending}
               onClick={() => {
                 if (!pendingImportRows) return;
-                applyImportMutation.mutate({ rows: pendingImportRows });
+                applyImportMutation.mutate({ rows: pendingImportRows.filter(row=>row.updateId||!teamMatches.some(old=>matchImportFingerprint(old)===matchImportFingerprint(row))) });
               }}
             >
-              Crea duplicato
+              Importa solo nuove
             </Button>
             <Button
               type="button"
@@ -1172,7 +1164,7 @@ function MatchCalendarTeamCard({
                 });
               }}
             >
-              Sostituisci
+              Aggiorna gare esistenti
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1478,7 +1470,7 @@ export default function SectionMatchCalendars({ section, programming = false }: 
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Trophy className="w-6 h-6 text-primary" />
-            {programming ? "Programmazione gare" : "Calendari Partite"} — {SECTION_LABEL[section]}
+            {programming ? "Supporto gare" : "Calendari Partite"} — {SECTION_LABEL[section]}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {programming ? "Seleziona un’annata per gestire il calendario FTB, importare il PDF federale, inserire tornei e amichevoli." : "Seleziona un'annata per vedere il calendario gare"}

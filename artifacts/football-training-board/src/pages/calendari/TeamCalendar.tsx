@@ -1,3 +1,4 @@
+import ScopedMatchCalendars from "@/pages/matches/ScopedMatchCalendars";
 import { downloadDocument, readDocumentFile, type DocumentFileData } from "@/lib/document-files";
 import { CompactMatchHeading, CompactMatchDetails } from "@/components/calendar/CompactMatch";
 import { MatchAttendanceComparison, type AttendancePeriod, type MatchAttendanceState } from "@/components/calendar/MatchAttendanceComparison";
@@ -4539,7 +4540,11 @@ function MatchCard({
 
 interface TeamCalendarProps { overrideTeamId?: number; detailMatchId?: number; }
 
-export default function TeamCalendar({ overrideTeamId, detailMatchId }: TeamCalendarProps = {}) {
+export default function TeamCalendar(props: TeamCalendarProps = {}) {
+  const {role}=useAuth();
+  return role==="secretary" ? <ScopedMatchCalendars programming /> : <TechnicalTeamCalendar {...props}/>;
+}
+function TechnicalTeamCalendar({ overrideTeamId, detailMatchId }: TeamCalendarProps = {}) {
   const [, legacyParams] = useRoute("/calendari/:teamId");
   const [, scuolaCalcioParams] = useRoute("/scuola-calcio/calendari/:teamId");
   const [, settoreGiovanileParams] = useRoute("/settore-giovanile/calendari/:teamId");

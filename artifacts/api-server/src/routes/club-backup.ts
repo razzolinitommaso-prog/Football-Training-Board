@@ -1,3 +1,4 @@
+import {ensureWarehouseFinance} from "../lib/warehouse-finance";
 import { Router } from "express";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -15,6 +16,7 @@ router.get("/club-backup/audit",requireAuth,async(req,res)=>{
   res.setHeader("Cache-Control","no-store");
   let client:PoolClient|undefined;
   try{
+    await ensureWarehouseFinance();
     client=await pool.connect();
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     await client.query("SET LOCAL statement_timeout='60s'");
@@ -30,6 +32,7 @@ router.get("/club-backup", requireAuth, async (req, res) => {
   let client: PoolClient | undefined;
   let stage = "connection";
   try {
+    await ensureWarehouseFinance();
     client = await pool.connect();
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     await client.query("SET LOCAL statement_timeout='60s'");

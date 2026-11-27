@@ -27,7 +27,7 @@ export default function ScopedMatchCalendars({
   return (
     <section className="space-y-4 rounded-xl border bg-card p-5">
       <h1 className="text-2xl font-semibold">
-        {programming ? "Programmazione gare" : "Partite"}
+        {programming ? "Supporto gare" : "Partite"}
       </h1>
       <p className="text-sm text-muted-foreground">
         Scegli un settore per aprire i calendari delle annate autorizzate.

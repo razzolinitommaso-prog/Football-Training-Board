@@ -192,7 +192,7 @@ export default function SharedTournamentProgram({
           <p className="font-medium">
             {entry.homeTeam} — {entry.awayTeam}
           </p>
-          {entry.matchId ? (
+          {entry.matchId && role!=="secretary" ? (
             <a
               className="text-primary underline"
               href={`${basePath}?phase=tornei&sharedTournament=${id}&openMatchId=${entry.matchId}`}
@@ -201,7 +201,7 @@ export default function SharedTournamentProgram({
             </a>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Solo programma · nessun impegno per questa annata
+              {entry.matchId ? "Gara collegata · gestione organizzativa" : "Solo programma · nessun impegno per questa annata"}
             </p>
           )}
         </div>

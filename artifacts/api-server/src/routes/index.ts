@@ -1,3 +1,4 @@
+import warehouseFinanceRouter from "./warehouse-finance";
 import { enforceSocietyAccess } from "../lib/society-access";
 import societyManagementRouter from "./society-management";
 import playerFinanceRouter from "./player-finance";
@@ -70,6 +71,7 @@ router.use(attendanceRouter);
 router.use(callupRulesRouter);
 router.use(exercisesRouter);
 router.use(secretaryRouter);
+router.use(warehouseFinanceRouter);
 router.use(billingRouter);
 router.use(teamAssignmentsRouter);
 router.use(platformRouter);

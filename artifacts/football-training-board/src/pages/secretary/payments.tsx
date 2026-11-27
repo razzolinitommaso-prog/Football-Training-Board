@@ -1,3 +1,5 @@
+import { warehouseExpenseData,type WarehouseFinance } from "@/lib/warehouse-analysis";
+import { WarehouseAnalytics } from "@/components/warehouse-analytics";
 import { isForecastPlayer } from "@workspace/api-zod";
 import { FinancialReconciliation } from "@/components/financial-reconciliation";
 import { addChartDays, paymentChartKey, paymentChartWindow } from "@/lib/payment-chart-time";
@@ -62,8 +64,11 @@ const chartSeries = [
   { key: "memberPaid", label: "Uscite membri e Prima Squadra · pagate", color: "#0f766e", stack: "uscite" },
   { key: "memberPending", label: "Uscite membri e Prima Squadra · da pagare", color: "#b45309", stack: "uscite" },
   { key: "memberOverdue", label: "Uscite membri e Prima Squadra · scadute", color: "#be123c", stack: "uscite" },
+  {key:"kitPaid",label:"Fornitori KIT · pagato",color:"#0891b2",stack:"uscite"},
+  {key:"kitPending",label:"Fornitori KIT · da pagare",color:"#a16207",stack:"uscite"},
+  {key:"kitOverdue",label:"Fornitori KIT · scaduto",color:"#9f1239",stack:"uscite"},
 ] as const;
-const emptyMonth = { cash: 0, card: 0, bank_transfer: 0, otherMethod: 0, pending: 0, overdue: 0, memberPaid: 0, memberPending: 0, memberOverdue: 0 };
+const emptyMonth = { cash: 0, card: 0, bank_transfer: 0, otherMethod: 0, pending: 0, overdue: 0, memberPaid: 0, memberPending: 0, memberOverdue: 0, kitPaid:0,kitPending:0,kitOverdue:0 };
 type MonthlyAmounts = typeof emptyMonth;
 const receiptSeries = chartSeries.filter(series => series.stack === "incassato");
 const scaleLabel = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0, useGrouping: true });
@@ -95,6 +100,7 @@ export default function PaymentsPage() {
   const canFinance = memberExpenseRoles.includes(role ?? "");
   const [workspaceMember, setWorkspaceMember] = useState<number|null>(null);
   const [includeExpenses, setIncludeExpenses] = useState(true);
+  const warehouse = useQuery({queryKey:["warehouse-finance",club?.id,user?.id,role],queryFn:()=>apiFetch<WarehouseFinance>("/api/warehouse-finance"),enabled:canFinance});
   const expenses = useQuery({queryKey:["member-services",club?.id,user?.id,role,"expenses"], queryFn:()=>memberApi<MemberExpenses>("/expenses"),enabled:canFinance});
   const [focusPlayerSearch, setFocusPlayerSearch] = useState(false);
   const [search, setSearch] = useState("");
@@ -210,14 +216,16 @@ export default function PaymentsPage() {
   }
   for (const row of [...(expenses.data?.dues ?? []),...(playerExpenses.data?.dues ?? []).map(d=>({...d,id:-d.id,userId:-d.userId}))]) yearsWithMovements.add(row.dueDate.slice(0,4));
   for (const row of [...(expenses.data?.receipts ?? []),...(playerExpenses.data?.receipts ?? []).map(r=>({...r,id:"player:"+r.id,dueId:-r.dueId,userId:-r.userId}))]) yearsWithMovements.add(row.paidDate.slice(0,4));
+  for(const p of warehouse.data?.purchases??[])yearsWithMovements.add(p.dueDate.slice(0,4));
+  for(const r of warehouse.data?.receipts??[])yearsWithMovements.add(r.paidDate.slice(0,4));
   const years = [...yearsWithMovements].sort().reverse();
   const startMonth = period === "custom" ? fromMonth : monthKey(year, period === "annual" ? 1 : quarter * 3 - 2);
   const endMonth = period === "custom" ? toMonth : monthKey(year, period === "annual" ? 12 : quarter * 3);
   const validRange = /^\d{4}-(?:0[1-9]|1[0-2])$/.test(startMonth) && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(endMonth) && startMonth <= endMonth;
   const chartWindow = validRange ? paymentChartWindow(startMonth, endMonth, zoom, focus || today) : null;
   // Player-specific filters keep the existing income-only meaning.
-  const showExpenses = canFinance && includeExpenses && !category && !search.trim() && !status && !method;
-  const expensesReady = expenses.isSuccess && playerExpenses.isSuccess;
+  const showExpenses = canFinance && includeExpenses && (!category||category==="kit") && !search.trim() && !status && !method;
+  const expensesReady = expenses.isSuccess && playerExpenses.isSuccess && warehouse.isSuccess;
   const chartReady = !showExpenses || expensesReady;
   const seriesForView = zoom === 3 ? receiptSeries : chartSeries.filter(series=>showExpenses || series.stack!=="uscite");
   const amounts = new Map(chartWindow?.keys.map(key => [key, { ...emptyMonth }]));
@@ -251,14 +259,15 @@ export default function PaymentsPage() {
     }
   }
   let untimedExpenses = 0;
-  const addExpense=(date:string,amount:number,key:"memberPaid"|"memberPending"|"memberOverdue")=>{
+  const addExpense=(date:string,amount:number,key:"memberPaid"|"memberPending"|"memberOverdue"|"kitPaid"|"kitPending"|"kitOverdue")=>{
     if(!showExpenses||!chartWindow||date<chartWindow.from||date>chartWindow.to)return;
-    if(zoom===3){if(key==="memberPaid")untimedExpenses+=amount;return;}
+    if(zoom===3){if(key==="memberPaid"||key==="kitPaid")untimedExpenses+=amount;return;}
     const bucket=paymentChartKey(date,zoom);const values=amounts.get(bucket);if(!values)return;
     values[key]-=amount;periodTotals[key]-=amount;
     if(!bucketDates.has(bucket)||date<bucketDates.get(bucket)!)bucketDates.set(bucket,date);
   };
-  for(const row of memberExpenseMovements({dues:[...(expenses.data?.dues??[]),...(playerExpenses.data?.dues??[]).map(d=>({...d,id:-d.id}))],receipts:[...(expenses.data?.receipts??[]),...(playerExpenses.data?.receipts??[]).map(r=>({...r,dueId:-r.dueId}))]},team,today))addExpense(row.date,row.amount,row.key);
+  if(!category)for(const row of memberExpenseMovements({dues:[...(expenses.data?.dues??[]),...(playerExpenses.data?.dues??[]).map(d=>({...d,id:-d.id}))],receipts:[...(expenses.data?.receipts??[]),...(playerExpenses.data?.receipts??[]).map(r=>({...r,dueId:-r.dueId}))]},team,today))addExpense(row.date,row.amount,row.key);
+  if(warehouse.data && !team)for(const row of memberExpenseMovements(warehouseExpenseData(warehouse.data),"",today))addExpense(row.date,row.amount,({memberPaid:"kitPaid",memberPending:"kitPending",memberOverdue:"kitOverdue"} as const)[row.key]);
   const chartPoints = [...amounts].map(([key, values]) => ({ key, ...Object.fromEntries(chartSeries.map(series => [series.key, values[series.key] / 100])) }));
   const [selectedHour, setSelectedHour] = useState("");
   const activeHour = amounts.has(selectedHour) ? selectedHour : [...hourlyReceipts.keys()].sort()[0] ?? chartPoints[0]?.key;
@@ -313,7 +322,8 @@ export default function PaymentsPage() {
       <Button type="button" aria-pressed={view === "ledger"} variant={view === "ledger" ? "default" : "outline"} onClick={() => setView("ledger")}>Registro e grafici</Button>
       {canFinance&&<Button type="button" aria-pressed={view==="members"} variant={view==="members"?"default":"outline"} onClick={()=>setView("members")}>Compensi e rimborsi membri</Button>}
     </div>
-    {view==="ledger"&&canFinance&&<div className="space-y-2 rounded-xl border bg-card p-3 text-sm"><label className="flex items-center gap-2"><input type="checkbox" checked={includeExpenses} onChange={event=>setIncludeExpenses(event.target.checked)}/>Mostra nel grafico anche le uscite membri e Prima Squadra</label><p className="text-xs text-muted-foreground">Uscite sotto lo zero: pagamenti alla data effettiva, residui alla scadenza. Il filtro annata segue la ripartizione del contratto. I filtri giocatore, categoria, stato e metodo mostrano soltanto gli incassi giocatori.</p>{!showExpenses&&includeExpenses&&<p role="status">Uscite nascoste dai filtri incassi attivi.</p>}{[{query:expenses,label:"membri"},{query:playerExpenses,label:"Prima Squadra"}].map(({query,label})=>query.isError?<p key={label} role="alert">Uscite {label} non disponibili: riepilogo incompleto. <Button variant="outline" size="sm" onClick={()=>void query.refetch()}>Riprova uscite {label}</Button></p>:query.isPending?<p key={label} role="status">Caricamento uscite {label}…</p>:null)}{zoom===3&&untimedExpenses>0&&<p>Uscite pagate senza orario, escluse dal dettaglio orario: {money.format(untimedExpenses/100)}</p>}</div>}
+    {view==="ledger"&&canFinance&&<WarehouseAnalytics/>}
+    {view==="ledger"&&canFinance&&<div className="space-y-2 rounded-xl border bg-card p-3 text-sm"><label className="flex items-center gap-2"><input type="checkbox" checked={includeExpenses} onChange={event=>setIncludeExpenses(event.target.checked)}/>Mostra nel grafico anche le uscite membri, Prima Squadra e fornitori KIT</label><p className="text-xs text-muted-foreground">Uscite sotto lo zero: pagamenti alla data effettiva, residui alla scadenza. Il filtro annata segue la ripartizione del contratto. Il filtro KIT include i fornitori; i costi fornitori non assegnati a un’annata sono esclusi quando si filtra una squadra. Gli altri filtri incassi nascondono le uscite.</p>{!showExpenses&&includeExpenses&&<p role="status">Uscite nascoste dai filtri incassi attivi.</p>}{[{query:expenses,label:"membri"},{query:playerExpenses,label:"Prima Squadra"},{query:warehouse,label:"fornitori KIT"}].map(({query,label})=>query.isError?<p key={label} role="alert">Uscite {label} non disponibili: riepilogo incompleto. <Button variant="outline" size="sm" onClick={()=>void query.refetch()}>Riprova uscite {label}</Button></p>:query.isPending?<p key={label} role="status">Caricamento uscite {label}…</p>:null)}{zoom===3&&untimedExpenses>0&&<p>Uscite pagate senza orario, escluse dal dettaglio orario: {money.format(untimedExpenses/100)}</p>}</div>}
     {view === "ledger" && <div className="finance-filter-grid gap-2 rounded-xl border bg-card p-3">
       <label className="min-w-0 space-y-1 text-xs font-medium">Giocatore o descrizione
         <Input placeholder="Cerca…" value={search} onChange={event => setSearch(event.target.value)} />
@@ -473,7 +483,7 @@ export default function PaymentsPage() {
         {undatedDues > 0 && <p className="mt-2 text-xs text-muted-foreground">Somme da riscuotere senza scadenza: {money.format(undatedDues / 100)}.</p>}
       </section>
 
-      <FinancialReconciliation payments={payments} members={canFinance?expenses.data:undefined} senior={canFinance?playerExpenses.data:undefined} today={today} complete={list.isSuccess&&(!canFinance||expensesReady)} />
+      <FinancialReconciliation warehouse={canFinance&&warehouse.data?warehouseExpenseData(warehouse.data):undefined} payments={payments} members={canFinance?expenses.data:undefined} senior={canFinance?playerExpenses.data:undefined} today={today} complete={list.isSuccess&&(!canFinance||expensesReady)} />
       {chartWindow && chartReady && <section className="space-y-3 rounded-xl border bg-card p-3 sm:p-4" aria-labelledby="payment-period-heading">
         <div>
           <h2 id="payment-period-heading" className="text-sm font-medium">Incassi per metodo e somme da riscuotere</h2>

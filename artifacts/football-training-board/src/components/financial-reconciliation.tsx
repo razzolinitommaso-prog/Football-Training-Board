@@ -18,24 +18,27 @@ export function FinancialReconciliation({
   payments,
   members,
   senior,
+  warehouse,
   today,
   complete,
 }: {
   payments: AuditIncome[];
   members?: MemberExpenses;
   senior?: MemberExpenses;
+  warehouse?: MemberExpenses;
   today: string;
   complete: boolean;
 }) {
   const [exportState, setExportState] = useState("");
   const {club,user,role,profileKey,section}=useAuth();
   const {artifact,prepare,clear}=useDownloadArtifact(JSON.stringify([club?.id,user?.id,role,profileKey,section,today]));
-  useEffect(()=>{clear();setExportState("");},[payments,members,senior,today,clear]);
+  useEffect(()=>{clear();setExportState("");},[payments,members,senior,warehouse,today,clear]);
   const [exporting, setExporting] = useState(false);
   const income = reconcileIncome(payments, today);
   const expenses = [
     members && reconcileExpenses(members, "Uscite membri"),
     senior && reconcileExpenses(senior, "Uscite Prima Squadra"),
+    warehouse && reconcileExpenses(warehouse,"Fornitori KIT"),
   ].filter((row): row is NonNullable<typeof row> => !!row);
   const issues = [...income.issues, ...expenses.flatMap((row) => row.issues)];
   return (
@@ -67,7 +70,7 @@ export function FinancialReconciliation({
             </p>
             {expenses.map((row, index) => (
               <p key={index}>
-                {index === 0 ? "Membri" : "Prima Squadra"}: dovuto{" "}
+                {[members&&"Membri",senior&&"Prima Squadra",warehouse&&"Fornitori KIT"].filter(Boolean)[index]}: dovuto{" "}
                 {money(row.due)} = pagato {money(row.paid)} + residuo{" "}
                 {money(row.residual)}.{" "}
                 {row.balanced
@@ -86,7 +89,7 @@ export function FinancialReconciliation({
                 setExportState("");
                 try {
                   const file=createExcelFile(
-                    financialExportSheets(payments, members, senior, today),
+                    financialExportSheets(payments, members, senior, today, warehouse),
                     `controllo-contabile-${today}`,
                   );
                   prepare(file.blob,file.filename);

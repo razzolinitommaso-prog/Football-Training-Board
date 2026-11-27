@@ -675,8 +675,28 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         INSERT INTO player_payments(id,club_id,player_id,amount,status,due_date)
           VALUES (6001,1,101,20,'pending','2020-01-01'), (6002,1,101,30,'overdue','2020-01-01'), (6003,1,102,70,'paid','2020-01-01');`);
       const admin = { "x-role": "admin" };
+      const secretarySchedule={"x-role":"secretary"};
+      const originalPlan=(await pg.query('SELECT match_plan FROM matches WHERE id=501')).rows[0].match_plan;
+      const scheduleList=await call('/matches?teamId=11',secretarySchedule);
+      assert.equal(scheduleList.status,200);
+      assert.ok(scheduleList.data.every(row=>!('matchPlan' in row)&&!('preMatchNotes' in row)&&!('postMatchNotes' in row)&&!('result' in row)),'schedule must not expose technical workspaces');
+      for(const path of ['/match-callup-summary','/matches/501/callups','/matches/501/callup-eligibility','/matches/501/callups/pdf'])assert.equal((await call(path,secretarySchedule)).status,403,path);
+      const updateSchedule=async body=>fetch(base+'/matches/501',{method:'PATCH',headers:{...secretarySchedule,'content-type':'application/json'},body:JSON.stringify(body)});
+      for(const body of [{matchPlan:plan},{result:'3-0'},{preMatchNotes:'Tecnico'},{postMatchNotes:'Resoconto'}])assert.equal((await updateSchedule(body)).status,403);
+      const updatedSchedule=await updateSchedule({location:'Campo aggiornato'});assert.equal(updatedSchedule.status,200);assert.equal((await updatedSchedule.json()).matchPlan,undefined);
+      assert.deepEqual((await pg.query('SELECT match_plan FROM matches WHERE id=501')).rows[0].match_plan,originalPlan,'organizational changes preserve the report');
+      const importSchedule=async body=>fetch(base+'/match-schedule-import',{method:'POST',headers:{...secretarySchedule,'content-type':'application/json'},body:JSON.stringify(body)});
+      const scheduleRow={updateId:501,date:'2026-10-10T16:00:00Z',opponent:'Opponent aggiornato',homeAway:'home',competition:'Campionato'};
+      const badImport=await importSchedule({id:crypto.randomUUID(),teamId:11,rows:[scheduleRow,{...scheduleRow,updateId:503}]});assert.equal(badImport.status,409);
+      assert.equal((await pg.query('SELECT opponent FROM matches WHERE id=501')).rows[0].opponent,'Opponent','failed batch must roll back all its rows');
+      const importBody={id:crypto.randomUUID(),teamId:11,rows:[scheduleRow,{date:'2026-12-03T16:00:00Z',opponent:'Nuova gara importata',homeAway:'away',competition:'Amichevole'}]};
+      const imported=await importSchedule(importBody);assert.equal(imported.status,200,await imported.text());assert.equal((await importSchedule(importBody)).status,200);
+      assert.equal((await pg.query("SELECT count(*)::integer AS n FROM matches WHERE opponent='Nuova gara importata'")).rows[0].n,1,'retry never duplicates imported fixtures');
+      assert.deepEqual((await pg.query('SELECT match_plan FROM matches WHERE id=501')).rows[0].match_plan,originalPlan,'import updates retain the coach report');
+      assert.equal((await importSchedule({...importBody,id:crypto.randomUUID(),rows:[scheduleRow,scheduleRow]})).status,400);
+      await pg.exec("UPDATE matches SET opponent='Opponent',date='2026-10-10T15:00:00Z' WHERE id=501");
       const unavailableAlerts = "/players/unavailable-alerts";
-      for (const role of ["coach","fitness_coach","athletic_director","team_manager","secretary","parent"]) {
+      for (const role of ["coach","fitness_coach","athletic_director","team_manager","parent"]) {
         assert.equal((await call(unavailableAlerts, {"x-role":role})).status,403,role);
       }
       await pg.exec("UPDATE players SET available=false, unavailability_reason='payment' WHERE id=101");

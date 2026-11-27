@@ -1,3 +1,4 @@
+import { WarehouseAnalytics } from "@/components/warehouse-analytics";
 import { Link } from "wouter";
 import { MemberKitRequests } from "@/components/members/member-kit";
 import { KIT_REQUEST_STATUS, PLAYER_KIT_ROWS, PLAYER_KIT_SLOTS, kitRowNeedsLink, savedKitSelections, suggestKitSlots, type KitRequestLine } from "@/lib/player-kit-catalog";
@@ -564,6 +565,7 @@ export default function WarehousePage() {
     <div className="mx-auto max-w-6xl space-y-5 p-4 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
+          <WarehouseAnalytics/>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Package className="h-6 w-6 text-primary" />
             Magazzino

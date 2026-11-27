@@ -15,11 +15,13 @@ export function financialExportSheets(
   members: MemberExpenses | undefined,
   senior: MemberExpenses | undefined,
   today: string,
+  warehouse?: MemberExpenses,
 ) {
   const income = reconcileIncome(payments, today);
   const sources = [
     { data: members, label: "Membri" },
     { data: senior, label: "Prima Squadra" },
+    { data: warehouse, label: "Fornitori KIT" },
   ].filter((row): row is { data: MemberExpenses; label: string } => !!row.data);
   const costs = sources.map((row) => ({
     ...row,

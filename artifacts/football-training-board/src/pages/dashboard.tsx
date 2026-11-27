@@ -1,3 +1,4 @@
+import { AvailabilityCard } from "@/components/dashboard/AvailabilityCard";
 import { isOperationalPlayer, canViewUnavailablePlayersAlert } from "@workspace/api-zod";
 import { CallupRulesCard } from "@/components/dashboard/CallupRulesCard";
 import { paymentViewRoles } from "@/lib/payment-summary";
@@ -471,6 +472,8 @@ function reasonLabel(reason: string | null | undefined, t: ReturnType<typeof use
   if (reason === "injury") return t.injuryReason;
   if (reason === "vacation") return t.vacationReason;
   if (reason === "other") return t.otherReason;
+  const labels:Record<string,string>={suspended:"Sospensione disciplinare",requested_by_other_team:"Richiesto da un’altra squadra",certificate:"Certificato medico",registration:"Tesseramento",conduct:"Condotta",attendance:"Presenze insufficienti"};
+  if(reason&&labels[reason])return labels[reason];
   return reason || "";
 }
 
@@ -1911,8 +1914,6 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
     : dashboardMembers.length;
   const dashboardStaffTitle = `Membri ${dashboardActiveSectionLabel}`;
 
-  const [alertDismissed, setAlertDismissed] = useState(false);
-  const [unavailableAlertOpen, setUnavailableAlertOpen] = useState(false);
 
   // --- Notifications state ---
   const [notifications, setNotifications] = useState<ClubNotification[]>([]);
@@ -2205,38 +2206,8 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
     },
     enabled: Boolean(user && canViewUnavailableAlert),
   });
-  const showUnavailableAlert = canViewUnavailableAlert && !alertDismissed;
   const visiblePlayerIds = new Set(allPlayers.map(player => Number(player.id)));
   const unavailablePlayers = canViewUnavailableAlert ? unavailableAlertData.filter(player => visiblePlayerIds.has(Number(player.id))) : [];
-
-  const unavailablePlayersByAnnata = useMemo(() => {
-    const groups = new Map<string, any[]>();
-    unavailablePlayers.forEach((player: any) => {
-      const key = String(player.teamName ?? "").trim() || "Senza squadra";
-      const list = groups.get(key) ?? [];
-      list.push(player);
-      groups.set(key, list);
-    });
-    return Array.from(groups.entries())
-      .sort(([a], [b]) => {
-        const teamA = dashboardTeams.find((team) => team.name === a);
-        const teamB = dashboardTeams.find((team) => team.name === b);
-        if (teamA && teamB) return compareDashboardTeamsByYear(teamA, teamB);
-        if (teamA) return -1;
-        if (teamB) return 1;
-        return a.localeCompare(b, "it", { sensitivity: "base", numeric: true });
-      })
-      .map(([teamName, players]) => ({
-        teamName,
-        players: players.sort((a: any, b: any) =>
-          `${String(a.lastName ?? "")} ${String(a.firstName ?? "")}`.localeCompare(
-            `${String(b.lastName ?? "")} ${String(b.firstName ?? "")}`,
-            "it",
-            { sensitivity: "base", numeric: true },
-          ),
-        ),
-      }));
-  }, [dashboardTeams, unavailablePlayers]);
 
   const chartDataEn = [
     { name: "Mon", sessions: 2 },
@@ -2800,6 +2771,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
           onClick={() => openDashboardPhaseCalendar("amichevoli", "Amichevoli")}
         />
       </UnifiedOverview>
+      {canViewUnavailablePlayersAlert(nr) && <AvailabilityCard players={unavailablePlayers} path={dashboardPlayersPath} role={nr} error={!!unavailableAlertError} retry={()=>void retryUnavailableAlert()} reason={value=>reasonLabel(value,t)} />}
 
       <Dialog open={phaseTeamPicker !== null} onOpenChange={(open) => !open && setPhaseTeamPicker(null)}>
         <DialogContent className="max-w-md">
@@ -4123,100 +4095,6 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                 Vai alla transizione stagionale
               </Button>
             </Link>
-          </div>
-        </div>
-      )}
-
-      {/* Unavailable Players Alert */}
-      {showUnavailableAlert && unavailableAlertError && <div role="alert" className="rounded-xl border p-4 text-sm">Elenco indisponibili non disponibile. <Button variant="outline" size="sm" onClick={() => void retryUnavailableAlert()}>Riprova elenco indisponibili</Button></div>}
-      {showUnavailableAlert && unavailablePlayers.length > 0 && (
-        <div role="region" aria-label="Avviso giocatori indisponibili" className="relative bg-amber-50 border border-amber-200 rounded-xl p-4 dark:bg-amber-950/30 dark:border-amber-800 animate-in fade-in slide-in-from-top-2 duration-300">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-2 right-2 h-7 w-7 text-amber-600 hover:text-amber-800 hover:bg-amber-100 dark:text-amber-400"
-            onClick={() => setAlertDismissed(true)}
-          >
-            <X className="w-4 h-4" />
-          </Button>
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div className="flex-1 pr-8">
-              <h3 className="font-semibold text-amber-900 dark:text-amber-200 text-sm">
-                {t.unavailablePlayers} ({unavailablePlayers.length})
-              </h3>
-              <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5 mb-3">
-                {t.unavailablePlayersAlert}
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="mb-3 h-7 border-amber-300 text-xs text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30"
-                onClick={() => setUnavailableAlertOpen((open) => !open)}
-              >
-                {unavailableAlertOpen ? "Chiudi elenco" : "Apri elenco per annata"}
-                {unavailableAlertOpen ? <ChevronUp className="ml-1 h-3.5 w-3.5" /> : <ChevronDown className="ml-1 h-3.5 w-3.5" />}
-              </Button>
-              {unavailableAlertOpen && (
-                <div className="space-y-3">
-                  {unavailablePlayersByAnnata.map((group) => (
-                    <div key={group.teamName} className="rounded-lg border border-amber-200 bg-white/70 p-2 dark:border-amber-800 dark:bg-amber-950/40">
-                      <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                        <h4 className="text-xs font-bold uppercase tracking-wide text-amber-900 dark:text-amber-200">{group.teamName}</h4>
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">{group.players.length}</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {group.players.map((p: any) => (
-                          <div
-                            key={p.id}
-                            className="bg-white dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-xs"
-                          >
-                            <div className="font-semibold text-amber-900 dark:text-amber-200">
-                              {String(p.lastName ?? "").trim()} {String(p.firstName ?? "").trim()}
-                            </div>
-                            <div className="flex flex-wrap gap-x-3 mt-1 text-amber-700 dark:text-amber-300">
-                              {p.unavailabilityReason && <span>{reasonLabel(p.unavailabilityReason, t)}</span>}
-                              {p.expectedReturn && <span>{p.expectedReturn}</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="hidden">
-                {unavailablePlayers.map((p: any) => (
-                  <div
-                    key={p.id}
-                    className="bg-white dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-xs"
-                  >
-                    <div className="font-semibold text-amber-900 dark:text-amber-200">
-                      {p.firstName} {p.lastName}
-                    </div>
-                    {p.teamName && (
-                      <div className="text-amber-600 dark:text-amber-400 text-[11px]">{p.teamName}</div>
-                    )}
-                    <div className="flex flex-wrap gap-x-3 mt-1 text-amber-700 dark:text-amber-300">
-                      {p.unavailabilityReason && (
-                        <span>⚠ {reasonLabel(p.unavailabilityReason, t)}</span>
-                      )}
-                      {p.expectedReturn && (
-                        <span>📅 {p.expectedReturn}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3">
-                <Button size="sm" variant="outline" asChild className="text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-300 dark:border-amber-700 dark:hover:bg-amber-900/30 text-xs h-7">
-                  <Link href={dashboardPlayersPath}>{t.players} →</Link>
-                </Button>
-              </div>
-            </div>
           </div>
         </div>
       )}

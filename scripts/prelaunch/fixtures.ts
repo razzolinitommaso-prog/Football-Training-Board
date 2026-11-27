@@ -154,7 +154,9 @@ export async function mockResponse(
     );
   const pageParams=new URLSearchParams(location.search);
   const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario");
-  if(p==="/api/players/unavailable-alerts")return Response.json(scenario==="unavailable-alert"?[{id:101,firstName:player.firstName,lastName:player.lastName,teamId:11,teamName:team.name,unavailabilityReason:"payment",expectedReturn:null}]:[]);
+  if(p==="/api/warehouse-finance"||p==="/api/warehouse-finance/analysis")return Response.json({purchases:[{id:"11111111-1111-4111-8111-111111111111",itemId:1001,itemName:"Tuta rappresentanza",size:"M",quantity:10,unitCents:1500,amountCents:15000,paidCents:5000,purchaseDate:"2026-11-01",dueDate:"2026-12-31",supplier:"Fornitore simulato",reference:"COLLAUDO",loadStock:false}],receipts:[{id:"22222222-2222-4222-8222-222222222222",purchaseId:"11111111-1111-4111-8111-111111111111",amountCents:5000,paidDate:"2026-11-02",method:"bank_transfer"}],items:[{id:1001,name:"Tuta rappresentanza",code:"T-TEST",size:"M",price:45,quantityAvailable:10,quantityReserved:2,unitCents:null}],requests:[{id:1,playerId:101,rowKey:"rep_tracksuit",itemId:1001,quantity:2,status:"ordered",date:"2026-11-01"}],sales:[{id:1,date:"2026-11-01",status:"paid",amount:90,article:{id:1001,name:"Tuta rappresentanza",size:"M",quantity:2}}]});
+  if(p==="/api/warehouse-items")return Response.json([{id:1001,name:"Tuta rappresentanza",code:"T-TEST",size:"M",section:"apparel",itemType:"other",price:45,quantityAvailable:10,quantityReserved:2,reorderThreshold:0,isActive:1}]);
+  if(p==="/api/players/unavailable-alerts")return Response.json(scenario==="unavailable-alert"?[{id:101,firstName:player.firstName,lastName:player.lastName,teamId:11,teamName:team.name,birthYear:"2019",unavailabilityReason:"payment",expectedReturn:null}]:[]);
   if(p==="/api/club-backup/audit"){
     if(scenario==="audit-failure")return Response.json({code:"CLUB_AUDIT_FAILED"},{status:500});
     const costs={due:10000,paid:3000,residual:7000,balanced:true,issues:[],available:true,records:1,receipts:1};
@@ -208,10 +210,10 @@ export async function mockResponse(
   else if (p === "/api/teams/11/players") value = [player];
   else if (p.includes("/activity-summary"))
     value = {
-      training: { present: 1, total: 2, percentage: 50, unrecorded: 0 },
-      matches: { present: 1, total: 1, percentage: 100, callups: 1 },
-      tests: [],
-      conduct: { ottima: 0, buona: 1, insufficiente: 0 },
+      trainingAttendance: { present: 1, totalPastSessions: 2, percentage: 50, unrecorded: 0 },
+      matchAttendance: { appearances: 1, totalPastMatches: 1, percentage: 100, callups: 1 },
+      fitnessTests: [], discipline:{cards:[]},
+      conduct: { status:"Buona",training:{ottima:0,buona:1,insufficiente:0} },
     };
   else if (p === "/api/member-services/expenses") value = expenses;
   else if (p === "/api/player-finance/expenses")

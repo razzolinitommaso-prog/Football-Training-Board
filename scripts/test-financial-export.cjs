@@ -91,6 +91,13 @@ fs.writeFileSync(
 console.log(
   "PASS financial XLSX: seven sheets, round trip, numeric totals, source ledger and partial expense receipts",
 );
+const supplierWorkbook=createExcelWorkbook(financialExportSheets(income,costs,{dues:[],receipts:[]},"2026-11-21",costs));
+const supplierRead=XLSX.read(XLSX.write(supplierWorkbook,{type:"buffer",bookType:"xlsx"}),{type:"buffer"});
+assert.equal(supplierRead.SheetNames.length,9);
+assert.equal(XLSX.utils.sheet_to_json(supplierRead.Sheets.Quadrature).find(r=>r.Voce==="Fornitori KIT · pagato").Importo,30);
+assert.equal(XLSX.utils.sheet_to_json(supplierRead.Sheets["Fornitori KIT rate"])[0].Residuo,70);
+assert.equal(XLSX.utils.sheet_to_json(supplierRead.Sheets["Fornitori KIT ricevute"])[0].Importo,30);
+console.log("PASS supplier KIT XLSX: nine sheets, real workbook round trip, supplier residual and partial payment.");
 const downloadFile=createExcelFile(financialExportSheets(income,costs,{dues:[],receipts:[]},"2026-11-21"),"controllo-download");
 assert.equal(downloadFile.filename,"controllo-download.xlsx");
 assert.equal(downloadFile.blob.type,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

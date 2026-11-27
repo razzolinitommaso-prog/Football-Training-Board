@@ -3,7 +3,7 @@ import {reconcileIncome,reconcileExpenses,type ClubDataAudit,type AuditIssue} fr
 
 type Row=Record<string,any>;
 type Relation={child:string;parent:string;columns:string[];targets:string[]};
-const financialTables=new Set(["players","player_payments","member_dues","member_expense_receipts","player_finance_dues","player_finance_expense_receipts"]);
+const financialTables=new Set(["players","player_payments","member_dues","member_expense_receipts","player_finance_dues","player_finance_expense_receipts","warehouse_purchases","warehouse_expense_receipts"]);
 
 /** Consume the complete snapshot without retaining document bodies or using a writable transaction. */
 export async function auditClubData(chunks:AsyncIterable<string>,clubId:number,today:string):Promise<ClubDataAudit>{
@@ -58,11 +58,15 @@ export async function auditClubData(chunks:AsyncIterable<string>,clubId:number,t
     const dues=raw.filter(row=>!row.canceled&&(!senior||!players.get(row.player_id)?.is_test)).map(row=>({id:row.id,amountCents:row.amount_cents,paidCents:paid.get(row.id)??0,details:{allocations:Array.isArray(row.details?.allocations)?row.details.allocations:[]}}));
     return {...reconcileExpenses({dues,receipts},prefix),available:header!.tables.includes(prefix+"_dues")&&header!.tables.includes(prefix+"_expense_receipts"),records:dues.length,receipts:receipts.length};
   }
+  const warehousePurchases=data.get("warehouse_purchases")??[],warehouseIds=new Map(warehousePurchases.map((p,i)=>[p.id,i+1]));
+  const warehouseReceipts=(data.get("warehouse_expense_receipts")??[]).map(r=>({id:String(r.id),dueId:warehouseIds.get(r.purchase_id)??0,amountCents:r.amount_cents}));
+  const warehouseDues=warehousePurchases.map(p=>({id:warehouseIds.get(p.id)!,amountCents:p.amount_cents,paidCents:warehouseReceipts.filter(r=>r.dueId===warehouseIds.get(p.id)).reduce((n,r)=>n+r.amountCents,0),details:{allocations:[]}}));
+  const warehouse={...reconcileExpenses({dues:warehouseDues,receipts:warehouseReceipts},"Fornitori KIT"),available:header.tables.includes("warehouse_purchases")&&header.tables.includes("warehouse_expense_receipts"),records:warehouseDues.length,receipts:warehouseReceipts.length};
   const missing=references.filter(ref=>!parentKeys.get(ref.target)?.has(ref.value));
   const issues:AuditIssue[]=missing.slice(0,100).map(ref=>({source:ref.source,record:ref.record,message:"Riferimento non trovato tra le tabelle incluse nello snapshot: "+JSON.parse(ref.target)[0]}));
   return {clubId,asOf:today,tables:header.tables.length,rows,integrity:true,externalReferences:Array.isArray(manifest.externalReferences)?manifest.externalReferences.length:0,
     scope:"Tutte le stagioni della società; registrazioni TEST escluse dai totali economici. Riferimenti controllati tra le tabelle incluse. Nessun confronto con banca o cassa.",
     income:{...income,available:header.tables.includes("players")&&header.tables.includes("player_payments"),records:payments.length,missingPlayers:payments.filter(row=>!players.has(row.player_id)).length},
-    members:expenses("member"),senior:expenses("player_finance",true),references:{checked:references.length,missing:missing.length,issues},
+    members:expenses("member"),senior:expenses("player_finance",true),warehouse,references:{checked:references.length,missing:missing.length,issues},
     warnings:[...(!Array.isArray(header.relationships)?["Snapshot privo di metadati dei riferimenti: relazioni non controllate."]:[]),"I documenti esterni e il file salvato sul dispositivo richiedono verifiche separate."]};
 }

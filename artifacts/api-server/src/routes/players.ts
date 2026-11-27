@@ -923,6 +923,7 @@ router.get(["/players", "/players/unavailable-alerts"], requireAuth, async (req,
     res.json(enriched.filter(player => !isArchivedPlayer(player) && !player.isTest && player.available === false).map(player => ({
       id: player.id, firstName: player.firstName, lastName: player.lastName,
       teamId: player.teamId, teamName: player.teamName,
+      birthYear: player.dateOfBirth?.slice(0,4) ?? null,
       unavailabilityReason: player.unavailabilityReason, expectedReturn: player.expectedReturn,
     })));
     return;

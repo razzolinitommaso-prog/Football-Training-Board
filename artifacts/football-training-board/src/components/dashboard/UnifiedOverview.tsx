@@ -463,10 +463,10 @@ export function UnifiedOverview({
           </Panel>
         ) : (
           <Panel
-            title="Programmazione gare"
+            title="Supporto gare"
             icon={CalendarDays}
             href={programPath}
-            link="Apri calendario FTB"
+            link="Apri supporto gare"
           >
             <div className="space-y-3">
               <p className="text-sm">
