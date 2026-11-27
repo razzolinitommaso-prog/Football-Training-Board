@@ -1,4 +1,5 @@
 import { ScheduleSupport } from "@/components/calendar/ScheduleSupport";
+import { SchoolLndActions } from "@/components/school-lnd-actions";
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { useTechnicalScope } from "@/components/technical-scope";
@@ -1475,6 +1476,7 @@ export default function SectionMatchCalendars({ section, programming = false }: 
           <p className="text-sm text-muted-foreground mt-1">
             {programming ? "Seleziona un’annata per gestire il calendario FTB, importare il PDF federale, inserire tornei e amichevoli." : "Seleziona un'annata per vedere il calendario gare"}
           </p>
+          {section==="scuola_calcio"&&<SchoolLndActions teams={visibleTeams}/>}
           {canImportYouthFederalPdf && (
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Button

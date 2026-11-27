@@ -145,6 +145,11 @@ export async function mockResponse(
     p = url.pathname;
   if (!p.startsWith("/api/"))
     return new Response("No external requests in fixture", { status: 403 });
+  const pageParams=new URLSearchParams(location.search);
+  const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario");
+  const lndFixtures=Array.from({length:8},(_,i)=>({id:900+i,homeTeam:i===0?"Società di collaudo":`Casa collaudo ${i}`,awayTeam:`Ospite collaudo ${i}`,date:`2026-11-21T${String(12+i).padStart(2,'0')}:00:00Z`,round:10,leg:"andata",homeScore:i===0?3:1,awayScore:0}));
+  if(scenario==="school-lnd"&&p==="/api/championships/lnd/preview")return Response.json({title:"Primi Calci · Girone di collaudo",groupName:"Girone A",fixtures:lndFixtures,standings:[],rawLineCount:8});
+  if(scenario==="school-lnd"&&p==="/api/championships")return Response.json([{id:901,teamId:11,title:"Primi Calci · Girone di collaudo",section:"scuola_calcio",sourceProvider:"lnd",sourceUrl:"https://gare.lnd.it/competizione/toscana?campionato=COLLAUDO&girone=A",groups:[{id:902,name:"Girone A",fixtures:lndFixtures,standings:[]}]}]);
   if (init?.method && init.method !== "GET")
     return Response.json(
       {
@@ -152,8 +157,6 @@ export async function mockResponse(
       },
       { status: 409 },
     );
-  const pageParams=new URLSearchParams(location.search);
-  const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario");
   if(p==="/api/warehouse-finance"||p==="/api/warehouse-finance/analysis")return Response.json({purchases:[{id:"11111111-1111-4111-8111-111111111111",itemId:1001,itemName:"Tuta rappresentanza",size:"M",quantity:10,unitCents:1500,amountCents:15000,paidCents:5000,purchaseDate:"2026-11-01",dueDate:"2026-12-31",supplier:"Fornitore simulato",reference:"COLLAUDO",loadStock:false}],receipts:[{id:"22222222-2222-4222-8222-222222222222",purchaseId:"11111111-1111-4111-8111-111111111111",amountCents:5000,paidDate:"2026-11-02",method:"bank_transfer"}],items:[{id:1001,name:"Tuta rappresentanza",code:"T-TEST",size:"M",price:45,quantityAvailable:10,quantityReserved:2,unitCents:null}],requests:[{id:1,playerId:101,rowKey:"rep_tracksuit",itemId:1001,quantity:2,status:"ordered",date:"2026-11-01"}],sales:[{id:1,date:"2026-11-01",status:"paid",amount:90,article:{id:1001,name:"Tuta rappresentanza",size:"M",quantity:2}}]});
   if(p==="/api/warehouse-items")return Response.json([{id:1001,name:"Tuta rappresentanza",code:"T-TEST",size:"M",section:"apparel",itemType:"other",price:45,quantityAvailable:10,quantityReserved:2,reorderThreshold:0,isActive:1}]);
   if(p==="/api/players/unavailable-alerts")return Response.json(scenario==="unavailable-alert"?[{id:101,firstName:player.firstName,lastName:player.lastName,teamId:11,teamName:team.name,birthYear:"2019",unavailabilityReason:"payment",expectedReturn:null}]:[]);

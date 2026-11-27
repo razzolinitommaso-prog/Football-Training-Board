@@ -1,4 +1,5 @@
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
+import { championshipRecentResults } from "@/lib/championship-recent-results";
 import { Link, useLocation, useSearch } from "wouter";
 import { useGetMyClub } from "@workspace/api-client-react";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
@@ -18,7 +19,7 @@ import { withApi } from "@/lib/api-base";
 import { useAuth } from "@/hooks/use-auth";
 import { useTechnicalScope } from "@/components/technical-scope";
 
-type SectionKey = "settore_giovanile" | "prima_squadra";
+type SectionKey = "scuola_calcio" | "settore_giovanile" | "prima_squadra";
 
 type ChampionshipFixture = {
   id: number;
@@ -100,6 +101,7 @@ type SectionMatch = {
 };
 
 const SECTION_LABELS: Record<SectionKey, string> = {
+  scuola_calcio: "Scuola Calcio",
   settore_giovanile: "Settore Giovanile",
   prima_squadra: "Prima Squadra",
 };
@@ -471,6 +473,7 @@ function CollapsibleChampionshipCard({ title, icon, children, defaultOpen = true
 }
 
 function ChampionshipView({ championship, group }: { championship: Championship; group: ChampionshipGroup }) {
+  const isClubTeam=useClubTeamMatcher();
   const rounds = useMemo(() => groupFixturesByRound(group.fixtures), [group.fixtures]);
   const defaultOpenRounds = useMemo(() => new Set(defaultOpenRoundKeys(rounds)), [rounds]);
   const now = Date.now();
@@ -478,10 +481,7 @@ function ChampionshipView({ championship, group }: { championship: Championship;
     .filter((fixture) => !fixtureHasResult(fixture) && fixtureDateValue(fixture) >= now)
     .sort((a, b) => fixtureDateValue(a) - fixtureDateValue(b))
     .slice(0, 6);
-  const latestResults = group.fixtures
-    .filter(fixtureHasResult)
-    .sort((a, b) => fixtureDateValue(b) - fixtureDateValue(a))
-    .slice(0, 6);
+  const {clubResult,roundResults,otherResults}=championshipRecentResults(group.fixtures,fixture=>Boolean(fixture.matchHref)||isClubTeam(fixture.homeTeam)||isClubTeam(fixture.awayTeam));
 
   return (
     <div className="space-y-4">
@@ -513,11 +513,13 @@ function ChampionshipView({ championship, group }: { championship: Championship;
       <div className="space-y-4">
         <CollapsibleChampionshipCard title="Ultimi Risultati" icon={<CheckCircle2 className="h-4 w-4 text-primary" />}>
             <CardContent>
-              {latestResults.length === 0 ? (
+              <section aria-label="Ultimo risultato della società" className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3"><h4 className="mb-2 font-semibold text-emerald-800 dark:text-emerald-200">Ultimo risultato della società</h4>{clubResult?<FixtureRow fixture={clubResult}/>:<p className="text-sm text-muted-foreground">Risultato della società non ancora disponibile in questo girone.</p>}</section>
+              {roundResults.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nessun risultato inserito.</p>
               ) : (
                 <div className="space-y-2">
-                  {latestResults.map((fixture) => <FixtureRow key={fixture.id} fixture={fixture} />)}
+                  <p className="text-xs text-muted-foreground">Ultima giornata con risultati{roundResults[0]?.round!=null?` · ${roundResults[0].round}ª giornata`:""}</p>
+                  {otherResults.map((fixture) => <FixtureRow key={fixture.id} fixture={fixture} />)}
                 </div>
               )}
             </CardContent>
@@ -535,7 +537,7 @@ function ChampionshipView({ championship, group }: { championship: Championship;
             </CardContent>
           </Card>
 
-        {championship.sourceProvider === "lnd" && group.ftbStandings && (
+        {championship.section !== "scuola_calcio" && championship.sourceProvider === "lnd" && group.ftbStandings && (
           <CollapsibleChampionshipCard key={`ftb-${group.id}`} title="Classifica provvisoria aggiornata FTB" icon={<BarChart3 className="h-4 w-4 text-primary" />} defaultOpen={false}>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -588,16 +590,18 @@ function ChampionshipView({ championship, group }: { championship: Championship;
   );
 }
 
-function LndSyncDialog({
+export function LndSyncDialog({
   section,
   open,
   onOpenChange,
   initialUrl,
+  teamId,
 }: {
   section: SectionKey;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialUrl?: string | null;
+  teamId?: number|null;
 }) {
   const [url, setUrl] = useState("");
   const [preview, setPreview] = useState<LndPreview | null>(null);
@@ -631,7 +635,7 @@ function LndSyncDialog({
   const syncMutation = useMutation({
     mutationFn: () => apiFetch<{ created: number; updated: number }>("/api/championships/lnd/sync", {
       method: "POST",
-      body: JSON.stringify({ section, url }),
+      body: JSON.stringify({ section, url, ...(section==="scuola_calcio"?{teamId}: {}) }),
     }),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["/api/championships", section, "page"] });
@@ -742,19 +746,19 @@ export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBa
   const { data: sectionMatches = [], isLoading: isMatchesLoading, error: matchesError } = useQuery<SectionMatch[], Error>({
     queryKey: ["/api/matches", section, "championship-fallback"],
     queryFn: () => apiFetch(`/api/matches?section=${section}`),
-    enabled: !isLoading && !error && (section === "settore_giovanile" || championships.length === 0),
+    enabled: !isLoading && !error && (section !== "prima_squadra" || championships.length === 0),
     retry: 1,
   });
 
   const displayedChampionships = useMemo(() => {
     const teamScopeCache = new Map<number, number[]>();
     const enrich = (championship: Championship): Championship => ({ ...championship, groups: championship.groups.map(group => ({ ...group, fixtures: group.fixtures.map(fixture => {
-      const match = section === "settore_giovanile" ? resolveChampionshipMatch(fixture, championship, championships, sectionMatches, teams, clubNames, teamScopeCache) : null;
+      const match = section !== "prima_squadra" ? resolveChampionshipMatch(fixture, championship, championships, sectionMatches, teams, clubNames, teamScopeCache) : null;
       return { ...fixture, linkedMatchId: match?.id, linkedTeamId: match?.teamId ?? undefined, matchHref: match?.teamId ? championshipMatchPath(section, match.teamId, match.id, championship.id, group.id) : undefined };
     }) })) });
     const official = championships.map(enrich);
     const coveredIds = new Set(official.flatMap(item => item.groups.flatMap(group => group.fixtures.filter(fixture => fixture.matchHref).map(fixture => fixture.linkedMatchId!))));
-    const fallback = section === "settore_giovanile" || championships.length === 0
+    const fallback = section !== "prima_squadra" || championships.length === 0
       ? buildFallbackChampionships(sectionMatches.filter(match => !coveredIds.has(match.id)), section).map(enrich) : [];
     // Prefer the LND view where it covers the same imported match sheets completely.
     const lndLinks = new Set(official.filter(item => item.sourceProvider === "lnd").flatMap(item => item.groups.flatMap(group => group.fixtures.map(fixture => fixture.linkedMatchId).filter(Boolean))));
@@ -818,6 +822,7 @@ export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBa
         open={syncOpen}
         onOpenChange={setSyncOpen}
         initialUrl={activeOption?.championship.sourceUrl}
+        teamId={activeOption?.championship.teamId??requestedTeamId}
       />
 
       {isLoading || isMatchesLoading || isTeamsLoading || isClubLoading ? (
@@ -834,7 +839,7 @@ export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBa
             <p className="mx-auto max-w-2xl rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
               {error.message.slice(0, 240)}
             </p>
-            {section !== "settore_giovanile" && <Button type="button" variant="outline" onClick={() => { window.location.href = "/prima-squadra/matches"; }}>
+            {section !== "settore_giovanile" && <Button type="button" variant="outline" onClick={() => { window.location.href = `/${section.replace(/_/g,"-")}/matches`; }}>
               Apri gestione partite
             </Button>}
           </CardContent>
@@ -842,7 +847,7 @@ export default function SectionChampionshipsPage({ section, scopeTeamId, scopeBa
       ) : !activeOption ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
-            {section === "settore_giovanile" ? "Nessun campionato disponibile. Usa Sincronizza LND per collegare il campionato." : "Nessun campionato disponibile. Puoi importarli o crearli dalla pagina Partite della sezione."}
+            {section !== "prima_squadra" ? "Nessun campionato disponibile. Usa Sincronizza LND per collegare il campionato." : "Nessun campionato disponibile. Puoi importarli o crearli dalla pagina Partite della sezione."}
           </CardContent>
         </Card>
       ) : (

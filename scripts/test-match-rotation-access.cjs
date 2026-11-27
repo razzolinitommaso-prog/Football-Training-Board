@@ -45,6 +45,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
       fs.appendFileSync(path.join(dir, "entry.ts"), "\nexport {quoteBalancePayments} from '../../artifacts/football-training-board/src/lib/payment-summary';");
     }
     const bundle = path.join(dir, "bundle.cjs");
+    if(process.argv.includes("--school-lnd"))fs.appendFileSync(path.join(dir,"entry.ts"),"\nexport {championshipRecentResults} from '../../artifacts/football-training-board/src/lib/championship-recent-results';");
     if (process.argv.includes("--member-services")) {
       fs.appendFileSync(path.join(dir,"entry.ts"),"\nexport {default as memberServices} from '../../artifacts/api-server/src/routes/member-services';export * as memberModels from '../../lib/api-zod/src/member-services';export * as memberChart from '../../artifacts/football-training-board/src/lib/member-expense-chart';");
     }
@@ -213,6 +214,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
 
+    if(process.argv.includes("--school-lnd")){await require('./test-school-lnd.cjs')({pg,base,call,recent:routes.championshipRecentResults});return;}
     if(process.argv.includes("--societies")) {
       await require("./test-society-lifecycle.cjs")({pg,base,call,models:routes.memberModels});return;
     }

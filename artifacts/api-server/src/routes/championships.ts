@@ -844,8 +844,8 @@ async function enrichedChampionships(params: { clubId: number; section?: string 
         return {
           ...group,
           fixtures: groupFixtures,
-          standings: mergeOfficialStandingsWithGoals(normalizedStandingRows(officialStandingsByGroupId.get(group.id)), standingsFor(groupFixtures, pointsRule)),
-          ftbStandings: ftbStandingsFor(groupFixtures, normalizedStandingRows(officialStandingsByGroupId.get(group.id)), pointsRule),
+          standings: championship.section === "scuola_calcio" ? normalizedStandingRows(officialStandingsByGroupId.get(group.id)) : mergeOfficialStandingsWithGoals(normalizedStandingRows(officialStandingsByGroupId.get(group.id)), standingsFor(groupFixtures, pointsRule)),
+          ftbStandings: championship.section === "scuola_calcio" ? undefined : ftbStandingsFor(groupFixtures, normalizedStandingRows(officialStandingsByGroupId.get(group.id)), pointsRule),
         };
       }),
     };
@@ -904,15 +904,15 @@ router.post("/championships/lnd/sync", requireAuth, async (req, res): Promise<vo
     res.status(400).json({ error: "Sezione e URL Gare LND sono obbligatori" });
     return;
   }
-  if (section === "scuola_calcio") {
-    res.status(400).json({ error: "La sync LND dei campionati vale per Settore Giovanile e Prima Squadra" });
-    return;
-  }
   if (!(await teamBelongsToClub(teamId, clubId))) {
     res.status(400).json({ error: "Squadra non valida per questa societa" });
     return;
   }
 
+  if(section==="scuola_calcio" && teamId){
+    const [team]=await db.select({section:teamsTable.clubSection}).from(teamsTable).where(and(eq(teamsTable.id,teamId),eq(teamsTable.clubId,clubId)));
+    if(team?.section!==section){res.status(400).json({error:"Seleziona un’annata della Scuola Calcio"});return;}
+  }
   try {
     const parsed = await fetchAndParseLndCompetition(url);
     if (parsed.fixtures.length === 0 && parsed.standings.length === 0) {

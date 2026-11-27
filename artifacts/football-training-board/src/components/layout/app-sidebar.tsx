@@ -243,7 +243,7 @@ export function AppSidebar({ rolePreview, onRolePreviewChange, roleLabels }: {
         && !(role === "secretary" && ["teams", "matches", "attendance"].includes(s.url)))
       .map(s => ({ ...s, url: `${basePath}/${s.url}` })),
       ...(role === "secretary" ? [{label:"Supporto gare",url:`${basePath}/programmazione-gare`,icon:CalendarDays}] : []),
-      ...(sectionKey !== "scuola-calcio" && role !== "secretary" && CHAMPIONSHIP_SUB_ITEM.roles.includes(role || "")
+      ...(role !== "secretary" && CHAMPIONSHIP_SUB_ITEM.roles.includes(role || "")
         ? [{ ...CHAMPIONSHIP_SUB_ITEM, url: `${basePath}/${CHAMPIONSHIP_SUB_ITEM.url}` }]
         : []),
     ];

@@ -17,7 +17,7 @@ export default function TechnicalChampionshipsPage() {
       <p role="alert">Impossibile caricare le annate. Ricarica la pagina.</p>
     );
   const section = scope.section;
-  if (section === "settore_giovanile" || section === "prima_squadra") {
+  if (section === "scuola_calcio" || section === "settore_giovanile" || section === "prima_squadra") {
     return (
       <SectionChampionshipsPage
         key={`${section}:${scope.teamId ?? "all"}`}
@@ -32,12 +32,12 @@ export default function TechnicalChampionshipsPage() {
     <section className="space-y-4 rounded-xl border bg-card p-5">
       <h1 className="text-2xl font-semibold">Campionati e classifiche</h1>
       <p className="text-sm text-muted-foreground">
-        Seleziona il Settore Giovanile o la Prima Squadra per consultare i
+        Seleziona il settore per consultare i
         campionati, le classifiche LND e i collegamenti di aggiornamento
         dell’annata.
       </p>
       <div className="flex flex-wrap gap-2">
-        {(["settore_giovanile", "prima_squadra"] as const)
+        {(["scuola_calcio", "settore_giovanile", "prima_squadra"] as const)
           .filter((key) => scope.teams.some((team) => team.clubSection === key))
           .map((key) => (
             <Button
