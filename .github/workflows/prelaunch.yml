@@ -1,10 +1,10 @@
 name: Prelaunch finance and responsive
 on:
   pull_request:
-    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/lib/club-data-audit.ts','artifacts/api-server/src/routes/club-backup.ts','artifacts/api-server/src/routes/players.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','scripts/test-kit-potential-detail.cjs','scripts/test-warehouse-finance.cjs','scripts/test-school-lnd.cjs','artifacts/api-server/src/routes/championships.ts','artifacts/api-server/src/routes/warehouse-finance.ts','artifacts/api-server/src/lib/warehouse-finance.ts','artifacts/api-server/src/routes/matches.ts','scripts/test-match-rotation-access.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
+    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/lib/club-data-audit.ts','artifacts/api-server/src/routes/club-backup.ts','artifacts/api-server/src/routes/players.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','scripts/test-kit-potential-detail.cjs','scripts/test-warehouse-finance.cjs','scripts/test-school-lnd.cjs','scripts/test-parent-late-availability.cjs','artifacts/api-server/src/routes/parent.ts','artifacts/api-server/src/routes/championships.ts','artifacts/api-server/src/routes/warehouse-finance.ts','artifacts/api-server/src/lib/warehouse-finance.ts','artifacts/api-server/src/routes/matches.ts','scripts/test-match-rotation-access.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
   push:
     branches: [main]
-    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/lib/club-data-audit.ts','artifacts/api-server/src/routes/club-backup.ts','artifacts/api-server/src/routes/players.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','scripts/test-kit-potential-detail.cjs','scripts/test-warehouse-finance.cjs','scripts/test-school-lnd.cjs','artifacts/api-server/src/routes/championships.ts','artifacts/api-server/src/routes/warehouse-finance.ts','artifacts/api-server/src/lib/warehouse-finance.ts','artifacts/api-server/src/routes/matches.ts','scripts/test-match-rotation-access.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
+    paths: ['artifacts/football-training-board/**','artifacts/api-server/src/lib/club-backup.ts','artifacts/api-server/src/lib/club-data-audit.ts','artifacts/api-server/src/routes/club-backup.ts','artifacts/api-server/src/routes/players.ts','lib/**','scripts/prelaunch/**','scripts/*backup*.cjs','scripts/test-financial-*.cjs','scripts/test-kit-potential-detail.cjs','scripts/test-warehouse-finance.cjs','scripts/test-school-lnd.cjs','scripts/test-parent-late-availability.cjs','artifacts/api-server/src/routes/parent.ts','artifacts/api-server/src/routes/championships.ts','artifacts/api-server/src/routes/warehouse-finance.ts','artifacts/api-server/src/lib/warehouse-finance.ts','artifacts/api-server/src/routes/matches.ts','scripts/test-match-rotation-access.cjs','playwright.prelaunch.config.ts','pnpm-lock.yaml','.github/workflows/prelaunch.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -33,6 +33,7 @@ jobs:
         if: matrix.browser == 'chromium'
       - run: node scripts/test-match-rotation-access.cjs @electric-sql/pglite --school-lnd
       - run: node scripts/test-match-rotation-access.cjs @electric-sql/pglite --report-scores
+      - run: node scripts/test-match-rotation-access.cjs @electric-sql/pglite --late-availability
         if: matrix.browser == 'chromium'
       - run: pnpm run build:web
       - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}

@@ -23,7 +23,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, "db.ts"),
-      `import {drizzle} from 'drizzle-orm/pglite';export * from '../../lib/db/src/schema';export const db=drizzle((globalThis as any).rotationAccessTest.pg);export const pool={query:async(t:string,p?:unknown[])=>{const result=await (globalThis as any).rotationAccessTest.pg.query(t,p);return {...result,rowCount:result.rows.length};}};`,
+      `import {drizzle} from 'drizzle-orm/pglite';export * from '../../lib/db/src/schema';export const db=drizzle((globalThis as any).rotationAccessTest.pg);export const pool={query:async(t:string,p?:unknown[])=>{if(!p?.length&&(t.includes("CREATE TABLE")||t.includes("ALTER TABLE"))){await (globalThis as any).rotationAccessTest.pg.exec(t);return {rows:[],rowCount:0};}const result=await (globalThis as any).rotationAccessTest.pg.query(t,p);return {...result,rowCount:result.rows.length};}};`,
     );
     fs.writeFileSync(
       path.join(dir, "auth.ts"),
@@ -216,6 +216,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
 
+    if(process.argv.includes("--late-availability")){await require("./test-parent-late-availability.cjs")({pg,base,call});return;}
     if(process.argv.includes("--report-scores")){await require('./test-report-scores.cjs')({pg,base,call,plan});return;}
     if(process.argv.includes("--school-lnd")){await require('./test-school-lnd.cjs')({pg,base,call,recent:routes.championshipRecentResults});return;}
     if(process.argv.includes("--societies")) {

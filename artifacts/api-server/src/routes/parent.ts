@@ -26,6 +26,7 @@ import {
   calendarExtraEventsTable,
   playerFitnessDataTable,
   playerParentDelegatesTable,
+  teamStaffAssignmentsTable, clubNotificationsTable,
 } from "@workspace/db";
 import { eq, and, gte, lte, asc, desc, or, inArray, isNull, ne, sql, getTableColumns } from "drizzle-orm";
 import { parentPlayedMinutes, parentTrainingOccurrence, parentTrainingType, type ParentActivity, type ParentTrainingActivity } from "@workspace/api-zod";
@@ -96,11 +97,10 @@ function parentAvailabilityReasonLabel(reason?: string | null) {
 }
 
 function parentAvailabilityDeadline(matchDate: Date) {
-  const deadline = new Date(matchDate);
-  deadline.setHours(23, 59, 59, 999);
-  const daysSinceWednesday = (deadline.getDay() - 3 + 7) % 7 || 7;
-  deadline.setDate(deadline.getDate() - daysSinceWednesday);
-  return deadline;
+  const deadline = new Date(trainingLocalDate(matchDate) + "T12:00:00Z");
+  deadline.setUTCDate(deadline.getUTCDate() - ((deadline.getUTCDay() - 3 + 7) % 7 || 7));
+  const offset = new Intl.DateTimeFormat("en", {timeZone:"Europe/Rome",timeZoneName:"shortOffset"}).formatToParts(deadline).find(part=>part.type==="timeZoneName")?.value;
+  return new Date(deadline.toISOString().slice(0,10) + "T23:59:59.999" + (offset === "GMT+2" ? "+02:00" : "+01:00"));
 }
 
 function parentTrainingAvailabilityDeadline(scheduledAt: Date) {
@@ -744,7 +744,8 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
         `))
       : [];
     const ownCallUp = ownCallUpRows[0] ?? null;
-    const deadline = parentAvailabilityDeadline(match.date);
+    const kickoff = match.isPostponed && match.rescheduleDate ? match.rescheduleDate : match.date;
+    const deadline = parentAvailabilityDeadline(kickoff);
     return {
       ...parentPublicMatch(match, preparationCapacity),
       teamName,
@@ -761,6 +762,7 @@ router.get("/parent/matches", requireParentSession, async (req, res): Promise<vo
         : null,
       parentAvailabilityDeadline: deadline.toISOString(),
       parentAvailabilityLocked: new Date() > deadline,
+      parentAvailabilityCanWithdraw: new Date() < kickoff,
     };
   }));
 
@@ -878,20 +880,25 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
   }
   await ensureParentTournamentAvailability();
   if (await tournamentMatchScope(pool, matchId)) { res.status(409).json({ error: "Comunica la disponibilità dalla scheda del torneo: vale per tutte le sue giornate" }); return; }
-  const deadline = parentAvailabilityDeadline(match.date);
-  if (new Date() > deadline) {
-    res.status(409).json({ error: "La disponibilita puo essere modificata fino al mercoledi precedente la partita" }); return;
+  const kickoff = match.isPostponed && match.rescheduleDate ? match.rescheduleDate : match.date;
+  const deadline = parentAvailabilityDeadline(kickoff);
+  const now = new Date();
+  const lateWithdrawal = now > deadline && status === "unavailable" && now < kickoff;
+  if (now > deadline && !lateWithdrawal) {
+    res.status(409).json({ error: now >= kickoff ? "La partita è già iniziata: contatta lo staff per una rettifica." : "Dopo il termine puoi ancora comunicare Non più disponibile, indicando il motivo. Una nuova disponibilità va concordata con lo staff." }); return;
   }
 
   await ensureParentAvailabilityColumns();
   const availabilityReason = status === "unavailable" ? reason : null;
   const availabilityNotes = status === "unavailable" ? (notes || null) : null;
   const updatedAt = new Date();
-  const [existing] = await db.select().from(callUpsTable)
-    .where(and(eq(callUpsTable.matchId, matchId), eq(callUpsTable.playerId, playerId)));
-
+  const saved = await db.transaction(async tx => {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`parent-match:${clubId}:${matchId}:${playerId}`}))`);
+  const [existing] = await tx.select({...getTableColumns(callUpsTable),parentAvailabilityStatus:sql<string|null>`parent_availability_status`}).from(callUpsTable)
+    .where(and(eq(callUpsTable.matchId, matchId), eq(callUpsTable.playerId, playerId))).orderBy(desc(callUpsTable.id));
+  let record: unknown;
   if (existing) {
-    const rows = sqlRows(await db.execute(sql`
+    const rows = sqlRows(await tx.execute(sql`
       UPDATE call_ups
       SET parent_availability_status = ${status},
           parent_availability_reason = ${availabilityReason},
@@ -905,9 +912,9 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
         parent_availability_updated_at AS "parentAvailabilityUpdatedAt",
         created_at AS "createdAt"
     `));
-    res.json(rows[0]);
+    record = rows[0];
   } else {
-    const rows = sqlRows(await db.execute(sql`
+    const rows = sqlRows(await tx.execute(sql`
       INSERT INTO call_ups (match_id, player_id, status, parent_availability_status, parent_availability_reason, parent_availability_notes, parent_availability_updated_at)
       VALUES (${matchId}, ${playerId}, 'availability', ${status}, ${availabilityReason}, ${availabilityNotes}, ${updatedAt})
       RETURNING id, match_id AS "matchId", player_id AS "playerId", status,
@@ -917,8 +924,20 @@ router.patch("/parent/availability/:matchId/:playerId", requireParentSession, as
         parent_availability_updated_at AS "parentAvailabilityUpdatedAt",
         created_at AS "createdAt"
     `));
-    res.json(rows[0]);
+    record = rows[0];
   }
+  const previousStatus = existing?.parentAvailabilityStatus ?? existing?.status;
+  if (lateWithdrawal && previousStatus !== "unavailable" && match.teamId) {
+    const staff = await tx.select({userId:teamStaffAssignmentsTable.userId}).from(teamStaffAssignmentsTable)
+      .where(and(eq(teamStaffAssignmentsTable.clubId,clubId),eq(teamStaffAssignmentsTable.teamId,match.teamId)));
+    const [team] = await tx.select({coachId:teamsTable.coachId}).from(teamsTable).where(and(eq(teamsTable.clubId,clubId),eq(teamsTable.id,match.teamId)));
+    const recipients = [...new Set([...staff.map(row=>row.userId),team?.coachId].filter((id):id is number=>typeof id === "number"))];
+    if (recipients.length) await tx.insert(clubNotificationsTable).values({clubId,title:"Disponibilità ritirata dopo la scadenza",type:"warning",targetAudience:"staff",targetRoles:[],targetUserIds:recipients,
+      message:`${player.firstName} ${player.lastName} non è più disponibile per ${match.opponent} del ${kickoff.toLocaleString("it-IT",{timeZone:"Europe/Rome"})}. Motivo: ${parentAvailabilityReasonLabel(reason)}${notes ? ` · ${notes}` : ""}. Verifica la convocazione.`});
+  }
+  return record;
+  });
+  res.json(saved);
 });
 
 router.get("/parent/payments", requireParentSession, async (req, res): Promise<void> => {

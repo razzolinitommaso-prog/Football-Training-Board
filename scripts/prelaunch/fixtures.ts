@@ -1,5 +1,6 @@
 import { motorTestCatalog } from "@workspace/api-zod";
 const initialScenario = new URLSearchParams(location.search).get("scenario");
+let lateReplyStatus = "available";
 const team = {
   id: 11,
   clubId: 999,
@@ -148,6 +149,10 @@ export async function mockResponse(
     return new Response("No external requests in fixture", { status: 403 });
   const pageParams=new URLSearchParams(location.search);
   const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario") ?? initialScenario;
+  if(scenario === "late-parent") {
+    if(p === "/api/parent/matches") return Response.json([{id:901,teamId:11,teamName:team.name,opponent:"Avversario di collaudo",date:"2099-11-28T15:00:00Z",homeAway:"home",parentPlayerId:101,parentAvailabilityLocked:true,parentAvailabilityCanWithdraw:true,parentAvailabilityDeadline:"2026-11-25T22:59:59.999Z",parentAvailability:{status:lateReplyStatus}}]);
+    if(p === "/api/parent/availability/901/101" && init?.method === "PATCH") { const reply=JSON.parse(String(init.body));lateReplyStatus=reply.status;return Response.json({status:"called",parentAvailabilityStatus:reply.status,parentAvailabilityReason:reply.reason,parentAvailabilityNotes:reply.notes,parentAvailabilityUpdatedAt:new Date().toISOString()}); }
+  }
   const scopeTeams = [team,{...team,id:12,name:"Esordienti di collaudo"},{...team,id:21,name:"Allievi di collaudo",clubSection:"settore_giovanile",section:"settore_giovanile"}];
   if(scenario==="championship-scope") {
     if(p==="/api/teams/navigation-scope")return Response.json({sections:["scuola_calcio","settore_giovanile"],teams:scopeTeams});

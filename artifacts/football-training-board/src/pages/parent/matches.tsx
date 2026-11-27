@@ -51,6 +51,8 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
   const [reason, setReason] = useState(match.parentAvailability?.reason ?? "illness");
   const [notes, setNotes] = useState(match.parentAvailability?.notes ?? "");
   const locked = match.parentAvailabilityLocked === true;
+  const canWithdraw = locked && match.parentAvailabilityCanWithdraw === true;
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     setReason(match.parentAvailability?.reason ?? "illness");
@@ -59,7 +61,8 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
 
   async function save(status: "available" | "unavailable") {
     setError("");
-    if (locked) return;
+    setSuccess("");
+    if (locked && !(canWithdraw && status === "unavailable")) return;
     setSaving(true);
     try {
       const updated = await apiFetch(`/parent/availability/${match.id}/${match.parentPlayerId}`, {
@@ -77,6 +80,7 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
         notes: updated.parentAvailabilityNotes ?? null,
         updatedAt: updated.parentAvailabilityUpdatedAt ?? null,
       });
+      setSuccess(status === "unavailable" ? "Indisponibilità registrata. La risposta è aggiornata anche per lo staff." : "Disponibilità registrata.");
     } catch (err: any) {
       setError(err?.message ?? "Impossibile salvare la disponibilita.");
     } finally {
@@ -92,7 +96,7 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
         </Badge>
         <span className="text-[11px] text-muted-foreground">
           {locked ? (
-            <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3" /> Scaduta</span>
+            <span className="inline-flex items-center gap-1"><Lock className="h-3 w-3" /> {canWithdraw ? "Termine scaduto · ritiro consentito" : "Termine scaduto"}</span>
           ) : (
             <>Modificabile fino a {fmtDeadline(match.parentAvailabilityDeadline)}</>
           )}
@@ -106,7 +110,8 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
         </p>
       )}
 
-      {!locked && (
+      {canWithdraw && <p className="text-xs text-muted-foreground">Puoi ancora comunicare che tuo figlio non è più disponibile, indicando il motivo. Per tornare disponibile dopo la scadenza contatta lo staff.</p>}
+      {(!locked || canWithdraw) && (
         <div className="space-y-2">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto]">
             <Select value={reason} onValueChange={setReason}>
@@ -119,13 +124,13 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
                 ))}
               </SelectContent>
             </Select>
-            <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("available")}>
+            <Button type="button" variant="outline" className="gap-2" disabled={saving || locked} onClick={() => void save("available")}>
               <CheckCircle className="h-4 w-4" />
               Disponibile
             </Button>
             <Button type="button" variant="outline" className="gap-2" disabled={saving} onClick={() => void save("unavailable")}>
               <XCircle className="h-4 w-4" />
-              Non disponibile
+              {canWithdraw ? "Non più disponibile" : "Non disponibile"}
             </Button>
           </div>
           {reason === "other" && (
@@ -137,6 +142,7 @@ function MatchAvailability({ match, onUpdated }: { match: any; onUpdated: (next:
             />
           )}
           {error && <p className="text-xs text-red-600">{error}</p>}
+          {success && <p role="status" className="text-xs text-emerald-700">{success}</p>}
         </div>
       )}
     </div>
