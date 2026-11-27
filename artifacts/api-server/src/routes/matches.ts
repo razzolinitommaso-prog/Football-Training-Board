@@ -1,4 +1,4 @@
-import { isArchivedPlayer } from "@workspace/api-zod";
+import { isArchivedPlayer, matchReportScore, matchReportScoreError } from "@workspace/api-zod";
 import { createHash } from "node:crypto";
 import { syncMatchTournamentReply } from "../lib/parent-tournament-availability";
 import { activeMatchEligibility, callupRuleFailure, matchKickoff } from "../lib/callup-rules";
@@ -348,7 +348,7 @@ function validateMatchReport(plan: Record<string, unknown> | null, called: numbe
   if (!parsed.success) return "Resoconto post-partita non valido: controlla giocatori, tempi e minuti.";
   const periods = Array.isArray(plan.periods) ? plan.periods : [];
   if (parsed.data.periods.length !== periods.length) return "I tempi del resoconto devono coincidere con quelli della partita.";
-  return analyseMatchReport(parsed.data, called).errors[0] ?? null;
+  return analyseMatchReport(parsed.data, called).errors[0] ?? matchReportScoreError(parsed.data);
 }
 
 function uniqueNumericIds(value: unknown): number[] {
@@ -740,15 +740,28 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
       const previous = matchReportSchema.safeParse(normalizeMatchPlan(existing.matchPlan ?? parsed.plan)?.postMatchReport);
       const error = validateMatchReport(nextPlan, [...called.map(row => row.playerId), ...matchReportPlayerIds(previous.data)]);
       if (error) { res.status(400).json({ error }); return; }
-      const scores = String(result !== undefined ? result ?? "" : existing.result ?? "").match(/^(\d+)\s*[-:]\s*(\d+)$/);
       const report = matchReportSchema.parse(nextPlan.postMatchReport);
-      const own = existing.homeAway === "home" ? 1 : 2;
+      const total = matchReportScore(report);
+      if (total) updates.result = (homeAway ?? existing.homeAway) === "home" ? `${total.goalsFor}-${total.goalsAgainst}` : `${total.goalsAgainst}-${total.goalsFor}`;
+      const scores = String(updates.result !== undefined ? updates.result ?? "" : existing.result ?? "").match(/^(\d+)\s*[-:]\s*(\d+)$/);
+      const own = (homeAway ?? existing.homeAway) === "home" ? 1 : 2;
       if (scores && report.goals.length > Number(scores[own])) {
         res.status(400).json({ error: "I marcatori superano i gol della squadra nel risultato." }); return;
       }
     }
     updates.notes = parsed.publicNotes;
     updates.matchPlan = nextPlan;
+  }
+  if (result !== undefined && matchPlan === undefined) {
+    const saved = matchReportSchema.safeParse(normalizeMatchPlan(existing.matchPlan ?? splitPublicNotesAndPlan(existing.notes).plan)?.postMatchReport);
+    const total = saved.success ? matchReportScore(saved.data) : null;
+    if (total) {
+      const expected = (homeAway ?? existing.homeAway) === "home" ? [total.goalsFor,total.goalsAgainst] : [total.goalsAgainst,total.goalsFor];
+      const supplied = String(result ?? "").match(/^(\d+)\s*[-:]\s*(\d+)$/);
+      if (!supplied || expected[0] !== Number(supplied[1]) || expected[1] !== Number(supplied[2])) {
+        res.status(400).json({error:"Il risultato deriva dai singoli tempi: correggi i punteggi nel resoconto."}); return;
+      }
+    }
   }
   if (req.body.isPostponed !== undefined) updates.isPostponed = req.body.isPostponed;
   if (req.body.rescheduleDate !== undefined) updates.rescheduleDate = req.body.rescheduleDate ? new Date(req.body.rescheduleDate) : null;
@@ -1171,7 +1184,10 @@ router.put("/matches/:id/plan", requireAuth, async (req, res): Promise<void> => 
   const saved = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('match-callups'), ${matchId})`);
     const parsed = splitPublicNotesAndPlan(existingMatch.notes ?? null);
-    const [updated] = await tx.update(matchesTable).set({ notes: parsed.publicNotes, matchPlan })
+    const report = matchReportSchema.safeParse(matchPlan.postMatchReport);
+    const total = report.success ? matchReportScore(report.data) : null;
+    const [updated] = await tx.update(matchesTable).set({ notes: parsed.publicNotes, matchPlan,
+      ...(total ? {result: existingMatch.homeAway === "home" ? `${total.goalsFor}-${total.goalsAgainst}` : `${total.goalsAgainst}-${total.goalsFor}`} : {}) })
       .where(and(eq(matchesTable.id, matchId), eq(matchesTable.clubId, clubId),
         sql`${matchesTable.matchPlan} IS NOT DISTINCT FROM ${existingMatch.matchPlan ? JSON.stringify(existingMatch.matchPlan) : null}::jsonb`))
       .returning({ id: matchesTable.id });

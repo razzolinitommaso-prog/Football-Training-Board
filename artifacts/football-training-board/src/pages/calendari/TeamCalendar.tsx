@@ -51,7 +51,7 @@ import {
 } from "@/lib/match-calendar-pdf";
 import { downloadGeneratedPdf, serverCallupPdfUrls } from "@/lib/callup-pdf";
 import { useGetMyClub } from "@workspace/api-client-react";
-import { analyseMatchReport, matchReportPlayerIds, matchReportSchema, type MatchReport } from "@workspace/api-zod";
+import { analyseMatchReport, matchReportPlayerIds, matchReportSchema, matchReportScore, matchReportScoreError, type MatchReport } from "@workspace/api-zod";
 import { MatchReportEditor, MatchReportLineups, MatchReportReviewSummary, MatchReportSummary, type ReportPlayer } from "./MatchReportEditor";
 import { findImportDuplicateConflicts, getDuplicateMatchIdsToRemove } from "@/lib/match-import-conflicts";
 import {
@@ -2202,22 +2202,25 @@ function MatchCard({
   }
 
   function savePostNotes() {
+    const periodScore = postReportDraft ? matchReportScore(postReportDraft) : null;
     if (canManageMatchPlan && postReportDraft) {
       const parsedReport = matchReportSchema.safeParse(postReportDraft);
       const error = !parsedReport.success ? "Completa giocatori, tempi e minuti degli eventi."
-        : analyseMatchReport(parsedReport.data, reportPlayers.map(player => player.id), reportPlayerLimits).errors[0];
+        : analyseMatchReport(parsedReport.data, reportPlayers.map(player => player.id), reportPlayerLimits).errors[0] ?? matchReportScoreError(parsedReport.data);
       if (error) {
         toast({ title: "Resoconto da correggere", description: error, variant: "destructive" });
         return;
       }
-      if (postOwnGoalsValue.trim() && postReportDraft.goals.length > Number(postOwnGoalsValue)) {
+      if (!periodScore && postOwnGoalsValue.trim() && postReportDraft.goals.length > Number(postOwnGoalsValue)) {
         toast({ title: "Marcatori non coerenti", description: "I gol registrati superano il risultato della tua squadra.", variant: "destructive" });
         return;
       }
     }
+    const own = periodScore ? String(periodScore.goalsFor) : postOwnGoalsValue;
+    const opponent = periodScore ? String(periodScore.goalsAgainst) : postOpponentGoalsValue;
     const result = match.homeAway === "home"
-      ? composeMatchResult(postOwnGoalsValue, postOpponentGoalsValue)
-      : composeMatchResult(postOpponentGoalsValue, postOwnGoalsValue);
+      ? composeMatchResult(own, opponent)
+      : composeMatchResult(opponent, own);
     if ((postOwnGoalsValue.trim() || postOpponentGoalsValue.trim()) && !result) {
       toast({
         title: "Risultato incompleto",
@@ -3800,7 +3803,8 @@ function MatchCard({
                             type="number"
                             min={0}
                             inputMode="numeric"
-                            value={postOwnGoalsValue}
+                            value={postReportDraft && matchReportScore(postReportDraft) ? matchReportScore(postReportDraft)!.goalsFor : postOwnGoalsValue}
+                            readOnly={!!postReportDraft && !!matchReportScore(postReportDraft)}
                             onChange={(e) => setPostOwnGoalsValue(e.target.value)}
                             placeholder="0"
                             className="h-9 text-center text-base font-bold"
@@ -3813,7 +3817,8 @@ function MatchCard({
                             type="number"
                             min={0}
                             inputMode="numeric"
-                            value={postOpponentGoalsValue}
+                            value={postReportDraft && matchReportScore(postReportDraft) ? matchReportScore(postReportDraft)!.goalsAgainst : postOpponentGoalsValue}
+                            readOnly={!!postReportDraft && !!matchReportScore(postReportDraft)}
                             onChange={(e) => setPostOpponentGoalsValue(e.target.value)}
                             placeholder="0"
                             className="h-9 text-center text-base font-bold"

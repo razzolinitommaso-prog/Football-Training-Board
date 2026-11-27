@@ -125,6 +125,8 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
           ")",
       );
     }
+    // Match production defaults: null status/is_test would hide every seeded player.
+    await pg.exec("ALTER TABLE players ALTER COLUMN status SET DEFAULT 'active'; ALTER TABLE players ALTER COLUMN is_test SET DEFAULT false; ALTER TABLE training_sessions ALTER COLUMN session_kind SET DEFAULT 'regular';");
     await pg.exec(
       `INSERT INTO clubs(id,name) VALUES(1,'Club test'),(2,'Other club');INSERT INTO teams(id,club_id,name,club_section,category) VALUES(11,1,'Primi Calci','scuola_calcio','Primi Calci'),(12,1,'Allievi','settore_giovanile','Allievi'),(22,2,'Foreign','scuola_calcio','Primi Calci');INSERT INTO users(id,first_name,last_name) VALUES(1,'Manager','Allowed'),(2,'Manager','Unassigned');INSERT INTO club_memberships(id,club_id,user_id,role,club_section) VALUES(1,1,1,'team_manager','{scuola_calcio}'),(2,1,2,'team_manager','{scuola_calcio}');INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(1,1,1,11,'team_manager');INSERT INTO players(id,club_id,team_id,first_name,last_name) VALUES(101,1,11,'Own','Child'),(102,1,11,'Peer','Other'),(201,2,22,'Foreign','Child');`,
     );
@@ -214,6 +216,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
         return { status: response.status, data: response.headers.get("content-type")?.includes("json") ? await response.json() : await response.text() };
       };
 
+    if(process.argv.includes("--report-scores")){await require('./test-report-scores.cjs')({pg,base,call,plan});return;}
     if(process.argv.includes("--school-lnd")){await require('./test-school-lnd.cjs')({pg,base,call,recent:routes.championshipRecentResults});return;}
     if(process.argv.includes("--societies")) {
       await require("./test-society-lifecycle.cjs")({pg,base,call,models:routes.memberModels});return;
@@ -1463,7 +1466,8 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     assert.equal(sports.data.trainingAttendance.totalPastSessions,4);
     assert.equal(sports.data.trainingAttendance.present,3);
     assert.equal(sports.data.trainingAttendance.unrecorded,1);
-    assert.deepEqual(sports.data.matchAttendance,{totalPastMatches:5,callups:4,appearances:1,recorded:2,unrecorded:2,minutes:12,percentage:50});
+    // An empty lineup is an incomplete report, not a recorded absence.
+    assert.deepEqual(sports.data.matchAttendance,{totalPastMatches:5,callups:4,appearances:1,recorded:1,unrecorded:3,minutes:12,percentage:100});
     console.log('PASS player activity: supplementary/historical teams, joint sessions once, season boundary, distinct callups, parent availability excluded, report-only participation/minutes, foreign club excluded.');
     // Technical director proposes; coach explicitly adopts independent station copies.
     await pg.exec(`INSERT INTO users(id,first_name,last_name) VALUES(3,'Coach','Test'),(4,'Technical','Director');

@@ -1,4 +1,5 @@
 import { motorTestCatalog } from "@workspace/api-zod";
+const initialScenario = new URLSearchParams(location.search).get("scenario");
 const team = {
   id: 11,
   clubId: 999,
@@ -146,7 +147,14 @@ export async function mockResponse(
   if (!p.startsWith("/api/"))
     return new Response("No external requests in fixture", { status: 403 });
   const pageParams=new URLSearchParams(location.search);
-  const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario");
+  const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario") ?? initialScenario;
+  const scopeTeams = [team,{...team,id:12,name:"Esordienti di collaudo"},{...team,id:21,name:"Allievi di collaudo",clubSection:"settore_giovanile",section:"settore_giovanile"}];
+  if(scenario==="championship-scope") {
+    if(p==="/api/teams/navigation-scope")return Response.json({sections:["scuola_calcio","settore_giovanile"],teams:scopeTeams});
+    if(p==="/api/teams")return Response.json(scopeTeams);
+    if(p==="/api/clubs/me")return Response.json({id:999,name:"ASD Fortis Juventus 1909"});
+    if(p==="/api/championships")return Response.json(scopeTeams.filter(t=>t.clubSection===url.searchParams.get("section")).map(t=>({id:900+t.id,teamId:t.id,title:`Campionato ${t.name}`,section:t.clubSection,sourceProvider:"lnd",groups:[{id:1000+t.id,name:`Girone ${t.id}`,standings:[],fixtures:[{id:2000+t.id,homeTeam:"Avversario di collaudo",awayTeam:"BORGO SAN LORENZO",date:"2027-01-10T15:00:00Z",homeScore:null,awayScore:null}]}]})));
+  }
   const lndFixtures=Array.from({length:8},(_,i)=>({id:900+i,homeTeam:i===0?"Società di collaudo":`Casa collaudo ${i}`,awayTeam:`Ospite collaudo ${i}`,date:`2026-11-21T${String(12+i).padStart(2,'0')}:00:00Z`,round:10,leg:"andata",homeScore:i===0?3:1,awayScore:0}));
   if(scenario==="school-lnd"&&p==="/api/championships/lnd/preview")return Response.json({title:"Primi Calci · Girone di collaudo",groupName:"Girone A",fixtures:lndFixtures,standings:[],rawLineCount:8});
   if(scenario==="school-lnd"&&p==="/api/championships")return Response.json([{id:901,teamId:11,title:"Primi Calci · Girone di collaudo",section:"scuola_calcio",sourceProvider:"lnd",sourceUrl:"https://gare.lnd.it/competizione/toscana?campionato=COLLAUDO&girone=A",groups:[{id:902,name:"Girone A",fixtures:lndFixtures,standings:[]}]}]);

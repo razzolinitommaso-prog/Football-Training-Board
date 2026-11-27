@@ -70,7 +70,6 @@ import SectionCalendar from "@/pages/calendar/SectionCalendar";
 import SeasonTransitionPage from "@/pages/season-transition/index";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
 import SectionMatchCalendars from "@/pages/matches/SectionMatchCalendars";
-import SectionChampionshipsPage from "@/pages/championships/SectionChampionshipsPage";
 import TechnicalChampionshipsPage from "@/pages/championships/TechnicalChampionshipsPage";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -306,7 +305,7 @@ function ProtectedAppRoutes() {
             <SectionMatchCalendars section="scuola_calcio" />
           </ProtectedRoute>
         </Route>
-        <Route path="/scuola-calcio/campionati"><ProtectedRoute allowedRoles={unifiedStaffRoles.filter(role=>role!=="secretary")}><SectionChampionshipsPage section="scuola_calcio" /></ProtectedRoute></Route>
+        <Route path="/scuola-calcio/campionati"><ProtectedRoute allowedRoles={unifiedStaffRoles.filter(role=>role!=="secretary")}><TechnicalChampionshipsPage /></ProtectedRoute></Route>
         <Route path="/scuola-calcio/programmazione-gare"><ProtectedRoute allowedRoles={["admin","director","secretary","sporting_director","technical_director"]}><SectionMatchCalendars section="scuola_calcio" programming /></ProtectedRoute></Route>
         <Route path="/settore-giovanile/programmazione-gare"><ProtectedRoute allowedRoles={["admin","director","secretary","sporting_director","technical_director"]}><SectionMatchCalendars section="settore_giovanile" programming /></ProtectedRoute></Route>
         <Route path="/prima-squadra/programmazione-gare"><ProtectedRoute allowedRoles={["admin","director","secretary","sporting_director","technical_director"]}><SectionMatchCalendars section="prima_squadra" programming /></ProtectedRoute></Route>
@@ -349,7 +348,7 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/settore-giovanile/campionati">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
-            <SectionChampionshipsPage section="settore_giovanile" />
+            <TechnicalChampionshipsPage />
           </ProtectedRoute>
         </Route>
         <Route path="/settore-giovanile/attendance">
@@ -394,7 +393,7 @@ function ProtectedAppRoutes() {
         </Route>
         <Route path="/prima-squadra/campionati">
           <ProtectedRoute allowedRoles={["admin", "director", "secretary", "sporting_director", "coach", "fitness_coach", "athletic_director", "technical_director"]}>
-            <SectionChampionshipsPage section="prima_squadra" />
+            <TechnicalChampionshipsPage />
           </ProtectedRoute>
         </Route>
         <Route path="/prima-squadra/attendance">

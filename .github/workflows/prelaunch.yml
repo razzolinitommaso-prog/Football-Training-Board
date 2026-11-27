@@ -32,6 +32,7 @@ jobs:
       - run: node scripts/test-match-rotation-access.cjs @electric-sql/pglite --withdrawals
         if: matrix.browser == 'chromium'
       - run: node scripts/test-match-rotation-access.cjs @electric-sql/pglite --school-lnd
+      - run: node scripts/test-match-rotation-access.cjs @electric-sql/pglite --report-scores
         if: matrix.browser == 'chromium'
       - run: pnpm run build:web
       - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}

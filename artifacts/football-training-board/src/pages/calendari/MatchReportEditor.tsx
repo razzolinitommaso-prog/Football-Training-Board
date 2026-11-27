@@ -3,7 +3,7 @@ import { isPlannedFractionChange, reportLineupAt, setReportUnitLineup, synchroni
 import { ScrollableSelect } from "@/components/ui/scrollable-select";
 import { DisclosureSummary } from "@/components/ui/disclosure-summary";
 import { matchMinutesLabel } from "@/components/calendar/MatchRotationComparison";
-import { analyseMatchReport, type MatchRotationSummary, type RotationSummaryUnit, type MatchReport } from "@workspace/api-zod";
+import { analyseMatchReport, matchReportScore, type MatchRotationSummary, type RotationSummaryUnit, type MatchReport } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +12,19 @@ import { Checkbox } from "@/components/ui/checkbox";
 export type ReportPlayer = { id: number; name: string };
 const selectClass = "h-9 w-full min-w-0 rounded-md border bg-background px-2 text-xs";
 const eventId = () => crypto.randomUUID();
+
+function scorerSlots(goals: MatchReport["goals"]) {
+  const slots = new Map<number, MatchReport["goals"][number]>();
+  for (const goal of [...goals].sort((a,b) => Number(a.goalSlot === undefined) - Number(b.goalSlot === undefined))) {
+    let slot = goal.goalSlot;
+    if (slot === undefined || slots.has(slot)) {
+      slot = 0;
+      while (slots.has(slot)) slot++;
+    }
+    slots.set(slot, goal);
+  }
+  return slots;
+}
 
 function PlayerSelect({ value, players, onChange, label, empty = "Giocatore" }: {
   value: number; players: ReportPlayer[]; onChange: (value: number) => void; label: string; empty?: string;
@@ -34,6 +47,8 @@ export function MatchReportSummary({ report, players, limit, rotation, showChang
     ...(!manualChangesOnly ? analysis.intervals : []).map(interval => ({ period: interval.period, minute: 0, key: "interval-" + interval.period, interval, change: null })),
   ].sort((a, b) => a.period - b.period || a.minute - b.minute || Number(!!b.interval) - Number(!!a.interval));
   return <div className="space-y-2 text-xs">
+    {matchReportScore(report) && <p className="font-semibold">Risultato finale: {matchReportScore(report)!.goalsFor} – {matchReportScore(report)!.goalsAgainst} · Punti: {matchReportScore(report)!.points} (3 vittoria · 1 pareggio · 0 sconfitta)</p>}
+    {report.periods.map((p, i) => p.goalsFor !== undefined && p.goalsAgainst !== undefined && <p key={i}>{i + 1}° tempo: {p.goalsFor} – {p.goalsAgainst}</p>)}
     <p className="font-semibold">Marcatori e minutaggio effettivo</p>
     {report.goals.length === 0 ? <p>Nessun marcatore registrato.</p> : report.goals.map(goal =>
       <p key={goal.id}>{name(goal.playerId)} · {goal.period + 1}° tempo, {goal.minute}′</p>)}
@@ -399,6 +414,147 @@ export function MatchReportEditor({ value, onChange, players, limit, rotation, p
     </div>
     {substitutions.map(renderChange)}
     {!coachReport && <div className="space-y-2"><h5 className="text-sm font-semibold">Marcatori · {value.goals.length} gol</h5>
+      <p className="text-xs text-muted-foreground">Ogni casella vale un gol. Il minuto proposto è il primo ingresso in campo: puoi precisarlo nei dettagli sotto. I punti si calcolano sul risultato finale.</p>
+      {value.periods.map((p, index) => (
+            <div key={index} className="space-y-3 rounded-lg border p-3">
+              <h6 className="font-semibold">{index + 1}° tempo</h6>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {(
+                  ["goalsFor", "goalsAgainst", "opponentOwnGoals"] as const
+                ).map((key, k) => (
+                  <label key={key} className="space-y-1 text-xs">
+                    {
+                      [
+                        "Gol nostra squadra",
+                        "Gol avversari",
+                        "Autoreti avversarie",
+                      ][k]
+                    }
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={p[key] ?? ""}
+                      onChange={(e) =>
+                        updatePeriod(index, {
+                          [key]:
+                            e.target.value === ""
+                              ? undefined
+                              : Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+              {players.map((player) => {
+                const goals = value.goals.filter(
+                  (g) => g.period === index && g.playerId === player.id,
+                );
+                const slots = scorerSlots(goals);
+                const slotById = new Map(
+                  [...slots].map(([slot, goal]) => [goal.id, slot]),
+                );
+                const normalized = value.goals.map((g) =>
+                  slotById.has(g.id)
+                    ? { ...g, goalSlot: slotById.get(g.id) }
+                    : g,
+                );
+                return (
+                  <div
+                    key={player.id}
+                    className="flex flex-wrap items-center justify-between gap-2 border-t pt-2"
+                  >
+                    <span className="text-sm">
+                      {player.name} · {goals.length} gol
+                    </span>
+                    <div className="flex flex-wrap gap-3">
+                      {Array.from(
+                        {
+                          length: Math.min(
+                            100,
+                            Math.max(
+                              3,
+                              ...[...slots.keys()].map((slot) => slot + 2),
+                            ),
+                          ),
+                        },
+                        (_, slot) => (
+                          <label
+                            key={slot}
+                            className="flex items-center gap-1 text-xs"
+                          >
+                            <Checkbox
+                              aria-label={`${player.name}, ${index + 1}° tempo, gol ${slot + 1}`}
+                              checked={slots.has(slot)}
+                              disabled={
+                                !slots.has(slot) && value.goals.length >= 100
+                              }
+                              onCheckedChange={(checked) => {
+                                if (!checked) {
+                                  apply({
+                                    ...value,
+                                    goals: normalized.filter(
+                                      (g) => g.id !== slots.get(slot)?.id,
+                                    ),
+                                  });
+                                  return;
+                                }
+                                const timing = [
+                                  0,
+                                  ...value.substitutions
+                                    .filter(
+                                      (s) =>
+                                        s.period === index &&
+                                        s.inPlayerId === player.id,
+                                    )
+                                    .map((s) => s.minute),
+                                ].find((minute) =>
+                                  reportLineupAt(value, index, minute).includes(
+                                    player.id,
+                                  ),
+                                );
+                                if (timing === undefined) {
+                                  setUpdateError(
+                                    `${player.name}: registra prima l'ingresso in campo nel ${index + 1}° tempo.`,
+                                  );
+                                  return;
+                                }
+                                apply({
+                                  ...value,
+                                  goals: [
+                                    ...normalized,
+                                    {
+                                      id: eventId(),
+                                      playerId: player.id,
+                                      period: index,
+                                      minute: timing,
+                                      goalSlot: slot,
+                                    },
+                                  ],
+                                });
+                              }}
+                            />
+                            {slot + 1}
+                          </label>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {p.goalsFor !== undefined &&
+                p.goalsFor !==
+                  value.goals.filter((g) => g.period === index).length +
+                    (p.opponentOwnGoals ?? 0) && (
+                  <p role="alert" className="text-sm text-destructive">
+                    Completa i marcatori o le autoreti: il totale deve
+                    coincidere con i gol della squadra.
+                  </p>
+                )}
+            </div>
+          ))}
+
       {value.goals.map(goal => <div key={goal.id} className="space-y-2 rounded border p-2">
         <PlayerSelect label="Marcatore" value={goal.playerId} players={players} onChange={playerId => apply({ ...value, goals: value.goals.map(g => g.id === goal.id ? { ...g, playerId } : g) })} />
         <Timing {...goal} periods={value.periods} onChange={timing => apply({ ...value, goals: value.goals.map(g => g.id === goal.id ? { ...g, ...timing } : g) })} />

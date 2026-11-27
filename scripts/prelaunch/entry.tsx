@@ -10,6 +10,7 @@ import { AppErrorBoundary } from "../../artifacts/football-training-board/src/co
 import App from "../../artifacts/football-training-board/src/App";
 import { mockResponse } from "./fixtures";
 import { AccessibilityAudit } from "./accessibility";
+import { ReportEditorFixture } from "./report-editor";
 window.fetch = mockResponse;
 createRoot(document.getElementById("root")!).render(
   <QueryClientProvider
@@ -26,7 +27,7 @@ createRoot(document.getElementById("root")!).render(
         <TooltipProvider>
           <TechnicalScopeProvider>
             <AppErrorBoundary>
-              <App />
+              {location.pathname === "/__report-editor" ? <ReportEditorFixture/> : <App />}
             </AppErrorBoundary>
           </TechnicalScopeProvider>
           <Toaster />

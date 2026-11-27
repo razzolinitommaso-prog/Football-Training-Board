@@ -6,12 +6,14 @@ import {
   clubsTable,
   db,
   matchesTable,
+  playersTable,
   teamsTable,
   type ChampionshipPointsRule,
 } from "@workspace/db";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth";
-import { resolveChampionshipMatch } from "@workspace/api-zod";
+import { resolveChampionshipMatch, matchReportSchema } from "@workspace/api-zod";
+import { splitPublicNotesAndPlan } from "../lib/match-plan-notes";
 
 const router: IRouter = Router();
 
@@ -776,7 +778,7 @@ async function teamBelongsToClub(teamId: number | null, clubId: number): Promise
   return !!team;
 }
 
-async function enrichedChampionships(params: { clubId: number; section?: string | null; teamId?: number | null }) {
+async function enrichedChampionships(params: { clubId: number; section?: string | null; teamId?: number | null; includeScorers?: boolean }) {
   const conditions = [eq(championshipsTable.clubId, params.clubId) as any];
   if (params.section) conditions.push(eq(championshipsTable.section, params.section) as any);
   if (params.teamId) conditions.push(eq(championshipsTable.teamId, params.teamId) as any);
@@ -825,6 +827,7 @@ async function enrichedChampionships(params: { clubId: number; section?: string 
   const identityChampionships = championships.map(championship => ({...championship,groups:groups.filter(group => group.championshipId === championship.id).map(group => ({...group,fixtures:fixtures.filter(row => row.groupId === group.id).map(row => ({...row,date:row.date?.toISOString()??null}))}))}));
   const identityById = new Map(identityChampionships.map(row => [row.id,row]));
   const teamScopeCache = new Map<number,number[]>();
+  const roster = params.includeScorers ? await db.select({id:playersTable.id,firstName:playersTable.firstName,lastName:playersTable.lastName}).from(playersTable).where(eq(playersTable.clubId,params.clubId)) : [];
 
   return championships.map((championship) => {
     const pointsRule = normalizePointsRule(championship.pointsRule);
@@ -833,19 +836,33 @@ async function enrichedChampionships(params: { clubId: number; section?: string 
       ...championship,
       pointsRule,
       groups: championshipGroups.map((group) => {
+        const scorerGoals = new Map<number, number>();
+        const countedMatches = new Set<number>();
         const groupFixtures = fixtures
           .filter((fixture) => fixture.groupId === group.id)
           .map((fixture) => {
             const identity = identityById.get(championship.id)!;
             const linked = resolveChampionshipMatch({...fixture,date:fixture.date?.toISOString()??null}, identity, identityChampionships, candidates, clubTeams.filter(team => team.clubSection === championship.section), [club?.name??"",club?.legalName??""], teamScopeCache);
             const linkedResult = linked ? internalMatches.find(match => match.id === linked.id)?.result : null;
+            if (params.includeScorers && linked && !countedMatches.has(linked.id)) {
+              countedMatches.add(linked.id);
+              const match = internalMatches.find(row => row.id === linked.id)!;
+              const plan = match.matchPlan ?? splitPublicNotesAndPlan(match.notes).plan;
+              const report = matchReportSchema.safeParse((plan as {postMatchReport?:unknown} | null)?.postMatchReport);
+              if (report.success) for (const goal of report.data.goals) scorerGoals.set(goal.playerId,(scorerGoals.get(goal.playerId)??0)+1);
+            }
             return { ...fixture, linkedResult: linkedResult ?? null };
           });
         return {
           ...group,
           fixtures: groupFixtures,
+          scorers: params.includeScorers ? [...scorerGoals].map(([playerId,goals])=>({playerId,goals,name:roster.filter(p=>p.id===playerId).map(p=>`${p.lastName} ${p.firstName}`).join("") || `Giocatore #${playerId}`})).sort((a,b)=>b.goals-a.goals || a.name.localeCompare(b.name,"it")) : undefined,
           standings: championship.section === "scuola_calcio" ? normalizedStandingRows(officialStandingsByGroupId.get(group.id)) : mergeOfficialStandingsWithGoals(normalizedStandingRows(officialStandingsByGroupId.get(group.id)), standingsFor(groupFixtures, pointsRule)),
-          ftbStandings: championship.section === "scuola_calcio" ? undefined : ftbStandingsFor(groupFixtures, normalizedStandingRows(officialStandingsByGroupId.get(group.id)), pointsRule),
+          // School internal points follow the aggregate saved by the coach;
+          // federated scores remain untouched in fixtures/official standings.
+          ftbStandings: ftbStandingsFor(championship.section === "scuola_calcio"
+            ? groupFixtures.map(fixture => /^\s*\d+\s*[-:]\s*\d+\s*$/.test(fixture.linkedResult ?? "") ? {...fixture,homeScore:null,awayScore:null} : fixture)
+            : groupFixtures, championship.section === "scuola_calcio" ? [] : normalizedStandingRows(officialStandingsByGroupId.get(group.id)), championship.section === "scuola_calcio" ? DEFAULT_POINTS_RULE : pointsRule),
         };
       }),
     };
@@ -862,7 +879,7 @@ router.get("/championships", requireAuth, async (req, res): Promise<void> => {
   const section = normalizeSection(req.query.section);
   const teamIdRaw = req.query.teamId == null ? null : Number(req.query.teamId);
   const teamId = Number.isFinite(teamIdRaw) && teamIdRaw! > 0 ? teamIdRaw : null;
-  res.json(await enrichedChampionships({ clubId, section, teamId }));
+  res.json(await enrichedChampionships({ clubId, section, teamId, includeScorers: req.session.role !== "secretary" && MANAGE_ROLES.includes(req.session.role ?? "") }));
 });
 
 router.post("/championships/lnd/preview", requireAuth, async (req, res): Promise<void> => {

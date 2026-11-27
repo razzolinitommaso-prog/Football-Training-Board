@@ -3,7 +3,7 @@ import { championshipRecentResults } from "@/lib/championship-recent-results";
 import { Link, useLocation, useSearch } from "wouter";
 import { useGetMyClub } from "@workspace/api-client-react";
 import TeamCalendar from "@/pages/calendari/TeamCalendar";
-import { championshipMatchPath, championshipNameKey, resolveChampionshipMatch, type ChampionshipTeam } from "@/lib/championship-match-links";
+import { championshipMatchPath, championshipNameKey, championshipClubNameKeys, resolveChampionshipMatch, type ChampionshipTeam } from "@/lib/championship-match-links";
 import { type ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trophy, CalendarDays, BarChart3, Clock, CheckCircle2, RefreshCw, ChevronDown } from "lucide-react";
@@ -65,6 +65,7 @@ type ChampionshipGroup = {
   fixtures: ChampionshipFixture[];
   standings: ChampionshipStanding[];
   ftbStandings?: FtbStandings;
+  scorers?: {playerId:number;name:string;goals:number}[];
 };
 
 type Championship = {
@@ -160,7 +161,7 @@ function normalize(value: string) {
 const ChampionshipClubNames = createContext<string[]>([]);
 function useClubTeamMatcher() {
   const names = useContext(ChampionshipClubNames);
-  return (team: string) => names.some(name => championshipNameKey(name) === championshipNameKey(team));
+  return (team: string) => championshipClubNameKeys(names).has(championshipNameKey(team));
 }
 
 function fixtureDateValue(fixture: ChampionshipFixture) {
@@ -477,10 +478,11 @@ function ChampionshipView({ championship, group }: { championship: Championship;
   const rounds = useMemo(() => groupFixturesByRound(group.fixtures), [group.fixtures]);
   const defaultOpenRounds = useMemo(() => new Set(defaultOpenRoundKeys(rounds)), [rounds]);
   const now = Date.now();
-  const upcomingFixtures = group.fixtures
+  const futureFixtures = group.fixtures
     .filter((fixture) => !fixtureHasResult(fixture) && fixtureDateValue(fixture) >= now)
-    .sort((a, b) => fixtureDateValue(a) - fixtureDateValue(b))
-    .slice(0, 6);
+    .sort((a, b) => fixtureDateValue(a) - fixtureDateValue(b));
+  const ownNext = futureFixtures.find(fixture => !!fixture.matchHref || isClubTeam(fixture.homeTeam) || isClubTeam(fixture.awayTeam));
+  const upcomingFixtures = futureFixtures.filter(fixture => fixture.id !== ownNext?.id).slice(0, 6);
   const {clubResult,roundResults,otherResults}=championshipRecentResults(group.fixtures,fixture=>Boolean(fixture.matchHref)||isClubTeam(fixture.homeTeam)||isClubTeam(fixture.awayTeam));
 
   return (
@@ -537,8 +539,9 @@ function ChampionshipView({ championship, group }: { championship: Championship;
             </CardContent>
           </Card>
 
-        {championship.section !== "scuola_calcio" && championship.sourceProvider === "lnd" && group.ftbStandings && (
-          <CollapsibleChampionshipCard key={`ftb-${group.id}`} title="Classifica provvisoria aggiornata FTB" icon={<BarChart3 className="h-4 w-4 text-primary" />} defaultOpen={false}>
+        {!!group.scorers?.length && <CollapsibleChampionshipCard title="Marcatori della società · resoconti FTB" icon={<BarChart3 className="h-4 w-4 text-primary" />} defaultOpen={false}><CardContent>{group.scorers.map((scorer,i)=><div key={scorer.playerId} className="flex justify-between gap-3 border-b py-2 text-sm"><span>{i+1}. {scorer.name}</span><strong>{scorer.goals} gol</strong></div>)}</CardContent></CollapsibleChampionshipCard>}
+        {group.ftbStandings && (
+          <CollapsibleChampionshipCard key={`ftb-${group.id}`} title={championship.section === "scuola_calcio" ? "Classifica interna FTB · punti 3/1/0 sul risultato finale" : "Classifica provvisoria aggiornata FTB"} icon={<BarChart3 className="h-4 w-4 text-primary" />} defaultOpen={false}>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={group.ftbStandings.status === "aligned" ? "secondary" : "outline"}>
@@ -566,7 +569,8 @@ function ChampionshipView({ championship, group }: { championship: Championship;
 
         <CollapsibleChampionshipCard title="Prossima Giornata" icon={<Clock className="h-4 w-4 text-primary" />}>
             <CardContent>
-              {upcomingFixtures.length === 0 ? (
+              {ownNext && <section aria-label="Prossima partita della società" className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3"><h4 className="mb-2 font-semibold text-emerald-800 dark:text-emerald-200">Prossima partita della società</h4><FixtureRow fixture={ownNext}/></section>}
+              {futureFixtures.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nessuna gara futura da mostrare.</p>
               ) : (
                 <div className="space-y-2">

@@ -7,6 +7,15 @@ export function championshipNameKey(value: string) {
   return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").replace(/\b(?:a s d|s s d|a c d|asd|ssd|acd)\b/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/** Federated display alias used for Fortis, without changing parser matching. */
+export function championshipClubNameKeys(names: string[]) {
+  const keys = new Set(names.filter(Boolean).map(championshipNameKey));
+  if ([...keys].some(key => /\bfortis\b/.test(key) && /\bjuventus\b/.test(key))) {
+    ["Fortis Juventus", "Fortis Juventus 1909", "Borgo San Lorenzo"].forEach(name => keys.add(championshipNameKey(name)));
+  }
+  return keys;
+}
+
 export function championshipMatchPath(section: string, teamId: number, matchId?: number, championshipId?: number, groupId?: number) {
   const query = [`teamId=${encodeURIComponent(String(teamId))}`];
   if (matchId) query.push(`openMatchId=${encodeURIComponent(String(matchId))}`);
@@ -43,7 +52,7 @@ export function resolveChampionshipMatch(fixture: LinkedFixture, championship: L
   if (linkedIds.size > 1) return null;
   if (linkedIds.size === 1) return byId.get([...linkedIds][0])!;
   const day = (value: string) => { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).format(date); };
-  const aliases = new Set(clubNames.filter(Boolean).map(key));
+  const aliases = championshipClubNameKeys(clubNames);
   const firstLegRounds = Math.max(0, ...championship.groups.flatMap(group => group.fixtures.filter(row => row.leg === "andata").map(row => row.round ?? 0)));
   const matchesFixture = (row: LinkedFixture, match: InternalChampionshipMatch) => {
     const home = aliases.has(key(row.homeTeam)), away = aliases.has(key(row.awayTeam));

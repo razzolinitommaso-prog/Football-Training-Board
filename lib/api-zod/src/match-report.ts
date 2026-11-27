@@ -13,14 +13,36 @@ export const matchReportSchema = z.object({
     minutes: z.number().min(1).max(180),
     starters: z.array(playerId).max(30),
     intervalNotes: z.string().max(2000).optional(),
+    goalsFor: z.number().int().min(0).max(100).optional(),
+    goalsAgainst: z.number().int().min(0).max(100).optional(),
+    opponentOwnGoals: z.number().int().min(0).max(100).optional(),
   })).min(1).max(4),
-  goals: z.array(z.object({ id: z.string().min(1).max(100), playerId, ...moment })).max(100),
+  goals: z.array(z.object({ id: z.string().min(1).max(100), playerId, ...moment, goalSlot: z.number().int().min(0).max(99).optional() })).max(100),
   substitutions: z.array(z.object({
     id: z.string().min(1).max(100), outPlayerId: playerId,
     inPlayerId: playerId.nullable(), ...moment, notes: z.string().max(2000),
   })).max(MATCH_REPORT_SUBSTITUTION_LIMIT),
 });
 export type MatchReport = z.infer<typeof matchReportSchema>;
+
+/** Missing period scores stay unknown; legacy reports must not become 0–0. */
+export function matchReportScore(report: MatchReport) {
+  if (!report.periods.every(p => p.goalsFor !== undefined && p.goalsAgainst !== undefined)) return null;
+  const goalsFor = report.periods.reduce((sum, p) => sum + p.goalsFor!, 0);
+  const goalsAgainst = report.periods.reduce((sum, p) => sum + p.goalsAgainst!, 0);
+  return { goalsFor, goalsAgainst, points: goalsFor > goalsAgainst ? 3 : goalsFor === goalsAgainst ? 1 : 0 };
+}
+
+export function matchReportScoreError(report: MatchReport): string | null {
+  const any = report.periods.some(p => p.goalsFor !== undefined || p.goalsAgainst !== undefined || p.opponentOwnGoals !== undefined);
+  if (!any) return null;
+  if (!matchReportScore(report)) return "Completa i gol della squadra e degli avversari per tutti i tempi disputati.";
+  for (const [index, p] of report.periods.entries()) {
+    const credited = report.goals.filter(g => g.period === index).length + (p.opponentOwnGoals ?? 0);
+    if (credited !== p.goalsFor) return `Nel ${index + 1}° tempo marcatori e autoreti avversarie (${credited}) devono coincidere con i gol della squadra (${p.goalsFor}).`;
+  }
+  return null;
+}
 
 /** Players explicitly recorded in a saved report, independent of the current call-up list. */
 export function matchReportPlayerIds(report?: MatchReport | null): number[] {
