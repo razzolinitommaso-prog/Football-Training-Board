@@ -9,6 +9,8 @@
 }
 .motor-assessment { min-width: 0; overflow-wrap: normal; }
 .motor-measure-grid { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit,minmax(min(100%,14rem),1fr)); }
-.motor-bilateral-observations, .motor-bilateral-measures { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
+.motor-observation-section { container-type: inline-size; }
+.motor-bilateral-observations { display: grid; grid-template-columns: minmax(0,1fr); gap: 1rem; }
+.motor-bilateral-measures { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,12rem),1fr)); gap: 1rem; }
+@container (min-width: 24rem) { .motor-bilateral-observations { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 .motor-bilateral-observations button { min-height: 2.25rem; height: auto; white-space: normal; overflow-wrap: normal; }
-@media (max-width: 380px) { .motor-bilateral-observations { column-gap: .5rem; } }

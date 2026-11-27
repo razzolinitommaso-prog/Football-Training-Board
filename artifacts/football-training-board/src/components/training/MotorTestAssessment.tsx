@@ -439,7 +439,7 @@ export function MotorTestAssessmentEditor({
           )}
       </section>
       {reference && (
-        <section className="space-y-3 rounded-lg border p-3">
+        <section className="motor-observation-section space-y-3 rounded-lg border p-3">
           <h4 className="text-sm font-semibold">
             Qualità dell’esecuzione · osservazioni
           </h4>

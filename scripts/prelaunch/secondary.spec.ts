@@ -12,6 +12,10 @@ for(const width of [390,1024]) test(`Motor tests retain past results and offer P
   await page.getByRole('button',{name:'Scarica PDF',exact:true}).click();
   await expect(page.getByRole('link',{name:'Scarica di nuovo PDF',exact:true})).toHaveAttribute('download',/\.pdf$/);
   await expect(page.getByRole('link',{name:'Apri PDF e stampa',exact:true})).toBeVisible();
+  const pdfDownload=page.waitForEvent('download');
+  await page.getByRole('link',{name:'Scarica di nuovo PDF',exact:true}).click();
+  const pdfFile=await (await pdfDownload).path();expect(pdfFile).toBeTruthy();
+  const pdfBytes=await readFile(pdfFile!);expect(pdfBytes.subarray(0,5).toString()).toBe('%PDF-');expect(pdfBytes.length).toBeGreaterThan(1000);
   const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);expect(layout.renderError).toBe(false);
 });
 import { createRequire } from "node:module";
@@ -130,4 +134,49 @@ for(const width of [320,390,768,1024]) test(`Titolo partita non sovrapposto ${wi
     await expect.poll(()=>header.evaluate(el=>el.getBoundingClientRect().bottom)).toBeLessThan(100);
   }
   await test.info().attach('schieramenti-mobile',{body:await page.screenshot({fullPage:true}),contentType:'image/png'});
+});
+
+for(const width of [320,390,768]) test(`Bilateral observations stay readable ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:900});
+  await page.goto('/player-performance?role=fitness_coach&scenario=motor-multiday');
+  await page.getByRole('button',{name:'Apri sessione',exact:true}).click();
+  await page.getByRole('button',{name:'Presenze e valutazioni',exact:true}).click();
+  await page.getByRole('combobox',{name:'Giocatore da valutare',exact:true}).click();
+  await page.getByRole('option',{name:'Nuovo presente della seconda giornata · Test da eseguire (0/9)',exact:true}).click();
+  await page.getByRole('combobox',{name:'Esercizio da rilevare',exact:true}).click();
+  await page.getByRole('option',{name:'7. Equilibrio monopodalico',exact:true}).click();
+  const right=page.getByRole('group',{name:'Controlla la postura del tronco · destra',exact:true});
+  const left=page.getByRole('group',{name:'Controlla la postura del tronco · sinistra',exact:true});
+  await expect(right).toBeVisible();await expect(left).toBeVisible();
+  const sizes=await page.locator('.motor-bilateral-observations > div').evaluateAll(nodes=>nodes.map(el=>el.getBoundingClientRect().width));
+  expect(Math.min(...sizes)).toBeGreaterThan(140);
+  const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);expect(layout.renderError).toBe(false);
+});
+for(const width of [320,768])test(`Board equipment and animation panels ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:900});await page.goto('/tactical-board?role=coach');
+  await page.getByRole('button',{name:'Strumenti · Giocatore 1',exact:true}).click();
+  await page.getByRole('button',{name:'Attrezzatura',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Cono',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Animazione',exact:true}).click();
+  await expect(page.getByRole('button',{name:'+ Fotogramma',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Riproduci',exact:true})).toBeDisabled();
+  const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);expect(layout.overflow).toEqual([]);expect(layout.narrow).toEqual([]);
+});
+for(const width of [320,768])test(`Document attachment survives failed submission ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:900});await page.goto('/secretary/documents?role=secretary');
+  await page.getByRole('button',{name:'Aggiungi Documento',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Aggiungi Documento',exact:true});
+  await dialog.getByRole('combobox',{name:'Giocatore',exact:true}).click();
+  await page.getByRole('option',{name:'Giocatore dal cognome molto lungo Alessandro',exact:true}).click();
+  await dialog.getByRole('combobox',{name:'Tipo Documento',exact:true}).click();
+  await page.getByRole('option').first().click();
+  const bytes=Buffer.from('%PDF-1.4\n% synthetic upload test only\n');
+  await dialog.getByLabel('Carica documento da dispositivo',{exact:true}).setInputFiles({name:'certificato-collaudo.pdf',mimeType:'application/pdf',buffer:bytes});
+  await expect(dialog.getByRole('status')).toContainText('certificato-collaudo.pdf');
+  await expect(dialog.getByLabel('Scatta foto documento',{exact:true})).toHaveAttribute('capture','environment');
+  await dialog.getByRole('button',{name:'Salva',exact:true}).click();
+  await expect(page.getByText('Impossibile salvare il documento',{exact:true})).toBeVisible();
+  await expect(dialog).toBeVisible();await expect(dialog.getByRole('status')).toContainText('certificato-collaudo.pdf');
+  await expect(dialog.getByRole('button',{name:'Salva',exact:true})).toBeEnabled();
+  const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);expect(layout.renderError).toBe(false);
 });
