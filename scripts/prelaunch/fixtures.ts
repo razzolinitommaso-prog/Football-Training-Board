@@ -2,6 +2,7 @@ import { motorTestCatalog } from "@workspace/api-zod";
 const attachmentFetch=window.fetch.bind(window);
 const initialScenario = new URLSearchParams(location.search).get("scenario");
 let lateReplyStatus = "available";
+let solutionFixturePlan:Record<string,unknown>|null=null;
 const team = {
   id: 11,
   clubId: 999,
@@ -151,6 +152,11 @@ export async function mockResponse(
     return new Response("No external requests in fixture", { status: 403 });
   const pageParams=new URLSearchParams(location.search);
   const scenario = pageParams.get("scenario") ?? new URL(pageParams.get("returnTo")||"/",location.origin).searchParams.get("scenario") ?? initialScenario;
+  if(scenario==="match-solutions"&&p==="/api/matches/901/plan"&&init?.method==="PUT"){
+    solutionFixturePlan=JSON.parse(String(init.body)).matchPlan;
+    sessionStorage.setItem('ftb-test-solution-payload',JSON.stringify(solutionFixturePlan));
+    return Response.json({id:901,matchPlan:solutionFixturePlan});
+  }
   if(scenario === "late-parent") {
     if(p === "/api/parent/matches") return Response.json([{id:901,teamId:11,teamName:team.name,opponent:"Avversario di collaudo",date:"2099-11-28T15:00:00Z",homeAway:"home",parentPlayerId:101,parentAvailabilityLocked:true,parentAvailabilityCanWithdraw:true,parentAvailabilityCanEdit:true,parentAvailabilityDeadline:"2026-11-25T22:59:59.999Z",parentAvailability:{status:lateReplyStatus}}]);
     if(p === "/api/parent/availability/901/101" && init?.method === "PATCH") { const reply=JSON.parse(String(init.body));lateReplyStatus=reply.status;return Response.json({status:"called",parentAvailabilityStatus:reply.status,parentAvailabilityReason:reply.reason,parentAvailabilityNotes:reply.notes,parentAvailabilityUpdatedAt:new Date().toISOString()}); }
@@ -222,7 +228,7 @@ export async function mockResponse(
   else if (p === "/api/players") value = [player];
   else if (p === "/api/teams/11") value = team;
   else if (p === "/api/players/101") value = player;
-  else if (p === "/api/matches") value = [{id:901,clubId:999,teamId:11,seasonId:70,opponent:"BARBERINO CALCIO 1927",date:"2026-11-21T15:30:00Z",homeAway:"home",competition:"Campionato",isPostponed:false,matchPlan:null}];
+  else if (p === "/api/matches") value = [{id:901,clubId:999,teamId:11,seasonId:70,opponent:"BARBERINO CALCIO 1927",date:"2026-11-21T15:30:00Z",homeAway:"home",competition:"Campionato",isPostponed:false,matchPlan:scenario==="match-solutions"?solutionFixturePlan:null}];
   else if (p === "/api/matches/901/callups") value = [{id:1,matchId:901,playerId:101,status:"confirmed",player}];
   else if (p === "/api/matches/901/callup-eligibility") value = {weekStart:"2026-11-16",rule:{sessions:2,minimum:1,allowUnratedConduct:true},rows:scenario === 'callup-minimum-reached' ? [{id:101,name:player.lastName+' '+player.firstName,present:1,recorded:1,conduct:null,state:'eligible',reasons:['Sedute valide prima della gara: 1/2 · minimo richiesto già raggiunto (1/1)','Condotta da registrare: ammessa dalla regola']}] : []};
   else if (p === "/api/teams/11/players") value = [player];

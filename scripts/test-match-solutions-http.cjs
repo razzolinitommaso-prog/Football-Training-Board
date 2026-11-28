@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict');
+module.exports=async({pg,base,call,plan})=>{
+  await pg.exec("INSERT INTO users(id,first_name,last_name) VALUES(3,'Coach','Solutions');INSERT INTO team_staff_assignments(id,club_id,user_id,team_id,role) VALUES(3,1,3,11,'coach');");
+  const write=async(body,role='coach',user='3',method='PUT')=>{const r=await fetch(base+(method==='PUT'?'/matches/501/plan':'/matches/501'),{method,headers:{'content-type':'application/json','x-role':role,'x-user':user},body:JSON.stringify(method==='PUT'?{playerIds:[101,102],matchPlan:body}:{matchPlan:body})});return{status:r.status,data:await r.json()};};
+  const snapshot=(periods,fourthTime)=>({periods:structuredClone(periods),fourthTime,matchGoalkeeperId:101});
+  const three=snapshot(plan.periods,false),four=snapshot([...plan.periods,{key:'t4',label:'4',minutes:'12',lineupPlayerIds:[102,101],lineupStarterCount:1}],true);
+  four.periods[0].minutes='16';four.periods[0].lineupPositions={101:{x:30,y:45}};
+  const next={...structuredClone(plan),fourthTime:false,activeSolutionId:'three',lineupSolutions:{three,four,'three-alt':snapshot(three.periods,false),'four-alt':snapshot(four.periods,true)}};
+  let r=await write(next);assert.equal(r.status,200,JSON.stringify(r.data));
+  let stored=(await pg.query('SELECT match_plan FROM matches WHERE id=501')).rows[0].match_plan;
+  assert.equal(stored.periods.length,3);assert.equal(stored.lineupSolutions.four.periods.length,4);assert.equal(stored.lineupSolutions.four.periods[0].minutes,'16');assert.deepEqual(stored.postMatchReport,plan.postMatchReport,'editing alternatives preserves actual report');
+  const manager=(await call('/dirigenti/overview?teamId=11',{'x-role':'team_manager'})).data.matches[0];assert.equal(manager.matchPlan,undefined);assert.ok(manager.rotation.units.every(u=>u.periodKey!=='t4'),'manager uses selected solution only');
+  const corrupt=structuredClone(stored);corrupt.lineupSolutions['four-alt'].periods.pop();assert.equal((await write(corrupt)).status,400);
+  assert.equal((await write(stored,'fitness_coach')).status,403);assert.equal((await write(stored,'secretary')).status,403);assert.equal((await write(stored,'coach','2')).status,403);
+  const legacy={periods:structuredClone(stored.periods),fourthTime:false};legacy.periods[0].lineupPositions={101:{x:77,y:40}};r=await write(legacy);assert.equal(r.status,200,JSON.stringify(r.data));stored=(await pg.query('SELECT match_plan FROM matches WHERE id=501')).rows[0].match_plan;assert.equal(stored.lineupSolutions.three.periods[0].lineupPositions[101].x,77);assert.equal(stored.lineupSolutions.four.periods[0].lineupPositions[101].x,30);
+  const activated={...stored,...structuredClone(stored.lineupSolutions.four),activeSolutionId:'four',postMatchReport:{...stored.postMatchReport,periods:[...stored.postMatchReport.periods,{minutes:12,starters:[]}]}};
+  r=await write(activated);assert.equal(r.status,200,JSON.stringify(r.data));stored=(await pg.query('SELECT match_plan FROM matches WHERE id=501')).rows[0].match_plan;assert.equal(stored.periods.length,4);assert.equal(stored.periods[0].minutes,'16');assert.equal(stored.lineupSolutions.three.periods[0].lineupPositions[101].x,77);assert.equal(stored.postMatchReport.periods.length,4);
+  const changed=structuredClone(stored);changed.lineupSolutions['three-alt'].periods[0].minutes='7';r=await write(changed);assert.equal(r.status,200,JSON.stringify(r.data));
+  const checked=(await call('/dirigenti/overview?teamId=11',{'x-role':'team_manager'})).data.matches[0];assert.ok(checked.rotation.units.some(u=>u.periodKey==='t4'));assert.equal(checked.matchPlan,undefined);
+  console.log('PASS HTTP match solutions: four snapshots round-trip, inactive edit preserves report/active lineup, explicit activation, selected-only manager view, old board client update and unchanged role boundaries.');
+};

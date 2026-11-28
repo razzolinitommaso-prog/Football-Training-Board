@@ -8,6 +8,7 @@ import { useBoardAnimation } from "./use-board-animation";
 import { cloneElements, readAnimation } from "./board-animation";
 import { splitMatchLineup, lineupKeeper, setLineupKeeper, matchPeriodByKey } from "@/lib/match-lineup";
 import { designateMatchKeeper, matchRotationPart, updateMatchRotationPart, type RotationPeriod } from "@/lib/match-period-rotation";
+import {activeMatchSolution,editMatchSolution,hydrateMatchSolutions,matchSolutionOptions,type MatchSolutions} from "@/lib/match-solutions";
 import { capturePitch } from "./capture-pitch";
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -1348,6 +1349,9 @@ const QuickPage = () => {
     const key = params.get("periodKey");
     return isBoardPeriodKey(key) ? key : "t1";
   }, []);
+  const initialBoardSolutionId=React.useMemo(()=>matchSolutionOptions.find(o=>o.id===new URLSearchParams(window.location.search).get("solutionId"))?.id,[]);
+  const [requestedBoardSolutionId,setRequestedBoardSolutionId]=useState(initialBoardSolutionId);
+  const [solutionBindingMatchId,setSolutionBindingMatchId]=useState(initialMatchIdFromQuery);
   const isMatchPlanBoard = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("source") === "match-plan";
@@ -1425,6 +1429,7 @@ const QuickPage = () => {
   const [gameKeeperDraft,setGameKeeperDraft]=useState<number|undefined>();
   const [boardPeriodChanged,setBoardPeriodChanged]=useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(initialMatchIdFromQuery);
+  const boardSolutionId=selectedMatchId===solutionBindingMatchId?requestedBoardSolutionId:undefined;
   const [matchPlanPlayerId, setMatchPlanPlayerId] = useState<string>("");
   const [matchSheetSaveHint, setMatchSheetSaveHint] = useState<string | null>(null);
   const [replacingElementIndex, setReplacingElementIndex] = useState<number | null>(null);
@@ -1626,6 +1631,8 @@ const QuickPage = () => {
       setBoardType(BOARD_TYPES.includes(data.boardType as any) ? data.boardType as (typeof BOARD_TYPES)[number] : "Training");
       setBoardNotes(typeof data.notes === "string" ? data.notes : "");
       setSelectedMatchId(parseNumericId(data.matchId) ?? null);
+      setSolutionBindingMatchId(parseNumericId(data.matchId)??null);
+      setRequestedBoardSolutionId(matchSolutionOptions.find(o=>o.id===data.matchSolutionId)?.id??(parseNumericId(data.matchId)===initialMatchIdFromQuery?initialBoardSolutionId:undefined));
       setBoardLineupDraft(null);
       setGameKeeperDraft(undefined);
       matchPrepBindingCommittedRef.current = true;
@@ -1665,7 +1672,7 @@ const QuickPage = () => {
       setSaveState("Saved");
       setBoardIdInUrl(parsedBoardId);
     },
-    [club, initialTeamIdFromQuery, isMobileViewport, setBoardIdInUrl, animation.load]
+    [club, initialTeamIdFromQuery, initialMatchIdFromQuery,initialBoardSolutionId,isMobileViewport, setBoardIdInUrl, animation.load]
   );
 
   React.useEffect(() => {
@@ -2357,21 +2364,24 @@ const QuickPage = () => {
   );
   const selectedMatchSheetUrl = React.useMemo(() => {
     if (!selectedMatchId || !boardTeamId) return null;
-    return `/calendari/${boardTeamId}?openMatchId=${selectedMatchId}`;
-  }, [boardTeamId, selectedMatchId]);
+    return `/calendari/${boardTeamId}?openMatchId=${selectedMatchId}${boardSolutionId?`&solutionId=${boardSolutionId}`:""}`;
+  }, [boardTeamId, selectedMatchId,boardSolutionId]);
 
+  const selectedSolutionPeriods=React.useMemo(()=>{
+    const savedPlan = selectedMatchOption?.matchPlan;
+    const plan = boardSolutionId&&savedPlan&&"lineupSolutions" in savedPlan
+      ? (savedPlan as {lineupSolutions?:Record<string,{periods?:MatchPlanPeriodLite[]}>}).lineupSolutions?.[boardSolutionId]??savedPlan : savedPlan;
+    return plan?.periods??[];
+  },[selectedMatchOption,boardSolutionId]);
   const activeMatchPlanPeriod = React.useMemo(() => {
     if(boardLineupDraft?.key===matchPeriodKey)return boardLineupDraft;
-    const plan = selectedMatchOption?.matchPlan;
-    if (!plan || typeof plan !== "object") return null;
-    const periods = (plan as { periods?: MatchPlanPeriodLite[] }).periods;
-    if (!Array.isArray(periods)) return null;
+    const periods=selectedSolutionPeriods;
     const period = matchPeriodByKey(periods, matchPeriodKey);
     const address = matchPeriodPartAddress(matchPeriodKey);
     if (!address?.part || !period) return period ?? null;
     const parent = periods.find(p => p.key === address.key);
     return { ...period, module: period.module ?? parent?.module, format: period.format ?? parent?.format };
-  }, [matchPeriodKey, selectedMatchOption,boardLineupDraft]);
+  }, [matchPeriodKey, selectedSolutionPeriods,boardLineupDraft]);
 
   const matchPlanStartersLimit = React.useMemo(
     () => startersLimitForPeriod(activeMatchPlanPeriod, boardFormat),
@@ -2895,20 +2905,23 @@ const QuickPage = () => {
   }
 
   function updatedBoardMatchPlan(existingPlan:Record<string,unknown>, playerIds:number[], changes:Record<string,unknown>){
-    type Plan={periods:RotationPeriod[];fourthPeriodDraft?:RotationPeriod;matchGoalkeeperId?:number|null};
+    type Plan=MatchSolutions<RotationPeriod>&{periods:RotationPeriod[];fourthTime?:boolean;fourthPeriodDraft?:RotationPeriod;matchGoalkeeperId?:number|null};
     let plan:Plan={...existingPlan,periods:Array.isArray(existingPlan.periods)?existingPlan.periods:[]};
+    if(boardSolutionId){plan=hydrateMatchSolutions<RotationPeriod,Plan>(plan);plan=editMatchSolution<RotationPeriod,Plan>(plan,plan.activeSolutionId!,boardSolutionId);}
     if(gameKeeperDraft!==undefined)plan=designateMatchKeeper<RotationPeriod,Plan>(plan,"all",gameKeeperDraft,new Set(playerIds),p=>startersLimitForPeriod(p as MatchPlanPeriodLite,boardFormat),id=>teamPlayers.some(player=>player.id===id&&isGoalkeeperPlayer(player)));
     const address = matchPeriodPartAddress(matchPeriodKey);
     if (!address) return plan;
     const rootKey = address.key as BoardRootPeriodKey;
+    if(boardSolutionId&&!plan.periods.some(p=>p.key===rootKey))throw Error("Il tempo non appartiene alla soluzione aperta.");
     const periods=plan.periods.some(p=>p.key===rootKey)?plan.periods:[...plan.periods,{key:rootKey,label:boardPeriodLabels[rootKey],minutes:"12"}];
-    return {...plan,periods:periods.map(period=>{
+    const updated={...plan,periods:periods.map(period=>{
       if(period.key!==rootKey)return period;
       const lineup={rotationAuto:false,lineupManual:true,rotationLocks:undefined,...changes};
       const minutes = matchPeriodParts(period, periods.some(item => item.key === "t4"))[address.part];
       const part = matchRotationPart(period, address.part, minutes);
       return updateMatchRotationPart(period, address.part, { ...part, ...lineup });
     })};
+    return boardSolutionId?activeMatchSolution<RotationPeriod,Plan>(updated,boardSolutionId):updated;
   }
 
   const linkSavedBoardToMatchPeriod = async (savedBoardId: number | null, savedBoardTitle: string) => {
@@ -2919,7 +2932,7 @@ const QuickPage = () => {
     const match = Array.isArray(matches) ? matches.find((item) => parseNumericId(item?.id) === selectedMatchId) : null;
     if (!match) throw new Error("Partita da collegare non trovata");
     const existingPlan: Record<string, unknown> = match.matchPlan && typeof match.matchPlan === "object" ? match.matchPlan : {};
-    const boardUrl = `/tactical-board?boardId=${savedBoardId}&teamId=${boardTeamId}&matchId=${selectedMatchId}&periodKey=${matchPeriodKey}&returnTo=${encodeURIComponent(`/calendari/${boardTeamId}?openMatchId=${selectedMatchId}`)}`;
+    const boardUrl = `/tactical-board?boardId=${savedBoardId}&teamId=${boardTeamId}&matchId=${selectedMatchId}&periodKey=${matchPeriodKey}${boardSolutionId?`&solutionId=${boardSolutionId}`:""}&returnTo=${encodeURIComponent(returnToMatchUrl??`/calendari/${boardTeamId}?openMatchId=${selectedMatchId}`)}`;
     const snapshot = getMatchPlanLineupSnapshot();
     const playerIds = [...new Set([...matchCallups.map(c=>c.playerId),...snapshot.lineupPlayerIds])];
     const matchPlan=updatedBoardMatchPlan(existingPlan,playerIds,{...snapshot,lineupDetectedModule:detectedModule||null,boardId:savedBoardId,boardTitle:savedBoardTitle,boardUrl,boardSnapshotAt:new Date().toISOString(),boardConfirmed:true});
@@ -2930,7 +2943,7 @@ const QuickPage = () => {
       body: JSON.stringify({ playerIds, matchPlan }),
     });
     if (!planRes.ok) throw new Error("Errore collegamento scheda partita");
-    setMatchOptions(options => options.map(item => item.id === selectedMatchId ? { ...item, matchPlan: { periods: matchPlan.periods as MatchPlanPeriodLite[] } } : item));
+    setMatchOptions(options => options.map(item => item.id === selectedMatchId ? { ...item, matchPlan: { ...matchPlan, periods: matchPlan.periods as MatchPlanPeriodLite[] } } : item));
     setGameKeeperDraft(undefined);
     await loadMatchCallups(selectedMatchId);
   };
@@ -2958,7 +2971,7 @@ const QuickPage = () => {
         body: JSON.stringify({ playerIds, matchPlan }),
       });
       if (!patchRes.ok) throw new Error("patch");
-      setMatchOptions(options => options.map(item => item.id === selectedMatchId ? { ...item, matchPlan: { periods: matchPlan.periods as MatchPlanPeriodLite[] } } : item));
+      setMatchOptions(options => options.map(item => item.id === selectedMatchId ? { ...item, matchPlan: { ...matchPlan, periods: matchPlan.periods as MatchPlanPeriodLite[] } } : item));
       setGameKeeperDraft(undefined);
       await loadMatchCallups(selectedMatchId);
       setMatchSheetSaveHint("Scheda partita salvata (da confermare in calendario).");
@@ -3490,6 +3503,7 @@ const QuickPage = () => {
     format: boardFormat,
     boardType,
     matchId: selectedMatchId,
+    matchSolutionId:boardSolutionId??null,
     exerciseId: isExerciseBoard ? initialExerciseIdFromQuery : null,
     matchPeriodKey: selectedMatchId && (isMatchPreparationUi || isMatchPlanBoard) ? matchPeriodKey : null,
     preset: selectedPreset,
@@ -5654,8 +5668,8 @@ const QuickPage = () => {
                             onValueChange={(e) => {if(e===matchPeriodKey)return;if(saveState==="Unsaved"&&!window.confirm("Cambiare tempo e abbandonare le modifiche non salvate?"))return;setBoardPeriodChanged(true);setBoardLineupDraft(null);setGameKeeperDraft(undefined);setCurrentBoardId(null);setElements(old=>old.filter(el=>!el.playerId||el.type==="opponent"));setMatchPeriodKey(e as BoardPeriodKey);}}
                             className="h-8 w-full min-w-0 rounded-lg border border-white/10 bg-[#0F172A] px-2 text-xs text-white outline-none"
                           >
-                            {(Object.keys(boardPeriodLabels) as BoardRootPeriodKey[]).map(key => {
-                              const periods = selectedMatchOption?.matchPlan?.periods ?? [];
+                            {(Object.keys(boardPeriodLabels) as BoardRootPeriodKey[]).filter(key=>!boardSolutionId||selectedSolutionPeriods.some(p=>p.key===key)).map(key => {
+                              const periods = selectedSolutionPeriods;
                               const period = periods.find(p => p.key === key);
                               const parts = period ? matchPeriodParts(period, periods.some(p => p.key === "t4")) : [0];
                               return parts.map((_, index) => {

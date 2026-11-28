@@ -1,0 +1,25 @@
+import {test,expect} from '@playwright/test';
+for(const width of [390,1280])test(`Independent match solutions ${width}px`,async({page})=>{
+ await page.setViewportSize({width,height:900});
+ await page.goto('/calendari/11?role=coach&openMatchId=901&scenario=match-solutions');
+ if(width<640)await page.getByRole('combobox',{name:'Sezione della partita',exact:true}).selectOption('schieramenti');
+ else await page.getByRole('button',{name:'Schieramenti',exact:true}).click();
+ const solutions=page.getByRole('region',{name:'Soluzioni della partita'});
+ await solutions.getByRole('button',{name:'Principale · 4 tempi',exact:true}).click();
+ await expect(solutions).toContainText('In preparazione: Principale · 4 tempi');
+ await expect(solutions).toContainText('Per la partita: Principale · 3 tempi');
+ const save=page.getByRole('button',{name:'Salva piano partita',exact:true}).last();
+ await save.click();
+ await expect.poll(()=>page.evaluate(()=>JSON.parse(sessionStorage.getItem('ftb-test-solution-payload')||'{}').activeSolutionId)).toBe('three');
+ await expect.poll(()=>page.evaluate(()=>JSON.parse(sessionStorage.getItem('ftb-test-solution-payload')||'{}').lineupSolutions?.four?.periods?.length)).toBe(4);
+ await solutions.getByRole('checkbox',{name:/Apri alternativa · 3 tempi/}).click();
+ await expect(solutions).toContainText('In preparazione: Alternativa · 3 tempi');
+ await solutions.getByRole('checkbox',{name:/Apri alternativa · 4 tempi/}).click();
+ await solutions.getByRole('button',{name:'Usa questa soluzione per la partita'}).click();
+ await expect(solutions).toContainText('Per la partita: Alternativa · 4 tempi');
+ await save.click();
+ await expect.poll(()=>page.evaluate(()=>JSON.parse(sessionStorage.getItem('ftb-test-solution-payload')||'{}').activeSolutionId)).toBe('four-alt');
+ const payload=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('ftb-test-solution-payload')||'{}'));
+ expect(payload.periods.length).toBe(4);expect(Object.keys(payload.lineupSolutions)).toHaveLength(4);
+ await expect(page.getByRole('heading',{name:"L'app non ha completato il caricamento"})).toHaveCount(0);
+});

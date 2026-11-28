@@ -219,6 +219,7 @@ const { PGlite } = require(process.argv[2] || "@electric-sql/pglite");
     if(process.argv.includes("--mobile-downloads")){await require("./test-mobile-downloads.cjs")({base,call});return;}
     if(process.argv.includes("--late-availability")){await require("./test-parent-late-availability.cjs")({pg,base,call});return;}
     if(process.argv.includes("--report-scores")){await require('./test-report-scores.cjs')({pg,base,call,plan});return;}
+    if(process.argv.includes("--match-solutions")){await require('./test-match-solutions-http.cjs')({pg,base,call,plan});return;}
     if(process.argv.includes("--school-lnd")){await require('./test-school-lnd.cjs')({pg,base,call,recent:routes.championshipRecentResults});return;}
     if(process.argv.includes("--societies")) {
       await require("./test-society-lifecycle.cjs")({pg,base,call,models:routes.memberModels});return;

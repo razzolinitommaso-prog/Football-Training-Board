@@ -339,10 +339,40 @@ function preserveMatchReport(next: Record<string, unknown> | null, previous: unk
       }
     }
   }
+  if(next&&old?.lineupSolutions&&next.lineupSolutions===undefined){
+    next.lineupSolutions=JSON.parse(JSON.stringify(old.lineupSolutions));
+    next.activeSolutionId=next.activeSolutionId??old.activeSolutionId;
+    if(Array.isArray(next.periods)&&Array.isArray(old.periods)&&next.periods.length!==old.periods.length)
+      next.activeSolutionId=next.periods.length===4?"four":"three";
+  }
+  // The selected root is also updated by existing board/report clients.
+  if(next&&next.lineupSolutions&&typeof next.lineupSolutions==="object"&&!Array.isArray(next.lineupSolutions)&&typeof next.activeSolutionId==="string"){
+    (next.lineupSolutions as Record<string,unknown>)[next.activeSolutionId]={periods:next.periods,fourthTime:!!next.fourthTime,fourthPeriodDraft:next.fourthPeriodDraft,matchGoalkeeperId:next.matchGoalkeeperId??null};
+  }
   return next;
 }
 
+function validateMatchSolutions(plan:Record<string,unknown>|null):string|null{
+  if(plan?.lineupSolutions===undefined&&plan?.activeSolutionId===undefined)return null;
+  const error="Soluzioni della partita non valide: controlla la soluzione scelta e i suoi tempi.";
+  const slots=normalizeMatchPlan(plan?.lineupSolutions),ids=["three","four","three-alt","four-alt"];
+  if(!slots||typeof plan?.activeSolutionId!=="string"||!ids.includes(plan.activeSolutionId)||!slots[plan.activeSolutionId])return error;
+  if(Object.keys(slots).some(id=>!ids.includes(id)))return error;
+  for(const [id,value] of Object.entries(slots)){
+    const snapshot=normalizeMatchPlan(value),four=id==="four"||id==="four-alt";
+    if(!snapshot||!Array.isArray(snapshot.periods)||snapshot.periods.length!==(four?4:3)||!!snapshot.fourthTime!==four)return error;
+    const keys=snapshot.periods.map(p=>normalizeMatchPlan(p)?.key);
+    if(new Set(keys).size!==keys.length||!["t1","t2","t3",...(four?["t4"]:[])].every(key=>keys.includes(key)))return error;
+    if(Object.keys(snapshot).some(key=>!["periods","fourthTime","fourthPeriodDraft","matchGoalkeeperId"].includes(key)))return error;
+  }
+  const active=slots[plan.activeSolutionId] as Record<string,unknown>;
+  if(JSON.stringify(active.periods)!==JSON.stringify(plan.periods))return error;
+  return null;
+}
+
 function validateMatchReport(plan: Record<string, unknown> | null, called: number[]): string | null {
+  const solutionError=validateMatchSolutions(plan);
+  if(solutionError)return solutionError;
   if (plan?.postMatchReport === undefined) return null;
   const parsed = matchReportSchema.safeParse(plan.postMatchReport);
   if (!parsed.success) return "Resoconto post-partita non valido: controlla giocatori, tempi e minuti.";
@@ -731,6 +761,8 @@ router.patch("/matches/:id", requireAuth, async (req, res): Promise<void> => {
   if (matchPlan !== undefined) {
     const parsed = splitPublicNotesAndPlan(existing.notes ?? null);
     const nextPlan = preserveMatchReport(normalizeMatchPlan(matchPlan), existing.matchPlan ?? parsed.plan, existing.matchPlan?.postMatchConfirmation);
+    const solutionError=validateMatchSolutions(nextPlan);
+    if(solutionError){res.status(400).json({error:solutionError});return;}
     if (!nextPlan && normalizeMatchPlan(existing.matchPlan ?? parsed.plan)?.postMatchReport !== undefined) {
       res.status(400).json({ error: "Non puoi cancellare un piano con un resoconto post-partita." }); return;
     }

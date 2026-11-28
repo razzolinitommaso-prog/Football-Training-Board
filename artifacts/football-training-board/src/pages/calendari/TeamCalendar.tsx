@@ -5,6 +5,7 @@ import { MatchAttendanceComparison, type AttendancePeriod, type MatchAttendanceS
 import {MatchCallupRoster, MatchRotationComparison, matchMinutesLabel} from "@/components/calendar/MatchRotationComparison";
 import {buildMatchRotationSummary, matchPeriodParts, matchPeriodPartLimit, matchPeriodLabel} from "@workspace/api-zod";
 import {matchPreparation, upcomingFirst, isUpcomingMatch} from "@/lib/match-presentation";
+import {activeMatchSolution,editMatchSolution,hydrateMatchSolutions,matchSolutionOptions,solutionSnapshot,type MatchSolutions,type MatchSolutionId} from "@/lib/match-solutions";
 import {clearMatchLineups, designateMatchKeeper, editManualLineupCell, selectRotationCell, rotationUnits, rotateMatchPeriods, periodMinutes, firstPartDuration, matchRotationPart, updateMatchRotationPart, seedMatchReport, reportFractionBoundaries, toggleFourthPeriod} from "@/lib/match-period-rotation";
 import SharedTournamentHub from "./SharedTournamentHub";
 import { trainingSlotOnDate } from "@workspace/api-zod";
@@ -362,7 +363,7 @@ type MatchDisciplineCard = {
   notes?: string;
   suspensionGames?: number | null;
 };
-type MatchPlanData = {
+type MatchPlanData = MatchSolutions<MatchPlanPeriodRuntime> & {
   postMatchReport?: MatchReport;
   postMatchConfirmation?: { confirmedAt: string; report?: MatchReport; notes?: string };
   boardLink?: string;
@@ -1911,6 +1912,24 @@ function MatchCard({
       matchSection,
     ),
   );
+  const editingSolutionRef=useRef<MatchSolutionId|null>(null);
+  const editingSolution=editingSolutionRef.current??planDraft.activeSolutionId??(planDraft.fourthTime?"four":"three");
+  function editSolution(target:MatchSolutionId){
+    const initialized=planDraft.lineupSolutions?planDraft:hydrateMatchSolutions<MatchPlanPeriodRuntime,MatchPlanData>(planDraft);
+    const next=editMatchSolution<MatchPlanPeriodRuntime,MatchPlanData>(initialized,editingSolution,target);
+    editingSolutionRef.current=target;
+    setPlanDraft({...next,periods:applyScuolaCalcioPeriodRotation(next.periods,selectedPlayerIds,matchFormat,convokedById)});
+    setActiveAlternative({});setOpenAlternativePeriods(new Set());setLineupDialog(null);
+  }
+  function useSolutionForMatch(){
+    try{
+      // Preserve recorded goals, substitutions and the manager's review.
+      const report=matchReportSchema.safeParse(match.matchPlan?.postMatchReport);
+      if(report.success)toggleFourthPeriod({...planDraft,postMatchReport:report.data},!!planDraft.fourthTime);
+      setPlanDraft(previous=>({...previous,activeSolutionId:editingSolution}));
+      toast({title:"Soluzione scelta per la partita",description:"Salva il piano per confermare la scelta."});
+    }catch(error){toast({title:(error as Error).message,variant:"destructive"});}
+  }
   const matchFormat = matchFormatForTeam(matchSection, teamName, teamCategory);
   const isFriendlyMatch = matchPhase(match) === "amichevoli";
   const autoReserveRuleEnabled = matchFormat !== "11v11";
@@ -2139,7 +2158,7 @@ function MatchCard({
   const postView = splitPostNotesAndAttachments(match.postMatchNotes);
   const hasPostNotes = postView.note.length > 0 || postView.attachments.length > 0 || savedReport.success;
 
-  const preparation = matchPreparation(planDraft, playerLimitForFormat(matchFormat), selectionReady ? selectedPlayerIds : undefined);
+  const preparation = matchPreparation(matchSection==="scuola_calcio"?activeMatchSolution<MatchPlanPeriodRuntime,MatchPlanData>(planDraft,editingSolution):planDraft, playerLimitForFormat(matchFormat), selectionReady ? selectedPlayerIds : undefined);
   const statusColor = isPostponedOriginalView ? "opacity-60" : "";
 
   const [resetLineupsMode, setResetLineupsMode] = useState<"clear" | "bench" | null>(null);
@@ -2299,12 +2318,13 @@ function MatchCard({
   const boardTitleForMatch = `${matchKindLabel} ${homeLabel} vs ${awayLabel} schieramenti e tattiche`;
   const workspaceReturnParams = new URLSearchParams(window.location.search);
   workspaceReturnParams.set("matchView", "schieramenti");
+  if(matchSection==="scuola_calcio")workspaceReturnParams.set("solutionId",editingSolution);
   const returnToMatchUrl = workspace
     ? `${window.location.pathname}?${workspaceReturnParams}`
     : window.location.pathname.endsWith("/campionati")
     ? `${window.location.pathname}${window.location.search}`
-    : `/calendari/${match.teamId ?? ""}?openMatchId=${match.id}&phase=${matchPhase(match)}`;
-  const tacticalBaseUrl = `/tactical-board?teamId=${match.teamId ?? ""}&matchId=${match.id}&source=match-plan&phase=${matchPhase(match)}&preset=${encodeURIComponent(tacticalPreset)}&convocati=${encodeURIComponent(Array.from(selectedPlayerIds).join(","))}&matchTitle=${encodeURIComponent(boardTitleForMatch)}&returnTo=${encodeURIComponent(returnToMatchUrl)}`;
+    : `/calendari/${match.teamId ?? ""}?openMatchId=${match.id}&phase=${matchPhase(match)}${matchSection==="scuola_calcio"?`&solutionId=${editingSolution}`:""}`;
+  const tacticalBaseUrl = `/tactical-board?teamId=${match.teamId ?? ""}&matchId=${match.id}&source=match-plan&phase=${matchPhase(match)}&preset=${encodeURIComponent(tacticalPreset)}&convocati=${encodeURIComponent(Array.from(selectedPlayerIds).join(","))}&matchTitle=${encodeURIComponent(boardTitleForMatch)}&returnTo=${encodeURIComponent(returnToMatchUrl)}${matchSection==="scuola_calcio"?`&solutionId=${editingSolution}`:""}`;
   const savedFirstPeriodBoardId = planDraft.periods[0]?.boardConfirmed ? planDraft.periods[0]?.boardId : null;
   const tacticalUrl = `${tacticalBaseUrl}&periodKey=t1${savedFirstPeriodBoardId ? `&boardId=${savedFirstPeriodBoardId}` : ""}`;
   const canOpenBoard =
@@ -2534,7 +2554,13 @@ function MatchCard({
     if (!next.fourthTime && hasFourth) {
       next.periods = next.periods.filter((p) => p.key !== "t4");
     }
-    setPlanDraft(next);
+    if(matchSection==="scuola_calcio"){
+      const initialized=hydrateMatchSolutions<MatchPlanPeriodRuntime,MatchPlanData>(next);
+      const requested=new URLSearchParams(window.location.search).get("solutionId");
+      const target=editingSolutionRef.current??matchSolutionOptions.find(o=>o.id===requested)?.id??initialized.activeSolutionId!;
+      editingSolutionRef.current=target;
+      setPlanDraft(editMatchSolution<MatchPlanPeriodRuntime,MatchPlanData>(initialized,initialized.activeSolutionId!,target));
+    }else{editingSolutionRef.current=null;setPlanDraft(next);}
     setConvocationDateInput(toDateInputValue(next.convocationAt));
     setConvocationTimeInput(toTimeInputValue(next.convocationAt));
     setDisciplineDraft({ playerId: 0, cardType: "giallo", reason: "fallo_di_gioco", notes: "", suspensionGames: null });
@@ -2611,15 +2637,16 @@ function MatchCard({
       const selected = new Set(selectedPlayerIds);
       const selectedKeys = new Set(Array.from(selected).map(String));
       const savedKeeper = (id: number | null | undefined) => id != null && !selected.has(id) ? null : id;
-      const reportForNewPeriodCount = savedReport.success && savedReport.data.periods.length !== planDraft.periods.length
-        ? toggleFourthPeriod({ ...planDraft, postMatchReport: savedReport.data }, !!planDraft.fourthTime).postMatchReport
+      const operativePlan=matchSection==="scuola_calcio"?activeMatchSolution<MatchPlanPeriodRuntime,MatchPlanData>(planDraft,editingSolution):planDraft;
+      const reportForNewPeriodCount = savedReport.success && savedReport.data.periods.length !== operativePlan.periods.length
+        ? toggleFourthPeriod({ ...operativePlan, postMatchReport: savedReport.data }, !!operativePlan.fourthTime).postMatchReport
         : undefined;
       const normalizedPlan: MatchPlanData = {
-        ...planDraft,
+        ...operativePlan,
         postMatchReport: reportForNewPeriodCount,
-        matchGoalkeeperId: savedKeeper(planDraft.matchGoalkeeperId),
-        ...(planDraft.fourthPeriodDraft ? { fourthPeriodDraft: { ...planDraft.fourthPeriodDraft, lineupGoalkeeperId: savedKeeper(planDraft.fourthPeriodDraft.lineupGoalkeeperId) } } : {}),
-        periods: planDraft.periods.map((p) => {
+        matchGoalkeeperId: savedKeeper(operativePlan.matchGoalkeeperId),
+        ...(operativePlan.fourthPeriodDraft ? { fourthPeriodDraft: { ...operativePlan.fourthPeriodDraft, lineupGoalkeeperId: savedKeeper(operativePlan.fourthPeriodDraft.lineupGoalkeeperId) } } : {}),
+        periods: operativePlan.periods.map((p) => {
           const normalized = normalizePeriodLineup(p, convokedById, startersLimitForPeriod(p, matchFormat), selected);
           const { lineupPlayerIds } = normalized;
           const lineupPositions = Object.fromEntries(
@@ -2655,6 +2682,18 @@ function MatchCard({
           };
         }),
       };
+      if(normalizedPlan.lineupSolutions){
+        const cleanPeriod=(p:MatchPlanPeriodRuntime):MatchPlanPeriodRuntime=>({...p,
+          ...normalizePeriodLineup(p,convokedById,startersLimitForPeriod(p,matchFormat),selected),
+          lineupGoalkeeperId:savedKeeper(p.lineupGoalkeeperId),
+          lineupPositions:Object.fromEntries(Object.entries(p.lineupPositions??{}).filter(([id])=>selectedKeys.has(id))),
+          lineupAlternatives:(p.lineupAlternatives??[]).map(a=>({...a,...normalizePeriodLineup(a,convokedById,startersLimitForPeriod({...p,...a},matchFormat),selected),lineupGoalkeeperId:savedKeeper(a.lineupGoalkeeperId),lineupPositions:Object.fromEntries(Object.entries(a.lineupPositions??{}).filter(([id])=>selectedKeys.has(id)))})),
+          ...(p.secondPart?{secondPart:cleanPeriod({...p.secondPart,format:p.secondPart.format??p.format})}:{}),
+          ...(p.additionalParts?{additionalParts:p.additionalParts.map(part=>cleanPeriod({...part,format:part.format??p.format}))}:{}),
+        });
+        normalizedPlan.lineupSolutions=Object.fromEntries(Object.entries(normalizedPlan.lineupSolutions).map(([id,snapshot])=>[id,{...snapshot,matchGoalkeeperId:savedKeeper(snapshot.matchGoalkeeperId),periods:snapshot.periods.map(cleanPeriod),...(snapshot.fourthPeriodDraft?{fourthPeriodDraft:cleanPeriod(snapshot.fourthPeriodDraft)}:{})}]));
+        normalizedPlan.lineupSolutions[normalizedPlan.activeSolutionId!]=solutionSnapshot(normalizedPlan);
+      }
       await apiFetch(`/api/matches/${match.id}/plan`, {
         method: "PUT",
         body: JSON.stringify({
@@ -2664,7 +2703,7 @@ function MatchCard({
       });
       qc.invalidateQueries({ queryKey: ["/api/matches"] });
       qc.invalidateQueries({ queryKey: ["/api/matches", match.id, "callups"] });
-      toast({ title: "Rosa e schieramenti salvati" });
+      toast({ title: matchSection==="scuola_calcio"?"Soluzioni e schieramenti salvati":"Rosa e schieramenti salvati",description:matchSection==="scuola_calcio"?`Per la partita: ${matchSolutionOptions.find(o=>o.id===operativePlan.activeSolutionId)?.label}`:undefined });
       setPlanOpen(true);
       return true;
     } catch (err: any) {
@@ -3032,7 +3071,7 @@ function MatchCard({
             <MatchWorkspacePanel active={activePanel("schieramenti")}>
             <div className="text-[11px] text-muted-foreground">
               Convocati: {selectedPlayerIds.size} ·
-              <a href={canOpenBoard ? tacticalUrl : "#"} className={cn("ml-1 underline underline-offset-2", !canOpenBoard && "pointer-events-none opacity-50")}>
+              <a href={canOpenBoard ? tacticalUrl : "#"} onClick={async event=>{if(matchSection!=="scuola_calcio"||!canManageMatchPlan)return;event.preventDefault();if(canOpenBoard&&await saveMatchPlanAndCallups())window.location.assign(tacticalUrl);}} className={cn("ml-1 underline underline-offset-2", !canOpenBoard && "pointer-events-none opacity-50")}>
                 Lavagna preparazione partita
               </a>
             </div>
@@ -3119,9 +3158,16 @@ function MatchCard({
                 </section>
                 </MatchWorkspacePanel>
                 <MatchWorkspacePanel active={activePanel("schieramenti")}>
+                {matchSection==="scuola_calcio"&&<section aria-label="Soluzioni della partita" className="mb-3 space-y-3 rounded-xl border bg-background p-3">
+                  <h4 className="text-sm font-semibold">Soluzioni della partita</h4>
+                  <div className="flex flex-wrap gap-2">{matchSolutionOptions.filter(o=>!o.optional).map(option=><Button key={option.id} type="button" size="sm" variant={editingSolution===option.id?"default":"outline"} aria-pressed={editingSolution===option.id} onClick={()=>editSolution(option.id)}>{option.label}</Button>)}</div>
+                  <div className="flex flex-wrap gap-x-5 gap-y-3">{matchSolutionOptions.filter(o=>o.optional).map(option=><label key={option.id} className="flex items-center gap-2 text-xs"><Checkbox checked={editingSolution===option.id} onCheckedChange={checked=>editSolution(checked?option.id:option.fourth?"four":"three")} />Apri {option.label.toLowerCase()}{planDraft.lineupSolutions?.[option.id]?" · presente":""}</label>)}</div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><div><p>In preparazione: <strong>{matchSolutionOptions.find(o=>o.id===editingSolution)?.label}</strong></p><p className="mt-1">Per la partita: <strong>{matchSolutionOptions.find(o=>o.id===(planDraft.activeSolutionId??editingSolution))?.label}</strong></p></div>{editingSolution!==planDraft.activeSolutionId&&<Button type="button" size="sm" variant="outline" onClick={useSolutionForMatch}>Usa questa soluzione per la partita</Button>}</div>
+                  <p className="text-xs text-muted-foreground">Ogni soluzione conserva durate, frazioni, formazioni e minutaggi propri. Salva piano partita le salva tutte; solo quella scelta alimenta il resoconto.</p>
+                </section>}
                 <MatchRotationComparison
                   summary={buildMatchRotationSummary(planDraft,selectedPlayersOrdered.map(id=>convokedById.get(id)).filter((p):p is Player=>!!p),playerLimitForFormat(matchFormat))}
-                  showActual={!workspace}
+                  showActual={!workspace && (matchSection!=="scuola_calcio"||editingSolution===planDraft.activeSolutionId)}
                   roster={workspace ? undefined : callupRoster}
                   onCallup={changeCallup}
                   onStatus={selectComparisonCell}
@@ -3131,7 +3177,7 @@ function MatchCard({
                   timing={<div className="mb-3 space-y-2 rounded-lg border bg-muted/20 p-2 sm:p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h5 className="text-sm font-semibold">Durata e frazioni</h5>
-                      {matchSection === "scuola_calcio" && (
+                      {matchSection === "scuola_calcio" && !planDraft.lineupSolutions && (
                         <label className="flex items-center gap-2 text-xs">
                           <Checkbox checked={!!planDraft.fourthTime} onCheckedChange={value => {
                             try {
@@ -3356,9 +3402,10 @@ function MatchCard({
                   {planDraft.periods.map((p, i) => {
                     const periodFormat = p.format ?? matchFormat;
                     let periodBoardUrl = p.boardUrl || (p.boardId ? `/tactical-board?boardId=${p.boardId}&teamId=${match.teamId ?? ""}&matchId=${match.id}&periodKey=${p.key}&returnTo=${encodeURIComponent(returnToMatchUrl)}` : "");
-                    if (workspace && periodBoardUrl.startsWith("/tactical-board?")) {
+                    if (periodBoardUrl.startsWith("/tactical-board?")) {
                       const boardParams = new URLSearchParams(periodBoardUrl.split("?")[1]);
                       boardParams.set("returnTo", returnToMatchUrl);
+                      if(matchSection==="scuola_calcio")boardParams.set("solutionId",editingSolution);
                       periodBoardUrl = `/tactical-board?${boardParams}`;
                     }
                     const lineupIds = (p.lineupPlayerIds ?? [])
@@ -3634,7 +3681,7 @@ function MatchCard({
                 </details>
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button type="button" size="sm" variant="outline" className="h-8 text-xs" disabled={!canOpenBoard} asChild>
-                    <a href={tacticalUrl}>Apri lavagna con prefill</a>
+                    <a href={tacticalUrl} onClick={async event=>{if(matchSection!=="scuola_calcio")return;event.preventDefault();if(await saveMatchPlanAndCallups())window.location.assign(tacticalUrl);}}>Apri lavagna con prefill</a>
                   </Button>
                   {!workspace && <Button
                     type="button"
