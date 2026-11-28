@@ -1,5 +1,23 @@
 import {test,expect} from "@playwright/test";
 import {inspectLayout} from "./responsive-audit.mjs";
+test('Download remains usable inside a modal on mobile',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  await page.goto('/__export-downloads?role=fitness_coach');
+  await page.getByRole('button',{name:'Apri scheda test'}).click();
+  const dialog=page.getByRole('dialog');
+  await dialog.getByRole('button',{name:'Scarica PDF',exact:true}).click();
+  const panel=dialog.getByRole('status',{name:'Download esportazione'});
+  await expect(panel).toContainText('File pronto');
+  const link=panel.getByRole('link',{name:'Scarica PDF',exact:true});
+  await expect(link).toBeInViewport();
+  const pdfDownload=page.waitForEvent('download');
+  await link.click();
+  expect((await pdfDownload).suggestedFilename()).toMatch(/\.pdf$/);
+  await dialog.getByRole('button',{name:'Esporta Excel',exact:true}).click();
+  const excelDownload=page.waitForEvent('download');
+  await panel.getByRole('link',{name:'Scarica Excel',exact:true}).click();
+  expect((await excelDownload).suggestedFilename()).toMatch(/\.xlsx$/);
+});
 for(const width of [390,767])test(`PDF and Excel HTTP download ${width}px`,async({page,request})=>{
   await page.setViewportSize({width,height:900});
   await page.goto('/__export-downloads?role=fitness_coach');

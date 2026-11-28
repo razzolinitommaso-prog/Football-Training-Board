@@ -1,5 +1,5 @@
 import { useState } from "react";
-import {downloadExport} from "@/lib/export-download";
+import {downloadExport,showDownloadError} from "@/lib/export-download";
 import { buildMotorTestPdf } from "@/lib/motor-test-pdf";
 import { motorTestCatalog, motorTestCycles, motorTestCompletion, motorCompletionLabels, summarizeMotorTests, motorResultLines, tgmdLongJumpScore, type MotorTestSession } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
@@ -60,11 +60,11 @@ export function MotorTestExport({ session, roster, team }: { session: MotorTestS
     setError("");
     try {
       void downloadExport(buildMotorTestPdf(session, roster, team),filename+".pdf");
-    } catch { setError("PDF non generato. Riprova con Esporta PDF."); }
+    } catch(error) { setError("PDF non generato. Riprova con Esporta PDF."); showDownloadError(error); }
   }
   return <div className="space-y-2">
     <div className="flex flex-wrap gap-2">
-      <Button type="button" size="sm" variant="outline" onClick={() => {setError("");try{exportMultiSheet(motorReportSheets(session, roster, team), filename + ".xlsx")}catch{setError("Excel non generato. Riprova con Esporta Excel.")}}}>Esporta Excel</Button>
+      <Button type="button" size="sm" variant="outline" onClick={async () => {setError("");try{await exportMultiSheet(motorReportSheets(session, roster, team), filename + ".xlsx")}catch(error){setError("Excel non generato. Riprova con Esporta Excel.");showDownloadError(error);}}}>Esporta Excel</Button>
       <Button type="button" size="sm" variant="outline" onClick={exportPdf}>Scarica PDF</Button>
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
