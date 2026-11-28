@@ -55,9 +55,25 @@ const fs = require("node:fs"),
         fs.readdirSync(assets).find((n) => n.endsWith(".css")),
       ),
     );
+  // Exercise the actual attachment route, with a synthetic session and no DB.
+  const apiRequire=createRequire(path.join(root,"artifacts/api-server/package.json"));
+  const exportBundle=path.join(root,".tools/prelaunch/download-api.cjs");
+  await createRequire(web.resolve("vite"))("esbuild").build({
+    stdin:{contents:"export {default} from './artifacts/api-server/src/routes/export-downloads';",resolveDir:root,loader:"ts"},
+    outfile:exportBundle,bundle:true,platform:"node",format:"cjs",packages:"external",
+    plugins:[{name:"fixture-auth",setup(b){b.onResolve({filter:/^\.\.\/lib\/auth$/},()=>({path:"auth",namespace:"fixture-auth"}));b.onLoad({filter:/.*/,namespace:"fixture-auth"},()=>({contents:"export function requireAuth(req,res,next){next();}",loader:"js"}));}}],
+    nodePaths:[path.join(root,"artifacts/api-server/node_modules")],
+  });
+  const Module=require("node:module").Module,compiled=new Module(exportBundle,module);compiled.filename=exportBundle;compiled.paths=[path.join(root,"artifacts/api-server/node_modules")];compiled._compile(fs.readFileSync(exportBundle,"utf8"),exportBundle);
+  const downloadApp=apiRequire("express")();downloadApp.use((req,_res,next)=>{req.session={userId:1,clubId:999,role:"coach"};next();});downloadApp.use("/api",compiled.exports.default);
   http
     .createServer((req, res) => {
       if (req.url.startsWith("/api/")) {
+        if(req.url.startsWith("/api/export-downloads"))return downloadApp(req,res);
+        if(req.url==="/api/club-backup"&&req.method==="GET"){
+          res.setHeader("Content-Type","application/gzip");res.setHeader("Content-Disposition",'attachment; filename="backup-collaudo.ndjson.gz"');
+          return res.end(Buffer.from([31,139,8,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0]));
+        }
         res.statusCode = 403;
         return res.end("No real API in prelaunch fixture");
       }

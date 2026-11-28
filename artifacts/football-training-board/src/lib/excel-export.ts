@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import {downloadExport,mobileDownload} from "./export-download";
 
 type SaveFilePicker = (options?: {
   suggestedName?: string;
@@ -38,7 +39,7 @@ function workbookFile(wb: XLSX.WorkBook, filename: string) {
 async function downloadWorkbook(wb: XLSX.WorkBook, filename: string, preferSavePicker = false) {
   const {blob,filename:safeFilename}=workbookFile(wb,filename);
   const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
-  if (preferSavePicker && showSaveFilePicker) {
+  if (preferSavePicker && showSaveFilePicker && !mobileDownload()) {
     try {
       const handle = await showSaveFilePicker.call(window, {
         suggestedName: safeFilename,
@@ -57,15 +58,7 @@ async function downloadWorkbook(wb: XLSX.WorkBook, filename: string, preferSaveP
       if ((error as { name?: string })?.name === "AbortError") return;
     }
   }
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = safeFilename;
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  await downloadExport(blob,safeFilename);
 }
 
 export function exportToExcel(rows: Record<string, any>[], filename: string, sheetName = "Dati", options?: { preferSavePicker?: boolean }) {

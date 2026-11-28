@@ -1,3 +1,5 @@
+import {downloadExport} from "@/lib/export-download";
+import {buildTextPdfBlob} from "@/lib/callup-pdf";
 import "./mobile-player-table.css";
 import { useAuth } from "@/hooks/use-auth";
 import { useTechnicalScope } from "@/components/technical-scope";
@@ -65,12 +67,7 @@ function exportCsv(title: string, rows: string[][]) {
     const safe = /^[\s]*[=+@-]/.test(value) ? "'" + value : value;
     return '"' + safe.replaceAll('"', '""') + '"';
   }).join(";")).join("\r\n");
-  const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = title + ".csv";
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  void downloadExport(new Blob(["\uFEFF",csv],{type:"text/csv;charset=utf-8"}),title+".csv");
 }
 
 function attendanceLabel(player: Player, session: Event, today: string) {
@@ -253,12 +250,12 @@ export function AttendanceRegister({
     { label: "Minuti effettivi registrati", value: minuteLabel(actual), className: "" },
   ];
   const today = data.today;
-  function exportReport() {
+  function reportRows() {
     const details = season ? [] : [
       ...sessions.map(fullEventName),
       ...matches.flatMap(match => ["Convocazione", "Minuti previsti", "Minuti effettivi"].map(label => fullEventName(match) + " · " + label)),
     ];
-    exportCsv(csvTitle, [[...summaryHeaders, ...details], ...rows.map(row => [
+    return [[...summaryHeaders, ...details], ...rows.map(row => [
       row.player.name, row.player.team, String(row.present), String(row.recorded),
       row.recorded ? String(Math.round(row.present / row.recorded * 100)) + "%" : "—",
       String(row.absent), String(row.justified), String(row.injured), String(row.missing), String(row.called),
@@ -270,7 +267,14 @@ export function AttendanceRegister({
           return [callupLabel(game), minuteLabel(game?.plannedMinutes), minuteLabel(game?.minutes)];
         }),
       ]),
-    ])]);
+    ])];
+  }
+
+  function exportReport(){exportCsv(csvTitle,reportRows());}
+  function exportPdf(){
+    const table=reportRows();
+    const sections=[{heading:"Presenze e minutaggi",lines:[periodLabel]},...table.slice(1).map(row=>({heading:row[0]+" · "+row[1],lines:table[0].slice(2).map((label,i)=>label+": "+row[i+2])}))];
+    void downloadExport(buildTextPdfBlob(sections),csvTitle+".pdf");
   }
 
   return (
@@ -331,7 +335,8 @@ export function AttendanceRegister({
               {sorts.map(([value, label]) => <option key={value} value={value}>Ordina · {label}</option>)}
             </ScrollableSelect>}
             <Button type="button" variant="outline" size="sm" onClick={exportReport}>Esporta CSV</Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>Stampa / PDF</Button>
+            <Button type="button" variant="outline" size="sm" onClick={exportPdf}>Scarica PDF</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>Stampa</Button>
           </div>
         </header>
         <div role={compactOverview ? "region" : undefined} aria-label={compactOverview ? "Riepilogo presenze e minutaggi" : undefined}

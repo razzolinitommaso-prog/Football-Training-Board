@@ -1,3 +1,4 @@
+import {ExportFileLink} from "@/components/export-file-link";
 import { SharedTournamentDeleteDialog, type TournamentDeleteTarget } from "./SharedTournamentDeleteDialog";
 import type { SharedTournamentPhase } from "@workspace/api-zod";
 import TournamentPhasesFields, {
@@ -181,13 +182,13 @@ export default function SharedTournamentCommon({
       )}
       {docs.data?.map((doc) => (
         <div key={doc.id} className="flex flex-wrap items-center gap-3">
-          <a
+          <ExportFileLink
             className="text-sm text-primary underline break-all"
             href={doc.dataUrl}
             download={doc.name}
           >
             {doc.name}
-          </a>
+          </ExportFileLink>
           {canManage && (
             <Button
               variant="ghost"

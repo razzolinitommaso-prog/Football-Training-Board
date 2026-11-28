@@ -1,3 +1,4 @@
+import {downloadExport} from "./export-download";
 export const DOCUMENT_ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif";
 export const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
 const MIME_TYPES: Record<string, string> = {
@@ -26,12 +27,8 @@ export function downloadDocument(fileData: string, fileName: string) {
   const match = /^data:([^;,]+);base64,([a-z0-9+/=]+)$/i.exec(fileData);
   if (!match) throw new Error("Il contenuto del documento non è disponibile.");
   const bytes = Uint8Array.from(atob(match[2]), char => char.charCodeAt(0));
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName.replace(/[/\\]/g, "_");
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  let name=fileName.replace(/[/\\]/g,"_");
+  const extension=Object.entries(MIME_TYPES).find(([,type])=>type===match[1].toLowerCase())?.[0];
+  if(extension&&!/\.[a-z0-9]{2,5}$/i.test(name))name+="."+extension;
+  return downloadExport(new Blob([bytes], {type:match[1]}),name);
 }

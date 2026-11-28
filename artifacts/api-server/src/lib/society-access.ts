@@ -51,6 +51,7 @@ export function enforceSocietyAccess(
           "/auth/profile",
           "/account/profile",
           "/account/password",
+          "/export-downloads",
           "/society-management/choices",
           "/society-management/switch",
         ].some((path) => req.path === path || req.path.startsWith(path + "/"))

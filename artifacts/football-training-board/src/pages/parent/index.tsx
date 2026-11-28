@@ -1,3 +1,4 @@
+import {ExportFileLink} from "@/components/export-file-link";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -226,7 +227,7 @@ export default function ParentDashboard() {
           </p>
           {upcomingExtraEvent.notes && <p className="text-sm text-muted-foreground mt-2">{upcomingExtraEvent.notes}</p>}
           {upcomingExtraEvent.attachmentData && (
-            <a
+            <ExportFileLink
               href={upcomingExtraEvent.attachmentData}
               download={upcomingExtraEvent.attachmentName || "allegato-evento"}
               target="_blank"
@@ -234,7 +235,7 @@ export default function ParentDashboard() {
               className="mt-3 inline-flex items-center rounded-md border px-3 py-2 text-xs font-medium hover:bg-muted"
             >
               {upcomingExtraEvent.attachmentName || "Apri allegato"}
-            </a>
+            </ExportFileLink>
           )}
         </div>
       )}

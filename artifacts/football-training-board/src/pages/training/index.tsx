@@ -1,3 +1,4 @@
+import {ExportFileLink} from "@/components/export-file-link";
 import {syncExerciseBoardRoster,boardPlayerIds} from "@workspace/api-zod";
 import { motorTestCatalog, motorDiagramImage, motorTestBoard, type MotorTestId } from "@workspace/api-zod";
 import { AdoptTrainingProposal } from "@/components/training/AdoptTrainingProposal";
@@ -1776,7 +1777,7 @@ function DirectivesBanner({ directives, onDismiss }: { directives: TrainingDirec
                   {parsed.attachments.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {parsed.attachments.map((file, idx) => (
-                        <a
+                        <ExportFileLink
                           key={`${file.name}-${idx}`}
                           href={file.dataUrl}
                           download={file.name}
@@ -1784,7 +1785,7 @@ function DirectivesBanner({ directives, onDismiss }: { directives: TrainingDirec
                         >
                           <Paperclip className="w-3 h-3" />
                           <span className="max-w-[180px] truncate">{file.name}</span>
-                        </a>
+                        </ExportFileLink>
                       ))}
                     </div>
                   )}

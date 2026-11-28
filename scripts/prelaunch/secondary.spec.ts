@@ -10,10 +10,10 @@ for(const width of [390,1024]) test(`Motor tests retain past results and offer P
   await expect(page.getByRole('spinbutton',{name:'Statura · cm',exact:true})).toBeDisabled();
   await expect(page.getByRole('button',{name:'Salva sessione',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'Scarica PDF',exact:true}).click();
-  await expect(page.getByRole('link',{name:'Scarica di nuovo PDF',exact:true})).toHaveAttribute('download',/\.pdf$/);
-  await expect(page.getByRole('link',{name:'Apri PDF e stampa',exact:true})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Scarica PDF',exact:true})).toHaveAttribute('download',/\.pdf$/);
+  await expect(page.getByRole('link',{name:'Apri PDF',exact:true})).toBeVisible();
   const pdfDownload=page.waitForEvent('download');
-  await page.getByRole('link',{name:'Scarica di nuovo PDF',exact:true}).click();
+  await page.getByRole('link',{name:'Scarica PDF',exact:true}).click();
   const pdfFile=await (await pdfDownload).path();expect(pdfFile).toBeTruthy();
   const pdfBytes=await readFile(pdfFile!);expect(pdfBytes.subarray(0,5).toString()).toBe('%PDF-');expect(pdfBytes.length).toBeGreaterThan(1000);
   const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);expect(layout.renderError).toBe(false);
@@ -49,7 +49,7 @@ for(const width of [390,1024])test(`Backup retains explicit download link ${widt
   await page.getByRole('button',{name:'Scarica backup società',exact:true}).click();
   const link=page.getByRole('link',{name:'Salva backup generato',exact:true});
   await expect(link).toBeVisible();await expect(link).toHaveAttribute('download',/\.ndjson\.gz$/);
-  await expect(link).toHaveAttribute('href',/^blob:/);
+  await expect(link).toHaveAttribute('href',width<768?/\/api\/club-backup$/:/^blob:/);
   const download=page.waitForEvent('download');await link.click();
   const result=await download;const file=await result.path();expect(file).toBeTruthy();const bytes=await readFile(file!);
   expect([...bytes.subarray(0,2)]).toEqual([31,139]);

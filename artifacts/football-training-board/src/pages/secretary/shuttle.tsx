@@ -1,3 +1,4 @@
+import {downloadExport,mobileDownload} from "@/lib/export-download";
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
@@ -192,7 +193,7 @@ async function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
   });
   const safeFilename = filename.toLowerCase().endsWith(".xlsx") ? filename : `${filename}.xlsx`;
   const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
-  if (showSaveFilePicker) {
+  if (showSaveFilePicker && !mobileDownload()) {
     try {
       const handle = await showSaveFilePicker({
         suggestedName: safeFilename,
@@ -377,14 +378,7 @@ function buildShuttlePdfBlob(rows: ReturnType<typeof shuttleRows>) {
 }
 
 function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  return downloadExport(blob,filename);
 }
 
 const templateRows = [

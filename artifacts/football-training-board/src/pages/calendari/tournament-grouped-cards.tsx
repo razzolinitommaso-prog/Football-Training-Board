@@ -1,3 +1,4 @@
+import {ExportFileLink} from "@/components/export-file-link";
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1809,7 +1810,7 @@ export function TournamentGroupedCards({
                           </div>
                         ) : (
                           <div className="flex items-start justify-between gap-2">
-                            <a
+                            <ExportFileLink
                               href={d.dataUrl}
                               download={d.name}
                               className="min-w-0 font-medium text-primary hover:underline break-all"
@@ -1817,7 +1818,7 @@ export function TournamentGroupedCards({
                               rel="noopener noreferrer"
                             >
                               {d.name}
-                            </a>
+                            </ExportFileLink>
                             {canManageTournament ? (
                               <Button
                                 type="button"

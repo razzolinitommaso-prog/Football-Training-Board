@@ -6,7 +6,9 @@ export function restrictTeamManagerApi(req: Request, res: Response, next: NextFu
   const path = req.path.replace(/\/+$/, "") || "/";
   const allowed = req.method === "GET" && ["/auth/me", "/account/profile", "/clubs/me", "/clubs/public/search", "/dirigenti/overview", "/attendance-register", "/calendar-extra-events", "/callup-rules"].includes(path)
     || req.method === "POST" && ["/auth/login", "/auth/logout", "/auth/parent-sign-in", "/auth/parent-login", "/auth/activation", "/auth/activation/status", "/account/password"].includes(path)
-    || req.method === "POST" && /^\/matches\/[1-9]\d*\/report-confirmation$/.test(path);
+    || req.method === "POST" && /^\/matches\/[1-9]\d*\/report-confirmation$/.test(path)
+    || req.method === "POST" && path === "/export-downloads"
+    || req.method === "GET" && /^\/export-downloads\/[a-f0-9]{64}$/.test(path);
   if (!allowed) { res.status(403).json({ error: "Operazione non disponibile nell'area dirigenti" }); return; }
   next();
 }

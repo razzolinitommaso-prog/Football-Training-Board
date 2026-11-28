@@ -1,0 +1,24 @@
+import {test,expect} from "@playwright/test";
+import {inspectLayout} from "./responsive-audit.mjs";
+for(const width of [390,767])test(`PDF and Excel HTTP download ${width}px`,async({page,request})=>{
+  await page.setViewportSize({width,height:900});
+  await page.goto('/__export-downloads?role=fitness_coach');
+  await page.getByRole('button',{name:'Scarica PDF',exact:true}).click();
+  const panel=page.getByRole('status',{name:'Download esportazione',exact:true});
+  const pdf=panel.getByRole('link',{name:'Scarica PDF',exact:true});
+  await expect(pdf).toHaveAttribute('href',/^\/api\/export-downloads\/[a-f0-9]{64}$/);
+  const pdfResponse=await request.get((await pdf.getAttribute('href'))!);
+  expect(pdfResponse.status()).toBe(200);expect(pdfResponse.headers()['content-disposition']).toMatch(/^attachment;/);expect((await pdfResponse.body()).subarray(0,5).toString()).toBe('%PDF-');
+  await page.getByRole('button',{name:'Esporta Excel',exact:true}).click();
+  const excel=panel.getByRole('link',{name:'Scarica Excel',exact:true});
+  await expect(excel).toHaveAttribute('href',/^\/api\/export-downloads\/[a-f0-9]{64}$/);
+  const excelResponse=await request.get((await excel.getAttribute('href'))!);
+  expect(excelResponse.status()).toBe(200);expect(excelResponse.headers()['content-type']).toContain('spreadsheetml.sheet');expect((await excelResponse.body()).subarray(0,2).toString()).toBe('PK');
+  const layout=await inspectLayout({playwright:page});expect(layout.documentWidth).toBeLessThanOrEqual(width+2);
+});
+test('Export server errors stay visible',async({page})=>{
+  await page.setViewportSize({width:390,height:900});
+  await page.route('**/api/export-downloads',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Download non disponibile · prova di collaudo'})}));
+  await page.goto('/__export-downloads?role=fitness_coach');await page.getByRole('button',{name:'Scarica PDF',exact:true}).click();
+  await expect(page.getByRole('alert',{name:'Download esportazione',exact:true})).toContainText('Download non disponibile');
+});

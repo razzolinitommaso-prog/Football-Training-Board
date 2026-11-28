@@ -1,3 +1,5 @@
+import {ExportFileLink} from "@/components/export-file-link";
+import {downloadExport} from "@/lib/export-download";
 import { AvailabilityCard } from "@/components/dashboard/AvailabilityCard";
 import { isOperationalPlayer, canViewUnavailablePlayersAlert } from "@workspace/api-zod";
 import { CallupRulesCard } from "@/components/dashboard/CallupRulesCard";
@@ -235,12 +237,7 @@ async function secretaryDownloadFile(fileId: number, filename: string) {
     throw new Error(err || `Download failed (${res.status})`);
   }
   const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  await downloadExport(blob,filename);
 }
 
 type ClubNotification = {
@@ -3291,7 +3288,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                   <p className="mt-2 whitespace-pre-line text-muted-foreground">{selectedCalendarItem.extraEvent.notes}</p>
                 )}
                 {selectedCalendarItem.kind === "extra" && selectedCalendarItem.extraEvent?.attachmentData && (
-                  <a
+                  <ExportFileLink
                     href={selectedCalendarItem.extraEvent.attachmentData}
                     download={selectedCalendarItem.extraEvent.attachmentName || "allegato-evento"}
                     target="_blank"
@@ -3300,7 +3297,7 @@ function teamCalendarPath(team?: Pick<DashboardTeam, "id" | "clubSection"> | nul
                   >
                     <FileText className="h-3.5 w-3.5" />
                     {selectedCalendarItem.extraEvent.attachmentName || "Apri allegato"}
-                  </a>
+                  </ExportFileLink>
                 )}
               </div>
 

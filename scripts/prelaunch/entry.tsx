@@ -11,6 +11,7 @@ import App from "../../artifacts/football-training-board/src/App";
 import { mockResponse } from "./fixtures";
 import { AccessibilityAudit } from "./accessibility";
 import { ReportEditorFixture } from "./report-editor";
+import {ExportDownloadsFixture} from "./export-downloads";
 window.fetch = mockResponse;
 createRoot(document.getElementById("root")!).render(
   <QueryClientProvider
@@ -27,7 +28,7 @@ createRoot(document.getElementById("root")!).render(
         <TooltipProvider>
           <TechnicalScopeProvider>
             <AppErrorBoundary>
-              {location.pathname === "/__report-editor" ? <ReportEditorFixture/> : <App />}
+              {location.pathname === "/__export-downloads" ? <ExportDownloadsFixture/> : location.pathname === "/__report-editor" ? <ReportEditorFixture/> : <App />}
             </AppErrorBoundary>
           </TechnicalScopeProvider>
           <Toaster />

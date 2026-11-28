@@ -92,9 +92,9 @@ export function FinancialReconciliation({
                     financialExportSheets(payments, members, senior, today, warehouse),
                     `controllo-contabile-${today}`,
                   );
-                  prepare(file.blob,file.filename);
+                  await prepare(file.blob,file.filename);
                   setExportState(
-                    "Esportazione Excel avviata. Controlla i download del dispositivo.",
+                    "Excel pronto. Premi Scarica Excel generato per salvarlo sul dispositivo.",
                   );
                 } catch {
                   setExportState("Esportazione non riuscita. Riprova.");

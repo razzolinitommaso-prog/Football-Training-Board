@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import {downloadExport} from "@/lib/export-download";
 import { buildMotorTestPdf } from "@/lib/motor-test-pdf";
 import { motorTestCatalog, motorTestCycles, motorTestCompletion, motorCompletionLabels, summarizeMotorTests, motorResultLines, tgmdLongJumpScore, type MotorTestSession } from "@workspace/api-zod";
 import { Button } from "@/components/ui/button";
@@ -53,31 +54,18 @@ export function motorReportSheets(draft: MotorTestSession, roster: ExportPlayer[
 }
 
 export function MotorTestExport({ session, roster, team }: { session: MotorTestSession; roster: ExportPlayer[]; team: string }) {
-  const [pdfUrl, setPdfUrl] = useState<string>();
   const [error, setError] = useState("");
-  useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
-  useEffect(()=>setPdfUrl(undefined),[session]);
   const filename = "test-motori-" + session.date;
   function exportPdf() {
     setError("");
     try {
-      const url = URL.createObjectURL(buildMotorTestPdf(session, roster, team));
-      setPdfUrl(url);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename + ".pdf";
-      link.style.display = "none";
-      document.body.append(link);
-      link.click();
-      link.remove();
+      void downloadExport(buildMotorTestPdf(session, roster, team),filename+".pdf");
     } catch { setError("PDF non generato. Riprova con Esporta PDF."); }
   }
   return <div className="space-y-2">
     <div className="flex flex-wrap gap-2">
       <Button type="button" size="sm" variant="outline" onClick={() => {setError("");try{exportMultiSheet(motorReportSheets(session, roster, team), filename + ".xlsx")}catch{setError("Excel non generato. Riprova con Esporta Excel.")}}}>Esporta Excel</Button>
       <Button type="button" size="sm" variant="outline" onClick={exportPdf}>Scarica PDF</Button>
-      {pdfUrl && <a href={pdfUrl} download={filename+".pdf"} className="inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium text-primary">Scarica di nuovo PDF</a>}
-      {pdfUrl && <a className="inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium text-primary" href={pdfUrl} target="_blank" rel="noopener noreferrer">Apri PDF e stampa</a>}
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </div>;

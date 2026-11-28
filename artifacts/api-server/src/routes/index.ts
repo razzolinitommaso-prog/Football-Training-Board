@@ -1,4 +1,5 @@
 import warehouseFinanceRouter from "./warehouse-finance";
+import exportDownloadsRouter from "./export-downloads";
 import { enforceSocietyAccess } from "../lib/society-access";
 import societyManagementRouter from "./society-management";
 import playerFinanceRouter from "./player-finance";
@@ -46,6 +47,7 @@ router.use(enforceSocietyAccess);
 router.use(societyManagementRouter);
 router.use(playerFinanceRouter);
 router.use(restrictTeamManagerApi);
+router.use(exportDownloadsRouter);
 router.use(refreshClubPaymentAvailability);
 router.use(teamManagerRouter);
 

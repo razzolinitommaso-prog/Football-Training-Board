@@ -1,3 +1,4 @@
+import {downloadExport} from "@/lib/export-download";
 import { createContext,useContext,type ReactNode } from "react";
 import { customFetch } from "@workspace/api-client-react/custom-fetch";
 import { useState } from "react";
@@ -658,12 +659,7 @@ export function MemberExpensesPanel({
                   ]),
                 },
               ]);
-              const url = URL.createObjectURL(blob),
-                a = document.createElement("a");
-              a.href = url;
-              a.download = financeScope.startsWith("players:")?"uscite-prima-squadra.pdf":"uscite-membri.pdf";
-              a.click();
-              window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+              void downloadExport(blob,financeScope.startsWith("players:")?"uscite-prima-squadra.pdf":"uscite-membri.pdf");
             }}
           >
             Esporta PDF

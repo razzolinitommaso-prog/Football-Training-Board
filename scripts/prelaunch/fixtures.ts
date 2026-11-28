@@ -1,4 +1,5 @@
 import { motorTestCatalog } from "@workspace/api-zod";
+const attachmentFetch=window.fetch.bind(window);
 const initialScenario = new URLSearchParams(location.search).get("scenario");
 let lateReplyStatus = "available";
 const team = {
@@ -145,6 +146,7 @@ export async function mockResponse(
       location.origin,
     ),
     p = url.pathname;
+  if(p.startsWith("/api/export-downloads"))return attachmentFetch(input,init);
   if (!p.startsWith("/api/"))
     return new Response("No external requests in fixture", { status: 403 });
   const pageParams=new URLSearchParams(location.search);

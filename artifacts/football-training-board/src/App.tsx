@@ -23,6 +23,7 @@ import ParentCommunications from "@/pages/parent/communications";
 import ParentCallups from "@/pages/parent/callups";
 import ParentAttendance from "@/pages/parent/attendance";
 import ParentMatches from "@/pages/parent/matches";
+import {ExportDownloadReady} from "@/components/export-download-ready";
 import ParentDocuments from "@/pages/parent/documents";
 import ParentPayments from "@/pages/parent/payments";
 import ParentKit from "@/pages/parent/kit";
@@ -462,7 +463,7 @@ function Router() {
 }
 
 function App() {
-  return <Router />;
+  return <><Router /><ExportDownloadReady /></>;
 }
 
 export default App;

@@ -1,3 +1,4 @@
+import {downloadExport} from "@/lib/export-download";
 import { useState } from "react";
 import { useDownloadArtifact } from "@/hooks/use-download-artifact";
 import {ClubDataAuditPanel} from "@/components/club-data-audit";
@@ -169,9 +170,9 @@ export default function SeasonsPage() {
       const magic=new Uint8Array(await blob.slice(0,2).arrayBuffer());
       if(magic[0]!==0x1f||magic[1]!==0x8b){failureMessage="Il file ricevuto non è un archivio gzip valido. Riprova il backup.";throw new Error("Invalid backup format");}
       const filename=response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? `backup-societa-${new Date().toISOString().slice(0,10)}.ndjson.gz`;
-      prepareBackup(blob,filename);
-      setBackupNotice({ error: false, message: "Backup generato, download avviato. Verifica che il file .ndjson.gz sia presente nei download: l’avvio non conferma il salvataggio sul dispositivo." });
-      toast({ title: "Backup generato: download avviato", description: "Conserva il file e verificane l’integrità prima di usarlo per un ripristino." });
+      await prepareBackup(blob,filename,{serverUrl:withApi("/api/club-backup")});
+      setBackupNotice({ error: false, message: "Backup generato. Premi Salva backup generato per salvarlo sul dispositivo e verifica il file .ndjson.gz nei download." });
+      toast({ title: "Backup pronto da scaricare", description: "Conserva il file e verificane l’integrità prima di usarlo per un ripristino." });
     } catch {
       setBackupNotice({ error: true, message: failureMessage });
       toast({ title: "Backup non completato", description: failureMessage, variant: "destructive" });
@@ -221,16 +222,9 @@ export default function SeasonsPage() {
       const res = await fetch(withApi(`/api/seasons/${season.id}/export`), { credentials: "include" });
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
       const safeName = season.name.replace(/[^a-zA-Z0-9]/g, "-");
-      a.href = url;
-      a.download = `stagione-${safeName}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      toast({ title: "Archivio scaricato", description: `stagione-${safeName}.json` });
+      if(!await downloadExport(blob,`stagione-${safeName}.json`))throw new Error("Download non preparato");
+      toast({ title: "Archivio pronto", description: "Premi Scarica file per salvarlo sul dispositivo." });
     } catch {
       toast({ title: "Errore download", variant: "destructive" });
     } finally {

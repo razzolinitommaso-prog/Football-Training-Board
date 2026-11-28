@@ -1,3 +1,4 @@
+import {downloadExport} from "@/lib/export-download";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { memberRoleLabels, trainingLocalDate } from "@workspace/api-zod";
@@ -448,12 +449,7 @@ export function MemberAttendance({
                   ]),
                 },
               ]);
-              const a = document.createElement("a"),
-                url = URL.createObjectURL(blob);
-              a.href = url;
-              a.download = `presenze-membri-${month}.pdf`;
-              a.click();
-              window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+              void downloadExport(blob,`presenze-membri-${month}.pdf`);
             }}
           >
             Esporta PDF
